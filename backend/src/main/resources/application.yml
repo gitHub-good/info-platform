@@ -2,13 +2,14 @@ spring:
   application:
     name: info-platform-backend
   datasource:
-    url: jdbc:sqlite:file:./data/info-platform.db
+    # URL 参数传三条 PRAGMA：xerial sqlite-jdbc 把 ?key=value 转为 PRAGMA key=value 执行。
+    # 经实测 HikariCP connection-init-sql 对 ';' 分隔多语句只执行首条（foreign_keys/busy_timeout 不生效），
+    # 故 WAL/外键/写锁等待改用 URL 参数，连接即开三件 PRAGMA。
+    url: jdbc:sqlite:file:./data/info-platform.db?journal_mode=WAL&foreign_keys=on&busy_timeout=5000
     driver-class-name: org.sqlite.JDBC
     hikari:
       # SQLite 单写者模型：小池即可（1~5），写靠排队不靠加池
       maximum-pool-size: 5
-      # 连接即开三件 PRAGMA：WAL（读写不互斥）/ 外键默认关需显式开 / 写锁等待 5s
-      connection-init-sql: "PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;PRAGMA busy_timeout=5000;"
   flyway:
     enabled: true
     locations: classpath:db/migration

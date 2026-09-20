@@ -3,12 +3,10 @@ package com.info.platform.domain.common;
 /**
  * 统一错误码（领域层 shared kernel，纯枚举、不依赖框架）。
  *
- * <p>分段：0 成功 / 1xxx 认证 / 2xxx 参数 / 3xxx 业务 / 5xxx 服务端。
- * httpStatus 为对应 HTTP 状态码语义（供接口层全局异常处理器映射，不在领域层使用 Spring 类型）。
- * 错误码清单对齐技术方案 §4.1。
+ * <p>分段：0 成功 / 1xxx 认证 / 2xxx 参数 / 3xxx 业务 / 5xxx 服务端。 httpStatus 为对应 HTTP
+ * 状态码语义（供接口层全局异常处理器映射，不在领域层使用 Spring 类型）。 错误码清单对齐技术方案 §4.1。
  */
 public enum ErrorCode {
-
     SUCCESS(0, "成功", 200),
 
     UNAUTHORIZED(1001, "未认证", 401),

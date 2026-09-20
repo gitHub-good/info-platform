@@ -1,42 +1,41 @@
 package com.info.platform.infrastructure.aggregation;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectCode;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.Map;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * SubjectRepositoryImpl 集成测试（T01）：SQLite 共享内存库 + Flyway 建表后，测 save/findByCode/
- * existsByCode 往返与更新乐观锁。@SpringBootTest 启动完整上下文（含 Flyway 迁移）。
+ * SubjectRepositoryImpl 集成测试（T01）：SQLite 共享内存库 + Flyway 建表后，测 save/findByCode/ existsByCode
+ * 往返与更新乐观锁。@SpringBootTest 启动完整上下文（含 Flyway 迁移）。
  */
 @SpringBootTest
 class SubjectRepositoryImplTest {
 
-    @Autowired
-    private SubjectRepository subjectRepository;
+    @Autowired private SubjectRepository subjectRepository;
 
     @Test
     void save_newSubject_thenFindById_roundTrip() {
         // Arrange
-        Subject subject = Subject.builder()
-                .subjectCode(SubjectCode.of("SH600519"))
-                .market(Market.A_SHARE)
-                .subjectType(SubjectType.STOCK)
-                .name("贵州茅台")
-                .externalCodes(Map.of("tushare", "600519.SH", "akshare", "sh600519"))
-                .industry("白酒")
-                .status(SubjectStatus.ENABLED)
-                .build();
+        Subject subject =
+                Subject.builder()
+                        .subjectCode(SubjectCode.of("SH600519"))
+                        .market(Market.A_SHARE)
+                        .subjectType(SubjectType.STOCK)
+                        .name("贵州茅台")
+                        .externalCodes(Map.of("tushare", "600519.SH", "akshare", "sh600519"))
+                        .industry("白酒")
+                        .status(SubjectStatus.ENABLED)
+                        .build();
 
         // Act
         Subject saved = subjectRepository.save(subject);
@@ -63,13 +62,14 @@ class SubjectRepositoryImplTest {
     @Test
     void findByCode_returnsSubject() {
         // Arrange
-        Subject subject = Subject.builder()
-                .subjectCode(SubjectCode.of("HK00700"))
-                .market(Market.HK)
-                .subjectType(SubjectType.STOCK)
-                .name("腾讯控股")
-                .externalCodes(Map.of("tushare", "00700.HK"))
-                .build();
+        Subject subject =
+                Subject.builder()
+                        .subjectCode(SubjectCode.of("HK00700"))
+                        .market(Market.HK)
+                        .subjectType(SubjectType.STOCK)
+                        .name("腾讯控股")
+                        .externalCodes(Map.of("tushare", "00700.HK"))
+                        .build();
         subjectRepository.save(subject);
 
         // Act
@@ -84,12 +84,13 @@ class SubjectRepositoryImplTest {
     @Test
     void existsByCode_returnsTrueAfterSave() {
         // Arrange
-        Subject subject = Subject.builder()
-                .subjectCode(SubjectCode.of("INDEX_SH000001"))
-                .market(Market.INDEX)
-                .subjectType(SubjectType.INDEX)
-                .name("上证指数")
-                .build();
+        Subject subject =
+                Subject.builder()
+                        .subjectCode(SubjectCode.of("INDEX_SH000001"))
+                        .market(Market.INDEX)
+                        .subjectType(SubjectType.INDEX)
+                        .name("上证指数")
+                        .build();
         subjectRepository.save(subject);
 
         // Act
@@ -102,12 +103,13 @@ class SubjectRepositoryImplTest {
     @Test
     void save_updateExistingSubject_incrementsVersion() {
         // Arrange
-        Subject subject = Subject.builder()
-                .subjectCode(SubjectCode.of("SH600036"))
-                .market(Market.A_SHARE)
-                .subjectType(SubjectType.STOCK)
-                .name("招商银行")
-                .build();
+        Subject subject =
+                Subject.builder()
+                        .subjectCode(SubjectCode.of("SH600036"))
+                        .market(Market.A_SHARE)
+                        .subjectType(SubjectType.STOCK)
+                        .name("招商银行")
+                        .build();
         Subject saved = subjectRepository.save(subject);
         assertThat(saved.getVersion()).isZero();
 

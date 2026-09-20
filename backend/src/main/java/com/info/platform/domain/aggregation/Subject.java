@@ -7,8 +7,8 @@ import java.util.Objects;
 /**
  * 标的实体（subject_master 主数据）。
  *
- * <p>领域层纯净：仅依赖 JDK 类型，可脱离容器单测、可移植。持久化字段（id/version/时间戳）
- * 由基础设施层 {@code SubjectRepositoryImpl} 经 {@link #reconstruct} 回填。
+ * <p>领域层纯净：仅依赖 JDK 类型，可脱离容器单测、可移植。持久化字段（id/version/时间戳） 由基础设施层 {@code SubjectRepositoryImpl} 经
+ * {@link #reconstruct} 回填。
  */
 public class Subject {
 
@@ -24,8 +24,7 @@ public class Subject {
     private Instant createdAt;
     private Instant updatedAt;
 
-    private Subject() {
-    }
+    private Subject() {}
 
     /** 构建新标的（id/version/时间戳留空，落库后回填）。 */
     public static Builder builder() {
@@ -33,9 +32,18 @@ public class Subject {
     }
 
     /** 从持久化数据重建实体（基础设施层落库后回读时用）。 */
-    public static Subject reconstruct(Long id, SubjectCode subjectCode, Market market, SubjectType subjectType,
-                                      String name, Map<String, String> externalCodes, String industry,
-                                      SubjectStatus status, long version, Instant createdAt, Instant updatedAt) {
+    public static Subject reconstruct(
+            Long id,
+            SubjectCode subjectCode,
+            Market market,
+            SubjectType subjectType,
+            String name,
+            Map<String, String> externalCodes,
+            String industry,
+            SubjectStatus status,
+            long version,
+            Instant createdAt,
+            Instant updatedAt) {
         Subject s = new Subject();
         s.id = id;
         s.subjectCode = subjectCode;

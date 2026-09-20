@@ -1,10 +1,7 @@
 package com.info.platform.domain.aggregation;
 
-/**
- * 标的启用状态：1 启用 / 0 停用。
- */
+/** 标的启用状态：1 启用 / 0 停用。 */
 public enum SubjectStatus {
-
     DISABLED(0),
     ENABLED(1);
 

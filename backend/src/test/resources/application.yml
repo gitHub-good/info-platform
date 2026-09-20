@@ -4,12 +4,11 @@ spring:
     name: info-platform-backend-test
   datasource:
     # cache=shared 让同一进程内多连接共享同一内存库，Flyway 建表后测试可见
-    url: jdbc:sqlite:file::memory:?cache=shared
+    # 内存库无 WAL 概念，仅开外键（URL 参数方式，与主配置一致）
+    url: jdbc:sqlite:file::memory:?cache=shared&foreign_keys=on
     driver-class-name: org.sqlite.JDBC
     hikari:
       maximum-pool-size: 2
-      # 内存库无 WAL 概念，仅开外键；单条 PRAGMA 最稳
-      connection-init-sql: "PRAGMA foreign_keys=ON;"
   flyway:
     enabled: true
     locations: classpath:db/migration

@@ -6,15 +6,13 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.Version;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
-
 import java.util.Map;
 
 /**
  * subject_master 表的持久化对象（PO）。
  *
- * <p>autoResultMap=true 让 {@link JacksonTypeHandler} 在 SELECT 时生效；
- * external_codes（JSON）经 TypeHandler 自动序列化/反序列化。
- * market/subject_type/status 用原始字符串/整型存储，领域枚举在仓储实现层转换。
+ * <p>autoResultMap=true 让 {@link JacksonTypeHandler} 在 SELECT 时生效； external_codes（JSON）经
+ * TypeHandler 自动序列化/反序列化。 market/subject_type/status 用原始字符串/整型存储，领域枚举在仓储实现层转换。
  */
 @TableName(value = "subject_master", autoResultMap = true)
 public class SubjectPO {

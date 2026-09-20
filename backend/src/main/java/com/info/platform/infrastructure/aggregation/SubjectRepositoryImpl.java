@@ -7,19 +7,18 @@ import com.info.platform.domain.aggregation.SubjectCode;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
+import java.time.Instant;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.util.Optional;
-
 /**
  * {@link SubjectRepository} 端口的 SQLite/MyBatis-Plus 实现（基础设施层）。
  *
- * <p>PO↔Entity 转换集中于此；时间戳存 ISO-8601 文本；乐观锁由 {@code @Version} +
- * {@code OptimisticLockerInnerInterceptor}（见 {@code infrastructure.common.MyBatisPlusConfig}）守护。
+ * <p>PO↔Entity 转换集中于此；时间戳存 ISO-8601 文本；乐观锁由 {@code @Version} + {@code
+ * OptimisticLockerInnerInterceptor}（见 {@code infrastructure.common.MyBatisPlusConfig}）守护。
  */
 @Repository
 public class SubjectRepositoryImpl implements SubjectRepository {
@@ -40,15 +39,18 @@ public class SubjectRepositoryImpl implements SubjectRepository {
 
     @Override
     public Optional<Subject> findByCode(SubjectCode subjectCode) {
-        SubjectPO po = mapper.selectOne(new LambdaQueryWrapper<SubjectPO>()
-                .eq(SubjectPO::getSubjectCode, subjectCode.value()));
+        SubjectPO po =
+                mapper.selectOne(
+                        new LambdaQueryWrapper<SubjectPO>()
+                                .eq(SubjectPO::getSubjectCode, subjectCode.value()));
         return Optional.ofNullable(po).map(SubjectRepositoryImpl::toEntity);
     }
 
     @Override
     public boolean existsByCode(SubjectCode subjectCode) {
-        return mapper.exists(new LambdaQueryWrapper<SubjectPO>()
-                .eq(SubjectPO::getSubjectCode, subjectCode.value()));
+        return mapper.exists(
+                new LambdaQueryWrapper<SubjectPO>()
+                        .eq(SubjectPO::getSubjectCode, subjectCode.value()));
     }
 
     @Override
@@ -67,7 +69,11 @@ public class SubjectRepositoryImpl implements SubjectRepository {
         } else {
             po.setUpdatedAt(now);
             mapper.updateById(po);
-            log.info("更新标的: id={}, subjectCode={}, version={}", po.getId(), po.getSubjectCode(), po.getVersion());
+            log.info(
+                    "更新标的: id={}, subjectCode={}, version={}",
+                    po.getId(),
+                    po.getSubjectCode(),
+                    po.getVersion());
         }
         return toEntity(po);
     }
@@ -84,8 +90,7 @@ public class SubjectRepositoryImpl implements SubjectRepository {
                 SubjectStatus.fromCode(po.getStatus()),
                 po.getVersion() == null ? 0L : po.getVersion().longValue(),
                 po.getCreatedAt() == null ? null : Instant.parse(po.getCreatedAt()),
-                po.getUpdatedAt() == null ? null : Instant.parse(po.getUpdatedAt())
-        );
+                po.getUpdatedAt() == null ? null : Instant.parse(po.getUpdatedAt()));
     }
 
     private static SubjectPO toPO(Subject subject) {

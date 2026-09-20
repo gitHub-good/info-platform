@@ -2,14 +2,13 @@ package com.info.platform.interfaces.common;
 
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器（接口层横切）：业务异常→对应状态码、参数校验失败→2xxx、兜底→5xxx。
@@ -30,9 +29,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Result<Void>> handleValidation(MethodArgumentNotValidException ex) {
-        String detail = ex.getBindingResult().getFieldErrors().stream()
-                .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
-                .collect(Collectors.joining("; "));
+        String detail =
+                ex.getBindingResult().getFieldErrors().stream()
+                        .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+                        .collect(Collectors.joining("; "));
         log.warn("参数校验失败: {}", detail);
         return ResponseEntity.status(ErrorCode.PARAM_INVALID.getHttpStatus())
                 .body(Result.fail(ErrorCode.PARAM_INVALID, detail));

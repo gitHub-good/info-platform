@@ -1,15 +1,15 @@
 package com.info.platform.interfaces.common;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * 全局异常处理器单测（T18）：BusinessException 按 ErrorCode 映射正确 HTTP 状态码与 code；
- * 兜底异常映射 500/50000。纯单元测试，不启 Spring 上下文。
+ * 全局异常处理器单测（T18）：BusinessException 按 ErrorCode 映射正确 HTTP 状态码与 code； 兜底异常映射 500/50000。纯单元测试，不启
+ * Spring 上下文。
  */
 class GlobalExceptionHandlerTest {
 

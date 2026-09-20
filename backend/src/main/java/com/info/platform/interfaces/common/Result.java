@@ -6,8 +6,8 @@ import org.slf4j.MDC;
 /**
  * 统一响应体：{@code {code, msg, data, traceId}}。
  *
- * <p>code/msg/data 为业务字段；traceId 从 MDC 取（由 {@code TraceIdFilter} 在请求入口写入）。
- * 对齐技术方案 §4.1：0 成功、1xxx 认证、2xxx 参数、3xxx 业务、5xxx 服务端。
+ * <p>code/msg/data 为业务字段；traceId 从 MDC 取（由 {@code TraceIdFilter} 在请求入口写入）。 对齐技术方案 §4.1：0 成功、1xxx
+ * 认证、2xxx 参数、3xxx 业务、5xxx 服务端。
  */
 public class Result<T> {
 
@@ -36,8 +36,11 @@ public class Result<T> {
     }
 
     public static <T> Result<T> fail(ErrorCode errorCode, String detail) {
-        return new Result<>(errorCode.getCode(),
-                detail != null ? detail : errorCode.getMsg(), null, currentTraceId());
+        return new Result<>(
+                errorCode.getCode(),
+                detail != null ? detail : errorCode.getMsg(),
+                null,
+                currentTraceId());
     }
 
     public int getCode() {

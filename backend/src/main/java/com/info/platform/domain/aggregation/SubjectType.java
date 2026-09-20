@@ -1,10 +1,7 @@
 package com.info.platform.domain.aggregation;
 
-/**
- * 标的类型：1 股票 / 2 指数 / 3 板块 / 4 基金(预留) / 5 债券(预留)。
- */
+/** 标的类型：1 股票 / 2 指数 / 3 板块 / 4 基金(预留) / 5 债券(预留)。 */
 public enum SubjectType {
-
     STOCK(1),
     INDEX(2),
     SECTOR(3),
