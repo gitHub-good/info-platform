@@ -1,0 +1,56 @@
+# ===== Java / Spring Boot =====
+target/
+*.class
+*.jar
+*.war
+*.ear
+build/
+!gradle-wrapper.jar
+.mvn/wrapper/maven-wrapper.jar
+
+# ===== Gradle =====
+.gradle/
+gradle-app.setting
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+dist-ssr/
+.next/
+.nuxt/
+*.local
+.env
+.env.*
+!.env.example
+
+# ===== 数据库（SQLite 库文件不进 git） =====
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+.project
+.classpath
+.settings/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== 日志 =====
+logs/
+*.log
+
+# ===== 构建产物 =====
+coverage/
+*.lcov

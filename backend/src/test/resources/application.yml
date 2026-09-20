@@ -1,0 +1,28 @@
+# 测试环境：SQLite 共享内存库（每个 JVM 进程一份，进程结束即销毁，无文件残留）
+spring:
+  application:
+    name: info-platform-backend-test
+  datasource:
+    # cache=shared 让同一进程内多连接共享同一内存库，Flyway 建表后测试可见
+    url: jdbc:sqlite:file::memory:?cache=shared
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 2
+      # 内存库无 WAL 概念，仅开外键；单条 PRAGMA 最稳
+      connection-init-sql: "PRAGMA foreign_keys=ON;"
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: AUTO
+
+logging:
+  level:
+    org.springframework: WARN
+    com.info.platform: DEBUG
