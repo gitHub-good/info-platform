@@ -23,3 +23,4 @@
 | ADR-0007 | 分层方式：DDD 四层（补充 ADR-0001） | 已决 |
 | ADR-0008 | LLM 网关强化：配置驱动多 provider + fallback（补充 ADR-0004） | 待 Spike 确认 |
 | ADR-0009 | Flyway SQLite 迁移依赖实现偏差（补充 ADR-0002） | 已决 |
+| ADR-0010 | 数据源弹性实现选型（自建超时+重试 / 熔断留接口位） | 已决 |
