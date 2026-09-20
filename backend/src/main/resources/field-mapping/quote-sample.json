@@ -1,0 +1,8 @@
+[
+  {"source": "ts_code", "target": "externalCode", "transform": "none"},
+  {"source": "name", "target": "name", "transform": "to_string"},
+  {"source": "price", "target": "price", "transform": "to_decimal"},
+  {"source": "pct_chg", "target": "changePct", "transform": "to_decimal"},
+  {"source": "vol", "target": "volume", "transform": "to_long"},
+  {"source": "trade_date", "target": "tradeDate", "transform": "to_iso_date"}
+]

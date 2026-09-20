@@ -1,0 +1,45 @@
+package com.info.platform.infrastructure.common;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.infrastructure.aggregation.FieldMapper;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * 数据源 adapter 框架的共享基础设施 Bean（T02）：Caffeine 缓存、字段映射器、弹性执行器、熔断器占位。
+ *
+ * <p>具体各源 adapter（T03~T08）注入这些 Bean 即可，无需各自重复装配。弹性选型见 ADR-0010。
+ */
+@Configuration
+public class SourceAdapterInfrastructureConfig {
+
+    @Bean
+    public SourceCache sourceCache() {
+        return new SourceCache();
+    }
+
+    @Bean
+    public FieldMapper fieldMapper(ObjectMapper objectMapper) {
+        return new FieldMapper(objectMapper);
+    }
+
+    /** 弹性执行器用虚拟线程（Java 21，daemon、轻量），承载阻塞式外部调用；context 关闭时 shutdown。 */
+    @Bean(destroyMethod = "shutdown")
+    public ExecutorService sourceResilienceExecutor() {
+        ThreadFactory factory = Thread.ofVirtual().name("source-resilience-", 0).factory();
+        return Executors.newThreadPerTaskExecutor(factory);
+    }
+
+    @Bean
+    public ResilienceRunner resilienceRunner(ExecutorService sourceResilienceExecutor) {
+        return new ResilienceRunner(sourceResilienceExecutor);
+    }
+
+    @Bean
+    public CircuitBreaker circuitBreaker() {
+        return new NoopCircuitBreaker();
+    }
+}
