@@ -1,0 +1,7 @@
+[
+  {"source": "title", "target": "title", "transform": "to_string"},
+  {"source": "pubDate", "target": "publishedAt", "transform": "to_iso_date"},
+  {"source": "url", "target": "url", "transform": "none"},
+  {"source": "department", "target": "department", "transform": "to_string"},
+  {"source": "relatedIndustries", "target": "relatedIndustries", "transform": "to_string"}
+]

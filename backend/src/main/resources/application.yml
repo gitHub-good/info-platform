@@ -63,6 +63,13 @@ adapter:
     # 全市场流取数条数（本地按标题/关键词匹配过滤，num 越大命中率越高但耗时略增）
     news-page-size: 20
     news-referer: https://finance.sina.com.cn
+  # 政策源（T07）：gov.cn/zhengce 政策库 HTML 抓取（6 源中唯一无统一 API 的源，Jsoup 解析）
+  # 2026-09-21 curl 实测：响应头 Content-Type: text/html 无 charset，meta 声明 utf-8
+  # 政策列表唯一块在「最新政策」节（div.list.fl>ul>li），约 9 条最近政策；无行业分类标签，靠标题关键词命中
+  gov:
+    policy-url: https://www.gov.cn/zhengce/
+    # 软限频/防封：需 UA + Referer（gov.cn 对裸 curl 较宽松，仍带 UA+Referer 保险）
+    policy-referer: https://www.gov.cn/
 
 # 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
 aggregation:
