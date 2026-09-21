@@ -36,10 +36,18 @@ management:
 adapter:
   mock:
     enabled: true
-  # 东方财富行情源（T03）：端点 URL 与 f 字段列表可配，不硬编码全 URL
+  # 东方财富源：端点 URL 与字段列表可配，不硬编码全 URL
   eastmoney:
+    # 行情源（T03）：push2 stock/get
     quote-url: https://push2.eastmoney.com/api/qt/stock/get
     fields: f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171
+    # 估值源（T04）：与行情同走 push2 stock/get，fields=估值列
+    # f162→peTtm、f167→pb（语义推测，待多股实测确认）；f163/f173 待确认未纳入
+    valuation-fields: f57,f162,f167
+    # 财务源（T04）：东财 datacenter F10 主财务指标（与行情/估值不同域名）
+    finance-url: https://datacenter-web.eastmoney.com/api/data/v1/get
+    # 东财软限频来源页（无 token，靠 Referer 标识来源）
+    finance-referer: https://data.eastmoney.com/
 
 # 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
 aggregation:

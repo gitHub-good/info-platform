@@ -1,0 +1,9 @@
+[
+  {"source":"SECURITY_CODE","target":"externalCode","transform":"none"},
+  {"source":"TOTALOPERATEREVE","target":"revenue","transform":"to_decimal"},
+  {"source":"PARENTNETPROFIT","target":"netProfit","transform":"to_decimal"},
+  {"source":"XSJLL","target":"netProfitMargin","transform":"to_decimal"},
+  {"source":"XSMLL","target":"grossProfitMargin","transform":"to_decimal"},
+  {"source":"ROEJQ","target":"roe","transform":"to_decimal"},
+  {"source":"REPORT_DATE","target":"reportDate","transform":"to_iso_date"}
+]

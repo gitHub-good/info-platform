@@ -12,13 +12,17 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * 东方财富 push2 行情 HTTP 客户端（T03）。
+ * 东方财富 push2 {@code stock/get} HTTP 客户端（T03 行情 + T04 估值）。
  *
- * <p>封装 GET {@code push2.eastmoney.com/api/qt/stock/get}：按 secid + f 字段列表取行情原始数据节点。 端点 URL 与字段列表走
- * {@code application.yml}（{@code adapter.eastmoney.*}）可配，不硬编码全 URL。
+ * <p>封装 GET {@code push2.eastmoney.com/api/qt/stock/get}：按 secid + f 字段列表取 {@code data} 节点原始字段。
+ * 行情与估值同走该端点（Spike-1 §3.1 选型「端点收敛」），仅 f 字段列表不同—— 行情传行情列（f43/f44…）， 估值传估值列（f162/f167…）。端点 URL
+ * 与行情字段列表走 {@code application.yml}（{@code adapter.eastmoney.*}）可配，不硬编码全 URL。
  *
- * <p>超时不在本客户端重复设置——弹性超时由上层 {@link com.info.platform.infrastructure.common.ResilienceRunner}（{@code
- * ResilienceSpec} 1.5s）统一兜底， 对齐 ADR-0010（弹性收敛在 ResilienceRunner）。HTTP 异常（4xx/5xx/连接失败）直接抛出，由模板层降级。
+ * <p>两类调用入口： {@link #fetchQuote} 用本客户端构造时注入的行情字段（行情 adapter 用，向后兼容）； {@link #fetch} 显式传 fields（估值
+ * adapter 用，估值字段在其自身配置项 {@code adapter.eastmoney.valuation-fields}）。
+ *
+ * <p>超时不在本客户端重复设置——弹性超时由上层 {@link com.info.platform.infrastructure.common.ResilienceRunner}（行情 1.5s
+ * / 估值 2s）统一兜底， 对齐 ADR-0010（弹性收敛在 ResilienceRunner）。HTTP 异常（4xx/5xx/连接失败）直接抛出，由模板层降级。
  *
  * <p>{@code fltt=2} / {@code invt=2} 为东财返回格式契约（价格返回带小数、单位元），属 API 契约常量非配置项。
  */
@@ -55,8 +59,22 @@ public class EastMoneyClient {
      * @return data 节点；盘外/停牌 data 为空或 null 时返回 {@link Optional#empty()}
      */
     public Optional<Map<String, Object>> fetchQuote(String secid) {
-        String url = buildUrl(secid);
-        log.debug("东财行情请求 secid={}", secid);
+        return fetch(secid, fields);
+    }
+
+    /**
+     * 取某 secid 的 {@code data} 节点（f 字段→值），fields 显式传入。
+     *
+     * <p>估值 adapter（T04）复用本客户端：与行情同端点 push2 {@code stock/get}，仅 fields 取估值列（f162/f167…），
+     * 省一个客户端类与一次端点重复装配。
+     *
+     * @param secid 东财 secid，如 {@code 1.600519}
+     * @param fields 逗号分隔的 f 字段列表，如 {@code f57,f162,f167}
+     * @return data 节点；data 为空或 null 时返回 {@link Optional#empty()}
+     */
+    public Optional<Map<String, Object>> fetch(String secid, String fields) {
+        String url = buildUrl(secid, fields);
+        log.debug("东财 push2 请求 secid={} fields={}", secid, fields);
         Map<String, Object> root =
                 restClient
                         .get()
@@ -76,7 +94,7 @@ public class EastMoneyClient {
         return Optional.empty();
     }
 
-    private String buildUrl(String secid) {
+    private String buildUrl(String secid, String fields) {
         return UriComponentsBuilder.fromUriString(quoteUrl)
                 .queryParam("secid", secid)
                 .queryParam("fields", fields)
