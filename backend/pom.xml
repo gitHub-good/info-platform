@@ -24,6 +24,7 @@
         <spotless.version>2.43.0</spotless.version>
         <jacoco.version>0.8.12</jacoco.version>
         <jacoco.min-coverage>0.70</jacoco.min-coverage>
+        <jjwt.version>0.12.6</jjwt.version>
     </properties>
 
     <dependencies>
@@ -65,6 +66,32 @@
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- 认证（T17）：BCrypt 密码哈希——spring-security-crypto 单 jar，避免引全量 spring-security。
+             版本由 spring-boot-starter-parent 经 spring-security-bom 统一管理。 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- 认证（T17）：JWT（HS256）签发/解析。api 编译期，impl+jackson 运行期（ServiceLoader 装配）。 -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- HTML 解析（T07 政策源 gov.cn 无统一 API，Jsoup 解析政策列表 HTML） -->

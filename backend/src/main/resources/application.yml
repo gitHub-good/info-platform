@@ -26,6 +26,19 @@ mybatis-plus:
 server:
   port: 8080
 
+# 认证（T17）：JWT HS256 + 本地用户表 + 登录限流（对齐技术方案 §5 安全、backend.md「认证」段）
+# 密钥走环境变量 ${JWT_SECRET} 注入，生产缺失即 fail-fast（JwtTokenService 构造校验非空且 >=32 字节）。
+# 限流按 ip+username 组合，窗口内失败达阈值锁定。
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    access-token-ttl: PT1H        # access 令牌有效期（短期，对齐 §5「JWT 短期 1h」）
+    refresh-token-ttl: P7D         # refresh 令牌有效期（7 天）
+  login-rate-limit:
+    window: PT1M                  # 失败计数窗口（1 分钟）
+    threshold: 5                  # 窗口内失败次数阈值（5 次触发锁定）
+    lock-duration: PT5M           # 触发阈值后锁定时长（5 分钟）
+
 management:
   endpoints:
     web:

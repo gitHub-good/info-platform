@@ -13,12 +13,15 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 /**
  * SubjectRepositoryImpl 集成测试（T01）：SQLite 共享内存库 + Flyway 建表后，测 save/findByCode/ existsByCode
- * 往返与更新乐观锁。@SpringBootTest 启动完整上下文（含 Flyway 迁移）。
+ * 往返与更新乐观锁。@SpringBootTest 启动完整上下文（含 Flyway 迁移）。 @ActiveProfiles("test") 注入测试 profile 的认证配置（T17
+ * 后上下文含 JWT 密钥等，需 test profile 提供）。
  */
 @SpringBootTest
+@ActiveProfiles("test")
 class SubjectRepositoryImplTest {
 
     @Autowired private SubjectRepository subjectRepository;

@@ -1,0 +1,11 @@
+# 测试专用 profile（仅覆盖认证配置；其余配置继承主 application.yml）。
+# JWT 签名密钥：固定测试值（>=32 字节满足 HS256 下限），非生产凭据，仅供单测/集成测试上下文启动用。
+security:
+  jwt:
+    secret: test-jwt-secret-not-for-production-use-only-64bytes-aaaaaaaaaaaaaaaa
+    access-token-ttl: PT1H
+    refresh-token-ttl: P7D
+  login-rate-limit:
+    window: PT1M
+    threshold: 5
+    lock-duration: PT5M

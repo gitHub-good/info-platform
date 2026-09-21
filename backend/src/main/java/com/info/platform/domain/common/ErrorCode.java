@@ -9,7 +9,12 @@ package com.info.platform.domain.common;
 public enum ErrorCode {
     SUCCESS(0, "成功", 200),
 
-    UNAUTHORIZED(1001, "未认证", 401),
+    /** 登录凭证错误：用户名不存在或密码不匹配（401） */
+    BAD_CREDENTIALS(1001, "凭证错误", 401),
+    /** 登录限流：撞库防护触发，锁定窗口内拒绝（429） */
+    LOGIN_RATE_LIMITED(1002, "登录尝试过于频繁，请稍后再试", 429),
+    /** 令牌无效或已过期：缺失/格式错误/签名不符/过期（401） */
+    TOKEN_INVALID(1003, "令牌无效或已过期", 401),
 
     PARAM_INVALID(2001, "参数校验失败", 400),
 
