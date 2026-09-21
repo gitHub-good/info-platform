@@ -1,0 +1,239 @@
+package com.info.platform.application.ai;
+
+import com.info.platform.domain.aggregation.SourceAdapter;
+import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceResult;
+import com.info.platform.domain.aggregation.SourceStatus;
+import com.info.platform.domain.aggregation.Subject;
+import com.info.platform.domain.aggregation.SubjectRepository;
+import com.info.platform.domain.subscription.Watchlist;
+import com.info.platform.domain.subscription.WatchlistItem;
+import com.info.platform.domain.subscription.WatchlistRepository;
+import com.info.platform.domain.subscription.WatchlistStatus;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * 每日推荐上下文装配器（应用层，T23，对齐 Spike-2 §7.4 每日推荐模板占位符 + §11.5）。
+ *
+ * <p>补全 T21 遗留点：briefType=4（每日推荐型）的 {@code {{poolSize}}}/{@code {{subjectsMetrics}}}/{@code
+ * {{subscribedThemes}}}/{@code {{today}}} 占位符不由 {@link BriefContextBuilder}（只投影个股聚合数据）装配，
+ * 由本类作为「上游」在 {@link AIBriefService#generateAndPersist} 合并进上下文 Map（对齐 {@code BriefContextBuilder}
+ * 注释「每日推荐占位符由 T23 装配」）。
+ *
+ * <p>装配链：按归属用户查全部启用 watchlist → 扁平化活跃清单项去重 subjectId → 对每只标的取行情/公告/新闻 SourceAdapter（复用 adapter 享缓存
+ * + 弹性降级， 单源缺失不阻断整池）→ 组装 {@link PoolMetric}（信息面活跃度=|涨跌幅|，事件重要性=公告/新闻条数）→ 投影为 Spike-2 §7.4 的上下文 Map
+ * + 指标列表。
+ *
+ * <p>{@code subscribedThemes}：M2 订阅主题（T26）未全就位，按任务约定以自选池标的行业去重作主题代理；空则「暂无」（不编造）。
+ *
+ * <p>容错：单只标的的 adapter 取数异常 → 记 WARN 跳过该指标（归 0），不阻断整池装配（对齐技术方案 §5 降级预案「每日推荐用规则兜底」）。自选池空（无活跃清单项）→
+ * 返回空指标 + {@code poolSize=0}，由 {@link DailyRecommendationService} 返回空提示。
+ */
+@Component
+public class DailyRecommendationContextBuilder {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(DailyRecommendationContextBuilder.class);
+
+    private static final String NA = "暂无";
+
+    private final WatchlistRepository watchlistRepository;
+    private final SubjectRepository subjectRepository;
+    private final Map<SourceCode, SourceAdapter> adapters;
+    private final Clock clock;
+
+    public DailyRecommendationContextBuilder(
+            WatchlistRepository watchlistRepository,
+            SubjectRepository subjectRepository,
+            List<SourceAdapter> adapters,
+            Clock clock) {
+        this.watchlistRepository = watchlistRepository;
+        this.subjectRepository = subjectRepository;
+        this.adapters =
+                adapters.stream()
+                        .collect(
+                                Collectors.toUnmodifiableMap(
+                                        SourceAdapter::sourceCode, Function.identity()));
+        this.clock = clock;
+    }
+
+    /**
+     * 装配每日推荐上下文 Map（对齐 Spike-2 §7.4 占位符）。
+     *
+     * <p>键：{@code poolSize}/{@code subjectsMetrics}/{@code subscribedThemes}/{@code today}。供 {@link
+     * AIBriefService} 合并进 prompt 渲染上下文。
+     *
+     * @param userId 归属用户（行级权限取数键）
+     * @return 上下文 Map（保序）；自选池空时 {@code poolSize=0}、其余占位填「暂无」
+     */
+    public Map<String, String> buildContext(long userId) {
+        List<PoolMetric> metrics = buildPoolMetrics(userId);
+        return toContext(metrics);
+    }
+
+    /**
+     * 装配自选池指标列表（规则兜底排序用，复用 adapter 缓存）。
+     *
+     * @param userId 归属用户
+     * @return 指标列表（去重保序）；自选池空时为空列表
+     */
+    public List<PoolMetric> buildPoolMetrics(long userId) {
+        List<Long> subjectIds = distinctActiveSubjectIds(userId);
+        if (subjectIds.isEmpty()) {
+            return List.of();
+        }
+        SourceAdapter quote = adapters.get(SourceCode.QUOTE);
+        SourceAdapter announce = adapters.get(SourceCode.ANNOUNCE);
+        SourceAdapter news = adapters.get(SourceCode.NEWS);
+        List<PoolMetric> metrics = new ArrayList<>(subjectIds.size());
+        for (Long subjectId : subjectIds) {
+            Subject subject = subjectRepository.findById(subjectId).orElse(null);
+            if (subject == null) {
+                log.warn("每日推荐：标的不存在，跳过 subjectId={}", subjectId);
+                continue;
+            }
+            metrics.add(metricOf(subject, quote, announce, news));
+        }
+        return List.copyOf(metrics);
+    }
+
+    /** 装配上下文 Map（指标 → Spike-2 §7.4 占位符投影）。 */
+    private Map<String, String> toContext(List<PoolMetric> metrics) {
+        Map<String, String> ctx = new LinkedHashMap<>();
+        ctx.put("poolSize", String.valueOf(metrics.size()));
+        ctx.put("subjectsMetrics", formatMetrics(metrics));
+        ctx.put("subscribedThemes", formatThemes(metrics));
+        ctx.put("today", LocalDate.now(clock).toString());
+        return ctx;
+    }
+
+    /** 单只标的指标：取行情/公告/新闻 adapter（源降级归 0，不阻断）。 */
+    private PoolMetric metricOf(
+            Subject subject, SourceAdapter quote, SourceAdapter announce, SourceAdapter news) {
+        double changePct = extractChangePct(quote, subject);
+        int announceCount = countItems(announce, subject);
+        int newsCount = countItems(news, subject);
+        return new PoolMetric(
+                subject.getSubjectCode().value(),
+                subject.getName(),
+                changePct,
+                announceCount,
+                newsCount);
+    }
+
+    /** 行情涨跌幅（源降级/缺字段 → 0）。 */
+    private double extractChangePct(SourceAdapter quote, Subject subject) {
+        if (quote == null) {
+            return 0.0;
+        }
+        try {
+            SourceResult result = quote.fetch(subject);
+            if (result.getStatus() != SourceStatus.OK) {
+                return 0.0;
+            }
+            return toDouble(result.getData().get("changePct"));
+        } catch (Exception e) {
+            log.warn(
+                    "每日推荐取行情异常 subjectCode={}: {}", subject.getSubjectCode().value(), e.toString());
+            return 0.0;
+        }
+    }
+
+    /** 公告/新闻条数（取 data.items 列表长度；源降级 → 0）。 */
+    private int countItems(SourceAdapter adapter, Subject subject) {
+        if (adapter == null) {
+            return 0;
+        }
+        try {
+            SourceResult result = adapter.fetch(subject);
+            if (result.getStatus() != SourceStatus.OK) {
+                return 0;
+            }
+            Object items = result.getData().get("items");
+            return items instanceof List<?> list ? list.size() : 0;
+        } catch (Exception e) {
+            log.warn(
+                    "每日推荐取列表源异常 sourceCode={} subjectCode={}: {}",
+                    adapter.sourceCode(),
+                    subject.getSubjectCode().value(),
+                    e.toString());
+            return 0;
+        }
+    }
+
+    /** subjectsMetrics 投影：每行「代码|名称|涨跌幅X%|公告N|新闻M」（Spike-2 §7.4 指标快照）。 */
+    private static String formatMetrics(List<PoolMetric> metrics) {
+        if (metrics.isEmpty()) {
+            return NA;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (PoolMetric m : metrics) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(m.subjectCode())
+                    .append('|')
+                    .append(m.subjectName())
+                    .append("|涨跌幅")
+                    .append(m.changePct())
+                    .append("%|公告")
+                    .append(m.announceCount())
+                    .append("|新闻")
+                    .append(m.newsCount());
+        }
+        return sb.toString();
+    }
+
+    /** subscribedThemes 投影：自选池行业去重作主题代理（M2 订阅未全就位）；空→「暂无」。 */
+    private static String formatThemes(List<PoolMetric> metrics) {
+        Set<String> themes = new LinkedHashSet<>();
+        for (PoolMetric m : metrics) {
+            // 行业不在 PoolMetric 内（避免冗余取数），此处留「暂无」占位由上游订阅装配补全（T26）。
+            // M2 阶段订阅主题未就位，按任务约定填「暂无」而非编造。
+            themes.add(NA);
+        }
+        return themes.isEmpty() ? NA : String.join(",", themes);
+    }
+
+    /** 自选池活跃 subjectId 去重保序（跨该用户全部启用 watchlist 的启用清单项）。 */
+    private List<Long> distinctActiveSubjectIds(long userId) {
+        List<Watchlist> watchlists = watchlistRepository.findAllByOwnerId(userId);
+        List<Long> ids = new ArrayList<>();
+        Set<Long> seen = new LinkedHashSet<>();
+        for (Watchlist w : watchlists) {
+            w.getItems().stream()
+                    .filter(i -> i.getStatus() == WatchlistStatus.ENABLED)
+                    .map(WatchlistItem::getSubjectId)
+                    .filter(seen::add)
+                    .forEach(ids::add);
+        }
+        return ids;
+    }
+
+    /** 数值兼容转 double（BigDecimal/Number/字符串，非数→0）。 */
+    private static double toDouble(Object value) {
+        if (value == null) {
+            return 0.0;
+        }
+        if (value instanceof Number n) {
+            return n.doubleValue();
+        }
+        try {
+            return Double.parseDouble(value.toString().trim());
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+}

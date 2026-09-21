@@ -71,6 +71,7 @@ class AIBriefServiceTest {
     private LlmGateway llmGateway;
     private PromptTemplateService promptTemplateService;
     private BriefContextBuilder contextBuilder;
+    private DailyRecommendationContextBuilder dailyContextBuilder;
     private AggregationService aggregationService;
     private SubjectRepository subjectRepository;
     private HallucinationChecker hallucinationChecker;
@@ -88,7 +89,8 @@ class AIBriefServiceTest {
                     "理由",
                     "关注",
                     List.of(new BriefFact("ROE 30%", "roe", 30.0, "FINANCE", "http://f")),
-                    "AI 生成，非投资建议");
+                    "AI 生成，非投资建议",
+                    List.of());
 
     @BeforeEach
     void setUp() {
@@ -96,6 +98,7 @@ class AIBriefServiceTest {
         llmGateway = mock(LlmGateway.class);
         promptTemplateService = mock(PromptTemplateService.class);
         contextBuilder = mock(BriefContextBuilder.class);
+        dailyContextBuilder = mock(DailyRecommendationContextBuilder.class);
         aggregationService = mock(AggregationService.class);
         subjectRepository = mock(SubjectRepository.class);
         hallucinationChecker = mock(HallucinationChecker.class);
@@ -108,6 +111,7 @@ class AIBriefServiceTest {
                         llmGateway,
                         promptTemplateService,
                         contextBuilder,
+                        dailyContextBuilder,
                         aggregationService,
                         subjectRepository,
                         hallucinationChecker,
@@ -330,6 +334,84 @@ class AIBriefServiceTest {
         verifyDoneEvent(BriefStatus.FAILED);
     }
 
+    // ==================== generateBrief 每日推荐（briefType=4 上下文合并，T23） ====================
+
+    @Test
+    void generateBrief_dailyRecommendation_mergesPoolMetricsContext() {
+        // Arrange：每日推荐任务（subjectId 可空）→ CAS 领取 → 上下文合并 dailyContextBuilder.buildContext
+        when(repository.findById(TASK_ID))
+                .thenReturn(Optional.of(dailyBrief(BriefStatus.PENDING, 0L)));
+        when(repository.claim(TASK_ID, 0L))
+                .thenReturn(
+                        Optional.of(
+                                AiBrief.reconstruct(
+                                        TASK_ID,
+                                        null,
+                                        BriefType.DAILY_RECOMMEND,
+                                        "",
+                                        "",
+                                        "",
+                                        null,
+                                        null,
+                                        BriefStatus.PENDING,
+                                        "none:4:20260921",
+                                        1L,
+                                        Instant.now(),
+                                        Instant.now())));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // 个股投影为空（subject=null）；合并 dailyContextBuilder 装配的 poolMetrics
+        when(contextBuilder.build(null, BriefType.DAILY_RECOMMEND))
+                .thenReturn(Map.of("subjectName", "占位"));
+        when(dailyContextBuilder.buildContext(USER_ID))
+                .thenReturn(
+                        Map.of(
+                                "poolSize", "3",
+                                "subjectsMetrics", "SH600519|贵州茅台|公告2|新闻5",
+                                "subscribedThemes", "暂无",
+                                "today", "2026-09-21"));
+        PromptTemplate template =
+                PromptTemplate.reconstruct(
+                        1L,
+                        BriefType.DAILY_RECOMMEND,
+                        "v1.0",
+                        "---SYSTEM---\njson\n---USER---\n{{poolSize}}\n{{subjectsMetrics}}",
+                        1);
+        when(promptTemplateService.loadActiveTemplate(BriefType.DAILY_RECOMMEND))
+                .thenReturn(template);
+        when(promptTemplateService.render(any(), any()))
+                .thenReturn(
+                        List.of(new ChatMessage("system", "json"), new ChatMessage("user", "ctx")));
+        when(llmGateway.chat(any())).thenReturn(llmResponse());
+        BriefContent dailyContent =
+                new BriefContent(
+                        "今日推荐",
+                        List.of(),
+                        "中性",
+                        "理由",
+                        "关注",
+                        List.of(),
+                        "AI 生成，非投资建议",
+                        List.of(
+                                new com.info.platform.domain.ai.TopRecommendation(
+                                        "SH600519", "贵州茅台", "信息面活跃", 1)));
+        when(contentCodec.parse(anyString())).thenReturn(Optional.of(dailyContent));
+        when(contentCodec.writeJson(any())).thenReturn("{}");
+        when(contentCodec.writeSourceLinks(any())).thenReturn("[]");
+
+        // Act
+        service.generateBrief(TASK_ID, USER_ID);
+
+        // Assert：调用了 dailyContextBuilder 装配上下文 + 合并后的 context 含 poolSize（传给 render）
+        verify(dailyContextBuilder).buildContext(USER_ID);
+        ArgumentCaptor<Map<String, String>> ctxCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(promptTemplateService).render(any(), ctxCaptor.capture());
+        assertThat(ctxCaptor.getValue().get("poolSize")).isEqualTo("3");
+        assertThat(ctxCaptor.getValue().get("subjectsMetrics")).isEqualTo("SH600519|贵州茅台|公告2|新闻5");
+        // subject=null → 幻觉校验跳过 → status=DONE
+        AiBrief saved = captureSaved();
+        assertThat(saved.getStatus()).isEqualTo(BriefStatus.DONE);
+    }
+
     // ==================== getBrief（查询） ====================
 
     @Test
@@ -526,6 +608,24 @@ class AIBriefServiceTest {
                 null,
                 status,
                 "key",
+                version,
+                Instant.now(),
+                Instant.now());
+    }
+
+    /** 构造一个每日推荐任务实体（subjectId 可空，briefType=4）。 */
+    private static AiBrief dailyBrief(BriefStatus status, long version) {
+        return AiBrief.reconstruct(
+                TASK_ID,
+                null,
+                BriefType.DAILY_RECOMMEND,
+                "",
+                "",
+                "",
+                null,
+                null,
+                status,
+                "none:4:20260921",
                 version,
                 Instant.now(),
                 Instant.now());

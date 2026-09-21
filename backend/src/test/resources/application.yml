@@ -33,6 +33,12 @@ push:
   retry:
     enabled: false
 
+# 每日推荐盘前预热 job 在测试环境关闭：@Scheduled 不触发（对齐 04 测试规范），
+# 每日推荐逻辑改由单测直接调 DailyRecommendationService.generateDaily 验证。
+recommendation:
+  schedule:
+    enabled: false
+
 logging:
   level:
     org.springframework: WARN

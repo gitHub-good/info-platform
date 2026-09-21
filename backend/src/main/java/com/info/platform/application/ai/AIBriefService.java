@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,6 +69,7 @@ public class AIBriefService {
     private final LlmGateway llmGateway;
     private final PromptTemplateService promptTemplateService;
     private final BriefContextBuilder contextBuilder;
+    private final DailyRecommendationContextBuilder dailyContextBuilder;
     private final AggregationService aggregationService;
     private final SubjectRepository subjectRepository;
     private final HallucinationChecker hallucinationChecker;
@@ -80,6 +82,7 @@ public class AIBriefService {
             LlmGateway llmGateway,
             PromptTemplateService promptTemplateService,
             BriefContextBuilder contextBuilder,
+            DailyRecommendationContextBuilder dailyContextBuilder,
             AggregationService aggregationService,
             SubjectRepository subjectRepository,
             HallucinationChecker hallucinationChecker,
@@ -90,6 +93,7 @@ public class AIBriefService {
         this.llmGateway = llmGateway;
         this.promptTemplateService = promptTemplateService;
         this.contextBuilder = contextBuilder;
+        this.dailyContextBuilder = dailyContextBuilder;
         this.aggregationService = aggregationService;
         this.subjectRepository = subjectRepository;
         this.hallucinationChecker = hallucinationChecker;
@@ -220,6 +224,15 @@ public class AIBriefService {
         SubjectDetail detail = loadContext(brief, subject);
         PromptTemplate template = promptTemplateService.loadActiveTemplate(brief.getBriefType());
         Map<String, String> context = contextBuilder.build(detail, brief.getBriefType());
+        // T23：每日推荐型（briefType=4）上下文由 DailyRecommendationContextBuilder 装配（poolMetrics/订阅主题/今日），
+        // 合并进个股投影为空的上下文 Map（对齐 BriefContextBuilder 注释「每日推荐占位符由 T23 装配」）。userId 来自异步事件。
+        // 防御性拷贝再 putAll——BriefContextBuilder 返回的 Map 可能不可变（单测 mock 为 Map.of()），避免
+        // UnsupportedOperationException。
+        if (brief.getBriefType() == BriefType.DAILY_RECOMMEND) {
+            Map<String, String> merged = new LinkedHashMap<>(context);
+            merged.putAll(dailyContextBuilder.buildContext(userId));
+            context = merged;
+        }
         LlmRequest req =
                 LlmRequest.json(
                         promptTemplateService.render(template, context),

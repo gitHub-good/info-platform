@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.domain.ai.BriefContent;
 import com.info.platform.domain.ai.BriefFact;
 import com.info.platform.domain.ai.BriefKeyEvent;
+import com.info.platform.domain.ai.TopRecommendation;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -106,6 +107,33 @@ class BriefContentParserTest {
     }
 
     @Test
+    void parse_topRecommend_dailySchema_populatesAndRoundTrips() {
+        // Arrange：每日推荐（briefType=4）输出含 topRecommend 数组（Spike-2 §7.4）
+        String daily =
+                "{\"summary\":\"今日推荐\",\"bias\":\"中性\",\"disclaimer\":\"AI 生成，非投资建议\","
+                        + "\"topRecommend\":[{\"subjectCode\":\"SH600519\",\"subjectName\":\"贵州茅台\","
+                        + "\"reason\":\"信息面活跃\",\"rank\":1},"
+                        + "{\"subjectCode\":\"SZ000858\",\"subjectName\":\"五粮液\","
+                        + "\"reason\":\"公告密集\",\"rank\":2}]}";
+
+        // Act
+        Optional<BriefContent> opt = parser.parse(daily);
+
+        // Assert：topRecommend 已解析为字段，按 rank 保序
+        assertThat(opt).isPresent();
+        List<TopRecommendation> top = opt.get().topRecommend();
+        assertThat(top).hasSize(2);
+        assertThat(top.get(0).subjectCode()).isEqualTo("SH600519");
+        assertThat(top.get(0).rank()).isEqualTo(1);
+        assertThat(top.get(1).subjectCode()).isEqualTo("SZ000858");
+
+        // 序列化回写后再解析应等价（落 ai_brief.content 往返不丢 topRecommend）
+        BriefContent reparsed = parser.parse(parser.writeJson(opt.get())).orElseThrow();
+        assertThat(reparsed.topRecommend()).hasSize(2);
+        assertThat(reparsed.topRecommend().get(0).subjectCode()).isEqualTo("SH600519");
+    }
+
+    @Test
     void parse_missingArrays_normalizedToEmpty() {
         // Arrange：省略 keyEvents/facts 数组
         String noArrays = "{\"summary\":\"s\",\"bias\":\"中性\",\"disclaimer\":\"d\"}";
@@ -148,7 +176,8 @@ class BriefContentParserTest {
                         List.of(
                                 new BriefFact("c1", "roe", 30.0, "FINANCE", "http://f1"),
                                 new BriefFact("c2", "eps", 5.0, "FINANCE", "http://dup")),
-                        "d");
+                        "d",
+                        List.of());
 
         // Act
         String links = parser.writeSourceLinks(content);
@@ -169,7 +198,8 @@ class BriefContentParserTest {
                         "r",
                         "w",
                         List.of(new BriefFact("c", "roe", 30.0, "FINANCE", null)),
-                        "d");
+                        "d",
+                        List.of());
 
         // Act
         String links = parser.writeSourceLinks(content);

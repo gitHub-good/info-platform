@@ -105,6 +105,19 @@ push:
     enabled: true
     interval-millis: 30000
 
+# 每日推荐排序（T23，§4.1.6 + §4.3 流程 2 + Spike-2 §11.5）：briefType=4 盘前预热 + 按需触发。
+# schedule.enabled=false（默认）时 @Scheduled 预热 Job 与 @EnableScheduling 均不装配（测试关，对齐 04 规范）；
+# 生产置 true 后每日 09:00（cron 可配）对配置 user-ids 预热生成，使 GET /recommendations/daily 首请求命中幂等缓存直返。
+# user-ids 逗号分隔，默认空（个人单用户配一个 user-id；多用户盘前预热待 WatchlistRepository 端口演进）。
+# poll/max-wait：on-demand 首请求触发后轮询查询简报至终态的间隔与上限（默认 500ms / 30s，对齐 LLM 超时）。
+recommendation:
+  schedule:
+    enabled: false
+    cron: "0 0 9 * * ?"
+    user-ids: ""
+  poll-interval-millis: 500
+  max-wait-millis: 30000
+
 # LLM 网关（T19，§4.4 + ADR-0004/0008 + Spike-2 调研）：配置驱动多 provider + fallback。
 # DeepSeek default（deepseek-flash 性价比档，JSON mode 稳，Spike-2 §3）+ GLM fallback（glm-4-flash-250414 免费档）。
 # api-key 走环境变量，缺失默认空串（mock 测试/无 key 不 fail-fast）；生产注入 DEEPSEEK_API_KEY/GLM_API_KEY。

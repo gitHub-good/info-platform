@@ -40,7 +40,8 @@ class AIBriefControllerTest {
     private AIBriefService aiBriefService;
 
     private final BriefContent sampleContent =
-            new BriefContent("摘要", List.of(), "利好", "理由", "关注", List.of(), "AI 生成，非投资建议");
+            new BriefContent(
+                    "摘要", List.of(), "利好", "理由", "关注", List.of(), "AI 生成，非投资建议", List.of());
 
     @BeforeEach
     void setUp() {
