@@ -104,3 +104,48 @@ push:
   retry:
     enabled: true
     interval-millis: 30000
+
+# LLM 网关（T19，§4.4 + ADR-0004/0008 + Spike-2 调研）：配置驱动多 provider + fallback。
+# DeepSeek default（deepseek-flash 性价比档，JSON mode 稳，Spike-2 §3）+ GLM fallback（glm-4-flash-250414 免费档）。
+# api-key 走环境变量，缺失默认空串（mock 测试/无 key 不 fail-fast）；生产注入 DEEPSEEK_API_KEY/GLM_API_KEY。
+# 预留通义/文心/Kimi（enabled=false，按需启用各加 provider adapter，不影响主链路）。
+llm:
+  providers:
+    - name: deepseek
+      base-url: https://api.deepseek.com          # OpenAI 兼容；RestClient 拼 /chat/completions
+      model: deepseek-flash                       # DeepSeek-V4.1-Flash（原 design 的 deepseek-chat 已迭代，见 Spike-2 §0）
+      api-key: ${DEEPSEEK_API_KEY:}               # 环境变量注入，永不入文件；缺失默认空串
+      enabled: true
+      default: true
+      fallback: glm
+    - name: glm
+      base-url: https://open.bigmodel.cn/api/paas/v4
+      model: glm-4-flash-250414                   # 免费档 128K；重负载可改 glm-4-plus（定价待控制台确认）
+      api-key: ${GLM_API_KEY:}
+      enabled: true
+      default: false
+      fallback: deepseek
+    # 预留（enabled=false，按需启用）：
+    - name: qwen
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      model: qwen-plus
+      api-key: ${QWEN_API_KEY:}
+      enabled: false
+      default: false
+      fallback: deepseek
+    - name: kimi
+      base-url: https://api.moonshot.cn/v1
+      model: moonshot-v1-8k
+      api-key: ${KIMI_API_KEY:}
+      enabled: false
+      default: false
+      fallback: deepseek
+  timeout-seconds: 30
+  retry: 1                 # 同 provider 重试（幂等只读）；M2 以 fallback 链承担重试语义，值预留
+  daily-token-budget-per-user: 20000  # 成本上限（单用户日 token 预算，Spike-2 §8.3，~4 次/日/用户）
+  cache:
+    default-ttl-seconds: 3600
+    maximum-size: 1000
+    ttl:
+      brief-type-1: 3600    # 个股简报 1h
+      brief-type-4: 86400   # 每日推荐 24h
