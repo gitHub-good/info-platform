@@ -183,6 +183,15 @@ public class WatchlistRepositoryImpl implements WatchlistRepository {
         return rows > 0;
     }
 
+    @Override
+    public List<WatchlistItem> findAllActiveItems() {
+        // 系统任务专用：JOIN watchlist 过滤已删除清单（w.status=1），仅返回启用清单项（wi.status=1）。
+        List<WatchlistItemPO> pos =
+                itemMapper.selectActiveItems(
+                        WatchlistStatus.ENABLED.code(), WatchlistStatus.ENABLED.code());
+        return pos.stream().map(WatchlistRepositoryImpl::toItemEntity).collect(Collectors.toList());
+    }
+
     /** 批量按 watchlist_id 加载清单项并分组（避免 N+1；空集合直接返回空 map）。 */
     private Map<Long, List<WatchlistItem>> loadItems(List<Long> watchlistIds) {
         if (watchlistIds == null || watchlistIds.isEmpty()) {

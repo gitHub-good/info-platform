@@ -21,6 +21,12 @@ mybatis-plus:
     db-config:
       id-type: AUTO
 
+# 异动检测调度在测试环境关闭：@Scheduled 不在 @SpringBootTest 触发，
+# 异动逻辑改由单测直接调 detectForItem 验证（对齐 04 测试规范）。
+anomaly:
+  detect:
+    enabled: false
+
 logging:
   level:
     org.springframework: WARN

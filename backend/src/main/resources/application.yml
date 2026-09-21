@@ -87,3 +87,11 @@ adapter:
 # 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
 aggregation:
   detail-timeout-millis: 2000
+
+# 异动检测引擎（T13，§4.3 流程 3 + ADR-0006）：@Scheduled 每 10s 轮询活跃 watchlist_item，
+# 行情涨跌幅 >= 阈值 → 业务键去重入库 → 发 Spring AnomalyDetectedEvent → T14 PushService 推送。
+# detect.enabled=false 时调度与 Job 均不装配（测试 profile 默认关，避免 @SpringBootTest 触发轮询）。
+anomaly:
+  detect:
+    enabled: true
+  detect-interval-millis: 10000

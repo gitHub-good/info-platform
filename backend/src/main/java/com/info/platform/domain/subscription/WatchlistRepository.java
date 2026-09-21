@@ -51,4 +51,15 @@ public interface WatchlistRepository {
 
     /** 物理删除清单项（释放 UNIQUE 约束便于重新加标的）；返回是否实际删除。 */
     boolean deleteItemByWatchlistAndItemId(Long watchlistId, Long itemId);
+
+    /**
+     * 查询全部活跃清单项（跨全部用户，扁平清单项视图）。
+     *
+     * <p><b>系统任务专用，不走行级权限</b>：供 {@code AnomalyDetectionJob}（@Scheduled 异动检测）遍历所有用户的
+     * 启用清单项。只返回处于启用清单（watchlist.status=1）且自身启用（watchlist_item.status=1）的项；
+     * 已删除清单下的项不参与异动检测。与面向用户的查询（带 ownerUserId）正交，无越权风险——本方法不暴露清单归属信息， 仅返回清单项的标的与阈值。
+     *
+     * @return 活跃清单项列表（按 id 升序）
+     */
+    List<WatchlistItem> findAllActiveItems();
 }
