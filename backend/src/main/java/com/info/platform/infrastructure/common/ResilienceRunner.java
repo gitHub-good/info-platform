@@ -48,6 +48,7 @@ public class ResilienceRunner {
             throws ResilienceException {
         int attempt = 0;
         int maxAttempts = spec.maxRetries() + 1;
+        ResilienceException.FailureKind lastKind = ResilienceException.FailureKind.ERROR;
         while (true) {
             attempt++;
             Future<T> future = executor.submit(action::get);
@@ -55,6 +56,7 @@ public class ResilienceRunner {
                 return future.get(spec.timeout().toMillis(), TimeUnit.MILLISECONDS);
             } catch (TimeoutException te) {
                 future.cancel(true);
+                lastKind = ResilienceException.FailureKind.TIMEOUT;
                 log.warn(
                         "数据源取数超时 sourceCode={} attempt={}/{} timeoutMs={}",
                         code,
@@ -62,6 +64,7 @@ public class ResilienceRunner {
                         maxAttempts,
                         spec.timeout().toMillis());
             } catch (ExecutionException ee) {
+                lastKind = ResilienceException.FailureKind.ERROR;
                 log.warn(
                         "数据源取数异常 sourceCode={} attempt={}/{} cause={}",
                         code,
@@ -70,10 +73,14 @@ public class ResilienceRunner {
                         String.valueOf(ee.getCause()));
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                throw new ResilienceException("interrupted sourceCode=" + code, ie);
+                throw new ResilienceException(
+                        "interrupted sourceCode=" + code,
+                        ie,
+                        ResilienceException.FailureKind.INTERRUPTED);
             }
             if (attempt >= maxAttempts) {
-                throw new ResilienceException("exhausted sourceCode=" + code);
+                // 重试耗尽：按最后一次失败种类抛出，供 T16 data_source_event 区分 TIMEOUT / ERROR
+                throw new ResilienceException("exhausted sourceCode=" + code, null, lastKind);
             }
             backoff(attempt, spec, code);
         }

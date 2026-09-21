@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.aggregation;
 
+import com.info.platform.domain.aggregation.DataSourceEventType;
 import com.info.platform.domain.aggregation.SourceAdapter;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 数据源适配器模板基类（ADR-0003 + ADR-0005 + ADR-0010）。
@@ -30,7 +32,18 @@ import org.slf4j.LoggerFactory;
  * </ol>
  *
  * <p>降级（超时/异常/熔断）默认返回 {@link SourceResult#missing}（不阻断聚合）； 子类可覆写 {@link #onDegraded} 改为 FAILED
- * 或空列表语义。具体记 {@code data_source_event} 在 T16 落地，本批留抽象钩子。
+ * 或空列表语义。
+ *
+ * <h2>T16 · 数据源缺失事件记录（旁路）</h2>
+ *
+ * <p>模板降级路径四类触发点经 {@link #recordEvent} 旁路记 {@code data_source_event}（{@link DataSourceEventType}）：
+ * doFetch 返回 empty → {@link DataSourceEventType#MISSING}； {@code ResilienceRunner} 超时（{@link
+ * ResilienceException.FailureKind#TIMEOUT}）→ {@link DataSourceEventType#TIMEOUT}； doFetch
+ * 抛异常/中断（{@link ResilienceException.FailureKind#ERROR}/{@code INTERRUPTED}）→ {@link
+ * DataSourceEventType#ERROR}； 熔断开启 → {@link DataSourceEventType#LIMITED}。记录为<b>旁路</b>：不影响 {@code
+ * onDegraded} 返回值（仍 MISSING/FAILED）、不影响主流程，记录自身异常不外抛（try-catch 记 ERROR 日志）。 {@link
+ * DataSourceEventRecorder} 为可选依赖（字段注入 {@code @Autowired(required=false)}），缺失时旁路静默跳过——现有 T03~T07 各
+ * adapter {@code 零改动}自动获得记录能力（Spring 装配时注入， 纯构造单测场景为 null 即无操作）。
  */
 public abstract class AbstractSourceAdapter implements SourceAdapter {
 
@@ -40,6 +53,13 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
     private final FieldMapper fieldMapper;
     private final ResilienceRunner resilienceRunner;
     private final CircuitBreaker circuitBreaker;
+
+    /**
+     * 数据源事件记录器（可选依赖）。Spring 装配的真实/mock adapter 由容器注入； 纯构造单测场景（{@code new FakeSourceAdapter(...)}）保持
+     * null， {@link #recordEvent} 静默跳过——既不破坏现有测试，也让 T16 记录能力对生产环境透明启用。
+     */
+    @Autowired(required = false)
+    DataSourceEventRecorder dataSourceEventRecorder;
 
     protected AbstractSourceAdapter(
             SourceCache cache,
@@ -65,6 +85,7 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
 
         if (!circuitBreaker.allowRequest(code)) {
             log.info("熔断开启，降级 sourceCode={} subjectId={}", code, subjectId);
+            recordEvent(code, DataSourceEventType.LIMITED, subjectId, "circuit-open");
             return onDegraded(subject, "circuit-open");
         }
 
@@ -74,11 +95,18 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
             circuitBreaker.recordSuccess(code);
         } catch (ResilienceException e) {
             circuitBreaker.recordFailure(code);
+            DataSourceEventType eventType =
+                    e.getKind() == ResilienceException.FailureKind.TIMEOUT
+                            ? DataSourceEventType.TIMEOUT
+                            : DataSourceEventType.ERROR;
+            recordEvent(code, eventType, subjectId, e.getReason());
             return onDegraded(subject, e.getReason());
         }
 
         if (raw.isEmpty()) {
-            // 源当日无数据 → MISSING（成功调用，非异常，不阻断）
+            // 源当日无数据 → MISSING（成功调用，非异常，不阻断）。§5 可观测：数据源缺失记 WARN。
+            log.warn("数据源当日无数据 sourceCode={} subjectId={}", code, subjectId);
+            recordEvent(code, DataSourceEventType.MISSING, subjectId, "no-data");
             return SourceResult.missing(code, subjectId, sourceLabel());
         }
 
@@ -105,6 +133,31 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
 
     /** 来源标注（展示用），子类提供，如 "行情源"。 */
     protected abstract String sourceLabel();
+
+    /**
+     * 旁路记录一条 {@code data_source_event}（T16）。
+     *
+     * <p>零侵入契约：recorder 为空（纯构造单测场景）静默跳过； 记录自身异常不外抛（try-catch 记 ERROR 日志）——不影响 {@code onDegraded}
+     * 返回值与主流程。recorder 内部亦已 catch 兜底，此处为 defense-in-depth 双保险。
+     */
+    private void recordEvent(
+            SourceCode code, DataSourceEventType type, Long subjectId, String detail) {
+        DataSourceEventRecorder recorder = this.dataSourceEventRecorder;
+        if (recorder == null) {
+            return;
+        }
+        try {
+            recorder.record(code, type, subjectId, detail);
+        } catch (Exception e) {
+            log.error(
+                    "记录数据源事件失败 sourceCode={} type={} subjectId={} detail={}",
+                    code,
+                    type,
+                    subjectId,
+                    detail,
+                    e);
+        }
+    }
 
     /**
      * 降级钩子：超时/异常/熔断时调用。默认返回 MISSING（不阻断聚合）。

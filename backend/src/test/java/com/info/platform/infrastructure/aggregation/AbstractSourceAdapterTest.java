@@ -2,8 +2,14 @@ package com.info.platform.infrastructure.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.domain.aggregation.DataSourceEventType;
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
@@ -209,6 +215,149 @@ class AbstractSourceAdapterTest {
         assertThatThrownBy(() -> new ResilienceSpec(Duration.ofSeconds(1), -1, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(ResilienceSpec.noRetry(Duration.ofSeconds(2)).maxRetries()).isZero();
+    }
+
+    // ---- T16 · data_source_event 旁路记录（降级路径四类触发点 + 记录失败不阻断）----
+
+    @Test
+    void fetch_doFetchReturnsEmpty_recordsMissingEvent() throws Exception {
+        DataSourceEventRecorder recorder = mock(DataSourceEventRecorder.class);
+        try (ExecutorService exec = virtualExecutor()) {
+            FakeSourceAdapter adapter =
+                    fakeAdapter(
+                            exec,
+                            SourceCode.POLICY,
+                            ResilienceSpec.noRetry(Duration.ofSeconds(1)),
+                            s -> Optional.empty(),
+                            new NoopCircuitBreaker(),
+                            null);
+            adapter.dataSourceEventRecorder = recorder;
+
+            SourceResult result = adapter.fetch(subject(1L));
+
+            assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+            verify(recorder)
+                    .record(
+                            eq(SourceCode.POLICY),
+                            eq(DataSourceEventType.MISSING),
+                            eq(1L),
+                            eq("no-data"));
+        }
+    }
+
+    @Test
+    void fetch_doFetchTimeout_recordsTimeoutEvent() throws Exception {
+        DataSourceEventRecorder recorder = mock(DataSourceEventRecorder.class);
+        try (ExecutorService exec = virtualExecutor()) {
+            FakeSourceAdapter adapter =
+                    fakeAdapter(
+                            exec,
+                            SourceCode.QUOTE,
+                            ResilienceSpec.noRetry(Duration.ofMillis(50)),
+                            s -> {
+                                Thread.sleep(300);
+                                return Optional.of(
+                                        new RawFetch(Map.of("price", "1"), "fake", Instant.now()));
+                            },
+                            new NoopCircuitBreaker(),
+                            null);
+            adapter.dataSourceEventRecorder = recorder;
+
+            SourceResult result = adapter.fetch(subject(1L));
+
+            assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+            verify(recorder)
+                    .record(
+                            eq(SourceCode.QUOTE),
+                            eq(DataSourceEventType.TIMEOUT),
+                            eq(1L),
+                            eq("exhausted sourceCode=QUOTE"));
+        }
+    }
+
+    @Test
+    void fetch_doFetchThrowsAfterRetry_recordsErrorEvent() throws Exception {
+        DataSourceEventRecorder recorder = mock(DataSourceEventRecorder.class);
+        try (ExecutorService exec = virtualExecutor()) {
+            FakeSourceAdapter adapter =
+                    fakeAdapter(
+                            exec,
+                            SourceCode.FINANCE,
+                            ResilienceSpec.of(Duration.ofMillis(200), 1, Duration.ofMillis(1)),
+                            s -> {
+                                throw new RuntimeException("boom");
+                            },
+                            new NoopCircuitBreaker(),
+                            null);
+            adapter.dataSourceEventRecorder = recorder;
+
+            SourceResult result = adapter.fetch(subject(1L));
+
+            assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+            verify(recorder)
+                    .record(
+                            eq(SourceCode.FINANCE),
+                            eq(DataSourceEventType.ERROR),
+                            eq(1L),
+                            eq("exhausted sourceCode=FINANCE"));
+        }
+    }
+
+    @Test
+    void fetch_circuitOpen_recordsLimitedEvent() throws Exception {
+        DataSourceEventRecorder recorder = mock(DataSourceEventRecorder.class);
+        try (ExecutorService exec = virtualExecutor()) {
+            FakeSourceAdapter adapter =
+                    fakeAdapter(
+                            exec,
+                            SourceCode.QUOTE,
+                            ResilienceSpec.noRetry(Duration.ofSeconds(1)),
+                            s ->
+                                    Optional.of(
+                                            new RawFetch(
+                                                    Map.of("price", "1"), "fake", Instant.now())),
+                            new AlwaysOpenCircuitBreaker(),
+                            null);
+            adapter.dataSourceEventRecorder = recorder;
+
+            SourceResult result = adapter.fetch(subject(1L));
+
+            assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+            verify(recorder)
+                    .record(
+                            eq(SourceCode.QUOTE),
+                            eq(DataSourceEventType.LIMITED),
+                            eq(1L),
+                            eq("circuit-open"));
+        }
+    }
+
+    @Test
+    void fetch_recorderThrows_doesNotPropagate_returnsMissing() throws Exception {
+        // 记录旁路异常不外抛（defense-in-depth）：recorder 抛异常时 fetch 仍正常降级返回 MISSING
+        DataSourceEventRecorder recorder = mock(DataSourceEventRecorder.class);
+        doThrow(new RuntimeException("recorder down"))
+                .when(recorder)
+                .record(any(), any(), any(), any());
+        try (ExecutorService exec = virtualExecutor()) {
+            FakeSourceAdapter adapter =
+                    fakeAdapter(
+                            exec,
+                            SourceCode.QUOTE,
+                            ResilienceSpec.noRetry(Duration.ofMillis(50)),
+                            s -> {
+                                Thread.sleep(300);
+                                return Optional.of(
+                                        new RawFetch(Map.of("price", "1"), "fake", Instant.now()));
+                            },
+                            new NoopCircuitBreaker(),
+                            null);
+            adapter.dataSourceEventRecorder = recorder;
+
+            SourceResult result = adapter.fetch(subject(1L));
+
+            assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+        }
     }
 
     private FakeSourceAdapter fakeAdapter(
