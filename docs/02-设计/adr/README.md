@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | ADR-0001 | 架构形态：模块化单体 | 已决 |
 | ADR-0002 | 技术栈与存储：取基线 + 裁剪 RBAC/分库分表 | 已决 |
-| ADR-0003 | 统一数据访问层：SourceAdapter + 主数据映射（先 Spike-1） | 待 Spike 确认 |
+| ADR-0003 | 统一数据访问层：SourceAdapter + 主数据映射（先 Spike-1） | Spike-1 已完成（假设验证通过，选型待用户拍板） |
 | ADR-0004 | LLM 网关：自建薄抽象（先 Spike-2） | 待 Spike 确认 |
 | ADR-0005 | 缓存与限频：Caffeine Cache-Aside + 令牌桶 | 已决 |
 | ADR-0006 | 实时推送：SSE + Spring 事件驱动 | 已决 |
@@ -24,3 +24,9 @@
 | ADR-0008 | LLM 网关强化：配置驱动多 provider + fallback（补充 ADR-0004） | 待 Spike 确认 |
 | ADR-0009 | Flyway SQLite 迁移依赖实现偏差（补充 ADR-0002） | 已决 |
 | ADR-0010 | 数据源弹性实现选型（自建超时+重试 / 熔断留接口位） | 已决 |
+
+## 🔍 关联调研
+
+| 编号 | 标题 | 状态 | 关联 ADR |
+| --- | --- | --- | --- |
+| Spike-1 | [数据源调研](/docs/02-设计/spike-1-数据源调研.md) | 已完成 | ADR-0003 |
