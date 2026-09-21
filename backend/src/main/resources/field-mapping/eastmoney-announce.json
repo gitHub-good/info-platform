@@ -1,0 +1,8 @@
+[
+  {"source": "art_code", "target": "externalId", "transform": "none"},
+  {"source": "title", "target": "title", "transform": "to_string"},
+  {"source": "notice_date", "target": "publishedAt", "transform": "to_iso_date"},
+  {"source": "column_name", "target": "category", "transform": "to_string"},
+  {"source": "stock_code", "target": "externalCode", "transform": "none"},
+  {"source": "short_name", "target": "subjectName", "transform": "to_string"}
+]
