@@ -17,11 +17,11 @@
 | ADR-0001 | 架构形态：模块化单体 | 已决 |
 | ADR-0002 | 技术栈与存储：取基线 + 裁剪 RBAC/分库分表 | 已决 |
 | ADR-0003 | 统一数据访问层：SourceAdapter + 主数据映射（先 Spike-1） | Spike-1 已完成（假设验证通过，选型待用户拍板） |
-| ADR-0004 | LLM 网关：自建薄抽象（先 Spike-2） | 待 Spike 确认 |
+| ADR-0004 | LLM 网关：自建薄抽象（先 Spike-2） | Spike-2 已完成（假设验证通过：自建薄抽象可行，两家 OpenAI 兼容 Java 直调；选型待用户拍板） |
 | ADR-0005 | 缓存与限频：Caffeine Cache-Aside + 令牌桶 | 已决 |
 | ADR-0006 | 实时推送：SSE + Spring 事件驱动 | 已决 |
 | ADR-0007 | 分层方式：DDD 四层（补充 ADR-0001） | 已决 |
-| ADR-0008 | LLM 网关强化：配置驱动多 provider + fallback（补充 ADR-0004） | 待 Spike 确认 |
+| ADR-0008 | LLM 网关强化：配置驱动多 provider + fallback（补充 ADR-0004） | Spike-2 已完成（配置驱动多 provider + fallback 可行，DeepSeek 默认 + GLM 免费档 fallback；选型待用户拍板） |
 | ADR-0009 | Flyway SQLite 迁移依赖实现偏差（补充 ADR-0002） | 已决 |
 | ADR-0010 | 数据源弹性实现选型（自建超时+重试 / 熔断留接口位） | 已决 |
 | ADR-0011 | 公告源弹性 spec 取舍（noRetry 2s 而非 1s 重试 1） | 已决 |
@@ -32,3 +32,4 @@
 | 编号 | 标题 | 状态 | 关联 ADR |
 | --- | --- | --- | --- |
 | Spike-1 | [数据源调研](/docs/02-设计/spike-1-数据源调研.md) | 已完成 | ADR-0003 |
+| Spike-2 | [LLM 网关调研](/docs/02-设计/spike-2-llm-调研.md) | 已完成 | ADR-0004 / ADR-0008 |
