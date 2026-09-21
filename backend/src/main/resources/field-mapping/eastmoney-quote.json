@@ -10,5 +10,6 @@
   {"source":"f170","target":"changePct","transform":"to_decimal"},
   {"source":"f47","target":"volume","transform":"to_long"},
   {"source":"f48","target":"amount","transform":"to_decimal"},
-  {"source":"f171","target":"amplitude","transform":"to_decimal"}
+  {"source":"f171","target":"amplitude","transform":"to_decimal"},
+  {"source":"f168","target":"turnoverRate","transform":"to_decimal"}
 ]

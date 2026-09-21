@@ -54,7 +54,7 @@ import org.springframework.web.client.RestClient;
 class QuoteSourceAdapterTest {
 
     private static final String QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get";
-    private static final String FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171";
+    private static final String FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171";
 
     private ExecutorService exec;
     private SourceCache cache;
@@ -84,7 +84,7 @@ class QuoteSourceAdapterTest {
                   "f57":"600519","f58":"贵州茅台",
                   "f43":"1680.50","f46":"1670.00","f44":"1690.00","f45":"1665.00","f60":"1669.00",
                   "f169":"11.50","f170":"0.69",
-                  "f47":123456,"f48":"9876543210","f171":"1.50"
+                  "f47":123456,"f48":"9876543210","f171":"1.50","f168":"0.12"
                 }}
                 """;
         SourceResult result =
@@ -117,6 +117,8 @@ class QuoteSourceAdapterTest {
                 .isEqualByComparingTo(new BigDecimal("9876543210"));
         assertThat((BigDecimal) result.getData().get("amplitude"))
                 .isEqualByComparingTo(new BigDecimal("1.50"));
+        assertThat((BigDecimal) result.getData().get("turnoverRate"))
+                .isEqualByComparingTo(new BigDecimal("0.12"));
         assertThat(result.getData().get("externalCode")).isEqualTo("600519");
         assertThat(result.getData().get("name")).isEqualTo("贵州茅台");
     }
