@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.info.platform.domain.ai.LlmCostBudget;
 import com.info.platform.domain.ai.LlmUsage;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -15,12 +16,16 @@ import java.time.Duration;
  * ErrorCode#AI_QUOTA_EXHAUSTED}，429 语义，对齐技术方案 §4.1.4 {@code 30030}））；成功后 {@link #recordUsage}
  * 计入实际用量。
  *
+ * <p>实现领域端口 {@link LlmCostBudget}（仅暴露 {@link #checkBudget}），供应用层 {@code AIBriefService} POST 预检注入端口
+ * 而非本实现类（守护分层：避 application↔infrastructure 循环依赖）；计费入账由 {@code LlmGatewayImpl} 调本类 {@link
+ * #recordUsage} 完成。
+ *
  * <p>check/record 间存在 TOCTOU 窗口（个人量级可接受）：单次简报 ~4900 token / 预算 20000， 单次不会大幅越界，越界由下次调用拦截。
  *
- * <p>{@code userId <= 0}（无认证上下文，如系统定时任务）跳过限流——T21 异步 Worker 须显式设置 {@code UserContext} 才计入配额（M2
+ * <p>{@code userId <= 0}（无认证上下文，如系统定时任务）跳过限流——T21 异步 Worker 须显式设置 {@code UserContext} 才能计入配额（M2
  * 同步调用由请求入口已写入）。
  */
-public class LlmCostGuard {
+public class LlmCostGuard implements LlmCostBudget {
 
     private final long dailyBudget;
     private final Cache<Long, Long> used;
@@ -39,6 +44,7 @@ public class LlmCostGuard {
      *
      * @param userId 用户 ID（{@code <=0} 跳过）
      */
+    @Override
     public void checkBudget(long userId) {
         if (userId <= 0) {
             return;
