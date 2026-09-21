@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AiBrief } from '@/pages/AiBrief';
 import { Login } from '@/pages/Login';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { Watchlist } from '@/pages/Watchlist';
@@ -35,6 +36,13 @@ export default function App() {
 
   if (route.startsWith('/watchlists')) {
     return <Watchlist />;
+  }
+  if (route.startsWith('/ai-brief')) {
+    return (
+      <main className="mx-auto w-full max-w-4xl p-4 sm:p-6">
+        <AiBrief />
+      </main>
+    );
   }
   if (route.startsWith('/subjects')) {
     return (

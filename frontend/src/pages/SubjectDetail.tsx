@@ -1,5 +1,6 @@
 import { useSubjectDetail } from '@/hooks/useSubjectDetail';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AnnounceSection } from '@/components/subject/AnnounceSection';
@@ -8,6 +9,7 @@ import { NewsSection } from '@/components/subject/NewsSection';
 import { PolicySection } from '@/components/subject/PolicySection';
 import { QuoteSection } from '@/components/subject/QuoteSection';
 import { ValuationSection } from '@/components/subject/ValuationSection';
+import { navigate } from '@/lib/navigation';
 import type { Subject, SubjectDetailData, SubjectMarket } from '@/types/subject-detail';
 
 const MARKET_LABEL: Record<SubjectMarket, string> = {
@@ -30,7 +32,17 @@ function SubjectHeader({ subject }: { subject: Subject }) {
       <CardHeader>
         <CardTitle className="text-lg">{subject.name}</CardTitle>
         <CardAction>
-          <Badge variant="secondary">{MARKET_LABEL[subject.market] ?? subject.market}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{MARKET_LABEL[subject.market] ?? subject.market}</Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/ai-brief')}
+              data-testid="subject-goto-ai-brief"
+            >
+              AI 简报
+            </Button>
+          </div>
         </CardAction>
       </CardHeader>
       <CardContent>
