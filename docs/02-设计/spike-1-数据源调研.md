@@ -162,10 +162,12 @@
 | art_code | externalId | none | 公告唯一 ID |
 | title | title | to_string | 公告标题 |
 | notice_date | publishedAt | to_iso_date | 公告日期 |
-| column_name | category | to_string | 分类 |
-| stock_code | externalCode | none | 6 位代码 |
-| short_name | subjectName | to_string | 简称 |
-| （构造） | url | none | 详情 URL 由 art_code 拼装 |
+| columns[0].column_name | category | to_string | 分类（嵌套在 `columns[0]`，非平铺） |
+| codes[0].stock_code | externalCode | none | 6 位代码（嵌套在 `codes[0]`） |
+| codes[0].short_name | subjectName | to_string | 简称（嵌套在 `codes[0]`） |
+| （构造） | url | none | 详情 URL 由 art_code 拼装（A 股 PDF 直链 `https://pdf.dfcfw.com/pdf/H2_<art_code>_1.pdf`，实测稳定；港股前缀待验） |
+
+> ⚡ 实测修订（T05 落地时 curl 验证）：`stock_code`/`short_name` 嵌在 `codes[0]`、`column_name` 嵌在 `columns[0]`（非平铺列表项顶层字段）；无需 Referer（实测无 Referer 返回 200）；详情 URL 用 PDF 直链 `https://pdf.dfcfw.com/pdf/H2_<art_code>_1.pdf`（A 股 `H2_` 前缀实测稳定，港股前缀待验）。
 
 ### 4.5 新闻（新浪滚动新闻，列表→数组）
 
@@ -173,7 +175,7 @@
 | --- | --- | --- | --- |
 | docid | externalId | none | 新闻 ID |
 | title | title | to_string | 标题 |
-| ctime | publishedAt | to_iso_date | 发布时间 |
+| ctime | publishedAt | to_iso_date | 发布时间（**T06 实测：ctime 为 Unix 秒级时间戳字符串**，如 `"1748275048"`，非 yyyy-MM-dd） |
 | intro | summary | to_string | 摘要 |
 | url | url | none | 原文链接 |
 | media_name | source | to_string | 来源媒体 |
@@ -236,16 +238,16 @@
 ]
 ```
 
-公告 `announce-em.json`：
+公告 `announce-em.json`（`source` 用嵌套路径；`FieldMapper` 对数组下标路径的支持以 T05 实测结构为准，必要时在 adapter 内展平后映射）：
 
 ```json
 [
   {"source": "art_code", "target": "externalId", "transform": "none"},
   {"source": "title", "target": "title", "transform": "to_string"},
   {"source": "notice_date", "target": "publishedAt", "transform": "to_iso_date"},
-  {"source": "column_name", "target": "category", "transform": "to_string"},
-  {"source": "stock_code", "target": "externalCode", "transform": "none"},
-  {"source": "short_name", "target": "subjectName", "transform": "to_string"}
+  {"source": "columns[0].column_name", "target": "category", "transform": "to_string"},
+  {"source": "codes[0].stock_code", "target": "externalCode", "transform": "none"},
+  {"source": "codes[0].short_name", "target": "subjectName", "transform": "to_string"}
 ]
 ```
 
@@ -303,7 +305,8 @@
 
 ### 6.2 T04 财务源 `FinanceAdapter`（东财 datacenter F10）
 
-- `doFetch`：GET `https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_F10_FINANCE_MAINFINADATA&columns=ALL&filter=(SECURITY_CODE="{eastmoney_code}")&pageNumber=1&pageSize=1&sortColumns=REPORT_DATE&sortTypes=-1` → 取 `data.list[0]` 为 `rawMap`。需带 `Referer: https://data.eastmoney.com/`（东财软限频，无 token）。
+- `doFetch`：GET `https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_F10_FINANCE_MAINFINADATA&columns=ALL&filter=(SECURITY_CODE="{eastmoney_code}")&pageNumber=1&pageSize=1&sortColumns=REPORT_DATE&sortTypes=-1` → 取 `result.data[0]` 为 `rawMap`。需带 `Referer: https://data.eastmoney.com/`（东财软限频，无 token；**无 Referer 返回 400**）。
+- ⚡ 实测修订（T04 落地时 curl 验证）：真实响应路径为 `result.data[0]`（多一层 `result`，`data` 为数组取首元素），原文档 `data.list[0]` 有误；且必须带 Referer 头，无 Referer 返回 400。
 - 参数：`SECURITY_CODE` 来自 `eastmoney_code`；`pageSize=1` + 按 REPORT_DATE 倒序取最新一期。
 - `rawMap`：SECURITY_CODE/TOTALOPERATEREVE/PARENTNETPROFIT/XSJLL/XSMLL/ROEJQ/REPORT_DATE。
 - `resilienceSpec`：`ResilienceSpec.noRetry(Duration.ofSeconds(2))`（季频只读，重试无收益）。
@@ -324,7 +327,8 @@
 
 - `doFetch`：GET `https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=3&page_index=1&ann_type=A&client_source=web&stock_list={eastmoney_code}` → `data.list` 为公告数组。空数组返回 `Optional.empty()` → MISSING。
 - 参数：`stock_list` 来自 `eastmoney_code`；`page_size=3`（PRD 取最新 3 条）。
-- `rawMap`：每条 art_code/title/notice_date/column_name/stock_code/short_name；`url` 由 `art_code` 拼详情链接（详情正文需二次调 `np-cnotice-stock`，首期仅取标题+时间+分类即可满足 PRD 公告分区）。
+- `rawMap`：每条 art_code/title/notice_date/`codes[0].stock_code`/`codes[0].short_name`/`columns[0].column_name`（字段嵌套在 `codes[0]`/`columns[0]` 数组，非平铺）；`url` 由 `art_code` 拼 A 股 PDF 直链 `https://pdf.dfcfw.com/pdf/H2_<art_code>_1.pdf`（实测稳定；港股前缀待验；详情正文需二次调 `np-cnotice-stock`，首期仅取标题+时间+分类即可满足 PRD 公告分区）。
+- ⚡ 实测修订（T05 落地时 curl 验证）：`stock_code`/`short_name` 嵌在 `codes[0]`、`column_name` 嵌在 `columns[0]`（非平铺列表项顶层字段）；无需 Referer（实测无 Referer 返回 200）；详情 URL 用 PDF 直链 `H2_<art_code>_1.pdf`（A 股前缀实测稳定，港股前缀待验）。
 - `resilienceSpec`：**建议 `ResilienceSpec.of(Duration.ofSeconds(1), 1, Duration.ofMillis(200))`**（幂等只读列表，允许 1 次重试；单次 1s + 200ms 退避 ≈ 最坏 2.2s，略超预算，靠聚合层 `orTimeout` 兜底降级）。
   > ⚠️ 技术方案 §4.3 流程 1 原写"公告 超时 2s 重试 1"与 2s 页预算冲突（2s×2 退避 = 4s+）。本调研建议单次超时收为 1s 以满足级联收敛；若开发评估连接级失败更常见，也可改 `noRetry(2s)`（与流程 1 表述一致、最坏 2s）。**此项需开发在 T05 确认 ResilienceRunner 是否区分"超时"与"连接失败"**——若不区分，采用 `noRetry(2s)`。
 - `onDegraded`：覆写为返回 MISSING（空数组语义，不阻断）。
@@ -333,9 +337,10 @@
 
 ### 6.5 T06 新闻源 `NewsAdapter`（新浪滚动新闻）
 
-- `doFetch`：GET `https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid={news_lid}&num=20&page=1` → `data` 数组为新闻。按 `subject.name` 关键词过滤与该标的相关的条目；无命中返回 `Optional.empty()` → MISSING。
-- 参数：`lid` 选财经滚动分类（如港股 `2509`、A 股相关分类）；`num=20` 后本地按 stock name 关键词命中取 ≤3 条。
+- `doFetch`：GET `https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid={news_lid}&num=20&page=1` → `result.data[]` 数组为新闻（多一层 `result`）。按 `subject.name` 关键词本地过滤与该标的相关的条目；无命中返回 `Optional.empty()` → MISSING。**必须带 `User-Agent: Mozilla/5.0 ...` + `Referer: https://finance.sina.com.cn/` 防 403**。
+- 参数：`lid` 选财经滚动分类，**默认 `2510`**（`2510`~`2518` 可用，财经滚动分类；旧值 `1685`~`1689` 已失效，返回 `code:11`「列表和页面没有经过注册」）；`num=20` 后本地按 stock name 关键词命中取 ≤3 条。
 - `rawMap`：每条 docid/title/ctime/intro/url/media_name/keywords。
+- ⚡ 实测修订（T06 落地时 curl 验证）：响应路径为 `result.data[]`（多一层 `result`，原文档 `data` 有误）；`lid=2510` 可用（`1685`~`1689` 失效，返回 `code:11`）；`ctime` 为 Unix 秒级时间戳字符串（如 `"1748275048"`，非 yyyy-MM-dd）；**不支持个股过滤**（`stock=600519` 与 `k=贵州茅台` 参数均被忽略）→ 确认走本地关键词匹配（Spike-1 §2.5 预判成立）；须带 UA(Mozilla) + Referer(finance.sina.com.cn) 防 403。
 - `resilienceSpec`：`ResilienceSpec.noRetry(Duration.ofSeconds(2))`。
 - `onDegraded`：覆写为返回 MISSING（空数组语义）。
 - `sourceLabel`：`"新浪新闻"`。
