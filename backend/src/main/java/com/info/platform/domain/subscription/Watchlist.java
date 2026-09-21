@@ -12,8 +12,8 @@ import java.util.Objects;
  * <p>领域层纯净：仅依赖 JDK 类型，可脱离容器单测、可移植。 持久化字段（id/version/时间戳）由基础设施层 {@code WatchlistRepositoryImpl} 经
  * {@link #reconstruct} 回填；清单项作为子实体由仓储在读取时一并装载。
  *
- * <p>行级权限：{@code userId} 标识清单归属，仓储所有数据查询带 {@code ownerUserId} 过滤； 服务层取 {@code UserContext.get().userId()} 作
- * {@code ownerUserId}，用户只能操作自己的清单。
+ * <p>行级权限：{@code userId} 标识清单归属，仓储所有数据查询带 {@code ownerUserId} 过滤； 服务层取 {@code
+ * UserContext.get().userId()} 作 {@code ownerUserId}，用户只能操作自己的清单。
  */
 public class Watchlist {
 

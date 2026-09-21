@@ -9,9 +9,9 @@ import com.baomidou.mybatisplus.annotation.Version;
 /**
  * watchlist 表的持久化对象（PO）。
  *
- * <p>对齐 V4 迁移：id/user_id/name/remark/status/created_at/updated_at/version。 {@code user_id} 为行级权限取数键，仓储所有查询
- * {@code WHERE user_id=?}。时间戳存 ISO-8601 文本（SQLite 类型亲和）， 领域 {@link com.info.platform.domain.subscription.Watchlist}
- * 的 {@code Instant} 在仓储实现层转换。
+ * <p>对齐 V4 迁移：id/user_id/name/remark/status/created_at/updated_at/version。 {@code user_id}
+ * 为行级权限取数键，仓储所有查询 {@code WHERE user_id=?}。时间戳存 ISO-8601 文本（SQLite 类型亲和）， 领域 {@link
+ * com.info.platform.domain.subscription.Watchlist} 的 {@code Instant} 在仓储实现层转换。
  */
 @TableName("watchlist")
 public class WatchlistPO {

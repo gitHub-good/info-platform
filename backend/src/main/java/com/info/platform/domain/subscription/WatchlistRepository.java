@@ -9,18 +9,24 @@ import java.util.Optional;
  * <p>领域层纯净接口，不依赖 MyBatis/Spring 等框架类型。
  *
  * <h2>行级权限</h2>
- * 数据查询方法均带 {@code ownerUserId} 参数，基础设施层在 SQL {@code WHERE user_id=?} 过滤， 端口层即约束行级权限——应用层取
- * {@code UserContext.get().userId()} 传入。 唯一不带 {@code ownerUserId} 的是 {@link #existsById}， 仅返回布尔存在性（不泄露其他用户清单数据），
- * 供应用层区分「清单不存在→30010(404)」与「清单存在但非本人→30012(403)」。
+ *
+ * 数据查询方法均带 {@code ownerUserId} 参数，基础设施层在 SQL {@code WHERE user_id=?} 过滤， 端口层即约束行级权限——应用层取 {@code
+ * UserContext.get().userId()} 传入。 唯一不带 {@code ownerUserId} 的是 {@link #existsById}，
+ * 仅返回布尔存在性（不泄露其他用户清单数据）， 供应用层区分「清单不存在→30010(404)」与「清单存在但非本人→30012(403)」。
  *
  * <h2>幂等</h2>
- * 按 §4.4「幂等业务语义键」：创建清单靠 {@link #existsByOwnerIdAndName} 查重（键=userId+name）； 加标的靠
- * {@link #existsItemByWatchlistAndSubject} 查重（键=userId+watchlistId+subjectId）， DB {@code UNIQUE(watchlist_id, subject_id)} 为最后防线。
+ *
+ * 按 §4.4「幂等业务语义键」：创建清单靠 {@link #existsByOwnerIdAndName} 查重（键=userId+name）； 加标的靠 {@link
+ * #existsItemByWatchlistAndSubject} 查重（键=userId+watchlistId+subjectId）， DB {@code
+ * UNIQUE(watchlist_id, subject_id)} 为最后防线。
  */
 public interface WatchlistRepository {
 
     /** 按归属用户+清单 id 加载清单（含清单项），仅返回本人清单。 */
     Optional<Watchlist> findByOwnerIdAndId(long ownerUserId, Long id);
+
+    /** 按归属用户+清单 id 判定本人清单是否存在（行级校验用，不装载清单项）。 */
+    boolean existsByOwnerIdAndId(long ownerUserId, Long id);
 
     /** 按归属用户加载全部启用清单（含清单项）。 */
     List<Watchlist> findAllByOwnerId(long ownerUserId);

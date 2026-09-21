@@ -10,9 +10,9 @@ import java.math.BigDecimal;
 /**
  * watchlist_item 表的持久化对象（PO）。
  *
- * <p>对齐 V4 迁移：id/watchlist_id/subject_id/anomaly_threshold/status/created_at/updated_at/version， {@code
- * UNIQUE(watchlist_id, subject_id)} 为加标的幂等 DB 层最后防线。 {@code anomaly_threshold DECIMAL(5,2)} 映射
- * {@link BigDecimal} 避免浮点精度损失。
+ * <p>对齐 V4 迁移：id/watchlist_id/subject_id/anomaly_threshold/status/created_at/updated_at/version，
+ * {@code UNIQUE(watchlist_id, subject_id)} 为加标的幂等 DB 层最后防线。 {@code anomaly_threshold DECIMAL(5,2)}
+ * 映射 {@link BigDecimal} 避免浮点精度损失。
  */
 @TableName("watchlist_item")
 public class WatchlistItemPO {

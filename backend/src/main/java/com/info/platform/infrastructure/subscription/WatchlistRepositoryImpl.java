@@ -22,8 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link WatchlistRepository} 端口的 SQLite/MyBatis-Plus 实现（基础设施层）。
  *
  * <p>行级权限：所有返回清单/清单项数据的查询均 {@code WHERE user_id=?}（ownerUserId）或 {@code WHERE
- * watchlist_id=?}（清单项归属已校验的清单），端口层即约束——用户只能读到自己的清单。 唯一不带 owner 过滤的是
- * {@link #existsById}，仅返回布尔存在性，供应用层区分 404/403。
+ * watchlist_id=?}（清单项归属已校验的清单），端口层即约束——用户只能读到自己的清单。 唯一不带 owner 过滤的是 {@link
+ * #existsById}，仅返回布尔存在性，供应用层区分 404/403。
  *
  * <p>PO↔Entity 转换集中于此；时间戳存 ISO-8601 文本；清单项在读取清单时一并装载（ findAll 按 watchlist_id IN(...) 批量取，避免
  * N+1）；乐观锁由 {@code @Version} + {@code OptimisticLockerInnerInterceptor} 守护。
@@ -36,7 +36,8 @@ public class WatchlistRepositoryImpl implements WatchlistRepository {
     private final WatchlistMapper watchlistMapper;
     private final WatchlistItemMapper itemMapper;
 
-    public WatchlistRepositoryImpl(WatchlistMapper watchlistMapper, WatchlistItemMapper itemMapper) {
+    public WatchlistRepositoryImpl(
+            WatchlistMapper watchlistMapper, WatchlistItemMapper itemMapper) {
         this.watchlistMapper = watchlistMapper;
         this.itemMapper = itemMapper;
     }
@@ -52,9 +53,19 @@ public class WatchlistRepositoryImpl implements WatchlistRepository {
         if (po == null) {
             return Optional.empty();
         }
-        List<WatchlistItem> items = loadItems(Collections.singletonList(po.getId())).getOrDefault(
-                po.getId(), Collections.emptyList());
+        List<WatchlistItem> items =
+                loadItems(Collections.singletonList(po.getId()))
+                        .getOrDefault(po.getId(), Collections.emptyList());
         return Optional.of(toEntity(po, items));
+    }
+
+    @Override
+    public boolean existsByOwnerIdAndId(long ownerUserId, Long id) {
+        return watchlistMapper.exists(
+                new LambdaQueryWrapper<WatchlistPO>()
+                        .eq(WatchlistPO::getUserId, ownerUserId)
+                        .eq(WatchlistPO::getId, id)
+                        .eq(WatchlistPO::getStatus, WatchlistStatus.ENABLED.code()));
     }
 
     @Override
@@ -212,8 +223,10 @@ public class WatchlistRepositoryImpl implements WatchlistRepository {
         po.setRemark(watchlist.getRemark());
         po.setStatus(watchlist.getStatus().code());
         po.setVersion((int) watchlist.getVersion());
-        po.setCreatedAt(watchlist.getCreatedAt() == null ? null : watchlist.getCreatedAt().toString());
-        po.setUpdatedAt(watchlist.getUpdatedAt() == null ? null : watchlist.getUpdatedAt().toString());
+        po.setCreatedAt(
+                watchlist.getCreatedAt() == null ? null : watchlist.getCreatedAt().toString());
+        po.setUpdatedAt(
+                watchlist.getUpdatedAt() == null ? null : watchlist.getUpdatedAt().toString());
         return po;
     }
 
