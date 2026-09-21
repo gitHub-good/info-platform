@@ -29,4 +29,20 @@ public interface WatchlistItemMapper extends BaseMapper<WatchlistItemPO> {
                     + "ORDER BY wi.id")
     List<WatchlistItemPO> selectActiveItems(
             @Param("itemStatus") int itemStatus, @Param("watchlistStatus") int watchlistStatus);
+
+    /**
+     * 查询含某标的的全部活跃清单归属用户（去重 user_id），供 T14 推送目标解析（M1 watchlist 隐含异动订阅）。
+     *
+     * <p>JOIN watchlist 过滤已删除清单（w.status=1）+ 仅启用清单项（wi.status=1）；DISTINCT 去重——
+     * 同一用户多清单含同标的只推一次（push_record UNIQUE 兜底再次防重）。
+     */
+    @Select(
+            "SELECT DISTINCT w.user_id "
+                    + "FROM watchlist_item wi JOIN watchlist w ON wi.watchlist_id = w.id "
+                    + "WHERE wi.subject_id = #{subjectId} AND wi.status = #{itemStatus} "
+                    + "AND w.status = #{watchlistStatus}")
+    List<Long> selectActiveUserIdsBySubject(
+            @Param("subjectId") Long subjectId,
+            @Param("itemStatus") int itemStatus,
+            @Param("watchlistStatus") int watchlistStatus);
 }
