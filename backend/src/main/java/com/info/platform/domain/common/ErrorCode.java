@@ -35,6 +35,8 @@ public enum ErrorCode {
 
     /** AI 配额已用尽（429 语义） */
     AI_QUOTA_EXHAUSTED(30030, "AI 配额已用尽", 429),
+    /** 提示词模板未配置启用版本（配置缺失，500 语义） */
+    PROMPT_TEMPLATE_NOT_FOUND(30031, "提示词模板未配置", 500),
 
     /** 政策条目不存在 */
     POLICY_NOT_FOUND(30040, "政策条目不存在", 404),
