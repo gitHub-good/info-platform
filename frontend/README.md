@@ -40,3 +40,13 @@ npm run lint       # oxlint
 - 页面：`src/pages/SubjectDetail.tsx`，组件在 `src/components/subject/`
 - mock 数据：`src/mocks/subject-detail-mock.ts`（4 ok / 1 missing / 1 failed，验证降级 UI）
 - 数据适配层：`src/api/subject.ts` 的 `adapter.mock.enabled` —— 联调日切 `false` 即走真实聚合接口（自动带 `Authorization: Bearer <token>`）
+
+## 🧪 T12 · watchlist 管理页 + 登录页（真实接口联调）
+
+- 登录页：`src/pages/Login.tsx` —— `POST /api/v1/auth/login`，成功存 `access_token` 跳 `#/watchlists`；凭证错误 1001(401) / 限流 1002(429) 友好提示。
+- watchlist 管理页：`src/pages/Watchlist.tsx`，组件在 `src/components/watchlist/` —— 列表 / 创建 / 详情 / 加标的 / 删标的 / 改阈值；错误码 30010(清单不存在) / 30011(已在清单·同名 409) / 30012(越权 403) / 30001(标的不存在) 分支提示。
+- 统一请求层：`src/api/http.ts`（`request()` 注入 Bearer、解析 `{code,msg,data,traceId}`、`code!==0` 抛 `ApiError`、受保护端点 401 清 token 跳 `/login`）；`src/api/auth.ts`（login/logout）、`src/api/watchlist.ts`（CRUD + Idempotency-Key）。
+- token：`localStorage` key=`access_token`，与 T10 聚合接口共用，登录后自动携带。
+- 路由：`src/App.tsx` 轻量 hash 路由（`#/login` · `#/watchlists` · `#/subjects`），不引 react-router，无 token 默认进登录页。
+- 本地联调：`vite.config.ts` 的 `server.proxy` 把 `/api` 转发到 `http://localhost:8080`（后端 `adapter.mock.enabled=true` + 真实 watchlist CRUD + JWT）；`npm run dev` 即调真实后端，无需改 CORS。
+- 测试：`src/pages/Login.test.tsx`（3）+ `src/pages/Watchlist.test.tsx`（9，mock fetch 状态化 store 覆盖 CRUD 与 409/404/403），共 24 测试全绿，`npm run build` 通过。
