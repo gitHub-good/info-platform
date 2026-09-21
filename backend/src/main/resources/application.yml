@@ -54,6 +54,15 @@ adapter:
     announce-page-size: 3
     # 公告详情 PDF 直链模板（art_code 占位由 adapter 替换；H2_ 前缀已 A 股实测确认）
     announce-detail-url-template: https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf
+  # 新浪新闻源（T06）：feed.mix.sina.com.cn 滚动新闻全市场流（不支持个股过滤，靠关键词匹配）
+  # lid=2510 财经滚动分类（2026-09-21 curl 实测可用；1685~1689 已失效 code:11）；需 UA+Referer 防封 403
+  sina:
+    news-url: https://feed.mix.sina.com.cn/api/roll/get
+    news-page-id: 153
+    news-lid: 2510
+    # 全市场流取数条数（本地按标题/关键词匹配过滤，num 越大命中率越高但耗时略增）
+    news-page-size: 20
+    news-referer: https://finance.sina.com.cn
 
 # 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
 aggregation:

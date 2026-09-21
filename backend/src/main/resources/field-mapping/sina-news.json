@@ -1,0 +1,9 @@
+[
+  {"source": "docid", "target": "externalId", "transform": "none"},
+  {"source": "title", "target": "title", "transform": "to_string"},
+  {"source": "ctime", "target": "publishedAt", "transform": "to_iso_date"},
+  {"source": "intro", "target": "summary", "transform": "to_string"},
+  {"source": "url", "target": "url", "transform": "none"},
+  {"source": "media_name", "target": "source", "transform": "to_string"},
+  {"source": "keywords", "target": "keywords", "transform": "to_string"}
+]
