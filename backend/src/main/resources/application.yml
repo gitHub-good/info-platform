@@ -36,6 +36,10 @@ management:
 adapter:
   mock:
     enabled: true
+  # 东方财富行情源（T03）：端点 URL 与 f 字段列表可配，不硬编码全 URL
+  eastmoney:
+    quote-url: https://push2.eastmoney.com/api/qt/stock/get
+    fields: f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171
 
 # 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
 aggregation:

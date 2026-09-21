@@ -1,0 +1,14 @@
+[
+  {"source":"f57","target":"externalCode","transform":"none"},
+  {"source":"f58","target":"name","transform":"to_string"},
+  {"source":"f43","target":"price","transform":"to_decimal"},
+  {"source":"f46","target":"open","transform":"to_decimal"},
+  {"source":"f44","target":"high","transform":"to_decimal"},
+  {"source":"f45","target":"low","transform":"to_decimal"},
+  {"source":"f60","target":"preClose","transform":"to_decimal"},
+  {"source":"f169","target":"change","transform":"to_decimal"},
+  {"source":"f170","target":"changePct","transform":"to_decimal"},
+  {"source":"f47","target":"volume","transform":"to_long"},
+  {"source":"f48","target":"amount","transform":"to_decimal"},
+  {"source":"f171","target":"amplitude","transform":"to_decimal"}
+]

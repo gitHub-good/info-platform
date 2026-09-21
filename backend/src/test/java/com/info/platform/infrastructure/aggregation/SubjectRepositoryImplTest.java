@@ -26,14 +26,15 @@ class SubjectRepositoryImplTest {
     @Test
     void save_newSubject_thenFindById_roundTrip() {
         // Arrange
+        // 注：SH600519/贵州茅台 由 V2 迁移脚本播种为示例标的，此处用非冲突代码验证 save→findById 往返
         Subject subject =
                 Subject.builder()
-                        .subjectCode(SubjectCode.of("SH600519"))
+                        .subjectCode(SubjectCode.of("SH601318"))
                         .market(Market.A_SHARE)
                         .subjectType(SubjectType.STOCK)
-                        .name("贵州茅台")
-                        .externalCodes(Map.of("tushare", "600519.SH", "akshare", "sh600519"))
-                        .industry("白酒")
+                        .name("中国平安")
+                        .externalCodes(Map.of("tushare", "601318.SH", "akshare", "sh601318"))
+                        .industry("保险")
                         .status(SubjectStatus.ENABLED)
                         .build();
 
@@ -48,36 +49,50 @@ class SubjectRepositoryImplTest {
         Optional<Subject> loaded = subjectRepository.findById(saved.getId());
         assertThat(loaded).isPresent();
         Subject found = loaded.get();
-        assertThat(found.getSubjectCode().value()).isEqualTo("SH600519");
+        assertThat(found.getSubjectCode().value()).isEqualTo("SH601318");
         assertThat(found.getMarket()).isEqualTo(Market.A_SHARE);
         assertThat(found.getSubjectType()).isEqualTo(SubjectType.STOCK);
-        assertThat(found.getName()).isEqualTo("贵州茅台");
-        assertThat(found.getIndustry()).isEqualTo("白酒");
+        assertThat(found.getName()).isEqualTo("中国平安");
+        assertThat(found.getIndustry()).isEqualTo("保险");
         assertThat(found.getStatus()).isEqualTo(SubjectStatus.ENABLED);
         assertThat(found.getExternalCodes())
-                .containsEntry("tushare", "600519.SH")
-                .containsEntry("akshare", "sh600519");
+                .containsEntry("tushare", "601318.SH")
+                .containsEntry("akshare", "sh601318");
+    }
+
+    @Test
+    void seededSubject_hasEastmoneySecidInExternalCodes() {
+        // V2 播种的示例标的：external_codes 含东财 secid 键（T03 行情取数键），验证 JSON TypeHandler 往返
+        Optional<Subject> loaded = subjectRepository.findByCode(SubjectCode.of("SH600519"));
+
+        assertThat(loaded).as("V2 应播种贵州茅台").isPresent();
+        Subject maotai = loaded.get();
+        assertThat(maotai.getName()).isEqualTo("贵州茅台");
+        assertThat(maotai.getExternalCodes())
+                .containsEntry("eastmoney", "1.600519")
+                .containsEntry("tushare", "600519.SH");
     }
 
     @Test
     void findByCode_returnsSubject() {
         // Arrange
+        // 注：HK00700/腾讯控股 由 V2 迁移脚本播种为示例标的，此处用非冲突代码验证 findByCode
         Subject subject =
                 Subject.builder()
-                        .subjectCode(SubjectCode.of("HK00700"))
+                        .subjectCode(SubjectCode.of("HK09988"))
                         .market(Market.HK)
                         .subjectType(SubjectType.STOCK)
-                        .name("腾讯控股")
-                        .externalCodes(Map.of("tushare", "00700.HK"))
+                        .name("阿里巴巴")
+                        .externalCodes(Map.of("tushare", "09988.HK"))
                         .build();
         subjectRepository.save(subject);
 
         // Act
-        Optional<Subject> loaded = subjectRepository.findByCode(SubjectCode.of("HK00700"));
+        Optional<Subject> loaded = subjectRepository.findByCode(SubjectCode.of("HK09988"));
 
         // Assert
         assertThat(loaded).isPresent();
-        assertThat(loaded.get().getName()).isEqualTo("腾讯控股");
+        assertThat(loaded.get().getName()).isEqualTo("阿里巴巴");
         assertThat(loaded.get().getMarket()).isEqualTo(Market.HK);
     }
 
