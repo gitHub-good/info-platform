@@ -159,6 +159,31 @@ class PushRepositoryImplTest {
     }
 
     @Test
+    void findPending_returnsAllUsersStatus0OrderedAsc() {
+        // Arrange：2 用户的待推 + 1 条已推 + 1 条失败（跨用户验证全量扫描）
+        PushRecord user1Pending =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "41", PushType.ANOMALY))
+                        .orElseThrow();
+        pushRepository.saveIfAbsent(newRecord(2L, "52", PushType.ANOMALY));
+        PushRecord done =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "50", PushType.ANOMALY))
+                        .orElseThrow();
+        done.markPushed(NOW);
+        pushRepository.update(done);
+
+        // Act
+        List<PushRecord> pending = pushRepository.findPending();
+
+        // Assert：跨用户全量 status=0，按 id 升序（user1 在前）
+        assertThat(pending).hasSize(2);
+        assertThat(pending).allMatch(r -> r.getStatus() == PushStatus.PENDING);
+        assertThat(pending.get(0).getId()).isEqualTo(user1Pending.getId());
+        assertThat(pending).extracting(r -> r.getUserId()).containsExactly(USER_ID, 2L);
+    }
+
+    @Test
     void update_markPushed_persistsSuccessStatusAndPushedAt() {
         PushRecord saved =
                 pushRepository

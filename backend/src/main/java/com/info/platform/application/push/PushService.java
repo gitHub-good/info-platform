@@ -91,10 +91,10 @@ public class PushService {
     }
 
     /**
-     * 异动推送编排（包级可见，便于单测直调绕过 @Async 代理）。
+     * 异动推送编排（包内可见，便于单测直调绕过 @Async 代理）。
      *
-     * <p>步骤：定位 anomaly_record（取 id 作 refId + 取 detail 作 content）→ 已 pushed 则跳过 → 解析推送目标 → 逐用户幂等防重推
-     * → 标记 anomaly_record.pushed=1（无论在线/离线/无目标，事件已处理即标记，防 findPending 重复拾取）。
+     * <p>步骤：定位 anomaly_record（取 id 作 refId）→ 委托 {@link #processAnomaly} 走「已 pushed 跳过 → 解析推送目标 →
+     * 逐用户幂等防重推 → 标记 pushed=1」全链路。 定位失败（事件与记录不一致，理论不应发生）记 WARN 跳过。
      */
     void handleAnomaly(AnomalyDetectedEvent event) {
         Optional<AnomalyRecord> recordOpt = locateAnomalyRecord(event);
@@ -106,7 +106,24 @@ public class PushService {
                     event.getTriggerTime());
             return;
         }
-        AnomalyRecord record = recordOpt.get();
+        processAnomaly(recordOpt.get());
+    }
+
+    /**
+     * 处理已定位的异动记录（包内可见）：已 pushed 跳过 → 解析推送目标 → 逐用户幂等防重推 → 标记 pushed=1。
+     *
+     * <p>双入口共用本方法，保证编排一致、幂等协调统一：
+     *
+     * <ul>
+     *   <li><b>实时消费</b>：{@link #handleAnomaly} 据 {@link AnomalyDetectedEvent} 定位记录后调（T14）。
+     *   <li><b>重启恢复</b>（T15）：补推 job 经 {@link AnomalyRepository#findPending} 拾取 pushed=0 记录直调——
+     *       进程崩溃在发事件与消费之间时，Spring {@code ApplicationEvent} 在内存不持久化、重启即丢； findPending
+     *       把这些「已入库未消费」的异动重新喂回推送链路。
+     * </ul>
+     *
+     * <p>无论在线推送 / 离线待推 / 无目标，事件已处理即标记 pushed=1，防 findPending 重复拾取（对齐 §4.3 流程 3）。
+     */
+    void processAnomaly(AnomalyRecord record) {
         if (record.isPushed()) {
             log.debug("异动推送：记录已 pushed，跳过 anomalyId={}", record.getId());
             return;
@@ -114,15 +131,15 @@ public class PushService {
         String refId = String.valueOf(record.getId());
         String content = record.getDetail().orElse(DEFAULT_ANOMALY_CONTENT);
 
-        Set<Long> targets = subscriptionResolver.resolveAnomalyTargets(event.getSubjectId());
+        Set<Long> targets = subscriptionResolver.resolveAnomalyTargets(record.getSubjectId());
         log.info(
                 "异动推送: anomalyId={} subjectId={} 目标用户 {} 个",
                 record.getId(),
-                event.getSubjectId(),
+                record.getSubjectId(),
                 targets.size());
         for (long userId : targets) {
             try {
-                pushAnomalyToOne(userId, event.getSubjectId(), refId, content);
+                pushAnomalyToOne(userId, record.getSubjectId(), refId, content);
             } catch (Exception e) {
                 // 单用户推送异常不阻断其他用户（与异动检测同策略：热路径单点失败不拖垮整批）
                 log.error(
@@ -136,7 +153,7 @@ public class PushService {
         // 事件已处理（在线推送 / 离线待推 / 无目标），标记 pushed=1 防 findPending 重复拾取
         record.markPushed();
         anomalyRepository.save(record);
-        log.info("异动推送完成 anomalyId={} subjectId={}", record.getId(), event.getSubjectId());
+        log.info("异动推送完成 anomalyId={} subjectId={}", record.getId(), record.getSubjectId());
     }
 
     /**
@@ -188,6 +205,31 @@ public class PushService {
                     saved.getPushType());
         }
         pushRepository.update(saved);
+    }
+
+    /**
+     * 补推单条待推记录（T15 补推 job 调用，包内可见）。
+     *
+     * <p>面向 push_record status=0（离线时留的待推）：用户当前在线 → 复用 {@link #deliver} 走 SSE 推送（失败重试1次仍失败 status=2
+     * 告警）+ 翻 status=1；仍离线 → 跳过，留 status=0 待下轮或 SSE 重连补拉。
+     *
+     * <p>幂等协调（与实时推不重复）：本方法<b>不重新 {@code saveIfAbsent}</b>——记录已存在，仅 {@code send + 状态翻转}。 实时推侧 {@code
+     * saveIfAbsent} 受 DB {@code UNIQUE(idempotency_key)} 约束，同 key 已存在即跳过不重发； 补推侧只翻现有记录状态， status 非
+     * 0 不入扫表（{@code findPending} 仅取 status=0），故不会重发已推记录。两条路径经 idempotency_key + status 双重隔离，无重复推送。
+     */
+    void retryPending(PushRecord record) {
+        if (!channel.isOnline(record.getUserId())) {
+            log.debug(
+                    "补推：用户离线跳过，留下次 userId={} pushRecordId={}", record.getUserId(), record.getId());
+            return;
+        }
+        NotificationEvent payload =
+                NotificationEvent.of(
+                        record.getPushType(),
+                        record.getSubjectId().orElse(null),
+                        record.getRefId().orElse(null),
+                        record.getContent());
+        deliver(record, record.getUserId(), payload);
     }
 
     /**

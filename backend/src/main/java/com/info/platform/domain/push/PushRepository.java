@@ -16,7 +16,8 @@ import java.util.Optional;
  * <h2>history 与重连补拉</h2>
  *
  * {@link #findByUserIdCursor} 游标分页供 history 接口（{@code WHERE id > cursor LIMIT n}，防深分页 §4.4）； {@link
- * #findPendingByUser} 取离线用户待推记录（status=0），供 SSE 重连时按 Last-Event-ID 补拉。
+ * #findPendingByUser} 取离线用户待推记录（status=0），供 SSE 重连时按 Last-Event-ID 补拉； {@link #findPending}
+ * 取全量待推记录（status=0），供 T15 补推 job 跨用户扫描补推。
  */
 public interface PushRepository {
 
@@ -41,4 +42,11 @@ public interface PushRepository {
 
     /** 离线用户待推记录（status=0/PENDING），按 id 升序，供 SSE 重连补拉。 */
     List<PushRecord> findPendingByUser(long userId);
+
+    /**
+     * 全量待推记录（status=0/PENDING），按 id 升序，供 T15 补推 job 跨用户扫描补推。
+     *
+     * <p>与 {@link #findPendingByUser} 区别：本方法不限 user，扫表全部 status=0 记录；补推 job 据在线状态决定补推/跳过。
+     */
+    List<PushRecord> findPending();
 }

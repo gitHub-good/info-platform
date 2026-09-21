@@ -129,6 +129,17 @@ public class PushRepositoryImpl implements PushRepository {
         return toEntities(pos);
     }
 
+    @Override
+    public List<PushRecord> findPending() {
+        // 全量 status=0 记录，按 id 升序（与 findPendingByUser 同索引前缀 status，无 user 过滤）
+        List<PushRecordPO> pos =
+                pushMapper.selectList(
+                        new LambdaQueryWrapper<PushRecordPO>()
+                                .eq(PushRecordPO::getStatus, PushStatus.PENDING.code())
+                                .orderByAsc(PushRecordPO::getId));
+        return toEntities(pos);
+    }
+
     private List<PushRecord> toEntities(List<PushRecordPO> pos) {
         if (pos == null || pos.isEmpty()) {
             return Collections.emptyList();

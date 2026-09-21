@@ -27,6 +27,12 @@ anomaly:
   detect:
     enabled: false
 
+# 补推 job 在测试环境关闭：@Scheduled 不触发（对齐 04 测试规范），
+# 补推逻辑改由单测直接调 recoverPendingAnomalies / retryPendingRecords 验证。
+push:
+  retry:
+    enabled: false
+
 logging:
   level:
     org.springframework: WARN

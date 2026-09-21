@@ -95,3 +95,12 @@ anomaly:
   detect:
     enabled: true
   detect-interval-millis: 10000
+
+# 推送补推 job（T15，§4.3 流程 3「断线靠 history 补拉」+ 重启恢复）：@Scheduled 每 30s 扫
+# anomaly_event pushed=0（重启未消费异动，复用 PushService 全链路补推）与 push_record status=0
+# （离线待推，在线补推/离线跳过/失败重试1次仍失败 status=2 告警）。
+# retry.enabled=false 时 Job 不装配（测试 profile 关）；@EnableScheduling 复用 AnomalySchedulingConfig。
+push:
+  retry:
+    enabled: true
+    interval-millis: 30000
