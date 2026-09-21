@@ -31,3 +31,12 @@ management:
     web:
       exposure:
         include: health,info
+
+# 数据源 adapter 切换：mock（T09 骨架）默认开启；T03~T08 真实 adapter 落地后设 false 切换
+adapter:
+  mock:
+    enabled: true
+
+# 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
+aggregation:
+  detail-timeout-millis: 2000

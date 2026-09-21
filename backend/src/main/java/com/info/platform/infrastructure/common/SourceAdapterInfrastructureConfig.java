@@ -38,6 +38,18 @@ public class SourceAdapterInfrastructureConfig {
         return new ResilienceRunner(sourceResilienceExecutor);
     }
 
+    /**
+     * 聚合编排并行执行器（虚拟线程），供 {@code AggregationService} 并行调度各 SourceAdapter。
+     *
+     * <p>与 {@link #sourceResilienceExecutor} 分离：前者承载各 adapter 内部阻塞式 doFetch（含超时）， 本执行器承载应用层
+     * CompletableFuture 并行编排。均为 thread-per-task 虚拟线程，无池上限，轻量。
+     */
+    @Bean(destroyMethod = "shutdown")
+    public ExecutorService aggregationExecutor() {
+        ThreadFactory factory = Thread.ofVirtual().name("aggregation-", 0).factory();
+        return Executors.newThreadPerTaskExecutor(factory);
+    }
+
     @Bean
     public CircuitBreaker circuitBreaker() {
         return new NoopCircuitBreaker();

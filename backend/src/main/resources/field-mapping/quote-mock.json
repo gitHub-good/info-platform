@@ -1,0 +1,11 @@
+[
+  {"source":"price","target":"price","transform":"to_decimal"},
+  {"source":"pct_chg","target":"changePct","transform":"to_decimal"},
+  {"source":"open","target":"open","transform":"to_decimal"},
+  {"source":"high","target":"high","transform":"to_decimal"},
+  {"source":"low","target":"low","transform":"to_decimal"},
+  {"source":"close","target":"close","transform":"to_decimal"},
+  {"source":"vol","target":"volume","transform":"to_long"},
+  {"source":"amount","target":"amount","transform":"to_decimal"},
+  {"source":"trade_date","target":"tradeDate","transform":"to_iso_date"}
+]
