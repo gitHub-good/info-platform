@@ -17,6 +17,29 @@ function jobLogPage(items: Array<Record<string, unknown>> = []) {
   return { items, nextCursor: null };
 }
 
+/** 数据源配置页最小视图（#/datasource-config 导航用：总超时条 + 7 源空态健康）。 */
+function datasourceConfigView() {
+  const sources = ['QUOTE', 'FINANCE', 'VALUATION', 'ANNOUNCE', 'NEWS', 'POLICY', 'EVENT'].map(
+    (code) => ({
+      sourceCode: code,
+      label: `${code}源`,
+      enabled: true,
+      mode: 'MOCK',
+      timeoutMillis: 1500,
+      retries: 0,
+      cacheTtlSeconds: 5,
+      params: {},
+      health: { lastEventType: null, lastEventAt: null, errors24h: 0 },
+      updatedAt: null,
+      effectiveModes: {},
+    }),
+  );
+  return {
+    sources,
+    aggregation: { detailTimeoutMillis: 2000, updatedAt: null, effectiveModes: {} },
+  };
+}
+
 /** LLM 配置页最小视图（#/llm-config 导航用：全局卡 + 空 provider）。 */
 function emptyLlmConfig() {
   return {
@@ -81,6 +104,14 @@ function makeFetch() {
     }
     if (path.includes('/llm-config')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: emptyLlmConfig(), traceId: 't' });
+    }
+    if (path.includes('/datasource-configs')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: datasourceConfigView(),
+        traceId: 't',
+      });
     }
     return mockResponse(200, { code: 0, msg: 'ok', data: null, traceId: 't' });
   });
@@ -186,13 +217,12 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(window.location.hash).toBe('#/subjects');
   });
 
-  it('4 个新页路由占位（#/datasource-config、#/task-center、#/overview、#/feed），#/llm-config 为 T39 实现页', async () => {
+  it('3 个新页路由占位（#/task-center、#/overview、#/feed），#/llm-config（T39）与 #/datasource-config（T40）为实现页', async () => {
     const user = userEvent.setup();
-    renderLoggedIn('#/overview');
+    const fetchMock = renderLoggedIn('#/overview');
 
     // 经侧栏逐项导航，未实现页渲染「开发中」占位
     const placeholders: Array<[string, string]> = [
-      ['nav-item-datasource-config', 'datasource-config-placeholder'],
       ['nav-item-task-center', 'task-center-placeholder'],
       ['nav-item-feed', 'feed-placeholder'],
       ['nav-item-overview', 'overview-placeholder'],
@@ -207,6 +237,16 @@ describe('App 路由与登录守卫（T38）', () => {
     await user.click(screen.getByTestId('nav-item-llm-config'));
     expect(await screen.findByTestId('llm-config-page')).toBeInTheDocument();
     expect(screen.queryByTestId('llm-config-placeholder')).toBeNull();
+
+    // #/datasource-config（T40）：真实页挂载并请求数据源配置接口
+    await user.click(screen.getByTestId('nav-item-datasource-config'));
+    expect(await screen.findByTestId('datasource-config-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('datasource-config-placeholder')).toBeNull();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/datasource-configs')),
+      ).toBe(true),
+    );
   });
 
   it('未知路由已登录时无内容区崩坏（侧栏仍在，内容区空）', () => {

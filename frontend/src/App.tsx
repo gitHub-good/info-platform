@@ -8,6 +8,7 @@ import { PlaceholderPage } from '@/pages/PlaceholderPage';
 import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { Watchlist } from '@/pages/Watchlist';
+import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { getToken } from '@/api/http';
 import { navigate, parseSubjectCode, queryOf } from '@/lib/navigation';
@@ -62,7 +63,7 @@ function renderPage(route: string) {
       </main>
     );
   }
-  // 新增 5 页：#/llm-config 已实现（T39），其余本批占位（「开发中」），T40~T43 逐页填充
+  // 新增 5 页：#/llm-config（T39）与 #/datasource-config（T40）已实现，其余占位（「开发中」），T41~T43 逐页填充
   if (route.startsWith('/overview')) {
     return (
       <PlaceholderPage
@@ -77,13 +78,7 @@ function renderPage(route: string) {
     return <LlmConfig />;
   }
   if (route.startsWith('/datasource-config')) {
-    return (
-      <PlaceholderPage
-        title="数据源配置"
-        description="7 源开关 / 运行模式 / 弹性参数与健康状态一页管理"
-        testId="datasource-config-placeholder"
-      />
-    );
+    return <DatasourceConfig />;
   }
   if (route.startsWith('/task-center')) {
     return (
