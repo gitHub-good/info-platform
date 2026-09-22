@@ -65,8 +65,9 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
             ConfigFieldRules.enforce(document, GLOBAL_RULES);
             return;
         }
-        ConfigFieldRules.enforce(document, PROVIDER_RULES);
+        // 跨字段规则先于字段表执行：字段表首错抛出会短路跨字段校验，fallback 非法值会漏到下一次提交才暴露
         checkFallback(configKey, document);
+        ConfigFieldRules.enforce(document, PROVIDER_RULES);
     }
 
     /** fallback 须为已知 provider（本期不增删条目，已知集 = yml 配置名）且不得指向自身。 */

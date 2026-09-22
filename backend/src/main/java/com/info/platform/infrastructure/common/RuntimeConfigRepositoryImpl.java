@@ -7,13 +7,17 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link RuntimeConfigRepository} 端口的 SQLite/MyBatis-Plus 实现（T34）。
  *
  * <p>PO↔Entity 转换集中于此；时间戳存 ISO-8601 整秒文本。 upsert：新键插入（沿用实体时间戳）；既有键整体替换 config_value 并以实体 updated_at
  * 落库，保留 created_at 与既有 description（实体未携带说明时不动旧值）。
+ *
+ * <p><b>save 不加 {@code @Transactional}（T35 修复）</b>：本方法「读后写」在事务内会以读快照升级写锁——WAL 模式下若期间其他连接（启动即触发的 Job
+ * 留痕等）提交写入，SQLite 立即返回 SQLITE_BUSY_SNAPSHOT（busy_timeout 不挽救过期快照），首启种子与 Job 并发即崩（复现：默认 profile +
+ * 全新文件库启动）。 改为语句级自动提交：select 与 insert/update 各自原子，写锁竞争走 busy_timeout 排队；同键并发写由上层 {@code
+ * RuntimeConfigService} 单写者协议（synchronized）防护（ADR-0017「单用户单写者」）。
  */
 @Repository
 public class RuntimeConfigRepositoryImpl implements RuntimeConfigRepository {
@@ -39,7 +43,6 @@ public class RuntimeConfigRepositoryImpl implements RuntimeConfigRepository {
     }
 
     @Override
-    @Transactional
     public RuntimeConfig save(RuntimeConfig config) {
         RuntimeConfigPO existing =
                 mapper.selectOne(
