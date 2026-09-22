@@ -34,6 +34,12 @@ public class LlmConfig {
     /** 单用户日 token 预算（成本上限，对齐 §4.4 / Spike-2 §8.3）。 */
     private long dailyTokenBudgetPerUser = 20000;
 
+    /**
+     * 预算告警阈值比例（0~1）：用量达 {@code dailyTokenBudgetPerUser × 本值} 即告警（T30）—— 网关记 WARN 日志 + 成本报表置
+     * WARNING 状态，耗尽（100%）才拦截。默认 0.8（留 20% 余量，Spike-2 §8.3 个人量级）。
+     */
+    private double budgetWarnRatio = 0.8;
+
     private Cache cache = new Cache();
 
     public List<Provider> getProviders() {
@@ -66,6 +72,14 @@ public class LlmConfig {
 
     public void setDailyTokenBudgetPerUser(long dailyTokenBudgetPerUser) {
         this.dailyTokenBudgetPerUser = dailyTokenBudgetPerUser;
+    }
+
+    public double getBudgetWarnRatio() {
+        return budgetWarnRatio;
+    }
+
+    public void setBudgetWarnRatio(double budgetWarnRatio) {
+        this.budgetWarnRatio = budgetWarnRatio;
     }
 
     public Cache getCache() {
@@ -138,6 +152,15 @@ public class LlmConfig {
 
         private String fallback;
 
+        /**
+         * 输入单价（元/百万 token，T30 成本估算）。公开定价来自 Spike-2 §8.1（DeepSeek-flash 空闲档 1.0 / 高峰 2.0）； 免费档
+         * GLM 与未确认厂商默认 0（不估算）。厂商调价只改配置，不动代码。
+         */
+        private double inputPricePerMillion = 0;
+
+        /** 输出单价（元/百万 token），口径同 {@link #inputPricePerMillion}（flash 空闲档 4.0 / 高峰 8.0）。 */
+        private double outputPricePerMillion = 0;
+
         public String getName() {
             return name;
         }
@@ -192,6 +215,22 @@ public class LlmConfig {
 
         public void setFallback(String fallback) {
             this.fallback = fallback;
+        }
+
+        public double getInputPricePerMillion() {
+            return inputPricePerMillion;
+        }
+
+        public void setInputPricePerMillion(double inputPricePerMillion) {
+            this.inputPricePerMillion = inputPricePerMillion;
+        }
+
+        public double getOutputPricePerMillion() {
+            return outputPricePerMillion;
+        }
+
+        public void setOutputPricePerMillion(double outputPricePerMillion) {
+            this.outputPricePerMillion = outputPricePerMillion;
         }
     }
 

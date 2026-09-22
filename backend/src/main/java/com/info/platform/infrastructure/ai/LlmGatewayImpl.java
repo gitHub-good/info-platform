@@ -1,9 +1,12 @@
 package com.info.platform.infrastructure.ai;
 
+import com.info.platform.domain.ai.LlmCallLog;
 import com.info.platform.domain.ai.LlmException;
 import com.info.platform.domain.ai.LlmGateway;
 import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
+import com.info.platform.domain.ai.LlmUsage;
+import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.UserContext;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -23,7 +26,9 @@ import org.springframework.stereotype.Component;
 /**
  * LLM 网关实现（{@link LlmGateway} 端口，ADR-0004 + ADR-0008 + 技术方案 §4.4 + ADR-0010）。
  *
- * <p>编排顺序：缓存命中直返（0 成本）→ 成本上限校验 → fallback 链调用（每调用裹 Future 超时）→ 用量入账 + 写缓存。
+ * <p>编排顺序：缓存命中直返（0 成本）→ 成本上限校验 → fallback 链调用（每调用裹 Future 超时）→ 用量入账 + 写缓存。 T30
+ * 起每次 chat 落一行调用留痕（{@link LlmCallLog}，经 {@link LlmCallLogger}——缓存命中/成功/失败/预算拒绝四态， 供成本报表
+ * {@code GET /api/v1/llm-cost-report} 聚合；留痕失败不阻断调用）。
  *
  * <p><b>Fallback 链</b>（对齐 §4.4 + ADR-0008）：从 {@code default: true} provider 起，按 {@code fallback}
  * 字段串联（带环检测）；逐个调用 enabled 且已装配的 adapter，任一成功即返。 失败类型（超时 / 限频 429 {@code
@@ -47,6 +52,7 @@ public class LlmGatewayImpl implements LlmGateway {
     private final LlmConfig config;
     private final LlmCostGuard costGuard;
     private final LlmCache cache;
+    private final LlmCallLogger callLog;
     private final ExecutorService executor;
     private final Duration timeout;
 
@@ -55,28 +61,47 @@ public class LlmGatewayImpl implements LlmGateway {
             LlmConfig config,
             LlmCostGuard costGuard,
             LlmCache cache,
+            LlmCallLogger callLog,
             @Qualifier("llmExecutor") ExecutorService executor) {
         this.adapters = adapters == null ? List.of() : adapters;
         this.config = config;
         this.costGuard = costGuard;
         this.cache = cache;
+        this.callLog = callLog;
         this.executor = executor;
         this.timeout = config.timeout();
     }
 
     @Override
     public LlmResponse chat(LlmRequest request) {
+        long startNanos = System.nanoTime();
         LlmResponse cached = cache.getIfPresent(request);
         if (cached != null) {
             log.debug("LLM 缓存命中 briefType={}，0 调用", request.briefTypeKey());
+            LlmCallLog hit = LlmCallLog.begin(currentUserId(), request.briefTypeKey());
+            hit.markCacheHit(
+                    cached.provider() == null ? null : cached.provider().configName(),
+                    cached.model(),
+                    elapsedMillis(startNanos));
+            callLog.record(hit);
             return cached;
         }
 
         long userId = currentUserId();
-        costGuard.checkBudget(userId);
+        try {
+            costGuard.checkBudget(userId);
+        } catch (BusinessException e) {
+            LlmCallLog rejected = LlmCallLog.begin(userId, request.briefTypeKey());
+            rejected.markRejected(String.valueOf(e.getMessage()));
+            callLog.record(rejected);
+            throw e;
+        }
 
         List<String> chain = config.fallbackChain();
         if (chain.isEmpty()) {
+            LlmCallLog noProvider = LlmCallLog.begin(userId, request.briefTypeKey());
+            noProvider.markFailed("未配置 default LLM provider", elapsedMillis(startNanos));
+            callLog.record(noProvider);
             throw new LlmException("未配置 default LLM provider", List.of(), null);
         }
         Map<String, LlmProviderAdapter> byName = new HashMap<>();
@@ -103,6 +128,14 @@ public class LlmGatewayImpl implements LlmGateway {
                 LlmResponse resp = callWithTimeout(adapter, request);
                 costGuard.recordUsage(userId, resp.usage());
                 cache.put(request, resp);
+                LlmCallLog ok = LlmCallLog.begin(userId, request.briefTypeKey());
+                ok.markSuccess(
+                        name,
+                        resp.model(),
+                        resp.usage(),
+                        costMicros(name, resp.usage()),
+                        elapsedMillis(startNanos));
+                callLog.record(ok);
                 return resp;
             } catch (TimeoutException te) {
                 log.warn("LLM provider '{}' 超时（{}），切 fallback", name, timeout);
@@ -117,7 +150,27 @@ public class LlmGatewayImpl implements LlmGateway {
                 lastError = e;
             }
         }
+        LlmCallLog failed = LlmCallLog.begin(userId, request.briefTypeKey());
+        failed.markFailed("所有 LLM provider 均失败：" + attempted, elapsedMillis(startNanos));
+        callLog.record(failed);
         throw new LlmException("所有 LLM provider 均失败：" + attempted, attempted, lastError);
+    }
+
+    /** 按 provider 配置单价估算成本（微元）；未配置 provider 或单价默认 0（不估算）。 */
+    private long costMicros(String providerName, LlmUsage usage) {
+        LlmConfig.Provider providerCfg = config.providerByName(providerName);
+        if (providerCfg == null || usage == null) {
+            return 0L;
+        }
+        return LlmCallLog.estimateCostMicros(
+                usage.promptTokens(),
+                usage.completionTokens(),
+                providerCfg.getInputPricePerMillion(),
+                providerCfg.getOutputPricePerMillion());
+    }
+
+    private static long elapsedMillis(long startNanos) {
+        return Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);
     }
 
     private LlmResponse callWithTimeout(LlmProviderAdapter adapter, LlmRequest request)

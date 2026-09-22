@@ -74,6 +74,32 @@ class LlmConfigTest {
     }
 
     @Test
+    void budgetWarnRatio_defaultsTo080() {
+        assertThat(new LlmConfig().getBudgetWarnRatio()).isEqualTo(0.8);
+    }
+
+    @Test
+    void providerPrice_defaultsToZero_andBindsFromYaml() {
+        // Assert：未配置单价默认 0（免费档/未确认厂商不估算）
+        assertThat(new Provider().getInputPricePerMillion()).isZero();
+        assertThat(new Provider().getOutputPricePerMillion()).isZero();
+
+        // Act：Binder 验证 yaml 单价键绑定（与 @ConfigurationProperties 同规则）
+        Map<String, Object> source = new LinkedHashMap<>();
+        source.put("llm.providers[0].name", "deepseek");
+        source.put("llm.providers[0].input-price-per-million", "1.0");
+        source.put("llm.providers[0].output-price-per-million", "4.0");
+        source.put("llm.budget-warn-ratio", "0.9");
+        Binder binder = new Binder(new MapConfigurationPropertySource(source));
+        LlmConfig config = binder.bind("llm", Bindable.of(LlmConfig.class)).orElse(new LlmConfig());
+
+        // Assert
+        assertThat(config.providerByName("deepseek").getInputPricePerMillion()).isEqualTo(1.0);
+        assertThat(config.providerByName("deepseek").getOutputPricePerMillion()).isEqualTo(4.0);
+        assertThat(config.getBudgetWarnRatio()).isEqualTo(0.9);
+    }
+
+    @Test
     void binding_mapsYamlIncludingDefaultKey() {
         // 验证 yaml `default: true` 经 relaxed binding 绑到 Provider.isDefault（Binder 走与
         // @ConfigurationProperties 相同的绑定规则，免启完整 Spring 上下文）
