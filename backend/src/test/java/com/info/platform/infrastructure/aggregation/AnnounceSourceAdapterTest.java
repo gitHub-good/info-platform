@@ -23,6 +23,7 @@ import com.info.platform.infrastructure.common.SourceCache;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -408,6 +409,18 @@ class AnnounceSourceAdapterTest {
                     assertThat(context).hasSingleBean(MockAnnounceSourceAdapter.class);
                     assertThat(context).doesNotHaveBean(AnnounceSourceAdapter.class);
                 });
+    }
+
+    @Test
+    void supportedSubjectTypes_stockOnly() {
+        // Arrange: T31 类型注册位 —— np-anotice-stock 为上市公司公告端点
+        AnnounceSourceAdapter adapter = newAdapter();
+
+        // Act
+        Set<SubjectType> supported = adapter.supportedSubjectTypes();
+
+        // Assert: 仅股票；指数/板块/预留类型（基金/债券）不进本源取数
+        assertThat(supported).containsExactly(SubjectType.STOCK);
     }
 
     @Configuration

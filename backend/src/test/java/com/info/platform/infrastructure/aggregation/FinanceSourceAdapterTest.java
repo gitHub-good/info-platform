@@ -24,6 +24,7 @@ import com.info.platform.infrastructure.common.SourceCache;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -268,6 +269,18 @@ class FinanceSourceAdapterTest {
                     assertThat(context).hasSingleBean(MockFinanceSourceAdapter.class);
                     assertThat(context).doesNotHaveBean(FinanceSourceAdapter.class);
                 });
+    }
+
+    @Test
+    void supportedSubjectTypes_stockOnly() {
+        // Arrange: T31 类型注册位 —— F10 主财务指标为上市公司专属
+        FinanceSourceAdapter adapter = newAdapter();
+
+        // Act
+        Set<SubjectType> supported = adapter.supportedSubjectTypes();
+
+        // Assert: 仅股票；指数/板块/预留类型（基金/债券）不进本源取数
+        assertThat(supported).containsExactly(SubjectType.STOCK);
     }
 
     @Configuration

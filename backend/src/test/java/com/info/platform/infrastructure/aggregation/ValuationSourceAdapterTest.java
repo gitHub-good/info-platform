@@ -23,6 +23,7 @@ import com.info.platform.infrastructure.common.SourceCache;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -229,6 +230,18 @@ class ValuationSourceAdapterTest {
                     assertThat(context).hasSingleBean(MockValuationSourceAdapter.class);
                     assertThat(context).doesNotHaveBean(ValuationSourceAdapter.class);
                 });
+    }
+
+    @Test
+    void supportedSubjectTypes_stockOnly() {
+        // Arrange: T31 类型注册位 —— PE-TTM/PB 为个股估值语义
+        ValuationSourceAdapter adapter = newAdapter();
+
+        // Act
+        Set<SubjectType> supported = adapter.supportedSubjectTypes();
+
+        // Assert: 仅股票；指数/板块/预留类型（基金/债券）不进本源取数
+        assertThat(supported).containsExactly(SubjectType.STOCK);
     }
 
     @Configuration

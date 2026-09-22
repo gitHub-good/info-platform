@@ -2,16 +2,19 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.Subject;
+import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -41,6 +44,12 @@ public class MockValuationSourceAdapter extends AbstractSourceAdapter {
     @Override
     public SourceCode sourceCode() {
         return SourceCode.VALUATION;
+    }
+
+    /** T31：与真实 ValuationSourceAdapter 对齐（PE/PB 个股估值语义），mock/real 支持范围一致。 */
+    @Override
+    public Set<SubjectType> supportedSubjectTypes() {
+        return EnumSet.of(SubjectType.STOCK);
     }
 
     @Override

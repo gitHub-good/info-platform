@@ -2,15 +2,18 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.Subject;
+import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -62,6 +65,12 @@ public class FinanceSourceAdapter extends AbstractSourceAdapter {
     @Override
     public SourceCode sourceCode() {
         return SourceCode.FINANCE;
+    }
+
+    /** T31：F10 主财务指标为上市公司专属，本源仅支持股票。 */
+    @Override
+    public Set<SubjectType> supportedSubjectTypes() {
+        return EnumSet.of(SubjectType.STOCK);
     }
 
     @Override

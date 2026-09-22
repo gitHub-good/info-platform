@@ -35,6 +35,9 @@ import org.springframework.stereotype.Service;
  *
  * <p>各 adapter 自带弹性超时级联收敛（下游之和 < 上游 2s 预算）；应用层仅依赖 {@code SourceAdapter} 端口 （领域层）与 {@code
  * SubjectRepository} 端口，不引基础设施实现细节。真实 adapter（T03~T08）替换 mock 后本类无需改动。
+ *
+ * <p>T31 扩展位：按 {@link SourceAdapter#supportedSubjectTypes()} 过滤不适用本类型的源（不调外部源，分区 missing
+ * 降级）——新增标的类型只注册 adapter 支持声明，本编排类零改动。
  */
 @Service
 public class AggregationService {
@@ -84,6 +87,19 @@ public class AggregationService {
         for (SourceCode code : targets) {
             SourceAdapter adapter = adapters.get(code);
             if (adapter == null) {
+                continue;
+            }
+            if (!adapter.supportedSubjectTypes().contains(subject.getSubjectType())) {
+                // T31 扩展位：本源不支持该标的类型 → 不调外部源，分区按 missing 降级（sourceStatus 契约不变）。
+                log.debug(
+                        "源不适用标的类型，跳过取数 sourceCode={} subjectId={} subjectType={}",
+                        code,
+                        subjectId,
+                        subject.getSubjectType());
+                futures.put(
+                        code,
+                        CompletableFuture.completedFuture(
+                                SourceResult.missing(code, subject.getId(), code.name())));
                 continue;
             }
             futures.put(

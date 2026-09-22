@@ -16,6 +16,7 @@ import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -254,12 +256,86 @@ class AggregationServiceTest {
         }
     }
 
+    @Test
+    void getDetail_adapterUnsupportedSubjectType_skipsFetchAndMarksMissing() {
+        // Arrange: 板块标的 + 仅支持股票的财务源（T31 注册位收窄）；fetch 计数验证不被调用
+        when(subjectRepository.findById(1L))
+                .thenReturn(Optional.of(subject(1L, SubjectType.SECTOR)));
+        AtomicInteger fetchCalls = new AtomicInteger();
+        SourceAdapter stockOnlyFinance =
+                new SourceAdapter() {
+                    @Override
+                    public SourceResult fetch(Subject s) {
+                        fetchCalls.incrementAndGet();
+                        return SourceResult.ok(
+                                SourceCode.FINANCE,
+                                s.getId(),
+                                Map.of("revenue", "1"),
+                                "t",
+                                Instant.now());
+                    }
+
+                    @Override
+                    public SourceCode sourceCode() {
+                        return SourceCode.FINANCE;
+                    }
+
+                    @Override
+                    public Set<SubjectType> supportedSubjectTypes() {
+                        return EnumSet.of(SubjectType.STOCK);
+                    }
+                };
+        SourceAdapter defaultQuote = okAdapter(SourceCode.QUOTE, Map.of("price", "1"));
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository,
+                        List.of(stockOnlyFinance, defaultQuote),
+                        syncExecutor,
+                        2000);
+
+        // Act
+        SubjectDetail detail = service.getDetail(1L, Set.of());
+
+        // Assert: 不适用源不调 fetch、分区按 missing 降级（sourceStatus 契约不变）；默认支持源正常
+        assertThat(fetchCalls.get()).isZero();
+        assertThat(detail.sourceStatus().get("finance")).isEqualTo("missing");
+        assertThat(detail.finance()).isNull();
+        assertThat(detail.sourceStatus().get("quote")).isEqualTo("ok");
+        assertThat(detail.quote()).isNotNull();
+    }
+
+    @Test
+    void getDetail_defaultSupportedTypes_coverIndexAndSector() {
+        // Arrange: 指数标的 + 未覆写注册位的源（端口默认 = 全部已开放类型）
+        when(subjectRepository.findById(2L))
+                .thenReturn(Optional.of(subject(2L, SubjectType.INDEX)));
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository,
+                        List.of(
+                                okAdapter(SourceCode.QUOTE, Map.of("price", "3000")),
+                                okAdapter(SourceCode.NEWS, Map.of("items", List.of()))),
+                        syncExecutor,
+                        2000);
+
+        // Act
+        SubjectDetail detail = service.getDetail(2L, Set.of());
+
+        // Assert: 默认注册位对指数/板块开放，行为不回归
+        assertThat(detail.sourceStatus().get("quote")).isEqualTo("ok");
+        assertThat(detail.sourceStatus().get("news")).isEqualTo("ok");
+    }
+
     private static Subject subject(Long id) {
+        return subject(id, SubjectType.STOCK);
+    }
+
+    private static Subject subject(Long id, SubjectType type) {
         return Subject.reconstruct(
                 id,
                 SubjectCode.of("SH600519"),
                 Market.A_SHARE,
-                SubjectType.STOCK,
+                type,
                 "贵州茅台",
                 Map.of("tushare", "600519.SH"),
                 "白酒",

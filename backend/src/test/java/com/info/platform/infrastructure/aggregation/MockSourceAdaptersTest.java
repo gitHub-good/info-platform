@@ -153,6 +153,42 @@ class MockSourceAdaptersTest {
         assertThat(first.get("triggerTime")).isEqualTo("2026-09-21T02:00:00Z");
     }
 
+    @Test
+    void supportedSubjectTypes_stockSpecificNarrowed_othersDefaultActive() {
+        // Arrange: T31 类型注册位 —— mock 与真实 adapter 支持范围一致
+        MockQuoteSourceAdapter quote =
+                new MockQuoteSourceAdapter(cache, fieldMapper, runner, breaker);
+        MockFinanceSourceAdapter finance =
+                new MockFinanceSourceAdapter(cache, fieldMapper, runner, breaker);
+        MockValuationSourceAdapter valuation =
+                new MockValuationSourceAdapter(cache, fieldMapper, runner, breaker);
+        MockAnnounceSourceAdapter announce =
+                new MockAnnounceSourceAdapter(cache, fieldMapper, runner, breaker);
+        MockNewsSourceAdapter news = new MockNewsSourceAdapter(cache, fieldMapper, runner, breaker);
+        MockPolicySourceAdapter policy =
+                new MockPolicySourceAdapter(cache, fieldMapper, runner, breaker);
+        MockEventSourceAdapter event =
+                new MockEventSourceAdapter(cache, fieldMapper, runner, breaker);
+
+        // Assert: 股票专用源收窄到 STOCK
+        assertThat(finance.supportedSubjectTypes()).containsExactly(SubjectType.STOCK);
+        assertThat(valuation.supportedSubjectTypes()).containsExactly(SubjectType.STOCK);
+        assertThat(announce.supportedSubjectTypes()).containsExactly(SubjectType.STOCK);
+        // Assert: 通用源未覆写 → 端口默认 = 全部已开放类型（股票/指数/板块），预留类型不含其中
+        assertThat(quote.supportedSubjectTypes())
+                .containsExactlyInAnyOrder(
+                        SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
+        assertThat(news.supportedSubjectTypes())
+                .containsExactlyInAnyOrder(
+                        SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
+        assertThat(policy.supportedSubjectTypes())
+                .containsExactlyInAnyOrder(
+                        SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
+        assertThat(event.supportedSubjectTypes())
+                .containsExactlyInAnyOrder(
+                        SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
+    }
+
     private static Subject subject(Long id) {
         return Subject.reconstruct(
                 id,
