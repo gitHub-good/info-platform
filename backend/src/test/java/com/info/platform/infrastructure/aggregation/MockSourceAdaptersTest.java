@@ -25,9 +25,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * 6 个 MockSourceAdapter
- * 契约测试（T09）：验证混合状态（QUOTE/FINANCE/VALUATION/ANNOUNCE=OK、NEWS=FAILED、POLICY=MISSING） 与 FieldMapper
- * JSON 映射链路。纯单元：直接构造 adapter + 真实虚拟线程执行器（真实超时，非 mock）。
+ * 7 个 MockSourceAdapter
+ * 契约测试（T09）：验证混合状态（QUOTE/FINANCE/VALUATION/ANNOUNCE/EVENT=OK、NEWS=FAILED、POLICY=MISSING） 与
+ * FieldMapper JSON 映射链路。纯单元：直接构造 adapter + 真实虚拟线程执行器（真实超时，非 mock）。
  */
 class MockSourceAdaptersTest {
 
@@ -131,6 +131,26 @@ class MockSourceAdaptersTest {
         assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
         assertThat(result.getData()).isEmpty();
         assertThat(result.getSource()).isEqualTo("政策源(mock)");
+    }
+
+    @Test
+    void eventAdapter_returnsOkWithSampleItems() {
+        // T08（ADR-0013）：事件 mock 走 data.items 列表契约，供 mock 模式下详情页事件分区展示
+        MockEventSourceAdapter adapter =
+                new MockEventSourceAdapter(cache, fieldMapper, runner, breaker);
+
+        SourceResult result = adapter.fetch(subject(1L));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat(result.getSourceCode()).isEqualTo(SourceCode.EVENT);
+        assertThat(result.getSource()).isEqualTo("事件监控(mock)");
+        Object items = result.getData().get("items");
+        assertThat(items).isInstanceOf(List.class);
+        assertThat((List<?>) items).hasSize(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> first = ((List<Map<String, Object>>) items).get(0);
+        assertThat(first.get("anomalyType")).isEqualTo("PRICE_CHANGE");
+        assertThat(first.get("triggerTime")).isEqualTo("2026-09-21T02:00:00Z");
     }
 
     private static Subject subject(Long id) {

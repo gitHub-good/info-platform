@@ -12,8 +12,8 @@ import java.util.Map;
 /**
  * 数据源本地缓存（Caffeine Cache-Aside，ADR-0005）。
  *
- * <p>按 {@link SourceCode} 分缓存区，差异化 TTL（行情 5s / 财务·估值 1h / 公告 5min / 新闻 2min / 政策 10min）， 各区均设
- * maximumSize + expireAfterWrite（Caffeine 红线：防 OOM、防陈旧数据；禁当持久层）。 key=subjectId，value={@link
+ * <p>按 {@link SourceCode} 分缓存区，差异化 TTL（行情 5s / 财务·估值 1h / 公告 5min / 新闻 2min / 政策 10min / 事件 30s），
+ * 各区均设 maximumSize + expireAfterWrite（Caffeine 红线：防 OOM、防陈旧数据；禁当持久层）。 key=subjectId，value={@link
  * SourceResult}。
  *
  * <p>仅缓存 status={@link SourceStatus#OK} 的结果：MISSING/FAILED 不缓存，避免长 TTL 源（如财务 1h）把"暂无数据"误锁一整小时。
@@ -59,6 +59,9 @@ public class SourceCache {
             case ANNOUNCE -> new CacheSpec(Duration.ofMinutes(5), 2_000);
             case NEWS -> new CacheSpec(Duration.ofMinutes(2), 3_000);
             case POLICY -> new CacheSpec(Duration.ofMinutes(10), 2_000);
+                // 事件源读本地表（无外部 QPS 压力），TTL 取 30s 平衡新鲜度与查询频次
+                // （异动检测 10s 轮询落库，30s 内新事件可见，对齐 T15 补推间隔量级）
+            case EVENT -> new CacheSpec(Duration.ofSeconds(30), 2_000);
         };
     }
 
