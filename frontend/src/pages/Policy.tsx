@@ -4,11 +4,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { IndustryFilter } from '@/components/policy/IndustryFilter';
 import { PolicyDetail } from '@/components/policy/PolicyDetail';
 import { PolicyList } from '@/components/policy/PolicyList';
-import { logout } from '@/api/auth';
 import { ApiError } from '@/api/http';
 import { trackReadingOnce } from '@/api/readingEvent';
 import { DEFAULT_POLICY_DAYS, getPolicy, listPolicies } from '@/api/policy';
-import { navigate } from '@/lib/navigation';
 import type { PolicyDetailView, PolicyView } from '@/types/policy';
 
 /** 非 ApiError 兜底文案。 */
@@ -117,10 +115,6 @@ export function Policy() {
   const handleRetryDetail = () => {
     if (selectedId != null) void handleSelect(selectedId);
   };
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
 
   // 行业选项：从已加载政策 relatedIndustries 去重排序
   const industries = Array.from(
@@ -131,26 +125,8 @@ export function Policy() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="policy-page">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4">
         <h1 className="text-xl font-medium">政策时事</h1>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/watchlists')}
-            data-testid="policy-back"
-          >
-            返回清单
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLogout}
-            data-testid="policy-logout"
-          >
-            登出
-          </Button>
-        </div>
       </header>
 
       <div className="mb-4">

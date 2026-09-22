@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/table';
 import { ApiError } from '@/api/http';
 import { getLlmCostReport } from '@/api/llmCostReport';
-import { navigate } from '@/lib/navigation';
 import type { LlmBudgetStatus, LlmCostReport, LlmCostWindow } from '@/types/llmCostReport';
 
 /** 非 ApiError 兜底文案。 */
@@ -171,16 +170,8 @@ export function LlmCostReport() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="cost-report-page">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4">
         <h1 className="text-xl font-medium">LLM 成本报表</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate('/watchlists')}
-          data-testid="cost-report-back"
-        >
-          返回清单
-        </Button>
       </header>
 
       <div className="mb-4 flex items-center justify-between gap-2">

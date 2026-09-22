@@ -39,11 +39,8 @@ function renderPage(route: string) {
     return <Watchlist />;
   }
   if (route.startsWith('/ai-brief')) {
-    return (
-      <main className="mx-auto w-full max-w-4xl p-4 sm:p-6">
-        <AiBrief />
-      </main>
-    );
+    // AiBrief 自带 main+max-w-4xl（T44 去掉此处外层嵌套 main：同页双 main 属无效结构）
+    return <AiBrief />;
   }
   if (route.startsWith('/policies')) {
     return <Policy />;

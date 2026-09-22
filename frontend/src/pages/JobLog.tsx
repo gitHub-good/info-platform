@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/table';
 import { ApiError } from '@/api/http';
 import { listJobLogs } from '@/api/jobLog';
-import { navigate } from '@/lib/navigation';
 import type { JobExecutionStatus, JobLogView } from '@/types/jobLog';
 
 /** 非 ApiError 兜底文案。 */
@@ -171,16 +170,8 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="job-log-page">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4">
         <h1 className="text-xl font-medium">Job 执行日志</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate('/watchlists')}
-          data-testid="job-log-back"
-        >
-          返回清单
-        </Button>
       </header>
 
       <div className="mb-4">

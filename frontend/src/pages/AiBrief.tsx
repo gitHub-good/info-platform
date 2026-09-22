@@ -7,7 +7,6 @@ import { BriefStatusBadge } from '@/components/aibrief/BriefStatusBadge';
 import { BriefTriggerForm } from '@/components/aibrief/BriefTriggerForm';
 import { DisclaimerBadge } from '@/components/aibrief/DisclaimerBadge';
 import { SourceLinkList } from '@/components/aibrief/SourceLinkList';
-import { logout } from '@/api/auth';
 import { ApiError } from '@/api/http';
 import { trackReadingOnce } from '@/api/readingEvent';
 import {
@@ -15,7 +14,6 @@ import {
   createBrief,
   getBrief,
 } from '@/api/aibrief';
-import { navigate } from '@/lib/navigation';
 import { isTerminalStatus } from '@/types/aibrief';
 import type {
   AiBriefView,
@@ -156,23 +154,10 @@ export function AiBrief({ pollIntervalMs = AI_BRIEF_POLL_INTERVAL_MS }: AiBriefP
     void handleTrigger(lastParams.subjectId, lastParams.briefType);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="ai-brief-page">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4">
         <h1 className="text-xl font-medium">AI 简报</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate('/watchlists')} data-testid="ai-brief-back">
-            返回清单
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleLogout} data-testid="ai-brief-logout">
-            登出
-          </Button>
-        </div>
       </header>
 
       <Card className="mb-4">
