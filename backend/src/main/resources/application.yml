@@ -118,6 +118,15 @@ recommendation:
   poll-interval-millis: 500
   max-wait-millis: 30000
 
+# 政策时事流（T24，§4.1.5 + PRD 故事 4）：PolicyFetchJob @Scheduled 复用 T07 GovPolicyClient
+# 抓 gov.cn/zhengce 最近政策 → existsBySourceUrl 去重 → PolicyIndustryClassifier 标 related_industries → saveAll。
+# fetch.enabled=false 时 Job 不装配（测试 profile 关，@Scheduled 不触发，对齐 04 测试规范）；
+# 生产置 true，@EnableScheduling 复用 AnomalySchedulingConfig（与 T15 补推 job 同策略）。interval 默认 1h。
+policy:
+  fetch:
+    enabled: true
+    interval-millis: 3600000
+
 # LLM 网关（T19，§4.4 + ADR-0004/0008 + Spike-2 调研）：配置驱动多 provider + fallback。
 # DeepSeek default（deepseek-flash 性价比档，JSON mode 稳，Spike-2 §3）+ GLM fallback（glm-4-flash-250414 免费档）。
 # api-key 走环境变量，缺失默认空串（mock 测试/无 key 不 fail-fast）；生产注入 DEEPSEEK_API_KEY/GLM_API_KEY。
