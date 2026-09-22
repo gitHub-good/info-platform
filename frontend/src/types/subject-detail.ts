@@ -5,8 +5,15 @@
 /** 单分区数据源状态：正常 / 缺失 / 获取失败 / 响应超时 */
 export type SourceStatus = 'ok' | 'missing' | 'failed' | 'timeout';
 
-/** 分区代码 = sourceStatus 的 key（与数据源 source_code 一致） */
-export type SectionCode = 'quote' | 'finance' | 'valuation' | 'announce' | 'news' | 'policy';
+/** 分区代码 = sourceStatus 的 key（与数据源 source_code 一致；event 为 ADR-0013 新增） */
+export type SectionCode =
+  | 'quote'
+  | 'finance'
+  | 'valuation'
+  | 'announce'
+  | 'news'
+  | 'policy'
+  | 'event';
 
 /** 每分区的数据源状态标注 */
 export type SourceStatusMap = Record<SectionCode, SourceStatus>;
@@ -105,6 +112,23 @@ export interface PolicyItem {
   source?: string;
 }
 
+/** 异动类型（anomaly_event.anomaly_type，ADR-0013） */
+export type AnomalyType = 'PRICE_CHANGE' | 'VOLUME' | 'EVENT';
+
+/** 事件分区条目（本地 anomaly_event 近期异动/事件记录） */
+export interface EventItem {
+  /** 异动类型枚举名，展示标签由前端映射 */
+  anomalyType: AnomalyType | string;
+  /** 触发时涨跌幅（%），非涨跌幅类型时缺省 */
+  changePct?: number;
+  /** 触发时现价，可缺省 */
+  currentPrice?: number;
+  /** 触发时刻（ISO-8601，UTC） */
+  triggerTime: string;
+  /** 人读详情 */
+  detail?: string;
+}
+
 /** §4.1.1 响应 data：subject 基本信息 + 各分区 + sourceStatus */
 export interface SubjectDetailData {
   subject: Subject;
@@ -114,6 +138,8 @@ export interface SubjectDetailData {
   announcements?: Announcement[] | null;
   news?: NewsItem[] | null;
   policies?: PolicyItem[] | null;
+  /** 事件分区（ADR-0013）：本地 anomaly_event 近期异动/事件 */
+  events?: EventItem[] | null;
   sourceStatus: SourceStatusMap;
 }
 

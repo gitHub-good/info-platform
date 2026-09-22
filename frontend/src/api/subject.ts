@@ -22,6 +22,7 @@ const ALL_SECTIONS: SectionCode[] = [
   'announce',
   'news',
   'policy',
+  'event',
 ];
 
 /** 读取登录后写入 localStorage 的 access_token（T17 颁发） */

@@ -12,7 +12,7 @@ function renderPage() {
 }
 
 describe('SubjectDetail 标的详情聚合页', () => {
-  // 注入含混合 sourceStatus 的 mock（4 ok / 1 missing / 1 failed），确定性断言渲染逻辑
+  // 注入含混合 sourceStatus 的 mock（5 ok / 1 missing / 1 failed），确定性断言渲染逻辑
 
   it('渲染标的头部（名称 / 代码 / 市场 / 行业）', () => {
     renderPage();
@@ -72,10 +72,24 @@ describe('SubjectDetail 标的详情聚合页', () => {
     expect(screen.queryByTestId('policy-list')).toBeNull();
   });
 
-  it('sourceStatus 徽章按分区状态渲染（4 ok / 1 missing / 1 failed）', () => {
+  it('事件分区展示异动类型 / 涨跌幅 / 详情 / 触发时间（ADR-0013 本地事件源）', () => {
     renderPage();
-    expect(screen.getAllByText('数据正常')).toHaveLength(4);
-    expect(screen.getAllByTestId('status-badge-ok')).toHaveLength(4);
+    const list = screen.getByTestId('event-list');
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(within(list).getByText('涨跌幅异动')).toBeInTheDocument();
+    expect(within(list).getByText('3.25%')).toBeInTheDocument();
+    expect(
+      within(list).getByText('日涨跌幅 3.25% 触发阈值 3.0%（现价 1680.50）'),
+    ).toBeInTheDocument();
+    // 事件条目（无涨跌幅）不渲染百分比，仅展示类型标签与详情
+    expect(within(list).getByText('事件')).toBeInTheDocument();
+  });
+
+  it('sourceStatus 徽章按分区状态渲染（5 ok / 1 missing / 1 failed）', () => {
+    renderPage();
+    expect(screen.getAllByText('数据正常')).toHaveLength(5);
+    expect(screen.getAllByTestId('status-badge-ok')).toHaveLength(5);
     expect(screen.getAllByTestId('status-badge-missing')).toHaveLength(1);
     expect(screen.getAllByTestId('status-badge-failed')).toHaveLength(1);
   });

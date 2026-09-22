@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AnnounceSection } from '@/components/subject/AnnounceSection';
+import { EventSection } from '@/components/subject/EventSection';
 import { FinanceSection } from '@/components/subject/FinanceSection';
 import { NewsSection } from '@/components/subject/NewsSection';
 import { PolicySection } from '@/components/subject/PolicySection';
@@ -70,7 +71,7 @@ function LoadingSkeleton() {
 
 /**
  * 标的详情聚合页（技术方案 §2 Container 清单 / T10）。
- * 一个视图内按分区展示行情 / 财务 / 估值 / 公告 / 新闻 / 政策，
+ * 一个视图内按分区展示行情 / 财务 / 估值 / 公告 / 新闻 / 政策 / 事件监控，
  * 每分区按 sourceStatus 三态降级（ok / missing / failed / timeout），
  * 单源缺失不阻断其他分区；每条信息标注数据来源与时间戳。
  */
@@ -106,6 +107,7 @@ export function SubjectDetail({ subjectId = 'SH600519', data: injected }: Subjec
         <AnnounceSection data={data.announcements} status={status.announce} />
         <NewsSection data={data.news} status={status.news} />
         <PolicySection data={data.policies} status={status.policy} />
+        <EventSection data={data.events} status={status.event} />
       </div>
     </div>
   );

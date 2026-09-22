@@ -4,11 +4,11 @@ import type { SubjectDetailData } from '@/types/subject-detail';
  * mock 聚合接口响应（技术方案 §4.1.1）。
  *
  * 故意构造混合 sourceStatus，验证降级 UI：
- *   - quote / finance / valuation / announce：ok（正常展示，标注来源与时间戳）
+ *   - quote / finance / valuation / announce / event：ok（正常展示，标注来源与时间戳）
  *   - news：missing（分区显示“暂无数据”，不阻断其他分区）
  *   - policy：failed（分区显示“获取失败”）
  *
- * 即 4 ok / 1 missing / 1 failed。联调日把 src/api/subject.ts 的 adapter.mock.enabled
+ * 即 5 ok / 1 missing / 1 failed。联调日把 src/api/subject.ts 的 adapter.mock.enabled
  * 切 false 即改走真实接口，此文件不再被读取。
  */
 export const subjectDetailMock: SubjectDetailData = {
@@ -78,6 +78,21 @@ export const subjectDetailMock: SubjectDetailData = {
   news: null,
   // policies: failed —— sourceStatus.policy = 'failed'，分区显示“获取失败”
   policies: null,
+  // events（ADR-0013）：本地 anomaly_event 近期异动样例
+  events: [
+    {
+      anomalyType: 'PRICE_CHANGE',
+      changePct: 3.25,
+      currentPrice: 1680.5,
+      triggerTime: '2026-09-21T07:35:00Z',
+      detail: '日涨跌幅 3.25% 触发阈值 3.0%（现价 1680.50）',
+    },
+    {
+      anomalyType: 'EVENT',
+      triggerTime: '2026-09-20T09:00:00Z',
+      detail: '重大公告：控股股东权益变动（样例）',
+    },
+  ],
   sourceStatus: {
     quote: 'ok',
     finance: 'ok',
@@ -85,5 +100,6 @@ export const subjectDetailMock: SubjectDetailData = {
     announce: 'ok',
     news: 'missing',
     policy: 'failed',
+    event: 'ok',
   },
 };
