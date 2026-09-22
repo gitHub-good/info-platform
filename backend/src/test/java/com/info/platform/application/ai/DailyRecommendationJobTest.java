@@ -7,22 +7,68 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.application.common.RuntimeConfigEntry;
+import com.info.platform.application.common.RuntimeConfigService;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * DailyRecommendationJob 单测（T23）：user-id 列表解析 + 盘前预热调用 + 单用户容错。AAA 结构。
+ * DailyRecommendationJob 单测（T23；T37 收编后 user-ids 改每轮现读 runtime_config）：user-id 列表解析 + 盘前预热调用 +
+ * 单用户容错 + 配置缺失空跑。AAA 结构。
  *
- * <p>不加载 Spring 上下文（Job 受 @ConditionalOnProperty 约束，测试 profile 不装配）；直接构造 Job 实例调 {@link
- * DailyRecommendationJob#prefetchDaily}（@Scheduled 方法包/公可见，单测可直调，对齐 AnomalyDetectionJobTest 模式）。
+ * <p>不加载 Spring 上下文；直接构造 Job 实例调 {@link DailyRecommendationJob#prefetchDaily}（mock
+ * RuntimeConfigService 返回 {@code job.DAILY_RECOMMEND} 文档，对齐 AnomalyDetectionJobTest 直调模式）。
  */
 class DailyRecommendationJobTest {
 
     private final DailyRecommendationService service = mock(DailyRecommendationService.class);
+    private final RuntimeConfigService runtimeConfig = mock(RuntimeConfigService.class);
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp() {
+        when(runtimeConfig.read("job.DAILY_RECOMMEND")).thenReturn(Optional.empty());
+    }
+
+    private void stubUserIds(String userIds) {
+        String json =
+                "{\"enabled\":false,\"scheduleType\":\"CRON\",\"cron\":\"0 0 9 * * ?\",\"userIds\":\""
+                        + userIds
+                        + "\"}";
+        try {
+            when(runtimeConfig.read("job.DAILY_RECOMMEND"))
+                    .thenReturn(
+                            Optional.of(
+                                    new RuntimeConfigEntry(
+                                            "job.DAILY_RECOMMEND",
+                                            json,
+                                            objectMapper.readTree(json),
+                                            null,
+                                            null)));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    void prefetchDaily_configAbsent_skipsWithoutCallingService() {
+        // Arrange：键缺失（种子前兜底）
+        DailyRecommendationJob job = new DailyRecommendationJob(service, runtimeConfig);
+
+        // Act
+        job.prefetchDaily();
+
+        // Assert：空跑，不调 generateDaily
+        verify(service, never()).generateDaily(anyLong());
+    }
 
     @Test
     void prefetchDaily_emptyUserIds_skipsWithoutCallingService() {
         // Arrange：未配置 user-ids
-        DailyRecommendationJob job = new DailyRecommendationJob(service, "");
+        stubUserIds("");
+        DailyRecommendationJob job = new DailyRecommendationJob(service, runtimeConfig);
 
         // Act
         job.prefetchDaily();
@@ -41,7 +87,8 @@ class DailyRecommendationJobTest {
                                 java.util.List.of(),
                                 "AI 生成，非投资建议",
                                 false));
-        DailyRecommendationJob job = new DailyRecommendationJob(service, "1, 2");
+        stubUserIds("1, 2");
+        DailyRecommendationJob job = new DailyRecommendationJob(service, runtimeConfig);
 
         // Act
         job.prefetchDaily();
@@ -61,7 +108,8 @@ class DailyRecommendationJobTest {
                                 java.util.List.of(),
                                 "AI 生成，非投资建议",
                                 true));
-        DailyRecommendationJob job = new DailyRecommendationJob(service, "1,bad,2,,");
+        stubUserIds("1,bad,2,,");
+        DailyRecommendationJob job = new DailyRecommendationJob(service, runtimeConfig);
 
         // Act
         job.prefetchDaily();
@@ -82,7 +130,8 @@ class DailyRecommendationJobTest {
                                 java.util.List.of(),
                                 "AI 生成，非投资建议",
                                 false));
-        DailyRecommendationJob job = new DailyRecommendationJob(service, "1,2");
+        stubUserIds("1,2");
+        DailyRecommendationJob job = new DailyRecommendationJob(service, runtimeConfig);
 
         // Act：不应抛
         job.prefetchDaily();
