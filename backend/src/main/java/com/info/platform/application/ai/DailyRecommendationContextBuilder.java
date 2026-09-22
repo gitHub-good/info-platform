@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * 每日推荐上下文装配器（应用层，T23，对齐 Spike-2 §7.4 每日推荐模板占位符 + §11.5）。
+ * 每日推荐上下文装配器（应用层，T23，对齐 Spike-2 §7.4 每日推荐模板占位符 + §11.5；T29 增补个性化画像）。
  *
  * <p>补全 T21 遗留点：briefType=4（每日推荐型）的 {@code {{poolSize}}}/{@code {{subjectsMetrics}}}/{@code
  * {{subscribedThemes}}}/{@code {{today}}} 占位符不由 {@link BriefContextBuilder}（只投影个股聚合数据）装配，
@@ -33,13 +33,16 @@ import org.springframework.stereotype.Component;
  * 注释「每日推荐占位符由 T23 装配」）。
  *
  * <p>装配链：按归属用户查全部启用 watchlist → 扁平化活跃清单项去重 subjectId → 对每只标的取行情/公告/新闻 SourceAdapter（复用 adapter 享缓存
- * + 弹性降级， 单源缺失不阻断整池）→ 组装 {@link PoolMetric}（信息面活跃度=|涨跌幅|，事件重要性=公告/新闻条数）→ 投影为 Spike-2 §7.4 的上下文 Map
- * + 指标列表。
+ * + 弹性降级， 单源缺失不阻断整池）→ 组装 {@link PoolMetric}（信息面活跃度=|涨跌幅|，事件重要性=公告/新闻条数；T29 附 subjectId/industry
+ * 供评分）→ 投影为上下文 Map + 指标列表。
  *
- * <p>{@code subscribedThemes}：M2 订阅主题（T26）未全就位，按任务约定以自选池标的行业去重作主题代理；空则「暂无」（不编造）。
+ * <p>T29 个性化注入（prompt v1.1 占位符）：经 {@link RecommendationPersonalizer} 装配用户画像后投影 —— {@code
+ * subscribedThemes}（真实订阅主题词，修复 T23「暂无」桩）/{@code subscribedSubjects}（标的订阅代码|名称）/ {@code
+ * readingProfile}（近 30 天已读标的：代码|名称|阅读次数|最近阅读日期）。空画像各占位符填「暂无」（不编造）。
  *
- * <p>容错：单只标的的 adapter 取数异常 → 记 WARN 跳过该指标（归 0），不阻断整池装配（对齐技术方案 §5 降级预案「每日推荐用规则兜底」）。自选池空（无活跃清单项）→
- * 返回空指标 + {@code poolSize=0}，由 {@link DailyRecommendationService} 返回空提示。
+ * <p>容错：单只标的的 adapter 取数异常 → 记 WARN 跳过该指标（归 0），不阻断整池装配（对齐技术方案 §5 降级预案「每日推荐用规则兜底」）；画像装配失败由
+ * Personalizer 内部降级为空画像。自选池空（无活跃清单项）→ 返回空指标 + {@code poolSize=0}，由 {@link
+ * DailyRecommendationService} 返回空提示。
  */
 @Component
 public class DailyRecommendationContextBuilder {
@@ -51,16 +54,19 @@ public class DailyRecommendationContextBuilder {
 
     private final WatchlistRepository watchlistRepository;
     private final SubjectRepository subjectRepository;
+    private final RecommendationPersonalizer personalizer;
     private final Map<SourceCode, SourceAdapter> adapters;
     private final Clock clock;
 
     public DailyRecommendationContextBuilder(
             WatchlistRepository watchlistRepository,
             SubjectRepository subjectRepository,
+            RecommendationPersonalizer personalizer,
             List<SourceAdapter> adapters,
             Clock clock) {
         this.watchlistRepository = watchlistRepository;
         this.subjectRepository = subjectRepository;
+        this.personalizer = personalizer;
         this.adapters =
                 adapters.stream()
                         .collect(
@@ -70,17 +76,19 @@ public class DailyRecommendationContextBuilder {
     }
 
     /**
-     * 装配每日推荐上下文 Map（对齐 Spike-2 §7.4 占位符）。
+     * 装配每日推荐上下文 Map（对齐 Spike-2 §7.4 + T29 prompt v1.1 占位符）。
      *
-     * <p>键：{@code poolSize}/{@code subjectsMetrics}/{@code subscribedThemes}/{@code today}。供 {@link
-     * AIBriefService} 合并进 prompt 渲染上下文。
+     * <p>键：{@code poolSize}/{@code subjectsMetrics}/{@code subscribedThemes}/{@code
+     * subscribedSubjects}/{@code readingProfile}/{@code today}。供 {@link AIBriefService} 合并进 prompt
+     * 渲染上下文。
      *
      * @param userId 归属用户（行级权限取数键）
      * @return 上下文 Map（保序）；自选池空时 {@code poolSize=0}、其余占位填「暂无」
      */
     public Map<String, String> buildContext(long userId) {
         List<PoolMetric> metrics = buildPoolMetrics(userId);
-        return toContext(metrics);
+        UserInterestProfile profile = personalizer.buildProfile(userId);
+        return toContext(metrics, profile);
     }
 
     /**
@@ -109,17 +117,19 @@ public class DailyRecommendationContextBuilder {
         return List.copyOf(metrics);
     }
 
-    /** 装配上下文 Map（指标 → Spike-2 §7.4 占位符投影）。 */
-    private Map<String, String> toContext(List<PoolMetric> metrics) {
+    /** 装配上下文 Map（指标 + 画像 → 占位符投影）。 */
+    private Map<String, String> toContext(List<PoolMetric> metrics, UserInterestProfile profile) {
         Map<String, String> ctx = new LinkedHashMap<>();
         ctx.put("poolSize", String.valueOf(metrics.size()));
         ctx.put("subjectsMetrics", formatMetrics(metrics));
-        ctx.put("subscribedThemes", formatThemes(metrics));
+        ctx.put("subscribedThemes", formatThemes(profile));
+        ctx.put("subscribedSubjects", formatSubscribedSubjects(profile));
+        ctx.put("readingProfile", formatReadingProfile(profile));
         ctx.put("today", LocalDate.now(clock).toString());
         return ctx;
     }
 
-    /** 单只标的指标：取行情/公告/新闻 adapter（源降级归 0，不阻断）。 */
+    /** 单只标的指标：取行情/公告/新闻 adapter（源降级归 0，不阻断）；T29 附 subjectId/industry。 */
     private PoolMetric metricOf(
             Subject subject, SourceAdapter quote, SourceAdapter announce, SourceAdapter news) {
         double changePct = extractChangePct(quote, subject);
@@ -130,7 +140,9 @@ public class DailyRecommendationContextBuilder {
                 subject.getName(),
                 changePct,
                 announceCount,
-                newsCount);
+                newsCount,
+                subject.getId(),
+                subject.getIndustry());
     }
 
     /** 行情涨跌幅（源降级/缺字段 → 0）。 */
@@ -196,15 +208,50 @@ public class DailyRecommendationContextBuilder {
         return sb.toString();
     }
 
-    /** subscribedThemes 投影：自选池行业去重作主题代理（M2 订阅未全就位）；空→「暂无」。 */
-    private static String formatThemes(List<PoolMetric> metrics) {
-        Set<String> themes = new LinkedHashSet<>();
-        for (PoolMetric m : metrics) {
-            // 行业不在 PoolMetric 内（避免冗余取数），此处留「暂无」占位由上游订阅装配补全（T26）。
-            // M2 阶段订阅主题未就位，按任务约定填「暂无」而非编造。
-            themes.add(NA);
+    /** subscribedThemes 投影：真实订阅主题词（T29 修复 T23「暂无」桩）；空→「暂无」。 */
+    private static String formatThemes(UserInterestProfile profile) {
+        if (profile.themeKeywords().isEmpty()) {
+            return NA;
         }
-        return themes.isEmpty() ? NA : String.join(",", themes);
+        return String.join("、", profile.themeKeywords());
+    }
+
+    /** subscribedSubjects 投影：每行「代码|名称」（代码缺失用 id）；空→「暂无」。 */
+    private static String formatSubscribedSubjects(UserInterestProfile profile) {
+        if (profile.subscribedSubjects().isEmpty()) {
+            return NA;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (UserInterestProfile.SubscribedSubject s : profile.subscribedSubjects()) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(s.code() != null ? s.code() : ("subjectId=" + s.subjectId()))
+                    .append('|')
+                    .append(s.name() != null ? s.name() : "");
+        }
+        return sb.toString();
+    }
+
+    /** readingProfile 投影：每行「代码|名称|阅读N次|最近阅读日期」（T29 近 30 天画像）；空→「暂无」。 */
+    private static String formatReadingProfile(UserInterestProfile profile) {
+        if (profile.readStats().isEmpty()) {
+            return NA;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (UserInterestProfile.SubjectReadStat stat : profile.readStats()) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(stat.code() != null ? stat.code() : ("subjectId=" + stat.subjectId()))
+                    .append('|')
+                    .append(stat.name() != null ? stat.name() : "")
+                    .append("|阅读")
+                    .append(stat.count())
+                    .append("次|最近阅读")
+                    .append(stat.lastReadDate());
+        }
+        return sb.toString();
     }
 
     /** 自选池活跃 subjectId 去重保序（跨该用户全部启用 watchlist 的启用清单项）。 */

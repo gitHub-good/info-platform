@@ -28,16 +28,37 @@ class PromptTemplateRepositoryImplTest {
     @Autowired private PromptTemplateMapper promptTemplateMapper;
 
     @Test
-    void findActiveByBriefType_v8Seed_returnsAllFourActiveV1Templates() {
-        // Act + Assert：V8 播种的 4 类 v1.0 status=1 模板均可查、版本 v1.0、启用
+    void findActiveByBriefType_seed_returnsActiveTemplatePerType() {
+        // Act + Assert：V8 播种 4 类 v1.0 status=1；V14（T29）将每日推荐（briefType=4）切至 v1.1
+        // （v1.0 置废），其余三类仍 v1.0——各类型恰有一个启用模板
         for (BriefType type : BriefType.values()) {
             Optional<PromptTemplate> found = promptTemplateRepository.findActiveByBriefType(type);
-            assertThat(found).as("briefType=%s 应有 v1.0 启用模板", type).isPresent();
+            assertThat(found).as("briefType=%s 应有启用模板", type).isPresent();
             PromptTemplate t = found.get();
             assertThat(t.getBriefType()).isEqualTo(type);
-            assertThat(t.getVersion()).isEqualTo("v1.0");
+            assertThat(t.getVersion())
+                    .isEqualTo(type == BriefType.DAILY_RECOMMEND ? "v1.1" : "v1.0");
             assertThat(t.isActive()).isTrue();
         }
+    }
+
+    @Test
+    void findActiveByBriefType_dailyRecommendV11_containsPersonalizedPlaceholders() {
+        // Act：V14 播种的每日推荐 v1.1（T29 个性化画像注入）
+        PromptTemplate daily =
+                promptTemplateRepository
+                        .findActiveByBriefType(BriefType.DAILY_RECOMMEND)
+                        .orElseThrow();
+
+        // Assert：分段标记 + system 含 "json" + T23 既有占位符 + T29 三个个性化占位符
+        String template = daily.getTemplate();
+        assertThat(template).contains("---SYSTEM---").contains("---USER---");
+        assertThat(template).contains("json");
+        assertThat(template)
+                .contains(
+                        "{{poolSize}}", "{{subjectsMetrics}}", "{{subscribedThemes}}", "{{today}}");
+        assertThat(template).contains("{{subscribedSubjects}}", "{{readingProfile}}");
+        assertThat(template).contains("topRecommend");
     }
 
     @Test

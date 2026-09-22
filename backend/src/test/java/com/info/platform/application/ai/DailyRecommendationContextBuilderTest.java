@@ -2,6 +2,7 @@ package com.info.platform.application.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +21,7 @@ import com.info.platform.domain.subscription.WatchlistRepository;
 import com.info.platform.domain.subscription.WatchlistStatus;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -28,10 +30,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * DailyRecommendationContextBuilder 单测（T23）：自选池指标装配（行情活跃度 + 公告/新闻事件重要性）+ 上下文 Map 投影 + 降级容错。AAA 结构。
+ * DailyRecommendationContextBuilder 单测（T23 指标装配 + T29 个性化占位符）：自选池指标（含 subjectId/industry）+
+ * 订阅主题/标的与阅读画像投影 + 降级容错。AAA 结构。
  *
- * <p>mock 全部外部依赖（WatchlistRepository/SubjectRepository/SourceAdapter），不依赖真实行情/公告/新闻源。复用
- * SourceResult 静态工厂构造取数结果。
+ * <p>mock 全部外部依赖（WatchlistRepository/SubjectRepository/SourceAdapter/RecommendationPersonalizer），
+ * 不依赖真实行情/公告/新闻源。
  */
 class DailyRecommendationContextBuilderTest {
 
@@ -43,6 +46,7 @@ class DailyRecommendationContextBuilderTest {
 
     private WatchlistRepository watchlistRepository;
     private SubjectRepository subjectRepository;
+    private RecommendationPersonalizer personalizer;
     private SourceAdapter quoteAdapter;
     private SourceAdapter announceAdapter;
     private SourceAdapter newsAdapter;
@@ -52,6 +56,7 @@ class DailyRecommendationContextBuilderTest {
     void setUp() {
         watchlistRepository = mock(WatchlistRepository.class);
         subjectRepository = mock(SubjectRepository.class);
+        personalizer = mock(RecommendationPersonalizer.class);
         quoteAdapter = mock(SourceAdapter.class);
         announceAdapter = mock(SourceAdapter.class);
         newsAdapter = mock(SourceAdapter.class);
@@ -62,13 +67,15 @@ class DailyRecommendationContextBuilderTest {
                 new DailyRecommendationContextBuilder(
                         watchlistRepository,
                         subjectRepository,
+                        personalizer,
                         List.of(quoteAdapter, announceAdapter, newsAdapter),
                         CLOCK);
+        when(personalizer.buildProfile(anyLong())).thenReturn(UserInterestProfile.EMPTY);
     }
 
     @Test
-    void buildContext_normal_assemblesPoolMetricsAndPlaceholders() {
-        // Arrange：自选池 2 只标的，行情/公告/新闻均 OK（Subject 无 equals，按 any() 统一 stub）
+    void buildContext_normal_assemblesMetricsAndPersonalizedPlaceholders() {
+        // Arrange：自选池 2 只标的 + 画像（主题/标的订阅/已读统计各一）
         when(watchlistRepository.findAllByOwnerId(USER_ID))
                 .thenReturn(List.of(watchlistWith(SUBJECT_ID_1, SUBJECT_ID_2)));
         when(subjectRepository.findById(SUBJECT_ID_1))
@@ -78,20 +85,57 @@ class DailyRecommendationContextBuilderTest {
         when(quoteAdapter.fetch(any())).thenReturn(quoteResult(SUBJECT_ID_1, 1.2));
         when(announceAdapter.fetch(any())).thenReturn(announceResult(SUBJECT_ID_1, 2));
         when(newsAdapter.fetch(any())).thenReturn(newsResult(SUBJECT_ID_1, 5));
+        when(personalizer.buildProfile(USER_ID))
+                .thenReturn(
+                        new UserInterestProfile(
+                                List.of("半导体", "货币政策"),
+                                List.of(
+                                        new UserInterestProfile.SubscribedSubject(
+                                                SUBJECT_ID_1, "SH600519", "贵州茅台")),
+                                List.of(
+                                        new UserInterestProfile.SubjectReadStat(
+                                                SUBJECT_ID_1,
+                                                "SH600519",
+                                                "贵州茅台",
+                                                3,
+                                                LocalDate.of(2026, 9, 20),
+                                                2.5))));
 
         // Act
         Map<String, String> ctx = builder.buildContext(USER_ID);
 
-        // Assert：占位符齐全，poolSize/指标快照/订阅主题/今日
+        // Assert：指标 + T29 个性化占位符齐全（主题真实、订阅标的、阅读画像），今日取 Clock
         assertThat(ctx.get("poolSize")).isEqualTo("2");
         assertThat(ctx.get("subjectsMetrics")).contains("SH600519", "贵州茅台", "公告2", "新闻5");
         assertThat(ctx.get("subjectsMetrics")).contains("SZ000858", "五粮液");
-        assertThat(ctx.get("subscribedThemes")).isNotBlank();
+        assertThat(ctx.get("subscribedThemes")).isEqualTo("半导体、货币政策");
+        assertThat(ctx.get("subscribedSubjects")).contains("SH600519|贵州茅台");
+        assertThat(ctx.get("readingProfile")).contains("SH600519|贵州茅台|阅读3次|最近阅读2026-09-20");
         assertThat(ctx.get("today")).isEqualTo("2026-09-21");
     }
 
     @Test
-    void buildPoolMetrics_normal_returnsMetricsWithActivityScore() {
+    void buildContext_emptyProfile_personalizedPlaceholdersFallToNa() {
+        // Arrange：边界——新用户空画像（无订阅无阅读），占位符不编造
+        when(watchlistRepository.findAllByOwnerId(USER_ID))
+                .thenReturn(List.of(watchlistWith(SUBJECT_ID_1)));
+        when(subjectRepository.findById(SUBJECT_ID_1))
+                .thenReturn(Optional.of(subject(SUBJECT_ID_1, "SH600519", "贵州茅台")));
+        when(quoteAdapter.fetch(any())).thenReturn(quoteResult(SUBJECT_ID_1, 1.0));
+        when(announceAdapter.fetch(any())).thenReturn(announceResult(SUBJECT_ID_1, 0));
+        when(newsAdapter.fetch(any())).thenReturn(newsResult(SUBJECT_ID_1, 0));
+
+        // Act
+        Map<String, String> ctx = builder.buildContext(USER_ID);
+
+        // Assert：个性化占位符全部「暂无」
+        assertThat(ctx.get("subscribedThemes")).isEqualTo("暂无");
+        assertThat(ctx.get("subscribedSubjects")).isEqualTo("暂无");
+        assertThat(ctx.get("readingProfile")).isEqualTo("暂无");
+    }
+
+    @Test
+    void buildPoolMetrics_normal_returnsMetricsWithActivityScoreAndPersonalKeys() {
         // Arrange
         when(watchlistRepository.findAllByOwnerId(USER_ID))
                 .thenReturn(List.of(watchlistWith(SUBJECT_ID_1, SUBJECT_ID_2)));
@@ -106,10 +150,12 @@ class DailyRecommendationContextBuilderTest {
         // Act
         List<PoolMetric> metrics = builder.buildPoolMetrics(USER_ID);
 
-        // Assert：去重保序 2 只；活跃度综合分 = |3.0| + 1*2 + 2*1 = 7.0
+        // Assert：去重保序 2 只；活跃度综合分 = |3.0| + 1*2 + 2*1 = 7.0；T29 附 subjectId/industry
         assertThat(metrics).hasSize(2);
         assertThat(metrics.get(0).subjectCode()).isEqualTo("SH600519");
         assertThat(metrics.get(0).activityScore()).isEqualTo(7.0);
+        assertThat(metrics.get(0).subjectId()).isEqualTo(SUBJECT_ID_1);
+        assertThat(metrics.get(0).industry()).isEqualTo("白酒");
     }
 
     @Test

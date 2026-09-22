@@ -11,18 +11,18 @@ import com.info.platform.domain.ai.BriefContent;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.TopRecommendation;
 import com.info.platform.domain.common.UserContext;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * DailyRecommendationService 单测（T23）：受理触发（复用 T21 createBrief briefType=4）→ 轮询 → 解析 Top5 → 规则兜底 /
- * 空池提示。AAA 结构。
+ * DailyRecommendationService 单测（T23 受理/轮询/解析 + T29 相关性兜底排序）。AAA 结构。
  *
- * <p>mock AIBriefService（createBrief + getBrief）与
- * DailyRecommendationContextBuilder（buildPoolMetrics），不依赖真实 LLM。 轮询参数用极小值（pollInterval=10ms /
- * maxWait=50ms）使超时兜底用例毫秒级完成（对齐 FIRST 快原则）。
+ * <p>mock AIBriefService（createBrief +
+ * getBrief）、DailyRecommendationContextBuilder（buildPoolMetrics）与
+ * RecommendationPersonalizer（画像）；评分器用真实实例（纯函数，确定性）。轮询参数用极小值使超时兜底毫秒级完成。
  */
 class DailyRecommendationServiceTest {
 
@@ -31,6 +31,7 @@ class DailyRecommendationServiceTest {
 
     private AIBriefService aiBriefService;
     private DailyRecommendationContextBuilder contextBuilder;
+    private RecommendationPersonalizer personalizer;
     private DailyRecommendationService service;
 
     private final BriefContent dailyContent =
@@ -51,9 +52,18 @@ class DailyRecommendationServiceTest {
     void setUp() {
         aiBriefService = mock(AIBriefService.class);
         contextBuilder = mock(DailyRecommendationContextBuilder.class);
-        // 极小轮询参数：超时兜底用例毫秒级完成
-        service = new DailyRecommendationService(aiBriefService, contextBuilder, 10L, 50L);
+        personalizer = mock(RecommendationPersonalizer.class);
+        // 极小轮询参数：超时兜底用例毫秒级完成；评分器用真实实例（纯函数）
+        service =
+                new DailyRecommendationService(
+                        aiBriefService,
+                        contextBuilder,
+                        personalizer,
+                        new RecommendationRelevanceScorer(),
+                        10L,
+                        50L);
         when(aiBriefService.createBrief(any(), any())).thenReturn(TASK_ID);
+        when(personalizer.buildProfile(anyLong())).thenReturn(UserInterestProfile.EMPTY);
     }
 
     @AfterEach
@@ -97,25 +107,67 @@ class DailyRecommendationServiceTest {
     }
 
     @Test
-    void generateDaily_failed_fallsBackToActivityRanking() {
-        // Arrange：LLM 失败（status=2，无 content）→ 规则兜底
+    void generateDaily_failed_emptyProfile_fallsBackToActivityRanking() {
+        // Arrange：LLM 失败 + 新用户空画像（边界：退化为既有活跃度排序）
         when(aiBriefService.getBrief(TASK_ID))
                 .thenReturn(new AIBriefView(2, null, null, BriefContent.DEFAULT_DISCLAIMER));
         when(contextBuilder.buildPoolMetrics(USER_ID))
                 .thenReturn(
                         List.of(
-                                new PoolMetric("SH600519", "贵州茅台", 3.0, 1, 2), // score 7
-                                new PoolMetric("SZ000858", "五粮液", 1.0, 0, 0))); // score 1
+                                new PoolMetric("SH600519", "贵州茅台", 3.0, 1, 2), // 活跃度 7
+                                new PoolMetric("SZ000858", "五粮液", 1.0, 0, 0))); // 活跃度 1
 
         // Act
         DailyRecommendationResult result = service.generateDaily(USER_ID);
 
-        // Assert：规则兜底，按活跃度综合分降序取前 5
+        // Assert：规则兜底，按活跃度降序 + rank 1 起递增 + 理由含综合分（可标注）
         assertThat(result.status()).isEqualTo(DailyRecommendationResult.STATUS_FALLBACK);
         assertThat(result.fallback()).isTrue();
         assertThat(result.topRecommend()).hasSize(2);
-        assertThat(result.topRecommend().get(0).subjectCode()).isEqualTo("SH600519"); // score 高
+        assertThat(result.topRecommend().get(0).subjectCode()).isEqualTo("SH600519");
+        assertThat(result.topRecommend().get(0).rank()).isEqualTo(1);
         assertThat(result.topRecommend().get(1).subjectCode()).isEqualTo("SZ000858");
+        assertThat(result.topRecommend().get(1).rank()).isEqualTo(2);
+        assertThat(result.topRecommend().get(0).reason()).contains("信息面活跃").contains("综合分7.0");
+    }
+
+    @Test
+    void generateDaily_failed_personalized_relevanceOrderingWithHitFactors() {
+        // Arrange：LLM 失败 + 画像（SZ000858 已读+订阅，活跃度低；SH600519 活跃度高但无个性化命中）
+        when(aiBriefService.getBrief(TASK_ID))
+                .thenReturn(new AIBriefView(2, null, null, BriefContent.DEFAULT_DISCLAIMER));
+        when(contextBuilder.buildPoolMetrics(USER_ID))
+                .thenReturn(
+                        List.of(
+                                new PoolMetric("SH600519", "贵州茅台", 3.0, 1, 2, 100L, "白酒"), // 7.0
+                                new PoolMetric("SZ000858", "五粮液", 0.5, 0, 0, 200L, "白酒"))); // 0.5
+        when(personalizer.buildProfile(USER_ID))
+                .thenReturn(
+                        new UserInterestProfile(
+                                List.of(),
+                                List.of(
+                                        new UserInterestProfile.SubscribedSubject(
+                                                200L, "SZ000858", "五粮液")),
+                                List.of(
+                                        new UserInterestProfile.SubjectReadStat(
+                                                200L,
+                                                "SZ000858",
+                                                "五粮液",
+                                                3,
+                                                LocalDate.of(2026, 9, 21),
+                                                3.0))));
+
+        // Act
+        DailyRecommendationResult result = service.generateDaily(USER_ID);
+
+        // Assert：SZ000858 相关分 0.5+6.0+10.0=16.5 > SH600519 7.0 → 升至首位且理由带命中因子
+        assertThat(result.topRecommend().get(0).subjectCode()).isEqualTo("SZ000858");
+        assertThat(result.topRecommend().get(0).reason())
+                .contains("个性化相关")
+                .contains("已读热度+10.0")
+                .contains("标的订阅+6.0")
+                .contains("综合分16.5");
+        assertThat(result.topRecommend().get(1).subjectCode()).isEqualTo("SH600519");
     }
 
     @Test

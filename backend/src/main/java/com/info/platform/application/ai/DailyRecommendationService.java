@@ -4,6 +4,7 @@ import com.info.platform.domain.ai.BriefContent;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.TopRecommendation;
 import com.info.platform.domain.common.UserContext;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import org.slf4j.Logger;
@@ -12,15 +13,20 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * 每日推荐应用服务（应用层，T23，对齐技术方案 §4.3 流程 2 + §4.1.6 + Spike-2 §11.5）。
+ * 每日推荐应用服务（应用层，T23，对齐技术方案 §4.3 流程 2 + §4.1.6 + Spike-2 §11.5；T29 相关性优化）。
  *
- * <p>复用 T21 {@link AIBriefService#createBrief}（briefType=4，subjectId 可空）触发异步生成，上下文（poolMetrics）由
- * {@link DailyRecommendationContextBuilder} 装配并在 {@link AIBriefService#generateAndPersist}
- * 合并。本服务受理后轮询查询简报直至终态或超时，解析 {@link BriefContent#topRecommend()} 取 Top5（按 rank 升序）。
+ * <p>复用 T21 {@link AIBriefService#createBrief}（briefType=4，subjectId 可空）触发异步生成，上下文（poolMetrics +
+ * T29 个性化画像）由 {@link DailyRecommendationContextBuilder} 装配并在 {@link
+ * AIBriefService#generateAndPersist} 合并。本服务受理后轮询查询简报直至终态或超时，解析 {@link BriefContent#topRecommend()}
+ * 取 Top5（按 rank 升序）。
  *
  * <p>降级链（对齐技术方案 §5「每日推荐用规则兜底」）： ① 当日已生成（幂等键 {@code none:4:yyyyMMdd} 命中）→ 直接解析缓存 Top5； ② 首次请求触发异步生成
- * → 轮询至 DONE/NEED_VERIFY（content 含 topRecommend）→ Top5； ③ LLM 失败/超时/输出空 Top5 → 规则兜底（活跃度综合分排序取前
- * 5，每只一句话理由）； ④ 自选池空 → 空 Top5 + 提示状态。
+ * → 轮询至 DONE/NEED_VERIFY（content 含 topRecommend）→ Top5； ③ LLM 失败/超时/输出空 Top5 → 规则兜底（T29
+ * 相关性综合分排序：活跃度 + 标的订阅 + 订阅主题命中 + 已读热度，理由逐因子列明）； ④ 自选池空 → 空 Top5 + 提示状态。
+ *
+ * <p>T29 相关性（PRD 场景 2 命中率 ≥70% 抽样标注口径）：兜底排序经 {@link RecommendationPersonalizer} 装配用户画像 （订阅 + 近 30
+ * 天阅读）、{@link RecommendationRelevanceScorer} 评分——推荐理由带评分构成与命中因子（命中哪个主题/已读标的），
+ * 前端展示后可逐条人工标注。空画像（新用户）退化为既有活跃度排序，行为不变。
  *
  * <p>触发模式：按需（GET 端点首次请求触发 + 幂等缓存命中后续直返）；盘前 @Scheduled 预热为可选优化（见 {@code
  * DailyRecommendationJob}，开关控制）。受开关控制（测试关）：本服务无 @Scheduled 副作用，单测直调 {@link #generateDaily} 验证逻辑。
@@ -37,16 +43,22 @@ public class DailyRecommendationService {
 
     private final AIBriefService aiBriefService;
     private final DailyRecommendationContextBuilder contextBuilder;
+    private final RecommendationPersonalizer personalizer;
+    private final RecommendationRelevanceScorer relevanceScorer;
     private final long pollIntervalMillis;
     private final long maxWaitMillis;
 
     public DailyRecommendationService(
             AIBriefService aiBriefService,
             DailyRecommendationContextBuilder contextBuilder,
+            RecommendationPersonalizer personalizer,
+            RecommendationRelevanceScorer relevanceScorer,
             @Value("${recommendation.poll-interval-millis:500}") long pollIntervalMillis,
             @Value("${recommendation.max-wait-millis:30000}") long maxWaitMillis) {
         this.aiBriefService = aiBriefService;
         this.contextBuilder = contextBuilder;
+        this.personalizer = personalizer;
+        this.relevanceScorer = relevanceScorer;
         this.pollIntervalMillis = pollIntervalMillis;
         this.maxWaitMillis = maxWaitMillis;
     }
@@ -107,7 +119,10 @@ public class DailyRecommendationService {
                 .toList();
     }
 
-    /** 规则兜底：自选池空→空结果；否则按活跃度综合分排序取前 5。 */
+    /**
+     * 规则兜底（T29 相关性排序）：自选池空→空结果；否则装配用户画像（订阅+阅读）→ 相关性综合分排序取前 5， 理由逐因子列明（命中哪个主题/已读标的 +
+     * 评分构成）。空画像退化为既有活跃度排序（新用户回退）。
+     */
     private DailyRecommendationResult ruleFallback(long userId, AIBriefView view) {
         List<PoolMetric> metrics = contextBuilder.buildPoolMetrics(userId);
         if (metrics.isEmpty()) {
@@ -118,13 +133,21 @@ public class DailyRecommendationService {
                     BriefContent.DEFAULT_DISCLAIMER,
                     false);
         }
-        List<TopRecommendation> top =
-                metrics.stream()
-                        .sorted(Comparator.comparingDouble(PoolMetric::activityScore).reversed())
+        UserInterestProfile profile = personalizer.buildProfile(userId);
+        List<RecommendationRelevanceScorer.ScoredSubject> picked =
+                relevanceScorer.score(metrics, profile).stream()
+                        .sorted(FALLBACK_ORDER)
                         .limit(TOP_N)
-                        .map(DailyRecommendationService::toFallbackRecommendation)
                         .toList();
-        log.info("每日推荐规则兜底 userId={} top={}", userId, top.size());
+        List<TopRecommendation> top = new ArrayList<>(picked.size());
+        for (int i = 0; i < picked.size(); i++) {
+            top.add(toFallbackRecommendation(picked.get(i), i + 1));
+        }
+        log.info(
+                "每日推荐规则兜底 userId={} top={} personalized={}",
+                userId,
+                top.size(),
+                profile.isPersonalized());
         return new DailyRecommendationResult(
                 DailyRecommendationResult.STATUS_FALLBACK,
                 top,
@@ -132,20 +155,21 @@ public class DailyRecommendationService {
                 true);
     }
 
-    /** 规则兜底条目：rank 从 1 递增，理由一句话（活跃度依据，非买卖建议）。 */
-    private static TopRecommendation toFallbackRecommendation(PoolMetric m) {
-        // rank 在 stream map 时无索引，这里用 0 占位，由调用方按序重排——简化：rank=0，展示层按列表顺序取。
+    /** 兜底排序：相关性综合分降序，平分按代码升序（稳定输出，便于标注复核）。 */
+    private static final Comparator<RecommendationRelevanceScorer.ScoredSubject> FALLBACK_ORDER =
+            Comparator.comparingDouble(
+                            (RecommendationRelevanceScorer.ScoredSubject s) -> s.relevanceScore())
+                    .reversed()
+                    .thenComparing(s -> s.metric().subjectCode());
+
+    /** 规则兜底条目：rank 按排序位次 1 起递增（对齐 DailyRecommendationResult javadoc），理由为评分器产出的可解释理由。 */
+    private static TopRecommendation toFallbackRecommendation(
+            RecommendationRelevanceScorer.ScoredSubject scored, int rank) {
         return new TopRecommendation(
-                m.subjectCode(),
-                m.subjectName(),
-                "信息面活跃：涨跌幅"
-                        + m.changePct()
-                        + "%，公告"
-                        + m.announceCount()
-                        + "条，新闻"
-                        + m.newsCount()
-                        + "条",
-                0);
+                scored.metric().subjectCode(),
+                scored.metric().subjectName(),
+                scored.reason(),
+                rank);
     }
 
     private static String disclaimerOf(AIBriefView view) {
