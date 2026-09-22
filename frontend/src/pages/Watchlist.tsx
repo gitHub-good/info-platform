@@ -194,9 +194,19 @@ export function Watchlist() {
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="watchlist-page">
       <header className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-medium">自选清单</h1>
-        <Button variant="outline" size="sm" onClick={handleLogout} data-testid="watchlist-logout">
-          登出
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/policies')}
+            data-testid="watchlist-goto-policies"
+          >
+            政策时事
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleLogout} data-testid="watchlist-logout">
+            登出
+          </Button>
+        </div>
       </header>
 
       <Card className="mb-4">

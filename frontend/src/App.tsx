@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AiBrief } from '@/pages/AiBrief';
 import { Login } from '@/pages/Login';
+import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { Watchlist } from '@/pages/Watchlist';
 import { getToken } from '@/api/http';
@@ -43,6 +44,9 @@ export default function App() {
         <AiBrief />
       </main>
     );
+  }
+  if (route.startsWith('/policies')) {
+    return <Policy />;
   }
   if (route.startsWith('/subjects')) {
     return (
