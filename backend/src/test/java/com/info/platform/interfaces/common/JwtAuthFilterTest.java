@@ -98,6 +98,21 @@ class JwtAuthFilterTest {
     }
 
     @Test
+    void overviewPath_requiresToken_t42() throws Exception {
+        // T42 概览聚合接口不在白名单：缺 token → 401/1003（不进下游）
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/overview");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        boolean[] forwarded = {false};
+        FilterChain chain = (r, s) -> forwarded[0] = true;
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(forwarded[0]).isFalse();
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(bodyCode(res)).isEqualTo(1003);
+    }
+
+    @Test
     void malformedAuthorizationHeader_returns401AndCode1003() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/subjects/1/detail");
         req.addHeader("Authorization", "Basic xyz"); // 非 Bearer

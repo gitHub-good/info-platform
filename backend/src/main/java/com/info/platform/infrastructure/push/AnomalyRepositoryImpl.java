@@ -101,6 +101,14 @@ public class AnomalyRepositoryImpl implements AnomalyRepository {
         return toEntities(pos);
     }
 
+    @Override
+    public long countTriggeredSince(Instant since) {
+        // ISO-8601 整秒文本字典序即时间序，>= since 范围扫描命中 idx_anomaly_time（V15）
+        return anomalyMapper.selectCount(
+                new LambdaQueryWrapper<AnomalyRecordPO>()
+                        .ge(AnomalyRecordPO::getTriggerTime, since.toString()));
+    }
+
     private List<AnomalyRecord> toEntities(List<AnomalyRecordPO> pos) {
         if (pos == null || pos.isEmpty()) {
             return Collections.emptyList();

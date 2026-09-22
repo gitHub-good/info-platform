@@ -321,6 +321,11 @@ class EventSourceAdapterTest {
         public List<AnomalyRecord> findBySubjectId(Long subjectId) {
             return records;
         }
+
+        @Override
+        public long countTriggeredSince(Instant since) {
+            throw new UnsupportedOperationException("Fake 不支持概览计数");
+        }
     }
 
     /** 装配测试用：向容器提供 AnomalyRepository 端口 Bean（Fake，只读空表）。 */

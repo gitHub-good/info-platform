@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -202,5 +203,37 @@ class PolicyRepositoryImplTest {
     @Test
     void updateAiTendency_nonExistentId_returnsFalse() {
         assertThat(repository.updateAiTendency(999999L, AiTendency.NEUTRAL)).isFalse();
+    }
+
+    @Test
+    void countCreatedSince_rollingWindowByCreatedAt_t42() {
+        // Arrange：saveAll 落库时 created_at=now（口径裁定按入库时间，非 published_at）
+        repository.saveAll(
+                List.of(
+                        newItem("新政策A", "2026-01-01", "https://gov/a2", List.of()),
+                        newItem("新政策B", "2026-01-02", "https://gov/b2", List.of())));
+
+        // Act / Assert：滚动窗口含刚入库行；未来边界为 0
+        assertThat(repository.countCreatedSince(Instant.now().minusSeconds(3600))).isEqualTo(2);
+        assertThat(repository.countCreatedSince(Instant.now().plusSeconds(60))).isZero();
+    }
+
+    @Test
+    void findLatestCreatedSince_newestFirstLimited_t42() {
+        // Arrange
+        repository.saveAll(
+                List.of(
+                        newItem("政策一", "2026-09-20", "https://gov/l1", List.of()),
+                        newItem("政策二", "2026-09-21", "https://gov/l2", List.of()),
+                        newItem("政策三", "2026-09-22", "https://gov/l3", List.of())));
+
+        // Act：滚动 1h 窗口 + limit 2（同秒 created_at 由 id DESC 兜底，后入库在前）
+        List<PolicyItem> latest =
+                repository.findLatestCreatedSince(Instant.now().minusSeconds(3600), 2);
+
+        // Assert
+        assertThat(latest).hasSize(2);
+        assertThat(latest.get(0).getTitle()).isEqualTo("政策三");
+        assertThat(latest.get(1).getTitle()).isEqualTo("政策二");
     }
 }

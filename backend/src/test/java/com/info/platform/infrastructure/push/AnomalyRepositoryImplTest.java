@@ -162,4 +162,16 @@ class AnomalyRepositoryImplTest {
         assertThat(records.get(0).getTriggerTime()).isEqualTo(T2);
         assertThat(records.get(1).getTriggerTime()).isEqualTo(T1);
     }
+
+    @Test
+    void countTriggeredSince_includesBoundaryExcludesBefore_t42() {
+        // Arrange
+        anomalyRepository.save(newRecord(T1, new BigDecimal("5.00")));
+        anomalyRepository.save(newRecord(T2, new BigDecimal("4.00")));
+
+        // Act / Assert：T2 恰在边界上（含）；T1 之前不计；未来边界为 0
+        assertThat(anomalyRepository.countTriggeredSince(T2)).isEqualTo(1);
+        assertThat(anomalyRepository.countTriggeredSince(T1)).isEqualTo(2);
+        assertThat(anomalyRepository.countTriggeredSince(T2.plusSeconds(1))).isZero();
+    }
 }

@@ -1,5 +1,6 @@
 package com.info.platform.domain.policy;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,4 +56,19 @@ public interface PolicyRepository {
      * @return 是否实际更新了 1 行
      */
     boolean updateAiTendency(Long id, AiTendency tendency);
+
+    /**
+     * 统计 {@code created_at} 落 [since, ∞) 的行数（T42 概览「近 24h 政策」，方案 §4.6 滚动窗口）。
+     *
+     * <p><b>口径裁定（方案 §4.6）</b>：按入库时间 {@code created_at} 而非 {@code published_at} —— gov 列表页仅挂最近条目，
+     * published_at 可回填历史日期导致计数失真。落在索引 {@code idx_policy_created}（V15）上范围扫描。
+     */
+    long countCreatedSince(Instant since);
+
+    /**
+     * {@code created_at} 落 [since, ∞) 的最新 limit 条（newest-first：created_at DESC、id DESC 兜同秒并列）。
+     *
+     * <p>供 T42 概览政策卡「最新 5 条」（id/title/publishedAt），口径同 {@link #countCreatedSince}。
+     */
+    List<PolicyItem> findLatestCreatedSince(Instant since, int limit);
 }

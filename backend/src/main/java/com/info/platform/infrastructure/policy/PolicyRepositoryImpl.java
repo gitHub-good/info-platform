@@ -101,6 +101,29 @@ public class PolicyRepositoryImpl implements PolicyRepository {
     }
 
     @Override
+    public long countCreatedSince(Instant since) {
+        // created_at 存 ISO-8601 整秒文本，字典序即时间序，>= since 范围扫描命中 idx_policy_created（V15）
+        return mapper.selectCount(
+                new LambdaQueryWrapper<PolicyItemPO>()
+                        .ge(PolicyItemPO::getCreatedAt, since.toString()));
+    }
+
+    @Override
+    public List<PolicyItem> findLatestCreatedSince(Instant since, int limit) {
+        // newest-first：created_at DESC 为主序、id DESC 兜同秒并列（概览政策卡「最新 5 条」）
+        return mapper
+                .selectList(
+                        new LambdaQueryWrapper<PolicyItemPO>()
+                                .ge(PolicyItemPO::getCreatedAt, since.toString())
+                                .orderByDesc(PolicyItemPO::getCreatedAt)
+                                .orderByDesc(PolicyItemPO::getId)
+                                .last("LIMIT " + limit))
+                .stream()
+                .map(PolicyRepositoryImpl::toEntity)
+                .toList();
+    }
+
+    @Override
     public List<PolicyItem> findRecentUnjudged(int days, int limit) {
         int safeDays = days <= 0 ? DEFAULT_DAYS : Math.min(days, MAX_DAYS);
         String since = LocalDate.now(ZoneOffset.UTC).minusDays(safeDays).toString();

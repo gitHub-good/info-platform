@@ -74,6 +74,38 @@ public class JobExecutionLogRepositoryImpl implements JobExecutionLogRepository 
         return toEntities(pos);
     }
 
+    @Override
+    public long countSince(Instant since) {
+        // created_at 存 ISO-8601 整秒文本，字典序即时间序，范围扫描命中 idx_job_log_time（V15）
+        return mapper.selectCount(
+                new LambdaQueryWrapper<JobExecutionLogPO>()
+                        .ge(JobExecutionLogPO::getCreatedAt, since.toString()));
+    }
+
+    @Override
+    public long countFailedSince(Instant since) {
+        return mapper.selectCount(
+                new LambdaQueryWrapper<JobExecutionLogPO>()
+                        .ge(JobExecutionLogPO::getCreatedAt, since.toString())
+                        .eq(
+                                JobExecutionLogPO::getStatus,
+                                JobExecutionStatus.FAILED.persistentName()));
+    }
+
+    @Override
+    public List<JobExecutionLog> findFailedSince(Instant since, int limit) {
+        // newest-first（id DESC），仅失败行供概览提取涉及 jobName
+        return toEntities(
+                mapper.selectList(
+                        new LambdaQueryWrapper<JobExecutionLogPO>()
+                                .ge(JobExecutionLogPO::getCreatedAt, since.toString())
+                                .eq(
+                                        JobExecutionLogPO::getStatus,
+                                        JobExecutionStatus.FAILED.persistentName())
+                                .orderByDesc(JobExecutionLogPO::getId)
+                                .last("LIMIT " + limit)));
+    }
+
     private List<JobExecutionLog> toEntities(List<JobExecutionLogPO> pos) {
         if (pos == null || pos.isEmpty()) {
             return Collections.emptyList();

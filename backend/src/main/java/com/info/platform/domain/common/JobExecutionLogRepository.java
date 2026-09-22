@@ -1,5 +1,6 @@
 package com.info.platform.domain.common;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -44,4 +45,22 @@ public interface JobExecutionLogRepository {
      * @param limit 条数
      */
     List<JobExecutionLog> findRecent(int limit);
+
+    /**
+     * 统计 {@code created_at} 落 [since, ∞) 的执行总行数（T42 概览任务健康 windowRuns，方案 §4.6 滚动 24h）。
+     *
+     * <p>窗口按 {@code created_at} 扫描（V15 索引 {@code idx_job_log_time} 落在该列；Recorder 插入时 created_at 与
+     * start_time 同刻写入，语义等价，取索引列避免全表扫）。
+     */
+    long countSince(Instant since);
+
+    /** 统计 {@code created_at} 落 [since, ∞) 的 FAILED 行数（T42 概览任务健康 windowFailed）。 */
+    long countFailedSince(Instant since);
+
+    /**
+     * {@code created_at} 落 [since, ∞) 的 FAILED 行（newest-first，id DESC），供 T42 概览提取失败涉及的 jobName。
+     *
+     * <p>仅失败行（个人量级失败为少数），limit 为护栏防异常刷库拖垮概览。
+     */
+    List<JobExecutionLog> findFailedSince(Instant since, int limit);
 }

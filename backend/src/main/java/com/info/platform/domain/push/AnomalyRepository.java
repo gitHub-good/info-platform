@@ -1,5 +1,6 @@
 package com.info.platform.domain.push;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -40,6 +41,13 @@ public interface AnomalyRepository {
 
     /** 未推送记录（pushed=0），按触发时间升序，供 T14 补推。 */
     List<AnomalyRecord> findPending();
+
+    /**
+     * 统计 {@code trigger_time} 落 [since, ∞) 的行数（T42 概览「今日异动条数」，方案 §4.6 今日日界口径）。
+     *
+     * <p>边界转 ISO-8601 整秒文本后字典序比较，落在索引 {@code idx_anomaly_time}（V15）上做范围扫描。
+     */
+    long countTriggeredSince(Instant since);
 
     /** 按标的查异动历史，按触发时间降序。 */
     List<AnomalyRecord> findBySubjectId(Long subjectId);

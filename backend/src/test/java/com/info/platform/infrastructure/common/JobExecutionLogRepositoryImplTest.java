@@ -140,4 +140,41 @@ class JobExecutionLogRepositoryImplTest {
         assertThat(repository.byJobNameCursor("NonexistentJob", null, 10)).isEmpty();
         assertThat(repository.byJobNameCursor(null, null, 10)).isEmpty();
     }
+
+    @Test
+    void countSince_andCountFailedSince_windowByCreatedAt_t42() {
+        // Arrange：插入时 created_at=now；1 条 FAILED + 2 条 SUCCESS
+        JobExecutionLog failed = repository.save(JobExecutionLog.create("PushRetryJob", T1));
+        failed.markFailed(T2, "boom", 0, 1);
+        repository.save(failed);
+        repository.save(JobExecutionLog.create("PolicyFetchJob", T1));
+        repository.save(JobExecutionLog.create("PolicyFetchJob", T2));
+
+        // Act / Assert：滚动窗口内总数 3、失败 1；未来边界为 0
+        assertThat(repository.countSince(Instant.now().minusSeconds(3600))).isEqualTo(3);
+        assertThat(repository.countFailedSince(Instant.now().minusSeconds(3600))).isEqualTo(1);
+        assertThat(repository.countSince(Instant.now().plusSeconds(60))).isZero();
+        assertThat(repository.countFailedSince(Instant.now().plusSeconds(60))).isZero();
+    }
+
+    @Test
+    void findFailedSince_returnsOnlyFailedRowsNewestFirst_t42() {
+        // Arrange
+        JobExecutionLog failedA = repository.save(JobExecutionLog.create("PushRetryJob", T1));
+        failedA.markFailed(T2, "err-a", 0, 1);
+        repository.save(failedA);
+        repository.save(JobExecutionLog.create("PolicyFetchJob", T1)); // 非 FAILED 不返回
+        JobExecutionLog failedB = repository.save(JobExecutionLog.create("LegacyGoneJob", T2));
+        failedB.markFailed(T2.plusSeconds(1), "err-b", 0, 1);
+        repository.save(failedB);
+
+        // Act
+        List<JobExecutionLog> failedRows =
+                repository.findFailedSince(Instant.now().minusSeconds(3600), 10);
+
+        // Assert：仅 FAILED 两行，newest-first（failedB 在前）
+        assertThat(failedRows).hasSize(2);
+        assertThat(failedRows.get(0).getJobName()).isEqualTo("LegacyGoneJob");
+        assertThat(failedRows.get(1).getJobName()).isEqualTo("PushRetryJob");
+    }
 }
