@@ -18,13 +18,19 @@ import org.springframework.transaction.annotation.Transactional;
  * WatchlistSubscriptionResolver 集成测试（T14）：SQLite + Flyway V4（watchlist/watchlist_item）建表后， 经 {@link
  * WatchlistRepository} 种子数据，验证 {@link SubscriptionResolver#resolveAnomalyTargets} 的 watchlist
  * 隐含订阅解析（JOIN 过滤 已删除清单 + DISTINCT 去重）。 @Transactional 每用例回滚隔离。
+ *
+ * <p><b>T26 切换说明</b>：T26 落地 {@link SubscriptionConfigSubscriptionResolver}（精细订阅，标
+ * {@code @Primary}）后， {@code @Autowired SubscriptionResolver} 会注入精细订阅实现而非本 M1 watchlist 实现。 本测试改为
+ * {@code @Autowired WatchlistSubscriptionResolver} 直接注入 M1 实现本身——它验证的是 M1 watchlist
+ * 隐含订阅解析逻辑（保留为可回退实现）， 与 {@link SubscriptionConfigSubscriptionResolverTest}（验证 T26 后 PushService
+ * 实际使用的精细订阅实现）正交。
  */
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
 class WatchlistSubscriptionResolverTest {
 
-    @Autowired private SubscriptionResolver subscriptionResolver;
+    @Autowired private WatchlistSubscriptionResolver subscriptionResolver;
     @Autowired private WatchlistRepository watchlistRepository;
 
     private static final long SUBJECT_ID = 600519L;

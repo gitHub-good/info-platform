@@ -43,6 +43,11 @@ public enum ErrorCode {
     /** 政策条目不存在 */
     POLICY_NOT_FOUND(30040, "政策条目不存在", 404),
 
+    /** 订阅不存在（404 语义，DELETE /api/v1/subscriptions/{id}） */
+    SUBSCRIPTION_NOT_FOUND(30050, "订阅不存在", 404),
+    /** 无权操作该订阅（403，行级越权） */
+    SUBSCRIPTION_FORBIDDEN(30051, "无权操作该订阅", 403),
+
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
 
