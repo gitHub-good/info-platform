@@ -11,8 +11,8 @@ import java.util.List;
  * recommendation（每日推荐，{@code matchReason="每日推荐"}）。 {@code matchReason} 为订阅命中原因（主题/标的/事件类型/政策主题 +
  * key），推荐项填「每日推荐」。
  *
- * <p>{@code keywords} 为该条目命中的订阅关键词（与 {@code matchReason} 同源，首次命中订阅）：主题/政策主题为订阅词（文本命中）、 标的为标的名、事件类型与每日推荐为空数组。前端据此做命中词高亮（UI 方案 §3.5 交互 2 / §6.2 联判点 5）——
- * 只加字段，既有字段语义不变。
+ * <p>{@code keywords} 为该条目命中的订阅关键词（与 {@code matchReason} 同源，首次命中订阅）：主题/政策主题为订阅词（文本命中）、
+ * 标的为标的名、事件类型与每日推荐为空数组。前端据此做命中词高亮（UI 方案 §3.5 交互 2 / §6.2 联判点 5）—— 只加字段，既有字段语义不变。
  *
  * @param id 合成游标序号（1 起递增）
  * @param type 条目类型（{@link FeedItemType}）

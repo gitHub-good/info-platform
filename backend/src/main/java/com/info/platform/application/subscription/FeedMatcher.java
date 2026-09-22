@@ -41,8 +41,8 @@ import org.springframework.stereotype.Component;
  * <h2>命中关键词（T43）</h2>
  *
  * 命中同时携带 {@code keywords}（与首次命中订阅同源）：主题/政策主题为 subKey（标题或摘要文本必现）；标的为标的展示名 （按
- * subjectId/行业命中，文本未必出现，由前端仅出现时高亮）；事件类型按类型命中无文本关键词（空列表）。 供 FeedItem {@code
- * keywords[]} 透出，前端命中词高亮用（UI 方案 §6.2 联判点 5）。
+ * subjectId/行业命中，文本未必出现，由前端仅出现时高亮）；事件类型按类型命中无文本关键词（空列表）。 供 FeedItem {@code keywords[]}
+ * 透出，前端命中词高亮用（UI 方案 §6.2 联判点 5）。
  *
  * <h2>可扩展</h2>
  *
