@@ -18,12 +18,19 @@ function loginErrorMessage(err: unknown): string {
   return '登录失败，请稍后重试';
 }
 
+interface LoginProps {
+  /** 登录成功后的目标路由（登录守卫回原目标页用；默认 /overview——T38 默认落地页调整）。 */
+  redirectTo?: string;
+  /** 登录成功回调（App 登录守卫在目标 hash 原地渲染登录页时，靠它驱动重渲染）。 */
+  onAuthenticated?: () => void;
+}
+
 /**
- * 登录页（技术方案 §4.1 认证段 + T12）。
- * 用户名 + 密码 → POST /api/v1/auth/login → 成功存 accessToken 跳 /watchlists；
+ * 登录页（技术方案 §4.1 认证段 + T12；T38 接入登录守卫目标路由）。
+ * 用户名 + 密码 → POST /api/v1/auth/login → 成功存 accessToken 跳目标路由；
  * 凭证错误 1001(401) / 限流 1002(429) 展示对应提示。
  */
-export function Login() {
+export function Login({ redirectTo = '/overview', onAuthenticated }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -38,7 +45,8 @@ export function Login() {
     setError(null);
     try {
       await login(u, p);
-      navigate('/watchlists');
+      onAuthenticated?.();
+      navigate(redirectTo);
     } catch (err) {
       setError(loginErrorMessage(err));
     } finally {

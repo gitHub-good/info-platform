@@ -12,7 +12,7 @@ import { NewsSection } from '@/components/subject/NewsSection';
 import { PolicySection } from '@/components/subject/PolicySection';
 import { QuoteSection } from '@/components/subject/QuoteSection';
 import { ValuationSection } from '@/components/subject/ValuationSection';
-import { navigate } from '@/lib/navigation';
+import { navigate, rememberSubject } from '@/lib/navigation';
 import type { Subject, SubjectDetailData, SubjectMarket } from '@/types/subject-detail';
 
 const MARKET_LABEL: Record<SubjectMarket, string> = {
@@ -79,6 +79,11 @@ function LoadingSkeleton() {
  */
 export function SubjectDetail({ subjectId = 'SH600519', data: injected }: SubjectDetailProps) {
   const { data, loading, error } = useSubjectDetail(subjectId, injected);
+
+  // T38 路由参数化：记录最近浏览标的（侧栏「标的详情」入口指向，无历史落默认标的）
+  useEffect(() => {
+    rememberSubject(subjectId);
+  }, [subjectId]);
 
   // 阅读埋点（T29）：详情数据加载成功后上报一次（会话级去重、静默失败，不打扰主流程）
   useEffect(() => {

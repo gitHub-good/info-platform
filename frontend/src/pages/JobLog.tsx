@@ -95,20 +95,26 @@ function JobNameFilter({ jobNames, value, onChange, disabled }: JobNameFilterPro
   );
 }
 
+interface JobLogProps {
+  /** URL 参数初始过滤（#/job-logs?jobName=xxx，T38 预留、T41 任务中心「历史」跳转用）。 */
+  initialJobName?: string;
+}
+
 /**
- * Job 执行日志页（T33）。
+ * Job 执行日志页（T33；T38 支持初始过滤）。
  * - 列表：GET /job-logs?jobName=&cursor=（游标分页，每页 20）。
  * - 状态徽章：SUCCESS 绿 / FAILED 红 / STARTED 黄。
- * - 过滤：jobName 下拉（选项来自已加载日志的 jobName 去重）→ 重新拉首页。
+ * - 过滤：jobName 下拉（选项来自已加载日志的 jobName 去重）→ 重新拉首页；
+ *   挂载时可用 initialJobName 预过滤（URL 参数初始化，改动仅初始取参）。
  * - 分页：nextCursor 存在时「加载更多」追加下一页。
  * 三态：加载骨架 / 空数据引导 / 错误重试；受保护接口 401 由 http 层统一跳 /login。
  */
-export function JobLog() {
+export function JobLog({ initialJobName = '' }: JobLogProps) {
   const [items, setItems] = useState<JobLogView[]>([]);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [jobName, setJobName] = useState('');
+  const [jobName, setJobName] = useState(initialJobName);
   const [loadingMore, setLoadingMore] = useState(false);
 
   // 切换 jobName 过滤时取消在途请求，避免旧响应覆盖新结果
@@ -134,9 +140,9 @@ export function JobLog() {
   }, []);
 
   useEffect(() => {
-    void loadFirst('');
+    void loadFirst(initialJobName);
     return () => abortRef.current?.abort();
-  }, [loadFirst]);
+  }, [loadFirst, initialJobName]);
 
   const handleJobNameChange = (name: string) => {
     setJobName(name);

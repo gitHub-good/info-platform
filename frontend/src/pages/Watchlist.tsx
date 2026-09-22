@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddItemDialog } from '@/components/watchlist/AddItemDialog';
@@ -7,7 +6,6 @@ import { CreateWatchlistForm } from '@/components/watchlist/CreateWatchlistForm'
 import { EditThresholdDialog } from '@/components/watchlist/EditThresholdDialog';
 import { WatchlistCard } from '@/components/watchlist/WatchlistCard';
 import { WatchlistDetail } from '@/components/watchlist/WatchlistDetail';
-import { logout } from '@/api/auth';
 import { ApiError } from '@/api/http';
 import {
   addWatchlistItem,
@@ -17,7 +15,6 @@ import {
   removeWatchlistItem,
   updateItemThreshold,
 } from '@/api/watchlist';
-import { navigate } from '@/lib/navigation';
 import type { WatchlistItemView, WatchlistView } from '@/types/watchlist';
 
 /** 非 ApiError 兜底文案。 */
@@ -185,44 +182,11 @@ export function Watchlist() {
     setEditItem(item);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
+  // T38 导航收编：原头部「政策时事 / Job 日志 / 成本报表 / 登出」4 个跨页按钮移除，职责移交侧栏
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="watchlist-page">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4">
         <h1 className="text-xl font-medium">自选清单</h1>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/policies')}
-            data-testid="watchlist-goto-policies"
-          >
-            政策时事
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/job-logs')}
-            data-testid="watchlist-goto-job-logs"
-          >
-            Job 日志
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/cost-report')}
-            data-testid="watchlist-goto-cost-report"
-          >
-            成本报表
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleLogout} data-testid="watchlist-logout">
-            登出
-          </Button>
-        </div>
       </header>
 
       <Card className="mb-4">

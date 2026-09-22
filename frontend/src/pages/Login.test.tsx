@@ -27,7 +27,7 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, username:
 }
 
 describe('Login 登录页', () => {
-  it('登录成功：POST /auth/login 存 token 并跳转 /watchlists', async () => {
+  it('登录成功：POST /auth/login 存 token 并跳默认落地页 /overview（T38）', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockResponse(200, {
         code: 0,
@@ -49,9 +49,29 @@ describe('Login 登录页', () => {
     expect(JSON.parse(init.body as string)).toEqual({ username: 'admin', password: 'admin123' });
     expect(init.headers).not.toHaveProperty('Authorization');
 
-    // 成功：token 落 localStorage，路由跳 /watchlists
+    // 成功：token 落 localStorage，路由跳 /overview（默认落地页，T38 由 /watchlists 调整）
     await waitFor(() => expect(localStorage.getItem('access_token')).toBe('jwt-abc'));
-    expect(window.location.hash).toBe('#/watchlists');
+    expect(window.location.hash).toBe('#/overview');
+  });
+
+  it('redirectTo 属性：登录守卫场景登录成功回原目标路由', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        traceId: 't1',
+        data: { accessToken: 'jwt-abc', refreshToken: 'r', tokenType: 'Bearer', expiresIn: 3600 },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const user = userEvent.setup();
+    render(<Login redirectTo="/policies" />);
+    await user.type(screen.getByTestId('login-username'), 'admin');
+    await user.type(screen.getByTestId('login-password'), 'admin123');
+    await user.click(screen.getByTestId('login-submit'));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/policies'));
   });
 
   it('凭证错误 1001(401)：展示错误且不存 token、不跳转', async () => {
