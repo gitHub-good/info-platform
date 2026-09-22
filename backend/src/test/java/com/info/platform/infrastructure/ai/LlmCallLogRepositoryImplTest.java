@@ -15,8 +15,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * LlmCallLogRepositoryImpl 集成测试（T30）：SQLite 共享内存库 + Flyway（V13 建 llm_call_log 表）后，测 save 往返
- * 与 findCreatedSince 窗口过滤/排序/limit。
+ * LlmCallLogRepositoryImpl 集成测试（T30）：SQLite 共享内存库 + Flyway（V13 建 llm_call_log 表）后，测 save 往返 与
+ * findCreatedSince 窗口过滤/排序/limit。
  *
  * <p>对齐 AiBriefRepositoryImplTest 模式（@SpringBootTest 全上下文 + @ActiveProfiles("test")）。
  */
@@ -49,12 +49,14 @@ class LlmCallLogRepositoryImplTest {
         assertThat(saved.getCostMicros()).isEqualTo(7200L);
         assertThat(saved.getDurationMillis()).isEqualTo(3200L);
 
-        List<LlmCallLog> found = repository.findCreatedSince(Instant.now().minus(1, ChronoUnit.HOURS), 10);
-        assertThat(found).anySatisfy(
-                row -> {
-                    assertThat(row.getId()).isEqualTo(saved.getId());
-                    assertThat(row.isCacheHit()).isFalse();
-                });
+        List<LlmCallLog> found =
+                repository.findCreatedSince(Instant.now().minus(1, ChronoUnit.HOURS), 10);
+        assertThat(found)
+                .anySatisfy(
+                        row -> {
+                            assertThat(row.getId()).isEqualTo(saved.getId());
+                            assertThat(row.isCacheHit()).isFalse();
+                        });
     }
 
     @Test
@@ -89,7 +91,8 @@ class LlmCallLogRepositoryImplTest {
 
         // Act：窗口起点取未来时刻 → 空集；取过去 1h → 两条且 newest-first
         List<LlmCallLog> future = repository.findCreatedSince(Instant.now().plusSeconds(60), 10);
-        List<LlmCallLog> past = repository.findCreatedSince(Instant.now().minus(1, ChronoUnit.HOURS), 10);
+        List<LlmCallLog> past =
+                repository.findCreatedSince(Instant.now().minus(1, ChronoUnit.HOURS), 10);
 
         // Assert
         assertThat(future).isEmpty();
@@ -106,7 +109,8 @@ class LlmCallLogRepositoryImplTest {
         }
 
         // Act
-        List<LlmCallLog> rows = repository.findCreatedSince(Instant.now().minus(1, ChronoUnit.HOURS), 2);
+        List<LlmCallLog> rows =
+                repository.findCreatedSince(Instant.now().minus(1, ChronoUnit.HOURS), 2);
 
         // Assert：上限护栏生效（newest-first 截断）
         assertThat(rows).hasSize(2);

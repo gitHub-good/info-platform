@@ -87,7 +87,8 @@ class LlmGatewayImplTest {
     }
 
     private LlmGatewayImpl gateway() {
-        return new LlmGatewayImpl(List.of(deepseek, glm), config, costGuard, cache, callLog, executor);
+        return new LlmGatewayImpl(
+                List.of(deepseek, glm), config, costGuard, cache, callLog, executor);
     }
 
     @Test

@@ -26,9 +26,9 @@ import org.springframework.stereotype.Component;
 /**
  * LLM 网关实现（{@link LlmGateway} 端口，ADR-0004 + ADR-0008 + 技术方案 §4.4 + ADR-0010）。
  *
- * <p>编排顺序：缓存命中直返（0 成本）→ 成本上限校验 → fallback 链调用（每调用裹 Future 超时）→ 用量入账 + 写缓存。 T30
- * 起每次 chat 落一行调用留痕（{@link LlmCallLog}，经 {@link LlmCallLogger}——缓存命中/成功/失败/预算拒绝四态， 供成本报表
- * {@code GET /api/v1/llm-cost-report} 聚合；留痕失败不阻断调用）。
+ * <p>编排顺序：缓存命中直返（0 成本）→ 成本上限校验 → fallback 链调用（每调用裹 Future 超时）→ 用量入账 + 写缓存。 T30 起每次 chat
+ * 落一行调用留痕（{@link LlmCallLog}，经 {@link LlmCallLogger}——缓存命中/成功/失败/预算拒绝四态， 供成本报表 {@code GET
+ * /api/v1/llm-cost-report} 聚合；留痕失败不阻断调用）。
  *
  * <p><b>Fallback 链</b>（对齐 §4.4 + ADR-0008）：从 {@code default: true} provider 起，按 {@code fallback}
  * 字段串联（带环检测）；逐个调用 enabled 且已装配的 adapter，任一成功即返。 失败类型（超时 / 限频 429 {@code

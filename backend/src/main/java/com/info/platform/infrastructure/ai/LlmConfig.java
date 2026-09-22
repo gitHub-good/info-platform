@@ -35,8 +35,8 @@ public class LlmConfig {
     private long dailyTokenBudgetPerUser = 20000;
 
     /**
-     * 预算告警阈值比例（0~1）：用量达 {@code dailyTokenBudgetPerUser × 本值} 即告警（T30）—— 网关记 WARN 日志 + 成本报表置
-     * WARNING 状态，耗尽（100%）才拦截。默认 0.8（留 20% 余量，Spike-2 §8.3 个人量级）。
+     * 预算告警阈值比例（0~1）：用量达 {@code dailyTokenBudgetPerUser × 本值} 即告警（T30）—— 网关记 WARN 日志 + 成本报表置 WARNING
+     * 状态，耗尽（100%）才拦截。默认 0.8（留 20% 余量，Spike-2 §8.3 个人量级）。
      */
     private double budgetWarnRatio = 0.8;
 
@@ -153,8 +153,8 @@ public class LlmConfig {
         private String fallback;
 
         /**
-         * 输入单价（元/百万 token，T30 成本估算）。公开定价来自 Spike-2 §8.1（DeepSeek-flash 空闲档 1.0 / 高峰 2.0）； 免费档
-         * GLM 与未确认厂商默认 0（不估算）。厂商调价只改配置，不动代码。
+         * 输入单价（元/百万 token，T30 成本估算）。公开定价来自 Spike-2 §8.1（DeepSeek-flash 空闲档 1.0 / 高峰 2.0）； 免费档 GLM
+         * 与未确认厂商默认 0（不估算）。厂商调价只改配置，不动代码。
          */
         private double inputPricePerMillion = 0;
 

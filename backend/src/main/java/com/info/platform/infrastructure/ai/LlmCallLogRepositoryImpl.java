@@ -12,8 +12,8 @@ import org.springframework.stereotype.Repository;
 /**
  * {@link LlmCallLogRepository} 端口的 SQLite/MyBatis-Plus 实现（T30）。
  *
- * <p>PO↔Entity 转换集中于此；时间戳存 ISO-8601 整秒文本（字典序即时间序），窗口查询按 {@code created_at >=
- * start} 文本比较即可命中 {@code idx_llm_call_log_created} 索引。追加型流水仅 INSERT，无 UPDATE 路径。
+ * <p>PO↔Entity 转换集中于此；时间戳存 ISO-8601 整秒文本（字典序即时间序），窗口查询按 {@code created_at >= start} 文本比较即可命中 {@code
+ * idx_llm_call_log_created} 索引。追加型流水仅 INSERT，无 UPDATE 路径。
  */
 @Repository
 public class LlmCallLogRepositoryImpl implements LlmCallLogRepository {
@@ -38,7 +38,10 @@ public class LlmCallLogRepositoryImpl implements LlmCallLogRepository {
     public List<LlmCallLog> findCreatedSince(Instant start, int limit) {
         LambdaQueryWrapper<LlmCallLogPO> wrapper =
                 new LambdaQueryWrapper<LlmCallLogPO>()
-                        .ge(start != null, LlmCallLogPO::getCreatedAt, start == null ? null : start.toString())
+                        .ge(
+                                start != null,
+                                LlmCallLogPO::getCreatedAt,
+                                start == null ? null : start.toString())
                         .orderByDesc(LlmCallLogPO::getId)
                         .last("LIMIT " + Math.max(0, limit));
         return toEntities(mapper.selectList(wrapper));

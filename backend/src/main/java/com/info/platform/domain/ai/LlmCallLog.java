@@ -5,13 +5,12 @@ import java.time.Instant;
 /**
  * LLM 调用留痕实体（llm_call_log 表，T30 成本治理）。
  *
- * <p>领域层纯净：仅依赖 JDK 类型（含同层 {@link LlmUsage}），可脱离容器单测、可移植。生命周期： {@code begin}
- * 创建（仅 userId + 场景键）→ 恰好一次 {@code markCacheHit} / {@code markSuccess} / {@code markFailed} /
- * {@code markRejected} 定型 → 落库（追加型流水，只 INSERT 不 UPDATE）。id/时间戳由基础设施层 {@code
- * LlmCallLogRepositoryImpl} 落库时回填。
+ * <p>领域层纯净：仅依赖 JDK 类型（含同层 {@link LlmUsage}），可脱离容器单测、可移植。生命周期： {@code begin} 创建（仅 userId + 场景键）→
+ * 恰好一次 {@code markCacheHit} / {@code markSuccess} / {@code markFailed} / {@code markRejected} 定型 →
+ * 落库（追加型流水，只 INSERT 不 UPDATE）。id/时间戳由基础设施层 {@code LlmCallLogRepositoryImpl} 落库时回填。
  *
- * <p>写入方为基础设施层 {@code LlmGatewayImpl}（经 {@code LlmCallLogger}，留痕失败不阻断调用）； 查询方为应用层
- * {@code LlmCostReportService}（成本报表窗口聚合）。
+ * <p>写入方为基础设施层 {@code LlmGatewayImpl}（经 {@code LlmCallLogger}，留痕失败不阻断调用）； 查询方为应用层 {@code
+ * LlmCostReportService}（成本报表窗口聚合）。
  */
 public class LlmCallLog {
 
@@ -140,7 +139,11 @@ public class LlmCallLog {
      * @param durationMillis 端到端耗时毫秒
      */
     public void markSuccess(
-            String providerKey, String model, LlmUsage usage, long costMicros, long durationMillis) {
+            String providerKey,
+            String model,
+            LlmUsage usage,
+            long costMicros,
+            long durationMillis) {
         LlmUsage safe = usage == null ? new LlmUsage(0, 0) : usage;
         this.providerKey = providerKey;
         this.model = model;

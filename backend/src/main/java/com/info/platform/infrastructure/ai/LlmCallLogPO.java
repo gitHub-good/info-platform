@@ -8,9 +8,10 @@ import com.baomidou.mybatisplus.annotation.TableName;
 /**
  * llm_call_log 表的持久化对象（T30）。
  *
- * <p>对齐 V13 迁移：id/user_id/provider/model/scene_key/status/cache_hit/prompt_tokens/completion_tokens/
- * cost_micros/duration_millis/error_message/created_at。无 version 列（追加型流水，只 INSERT），不标 {@code
- * @Version}，{@code OptimisticLockerInnerInterceptor} 仅对带 {@code @Version} 的 PO 生效，本 PO 不受影响。
+ * <p>对齐 V13
+ * 迁移：id/user_id/provider/model/scene_key/status/cache_hit/prompt_tokens/completion_tokens/
+ * cost_micros/duration_millis/error_message/created_at。无 version 列（追加型流水，只 INSERT），不标
+ * {@code @Version}，{@code OptimisticLockerInnerInterceptor} 仅对带 {@code @Version} 的 PO 生效，本 PO 不受影响。
  *
  * <p>{@code status TEXT} 存枚举名（SUCCESS/FAILED/REJECTED）；时间戳存 ISO-8601 整秒文本（字典序即时间序）； token/耗时/成本用
  * {@link Integer} 承载（SQLite INTEGER 亲和，个人量级 token 数与微元成本均不溢出 int）。
