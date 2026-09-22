@@ -167,6 +167,41 @@ class LlmConfigControllerTest {
     }
 
     @Test
+    void writeApiKey_successReturnsMaskedStateOnly() throws Exception {
+        LlmConfigView.ProviderConfigView masked =
+                new LlmConfigView.ProviderConfigView(
+                        "deepseek",
+                        "deepseek-flash",
+                        true,
+                        true,
+                        "glm",
+                        "https://api.deepseek.com",
+                        "RESTART",
+                        1.0,
+                        4.0,
+                        new LlmConfigView.ApiKeyView("CONFIGURED", "DB", "9876"),
+                        "2026-09-22T02:00:00Z",
+                        Map.of("apiKey", "LIVE"));
+        when(facade.writeApiKey(eq("deepseek"), any(LlmApiKeyWrite.class))).thenReturn(masked);
+
+        mockMvc.perform(
+                        put("/api/v1/llm-config/providers/deepseek/api-key")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"apiKey\":\"sk-live-9876\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.apiKey.status").value("CONFIGURED"))
+                .andExpect(jsonPath("$.data.apiKey.source").value("DB"))
+                .andExpect(jsonPath("$.data.apiKey.last4").value("9876"));
+
+        // 请求体明文透传给应用层（响应只回脱敏态）
+        org.mockito.ArgumentCaptor<LlmApiKeyWrite> captor =
+                org.mockito.ArgumentCaptor.forClass(LlmApiKeyWrite.class);
+        org.mockito.Mockito.verify(facade).writeApiKey(eq("deepseek"), captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().apiKey())
+                .isEqualTo("sk-live-9876");
+    }
+
+    @Test
     void connectivityTest_returns200WithResultBody() throws Exception {
         when(facade.connectivityTest("deepseek"))
                 .thenReturn(new LlmConnectivityResult(true, 812L, "deepseek-flash", null));
