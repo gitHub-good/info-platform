@@ -37,4 +37,34 @@ public enum AiTendency {
         }
         return UNJUDGED;
     }
+
+    /**
+     * 由 LLM 输出的倾向标签（Spike-2 §7.3 政策解读模板 {@code bias} 字段，取值 {@code 利好|利空|中性}）映射为枚举。
+     *
+     * <p>T28 {@code PolicyTendencyService} 调 LLM 得 {@link
+     * com.info.platform.domain.ai.BriefContent#bias()} 后用本方法转 {@code AiTendency} 写入 {@code
+     * policy_item.ai_tendency}。用 {@code contains} 容错模型偶发附加标点/修饰（如「利好。」「整体利好」）； null/空白/无法识别回 {@link
+     * #UNJUDGED}（保持 0，不阻断）。
+     *
+     * @param bias LLM 输出倾向标签原文，可空
+     */
+    public static AiTendency fromBias(String bias) {
+        if (bias == null) {
+            return UNJUDGED;
+        }
+        String s = bias.strip();
+        if (s.isEmpty()) {
+            return UNJUDGED;
+        }
+        if (s.contains("利好")) {
+            return BULLISH;
+        }
+        if (s.contains("利空")) {
+            return BEARISH;
+        }
+        if (s.contains("中性")) {
+            return NEUTRAL;
+        }
+        return UNJUDGED;
+    }
 }

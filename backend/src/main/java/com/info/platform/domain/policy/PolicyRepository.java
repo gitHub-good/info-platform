@@ -32,4 +32,27 @@ public interface PolicyRepository {
      * @param limit 页大小
      */
     List<PolicyItem> findRecent(int days, String industry, Long cursor, int limit);
+
+    /**
+     * 查询近期 {@code ai_tendency=0}（未判）的政策条目（T28 政策倾向批量 Job 扫描用）。
+     *
+     * <p>newest-first（id DESC），days 天内，{@code WHERE ai_tendency = 0 LIMIT limit}。区别于 {@link
+     * #findRecent} （含已判）：Job 只处理未判条目，避免已判条目占满 LIMIT 窗口导致漏扫（个人量级数据小，但显式过滤更稳）。
+     *
+     * @param days 时间窗（天）；&lt;=0 取默认 7，&gt;90 截 90
+     * @param limit 单轮扫描上限
+     */
+    List<PolicyItem> findRecentUnjudged(int days, int limit);
+
+    /**
+     * 更新政策条目倾向（T28 填 {@code ai_tendency}，1利好/2利空/3中性）。
+     *
+     * <p>仅写 {@code ai_tendency} + {@code updated_at}（{@code WHERE id=?}）；不触碰 title/source 等不可变字段。
+     * 影响 0 行（id 不存在）静默忽略（Job 容错，调用方据返回值记日志）。
+     *
+     * @param id 政策条目 id
+     * @param tendency 倾向；传 {@link AiTendency#UNJUDGED} 视为无操作（直接返 false）
+     * @return 是否实际更新了 1 行
+     */
+    boolean updateAiTendency(Long id, AiTendency tendency);
 }

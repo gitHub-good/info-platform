@@ -126,6 +126,16 @@ policy:
   fetch:
     enabled: true
     interval-millis: 3600000
+  # 政策倾向 AI 判断（T28，§4.1.5 ai_tendency + §4.3 流程 2 + Spike-2 §11.6）：@Scheduled 批量扫
+  # ai_tendency=0 的近期政策 → 调 T19 LlmGateway（briefType=3 政策解读模板）→ 解析 bias 填 1利好/2利空/3中性。
+  # tendency.enabled=false 时 Job 与 @EnableScheduling 均不装配（测试关，@Scheduled 不触发，对齐 04 规范）；
+  # 生产置 true，独立调度开关（不与 fetch 耦合）。interval 默认 30min（介于抓取 1h 之间，新入库条目下一轮即判）。
+  # days 扫描时间窗（默认 7）；batch-size 单轮处理上限（控 LLM 成本，系统任务 userId=0 成本守卫跳过）。
+  tendency:
+    enabled: true
+    interval-millis: 1800000
+    days: 7
+    batch-size: 20
 
 # LLM 网关（T19，§4.4 + ADR-0004/0008 + Spike-2 调研）：配置驱动多 provider + fallback。
 # DeepSeek default（deepseek-flash 性价比档，JSON mode 稳，Spike-2 §3）+ GLM fallback（glm-4-flash-250414 免费档）。

@@ -132,4 +132,75 @@ class PolicyRepositoryImplTest {
     void findRecent_notFoundById_empty() {
         assertThat(repository.findById(999999L)).isEmpty();
     }
+
+    @Test
+    void findRecentUnjudged_returnsOnlyAiTendencyZero_newestFirst() {
+        // Arrange：3 条近期政策（saveAll 默认 ai_tendency=0），将首条标为利好
+        List<PolicyItem> saved =
+                repository.saveAll(
+                        List.of(
+                                newItem("政策A", todayMinus(1), "https://gov/u1", List.of("白酒")),
+                                newItem("政策B", todayMinus(1), "https://gov/u2", List.of("银行")),
+                                newItem("政策C", todayMinus(1), "https://gov/u3", List.of("互联网"))));
+        repository.updateAiTendency(saved.get(0).getId(), AiTendency.BULLISH);
+
+        // Act
+        List<PolicyItem> pending = repository.findRecentUnjudged(7, 20);
+
+        // Assert：仅返 ai_tendency=0 的政策B、C（newest-first id DESC）；已判的政策A排除
+        assertThat(pending).hasSize(2);
+        assertThat(pending.get(0).getId()).isEqualTo(saved.get(2).getId());
+        assertThat(pending.get(1).getId()).isEqualTo(saved.get(1).getId());
+        assertThat(pending)
+                .allSatisfy(p -> assertThat(p.getAiTendency()).isEqualTo(AiTendency.UNJUDGED));
+    }
+
+    @Test
+    void findRecentUnjudged_respectsDaysWindow() {
+        // Arrange：8 天前的未判政策不应扫到（窗口 7 天）
+        repository.saveAll(List.of(newItem("旧政策", todayMinus(8), "https://gov/old-u", List.of())));
+
+        // Act + Assert
+        assertThat(repository.findRecentUnjudged(7, 20)).isEmpty();
+    }
+
+    @Test
+    void updateAiTendency_setsTendencyAndTimestamp() {
+        // Arrange
+        Long id =
+                repository
+                        .saveAll(List.of(newItem("政策X", todayMinus(1), "https://gov/x", List.of())))
+                        .get(0)
+                        .getId();
+
+        // Act：标为利空
+        boolean updated = repository.updateAiTendency(id, AiTendency.BEARISH);
+
+        // Assert：影响 1 行；回读 ai_tendency=2 利空
+        assertThat(updated).isTrue();
+        PolicyItem loaded = repository.findById(id).orElseThrow();
+        assertThat(loaded.getAiTendency()).isEqualTo(AiTendency.BEARISH);
+        assertThat(loaded.getTitle()).isEqualTo("政策X"); // 不可变字段未被触碰
+    }
+
+    @Test
+    void updateAiTendency_unjudgedOrNullId_noOp() {
+        // Arrange
+        Long id =
+                repository
+                        .saveAll(List.of(newItem("政策Y", todayMinus(1), "https://gov/y", List.of())))
+                        .get(0)
+                        .getId();
+
+        // Act + Assert：传 UNJUDGED 或 null id 视为无操作
+        assertThat(repository.updateAiTendency(id, AiTendency.UNJUDGED)).isFalse();
+        assertThat(repository.updateAiTendency(null, AiTendency.NEUTRAL)).isFalse();
+        assertThat(repository.findById(id).orElseThrow().getAiTendency())
+                .isEqualTo(AiTendency.UNJUDGED);
+    }
+
+    @Test
+    void updateAiTendency_nonExistentId_returnsFalse() {
+        assertThat(repository.updateAiTendency(999999L, AiTendency.NEUTRAL)).isFalse();
+    }
 }

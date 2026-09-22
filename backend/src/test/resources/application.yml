@@ -44,6 +44,10 @@ recommendation:
 policy:
   fetch:
     enabled: false
+  # 政策倾向判断 job 在测试环境关闭：@Scheduled 不触发、PolicyTendencyJob 不装配（对齐 04 测试规范），
+  # 倾向判断逻辑改由单测直接调 PolicyTendencyService.judgeTendency 验证（mock LlmGateway，不依赖真实 LLM）。
+  tendency:
+    enabled: false
 
 logging:
   level:

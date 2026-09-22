@@ -1,6 +1,7 @@
 package com.info.platform.infrastructure.policy;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
@@ -97,6 +98,36 @@ public class PolicyRepositoryImpl implements PolicyRepository {
         w.orderByDesc(PolicyItemPO::getId).last("LIMIT " + limit);
         List<PolicyItemPO> pos = mapper.selectList(w);
         return pos.stream().map(PolicyRepositoryImpl::toEntity).toList();
+    }
+
+    @Override
+    public List<PolicyItem> findRecentUnjudged(int days, int limit) {
+        int safeDays = days <= 0 ? DEFAULT_DAYS : Math.min(days, MAX_DAYS);
+        String since = LocalDate.now(ZoneOffset.UTC).minusDays(safeDays).toString();
+        LambdaQueryWrapper<PolicyItemPO> w =
+                new LambdaQueryWrapper<PolicyItemPO>()
+                        .ge(PolicyItemPO::getPublishedAt, since)
+                        .eq(PolicyItemPO::getAiTendency, AiTendency.UNJUDGED.code())
+                        .orderByDesc(PolicyItemPO::getId)
+                        .last("LIMIT " + limit);
+        return mapper.selectList(w).stream().map(PolicyRepositoryImpl::toEntity).toList();
+    }
+
+    @Override
+    @Transactional
+    public boolean updateAiTendency(Long id, AiTendency tendency) {
+        if (id == null || tendency == null || tendency == AiTendency.UNJUDGED) {
+            return false;
+        }
+        String now = Instant.now().toString();
+        int affected =
+                mapper.update(
+                        null,
+                        new LambdaUpdateWrapper<PolicyItemPO>()
+                                .eq(PolicyItemPO::getId, id)
+                                .set(PolicyItemPO::getAiTendency, tendency.code())
+                                .set(PolicyItemPO::getUpdatedAt, now));
+        return affected > 0;
     }
 
     private static PolicyItem toEntity(PolicyItemPO po) {
