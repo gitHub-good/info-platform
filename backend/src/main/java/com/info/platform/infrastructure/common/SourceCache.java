@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.common;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
+import com.github.benmanes.caffeine.cache.Ticker;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceStatus;
@@ -34,14 +35,20 @@ public class SourceCache {
         this(code -> Duration.ofSeconds(DataSourceDefaults.cacheTtlSeconds(code)));
     }
 
-    /** 运行时 TTL 供应构造：每条目写入时解析当前配置（LIVE 级热生效）。 */
+    /** 运行时 TTL 供应构造：每条目写入时解析当前配置（LIVE 级热生效），时钟走系统缺省。 */
     public SourceCache(Function<SourceCode, Duration> ttlSupplier) {
+        this(ttlSupplier, Ticker.systemTicker());
+    }
+
+    /** 同 {@link #SourceCache(Function)}，可注入时钟——过期回归用例的 fake ticker（DEFECT-1，同包可见）。 */
+    SourceCache(Function<SourceCode, Duration> ttlSupplier, Ticker ticker) {
         Map<SourceCode, Cache<Long, SourceResult>> map = new EnumMap<>(SourceCode.class);
         for (SourceCode code : SourceCode.values()) {
             map.put(
                     code,
                     Caffeine.newBuilder()
                             .maximumSize(maxSizeFor(code))
+                            .ticker(ticker)
                             .expireAfter(new SourceExpiry(code, ttlSupplier))
                             .build());
         }
@@ -70,7 +77,12 @@ public class SourceCache {
         };
     }
 
-    /** 每条目 TTL：写入/更新按当前配置解析，读不延长（{@code Long.MIN_VALUE} = 不变）。 */
+    /**
+     * 每条目 TTL：写入/更新按当前配置解析，读不延长。
+     *
+     * <p>「读不延长」= {@link #expireAfterRead} 返回剩余时长 {@code currentDuration}（DEFECT-1：Caffeine 3.1.8
+     * 中返回 {@code Long.MIN_VALUE} 并非「不变」，而是使条目永不过期——被读过的条目永驻，切源与 TTL 热改对存量条目失效）。
+     */
     private static final class SourceExpiry implements Expiry<Long, SourceResult> {
         private final SourceCode code;
         private final Function<SourceCode, Duration> ttlSupplier;
@@ -94,7 +106,7 @@ public class SourceCache {
         @Override
         public long expireAfterRead(
                 Long key, SourceResult value, long currentTime, long currentDuration) {
-            return Long.MIN_VALUE;
+            return currentDuration;
         }
 
         private Duration resolveTtl() {

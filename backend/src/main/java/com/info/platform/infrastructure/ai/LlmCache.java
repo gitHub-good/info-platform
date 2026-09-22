@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.ai;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
+import com.github.benmanes.caffeine.cache.Ticker;
 import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
 import java.nio.charset.StandardCharsets;
@@ -30,9 +31,19 @@ public class LlmCache {
     private final Cache<CacheKey, LlmResponse> cache;
 
     public LlmCache(Function<String, Duration> ttlForBriefType, Duration defaultTtl, long maxSize) {
+        this(ttlForBriefType, defaultTtl, maxSize, Ticker.systemTicker());
+    }
+
+    /** 同 {@link #LlmCache(Function, Duration, long)}，可注入时钟——过期回归用例的 fake ticker（DEFECT-1，同包可见）。 */
+    LlmCache(
+            Function<String, Duration> ttlForBriefType,
+            Duration defaultTtl,
+            long maxSize,
+            Ticker ticker) {
         this.cache =
                 Caffeine.newBuilder()
                         .maximumSize(maxSize)
+                        .ticker(ticker)
                         .expireAfter(new LlmExpiry(ttlForBriefType, defaultTtl))
                         .build();
     }
@@ -79,7 +90,12 @@ public class LlmCache {
     /** 缓存键（briefType 分区 + 内容哈希）。 */
     private record CacheKey(String briefType, String hash) {}
 
-    /** 每条目差异化 TTL：建/写按 briefType 解析 TTL，读不延长（{@code Long.MIN_VALUE} = 不变）。 */
+    /**
+     * 每条目差异化 TTL：建/写按 briefType 解析 TTL，读不延长。
+     *
+     * <p>「读不延长」= {@link #expireAfterRead} 返回剩余时长 {@code currentDuration}（DEFECT-1：Caffeine 3.1.8
+     * 中返回 {@code Long.MIN_VALUE} 并非「不变」，而是使条目永不过期——AI 简报/每日推荐缓存被读后永驻，TTL 分档热改对存量条目失效）。
+     */
     private static final class LlmExpiry implements Expiry<CacheKey, LlmResponse> {
         private final Function<String, Duration> ttlForBriefType;
         private final Duration defaultTtl;
@@ -103,7 +119,7 @@ public class LlmCache {
         @Override
         public long expireAfterRead(
                 CacheKey key, LlmResponse value, long currentTime, long currentDuration) {
-            return Long.MIN_VALUE;
+            return currentDuration;
         }
 
         private Duration resolveTtl(CacheKey key) {

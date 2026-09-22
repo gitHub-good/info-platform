@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.github.benmanes.caffeine.cache.Ticker;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmProvider;
 import com.info.platform.domain.ai.LlmRequest;
@@ -10,14 +11,18 @@ import com.info.platform.domain.ai.LlmUsage;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
  * LlmCache 单测（T19+T35）：同 prompt+context 命中、briefType 分区、per-entry TTL 解析（ADR-0005 + ADR-0008）。
  *
- * <p>不实测真实过期（需等待）；覆盖：命中/未命中、按 {@code briefType} 分区（同内容不同类型不共享）、TTL 解析器被调用、 <b>TTL
- * 运行时热改对新条目生效</b>（T35）、null 响应不缓存。
+ * <p>覆盖：命中/未命中、按 {@code briefType} 分区（同内容不同类型不共享）、TTL 解析器被调用、 <b>TTL 运行时热改对新条目生效</b> （T35）、null
+ * 响应不缓存。
+ *
+ * <p><b>DEFECT-1 过期回归（M4）</b>：fake ticker 注入（不真实等待），验证「读后过 TTL 须重新取数」——曾因 {@code expireAfterRead}
+ * 返回 {@code Long.MIN_VALUE}（Caffeine 3.1.8 实测语义=条目永不过期）导致 AI 简报/每日推荐缓存被读后永驻。
  */
 class LlmCacheTest {
 
@@ -103,6 +108,54 @@ class LlmCacheTest {
         LlmCache cache = new LlmCache(bt -> Duration.ofSeconds(60), Duration.ofSeconds(60), 100);
         LlmRequest req = request("1", "ctx");
         cache.put(req, null);
+        assertThat(cache.getIfPresent(req)).isNull();
+    }
+
+    // —— DEFECT-1 过期回归（fake ticker 驱动，修前红修后绿）——
+
+    /** 手动推进的假时钟：过期用例不真实等待（离线探针同源，报告 §4 DEFECT-1）。 */
+    private static final class FakeTicker implements Ticker {
+        private final AtomicLong nanos = new AtomicLong();
+
+        @Override
+        public long read() {
+            return nanos.get();
+        }
+
+        void advance(Duration duration) {
+            nanos.addAndGet(duration.toNanos());
+        }
+    }
+
+    @Test
+    void readEntry_expiresAfterTtl_notImmortal() {
+        // DEFECT-1 回归（修前红）：命中一次（完成「读」）后，过 TTL 再读必须 miss 重新调用
+        LlmCacheTest.FakeTicker ticker = new LlmCacheTest.FakeTicker();
+        LlmCache cache =
+                new LlmCache(bt -> Duration.ofSeconds(2), Duration.ofSeconds(2), 100, ticker);
+        LlmRequest req = request("1", "ctx");
+        cache.put(req, response());
+        assertThat(cache.getIfPresent(req)).isEqualTo(response());
+
+        ticker.advance(Duration.ofSeconds(60));
+
+        assertThat(cache.getIfPresent(req)).isNull();
+    }
+
+    @Test
+    void readEntry_ttlNotExtendedByRead() {
+        // 读不延长：TTL 内读一次，到期时点（写入时点+TTL）仍须过期
+        LlmCacheTest.FakeTicker ticker = new LlmCacheTest.FakeTicker();
+        LlmCache cache =
+                new LlmCache(bt -> Duration.ofSeconds(2), Duration.ofSeconds(2), 100, ticker);
+        LlmRequest req = request("1", "ctx");
+        cache.put(req, response());
+
+        ticker.advance(Duration.ofSeconds(1));
+        assertThat(cache.getIfPresent(req)).isEqualTo(response());
+
+        ticker.advance(Duration.ofSeconds(2));
+
         assertThat(cache.getIfPresent(req)).isNull();
     }
 }
