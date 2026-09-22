@@ -8,12 +8,15 @@ import com.info.platform.application.common.RuntimeConfigSeed;
 import com.info.platform.application.common.RuntimeConfigSeeder;
 import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.application.common.RuntimeConfigSnapshot;
+import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.infrastructure.ai.LlmConfig;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -38,11 +41,22 @@ public class ConfigCenter {
 
     public static final String KEY_LLM_PROVIDER_PREFIX = "llm.provider.";
 
+    /** 数据源域键前缀（T36）：{@code datasource.{SOURCE_CODE}}，7 源每源一键。 */
+    public static final String KEY_DATASOURCE_PREFIX = "datasource.";
+
     private final RuntimeConfigService configService;
     private final List<RuntimeConfigSeeder> seeders;
     private final LlmConfig llmConfig;
     private final ConfigSecretCipher cipher;
     private final ObjectMapper objectMapper;
+
+    /**
+     * 全局 mock 开关（yml {@code adapter.mock.enabled}）：降级为<b>分源 mode 的种子默认值</b>（T36 / ADR-0017
+     * 冲突解法 1），true → 各源初始 MOCK。字段默认 true 对齐改造前 {@code matchIfMissing = true} 语义， 纯构造场景（无 Spring
+     * 处理 @Value）与生产缺省一致。
+     */
+    @Value("${adapter.mock.enabled:true}")
+    private boolean mockDefaultEnabled = true;
 
     /** 启动期冻结快照（RESTART 级参数读取口径）；null = 尚未冻结。 */
     private volatile RuntimeConfigSnapshot bootSnapshot;
@@ -78,6 +92,38 @@ public class ConfigCenter {
     /** RESTART 级参数读取（如 provider baseUrl）：启动期冻结快照，页面保存不热生效、重启后生效。 */
     public Optional<JsonNode> bootDocument(String configKey) {
         return boot().find(configKey).map(RuntimeConfigEntry::document);
+    }
+
+    /**
+     * {@code datasource.{SOURCE_CODE}} 类型化视图（T36，LIVE 级用时读取）。
+     *
+     * <p>键缺失（种子前）或文档解析失败（值损坏）不阻断热路径：记 WARN 后回落 {@link
+     * RuntimeDataSource#fallback} 代码缺省（mode 按全局 mock 开关裁定），对齐方案 §5「降级预案：旧值继续生效」精神。
+     */
+    public RuntimeDataSource dataSource(SourceCode code) {
+        RuntimeConfigEntry entry =
+                configService.current().find(KEY_DATASOURCE_PREFIX + code.name()).orElse(null);
+        if (entry == null) {
+            return RuntimeDataSource.fallback(code, defaultMode());
+        }
+        try {
+            DataSourceDoc doc = parse(entry, DataSourceDoc.class);
+            return new RuntimeDataSource(
+                    code,
+                    doc.enabled,
+                    RuntimeDataSource.Mode.valueOf(doc.mode),
+                    doc.timeoutMillis,
+                    doc.retries,
+                    doc.cacheTtlSeconds,
+                    doc.params);
+        } catch (Exception e) {
+            log.warn("datasource.{} 文档解析失败，回落代码缺省: {}", code, String.valueOf(e));
+            return RuntimeDataSource.fallback(code, defaultMode());
+        }
+    }
+
+    private RuntimeDataSource.Mode defaultMode() {
+        return mockDefaultEnabled ? RuntimeDataSource.Mode.MOCK : RuntimeDataSource.Mode.REAL;
     }
 
     /** {@code llm.global} 类型化视图；键不存在（未种子/未写入）返回空。 */
@@ -224,4 +270,14 @@ public class ConfigCenter {
             String baseUrl,
             String apiKeyCipher,
             String apiKeyLast4) {}
+
+    /** datasource.{CODE} 文档的原始形状（T36 键空间）。 */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record DataSourceDoc(
+            boolean enabled,
+            String mode,
+            long timeoutMillis,
+            int retries,
+            long cacheTtlSeconds,
+            Map<String, Object> params) {}
 }
