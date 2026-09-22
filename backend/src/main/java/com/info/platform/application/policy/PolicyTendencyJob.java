@@ -1,5 +1,7 @@
 package com.info.platform.application.policy;
 
+import com.info.platform.application.jobrun.ManagedJob;
+import com.info.platform.application.jobrun.ScheduleType;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
@@ -7,29 +9,23 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 政策倾向批量判断 Job（应用层，T28，对齐技术方案 §4.3 流程 2 + 方案 08 定时任务 + ADR-0006）。
+ * 政策倾向批量判断 Job（应用层，T28，对齐技术方案 §4.3 流程 2 + 方案 08 定时任务 + ADR-0006；T37 收编 {@link ManagedJob}）。
  *
- * <p>{@link Scheduled}（fixedDelay 可配 {@code policy.tendency.interval-millis}，默认 30min）扫近期 {@code
- * ai_tendency=0} 的政策条目 → 逐条调 {@link PolicyTendencyService#judgeTendency} 填 {@code
- * ai_tendency}。批量倾向判断走异步 @Scheduled 而非 GET /policies/{id} 按需触发——避 GET 阻塞 LLM 3~8s（对齐 §5 性能：详情页首屏
- * ≤2s）。
+ * <p>扫近期 {@code ai_tendency=0} 的政策条目 → 逐条调 {@link PolicyTendencyService#judgeTendency} 填 {@code
+ * ai_tendency}。批量倾向判断走后台调度而非 GET /policies/{id} 按需触发——避 GET 阻塞 LLM 3~8s（对齐 §5 性能：详情页首屏 ≤2s）。
  *
- * <p>受开关控制（测试关）： {@code policy.tendency.enabled=false}（默认）时本 Bean 与 {@link
- * PolicyTendencySchedulingConfig}（{@code @EnableScheduling}）均不装配——@Scheduled 不在
- * {@code @SpringBootTest} 触发，逻辑改由单测直调 {@link PolicyTendencyJob#judgePending} 验证（对齐 04 测试规范 +
- * DailyRecommendationJob 模式）。
+ * <p>调度（T37 集中化，ADR-0017）：去 @Scheduled/条件注解后无条件装配，由 JobScheduler 按 {@code job.POLICY_TENDENCY}
+ * 运行时配置注册（FIXED_DELAY，种子间隔默认 30min，页面可调可停用）；测试 profile 种子 {@code enabled=false} →
+ * 零注册，隔离语义等价平移；逻辑由单测直调 {@link #judgePending} 验证。
  *
  * <p>容错：单条判断异常不阻断其余（{@link PolicyTendencyService#judgeTendency} 内部已吞 LLM/业务异常返 UNJUDGED，
  * 这里再兜底未预期异常）；每轮扫描 {@code policy.tendency.batch-size}（默认 20）上限控成本。
  */
 @Component
-@ConditionalOnProperty(name = "policy.tendency.enabled", havingValue = "true")
-public class PolicyTendencyJob {
+public class PolicyTendencyJob implements ManagedJob {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyTendencyJob.class);
 
@@ -49,8 +45,33 @@ public class PolicyTendencyJob {
         this.batchSize = batchSize <= 0 ? 20 : batchSize;
     }
 
-    /** 批量判断入口（@Scheduled 默认 30min）。 */
-    @Scheduled(fixedDelayString = "${policy.tendency.interval-millis:1800000}")
+    @Override
+    public String jobKey() {
+        return "POLICY_TENDENCY";
+    }
+
+    @Override
+    public String displayName() {
+        return "政策倾向判断";
+    }
+
+    @Override
+    public String description() {
+        return "LLM 批量判断近期政策的利好/利空/中性倾向";
+    }
+
+    @Override
+    public ScheduleType scheduleType() {
+        return ScheduleType.FIXED_DELAY;
+    }
+
+    /** 定时与手动触发共用入口（委托 {@link #judgePending}）。 */
+    @Override
+    public void run() {
+        judgePending();
+    }
+
+    /** 批量判断轮询（FIXED_DELAY 默认 30min）。 */
     public void judgePending() {
         List<PolicyItem> pending = repository.findRecentUnjudged(daysWindow, batchSize);
         if (pending.isEmpty()) {

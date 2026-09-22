@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -74,8 +75,14 @@ public class ConfigCenter {
         this.objectMapper = objectMapper;
     }
 
-    /** 启动就绪：种子导入 + 冻结启动快照（在端口服务后执行；此前到达的读取走惰性加载兜底）。 */
+    /**
+     * 启动就绪：种子导入 + 冻结启动快照（在端口服务后执行；此前到达的读取走惰性加载兜底）。
+     *
+     * <p>{@code @Order(0)}：早于调度中心（T37 JobScheduler {@code @Order(100)}）等以种子值为准启动的下游监听——
+     * 保证它们读到的是导入后的权威配置而非代码缺省。
+     */
     @EventListener(ApplicationReadyEvent.class)
+    @Order(0)
     public void onApplicationReady() {
         List<RuntimeConfigSeed> seeds =
                 seeders.stream().flatMap(seeder -> seeder.seeds().stream()).toList();

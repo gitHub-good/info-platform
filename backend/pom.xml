@@ -42,9 +42,9 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- AOP（T33 Job 执行留痕）：@Aspect @Around 切面拦截 @Scheduled 方法记录执行日志。
-             spring-boot-starter-aop 引入 aspectjweaver + aspectjrt，并经 AopAutoConfiguration
-             开启 @EnableAspectJAutoProxy(proxyTargetClass=true)，使匹配切点的 Bean 自动代理。 -->
+        <!-- AOP 代理基础设施：@Async（PushAsyncConfig 推送消费）等注解代理需 spring-aop/aspectjweaver 在类路径。
+             T33 的 JobExecutionAspect @Around 留痕切面已随 T37 调度集中化退役（留痕改 JobExecutor 显式驱动），
+             依赖保留供 @EnableAsync 代理与未来横切切面使用。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>

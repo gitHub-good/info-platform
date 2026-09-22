@@ -1,5 +1,7 @@
 package com.info.platform.application.push;
 
+import com.info.platform.application.jobrun.ManagedJob;
+import com.info.platform.application.jobrun.ScheduleType;
 import com.info.platform.domain.aggregation.SourceAdapter;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
@@ -22,28 +24,26 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 异动检测引擎（应用层，对齐技术方案 §4.3 流程 3 + ADR-0006）。
+ * 异动检测引擎（应用层，对齐技术方案 §4.3 流程 3 + ADR-0006；T37 收编 {@link ManagedJob}）。
  *
- * <p>编排：@Scheduled 每 10s（可配 {@code anomaly.detect-interval-millis}）遍历全部活跃 watchlist_item → 对每项取
- * Subject → 调 QUOTE 行情 adapter 取数（复用 adapter 享 5s TTL 缓存 + 弹性降级，多 item 同标的缓存命中）→ 取 changePct →
- * {@code |changePct| >= 阈值} 时查重（existsByBusinessKey=subjectId+type+当日）→ 未存在则 INSERT anomaly_event +
- * 发布 {@link AnomalyDetectedEvent}（Spring {@link ApplicationEventPublisher}）→ T14 PushService 消费推送。
+ * <p>编排：遍历全部活跃 watchlist_item → 对每项取 Subject → 调 QUOTE 行情 adapter 取数（复用 adapter 享 5s TTL 缓存 +
+ * 弹性降级，多 item 同标的缓存命中）→ 取 changePct → {@code |changePct| >= 阈值} 时查重
+ * （existsByBusinessKey=subjectId+type+当日）→ 未存在则 INSERT anomaly_event + 发布 {@link
+ * AnomalyDetectedEvent}（Spring {@link ApplicationEventPublisher}）→ T14 PushService 消费推送。
+ *
+ * <p>调度（T37 集中化，ADR-0017）：去 @Scheduled/条件注解后无条件装配，由 JobScheduler 按 {@code job.ANOMALY_DETECT}
+ * 运行时配置注册（FIXED_DELAY，种子间隔默认 10s，页面可调可停用）；测试 profile 种子 {@code enabled=false} → 零注册，隔离语义等价平移；单测直接调
+ * {@link #detectForItem} 验证各分支。
  *
  * <p>容错：任一 item 行情不可用（MISSING/FAILED）或 fetch 抛异常 → 记 WARN/DEBUG 跳过该 item，不阻断其他 item、不抛
  * 出（实时行情热路径，单源缺失不该拖垮整轮）。约定异动触发到推送 <=15s（轮询 10s + 处理 5s 内）。
- *
- * <p>测试：@Scheduled 不在 {@code @SpringBootTest} 触发（本类与调度开关同受 {@code anomaly.detect.enabled} 约束， 测试
- * profile 置 false）；单测直接调 {@link #detectForItem} 验证阈值/去重/发事件/降级各分支。
  */
 @Component
-@ConditionalOnProperty(name = "anomaly.detect.enabled", havingValue = "true")
-public class AnomalyDetectionJob {
+public class AnomalyDetectionJob implements ManagedJob {
 
     private static final Logger log = LoggerFactory.getLogger(AnomalyDetectionJob.class);
 
@@ -78,12 +78,37 @@ public class AnomalyDetectionJob {
         this.clock = clock;
     }
 
+    @Override
+    public String jobKey() {
+        return "ANOMALY_DETECT";
+    }
+
+    @Override
+    public String displayName() {
+        return "异动检测";
+    }
+
+    @Override
+    public String description() {
+        return "轮询活跃标的行情，涨跌幅达阈值时记异动并推送";
+    }
+
+    @Override
+    public ScheduleType scheduleType() {
+        return ScheduleType.FIXED_DELAY;
+    }
+
+    /** 定时与手动触发共用入口（委托 {@link #detect}）。 */
+    @Override
+    public void run() {
+        detect();
+    }
+
     /**
-     * 异动检测轮询入口（@Scheduled 每 10s）。
+     * 异动检测轮询（FIXED_DELAY 默认每 10s）。
      *
      * <p>遍历全部活跃清单项；每项独立 try-catch，单项异常不阻断整轮。
      */
-    @Scheduled(fixedDelayString = "${anomaly.detect-interval-millis:10000}")
     public void detect() {
         List<WatchlistItem> items = watchlistRepository.findAllActiveItems();
         if (items.isEmpty()) {

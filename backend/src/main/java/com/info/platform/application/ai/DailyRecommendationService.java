@@ -28,8 +28,8 @@ import org.springframework.stereotype.Service;
  * 天阅读）、{@link RecommendationRelevanceScorer} 评分——推荐理由带评分构成与命中因子（命中哪个主题/已读标的），
  * 前端展示后可逐条人工标注。空画像（新用户）退化为既有活跃度排序，行为不变。
  *
- * <p>触发模式：按需（GET 端点首次请求触发 + 幂等缓存命中后续直返）；盘前 @Scheduled 预热为可选优化（见 {@code
- * DailyRecommendationJob}，开关控制）。受开关控制（测试关）：本服务无 @Scheduled 副作用，单测直调 {@link #generateDaily} 验证逻辑。
+ * <p>触发模式：按需（GET 端点首次请求触发 + 幂等缓存命中后续直返）；盘前预热为可选优化（见 {@code DailyRecommendationJob}，T37 后按运行时配置启停，测试
+ * profile 种子停用零注册）：本服务无调度副作用，单测直调 {@link #generateDaily} 验证逻辑。
  *
  * <p>幂等说明：复用 T21 幂等键 {@code subjectId(null→"none")+briefType(4)+date}，当日全局唯一（ai_brief 无 user_id
  * 列，对齐 §4.2 DDL）。 个人/小团队量级单用户场景下幂等缓存正确；多用户共享当日简报为已知限制（见自测报告遗留风险）。

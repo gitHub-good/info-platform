@@ -1,5 +1,7 @@
 package com.info.platform.infrastructure.policy;
 
+import com.info.platform.application.jobrun.ManagedJob;
+import com.info.platform.application.jobrun.ScheduleType;
 import com.info.platform.domain.policy.PolicyIndustryClassifier;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
@@ -12,29 +14,26 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 政策抓取 Job（基础设施层，复用 T07 {@link GovPolicyClient} 抓取能力）。
+ * 政策抓取 Job（基础设施层，复用 T07 {@link GovPolicyClient} 抓取能力；T37 收编 {@link ManagedJob}）。
  *
- * <p>@Scheduled（默认 1h，{@code policy.fetch.interval-millis} 可配）调 {@link
- * GovPolicyClient#fetchPolicies()} 抓 gov.cn/zhengce 最近约 9 条政策 → {@link
+ * <p>调 {@link GovPolicyClient#fetchPolicies()} 抓 gov.cn/zhengce 最近约 9 条政策 → {@link
  * PolicyRepository#existsBySourceUrl} 去重（同一 source_url 不重复入库）→ {@link
  * PolicyIndustryClassifier#classify} 按标题标注 related_industries → {@link PolicyRepository#saveAll}
  * 落库。
  *
- * <p>受 {@code policy.fetch.enabled} 开关约束：生产 true、测试 false（@SpringBootTest 不装配、@Scheduled 不触发， 对齐 04
- * 测试规范）；{@code @EnableScheduling} 复用 {@code AnomalySchedulingConfig}（与 T15 补推 job 同策略）。
+ * <p>调度（T37 集中化，ADR-0017）：去 @Scheduled/条件注解后无条件装配，由 JobScheduler 按 {@code job.POLICY_FETCH}
+ * 运行时配置注册（FIXED_DELAY，种子间隔默认 1h，页面可调可停用）；测试 profile 种子 {@code enabled=false} → 零注册，@Scheduled
+ * 时代的测试隔离语义等价平移。手动触发与定时调度共用 JobExecutor（防重入 + 同一留痕表）。
  *
- * <p>容错：fetchPolicies 抛异常 → 记 ERROR 跳过本轮（调度无调用方可上抛，下次调度重试，不阻断）； 单条缺 pubDate → 兜底今日（published_at NOT
- * NULL，记 WARN）；summary 列表页无（待详情页/T28 填，置 null）；source 置「国务院政策」 （gov.cn/zhengce 来源标签，与 T07 {@code
+ * <p>容错：fetchPolicies 抛异常 → 记 ERROR 跳过本轮（下次调度重试，不阻断）；单条缺 pubDate → 兜底今日 （published_at NOT NULL，记
+ * WARN）；summary 列表页无（待详情页/T28 填，置 null）；source 置「国务院政策」 （gov.cn/zhengce 来源标签，与 T07 {@code
  * PolicySourceAdapter#sourceLabel} 一致）。
  */
 @Component
-@ConditionalOnProperty(name = "policy.fetch.enabled", havingValue = "true")
-public class PolicyFetchJob {
+public class PolicyFetchJob implements ManagedJob {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyFetchJob.class);
 
@@ -49,12 +48,37 @@ public class PolicyFetchJob {
         this.repository = repository;
     }
 
+    @Override
+    public String jobKey() {
+        return "POLICY_FETCH";
+    }
+
+    @Override
+    public String displayName() {
+        return "政策抓取";
+    }
+
+    @Override
+    public String description() {
+        return "抓取 gov.cn/zhengce 最近政策，去重后标注行业入库";
+    }
+
+    @Override
+    public ScheduleType scheduleType() {
+        return ScheduleType.FIXED_DELAY;
+    }
+
+    /** 整轮抓取逻辑（保留原方法名，既有单测直调口径不变）；定时与手动触发共用。 */
+    @Override
+    public void run() {
+        fetch();
+    }
+
     /**
-     * 政策抓取轮询入口（@Scheduled，默认 1h）。
+     * 政策抓取轮询（FIXED_DELAY 默认 1h）。
      *
      * <p>整轮异常不抛出（调度无调用方），记 ERROR 跳过，下次调度重试。
      */
-    @Scheduled(fixedDelayString = "${policy.fetch.interval-millis:3600000}")
     public void fetch() {
         Optional<List<Map<String, Object>>> raw;
         try {

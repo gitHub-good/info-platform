@@ -1,5 +1,7 @@
 package com.info.platform.application.push;
 
+import com.info.platform.application.jobrun.ManagedJob;
+import com.info.platform.application.jobrun.ScheduleType;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
 import com.info.platform.domain.push.PushRecord;
@@ -7,12 +9,10 @@ import com.info.platform.domain.push.PushRepository;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 推送补推 job（T15，对齐技术方案 §4.3 流程 3「断线靠 history 补拉」+ 重启恢复）。
+ * 推送补推 job（T15，对齐技术方案 §4.3 流程 3「断线靠 history 补拉」+ 重启恢复；T37 收编 {@link ManagedJob}）。
  *
  * <p>双扫描补全推送链路完整性——把实时推送（T14 PushService）遗留的两类「未投递」记录补推出去：
  *
@@ -36,13 +36,12 @@ import org.springframework.stereotype.Component;
  *   <li>anomaly.pushed 标记防 findPending 重复拾取；push_record.status 翻转防 findPending 重复补推。
  * </ul>
  *
- * <p><b>容错</b>：单条异常 try-catch 不阻断整轮（与 {@code AnomalyDetectionJob} 同策略）。 {@code @Scheduled} 每 30s
- * （可配 {@code push.retry.interval-millis}），受 {@code push.retry.enabled} 开关（测试 profile 关，逻辑改由单测直调验证）；
- * {@code @EnableScheduling} 复用 {@link AnomalySchedulingConfig}（与异动检测共调度基础设施，M1 二者同开同关）。
+ * <p><b>容错</b>：单条异常 try-catch 不阻断整轮（与 {@code AnomalyDetectionJob} 同策略）。调度（T37 集中化，
+ * ADR-0017）：去 @Scheduled/条件注解后无条件装配，由 JobScheduler 按 {@code job.PUSH_RETRY} 运行时配置注册
+ * （FIXED_DELAY，种子间隔默认 30s，页面可调可停用）；测试 profile 种子 {@code enabled=false} → 零注册，隔离语义 等价平移，逻辑由单测直调验证。
  */
 @Component
-@ConditionalOnProperty(name = "push.retry.enabled", havingValue = "true")
-public class PushRetryJob {
+public class PushRetryJob implements ManagedJob {
 
     private static final Logger log = LoggerFactory.getLogger(PushRetryJob.class);
 
@@ -59,12 +58,37 @@ public class PushRetryJob {
         this.anomalyRepository = anomalyRepository;
     }
 
+    @Override
+    public String jobKey() {
+        return "PUSH_RETRY";
+    }
+
+    @Override
+    public String displayName() {
+        return "推送补推";
+    }
+
+    @Override
+    public String description() {
+        return "扫描未消费异动与失败推送记录，补全推送链路";
+    }
+
+    @Override
+    public ScheduleType scheduleType() {
+        return ScheduleType.FIXED_DELAY;
+    }
+
+    /** 定时与手动触发共用入口（委托 {@link #retry}）。 */
+    @Override
+    public void run() {
+        retry();
+    }
+
     /**
-     * 补推轮询入口（@Scheduled 每 30s）。
+     * 补推轮询（FIXED_DELAY 默认每 30s）。
      *
      * <p>先恢复未消费异动，再扫待推记录；两步各自独立 try-catch 单条异常，不阻断整轮。
      */
-    @Scheduled(fixedDelayString = "${push.retry.interval-millis:30000}")
     public void retry() {
         recoverPendingAnomalies();
         retryPendingRecords();

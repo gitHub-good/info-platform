@@ -16,7 +16,7 @@ import java.util.Optional;
  * com.info.platform.infrastructure.common.JobExecutionRecorder#success} / {@link
  * com.info.platform.infrastructure.common.JobExecutionRecorder#failed} 翻转终态（填 endTime/duration）并更新。
  *
- * <p>对齐 V12 DDL：无 version 列（追加型流水，{@code @Scheduled} 同进程单线程串行无并发 UPDATE 竞争）。
+ * <p>对齐 V12 DDL：无 version 列（追加型流水；同任务经 JobExecutor 运行守卫串行，无并发 UPDATE 竞争）。
  */
 public class JobExecutionLog {
 

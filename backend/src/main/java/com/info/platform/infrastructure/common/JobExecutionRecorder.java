@@ -12,8 +12,7 @@ import org.springframework.stereotype.Component;
  * Job 执行记录器（基础设施层横切，T33）。
  *
  * <p>提供 {@code start / success / failed} 三步，驱动 {@link JobExecutionLog} 的 STARTED→（SUCCESS|FAILED）
- * 生命周期落库。由 {@link JobExecutionAspect} {@code @Around} 调度；各 Job 也可显式调本类补充 processed/error
- * 计数（增强，非必需）。
+ * 生命周期落库。由 JobExecutor（T37 调度集中化后，定时与手动触发的统一执行通道）显式调用；各 Job 也可显式 调本类补充 processed/error 计数（增强，非必需）。
  *
  * <h2>容错：记录失败不阻断 Job</h2>
  *

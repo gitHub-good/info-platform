@@ -14,14 +14,14 @@
  *       com.info.platform.application.push.NotificationHistory} —— history 接口 DTO。
  *   <li>{@link com.info.platform.application.push.PushAsyncConfig} —— {@code @EnableAsync} +
  *       虚拟线程执行器。
- *   <li>{@link com.info.platform.application.push.PushRetryJob} —— T15 补推 job：@Scheduled 每 30s 扫
- *       anomaly_event pushed=0（重启未消费异动，复用 PushService 全链路补推）与 push_record status=0（离线待推，
- *       在线补推/离线跳过/失败重试1次仍失败 status=2 告警），补全推送链路完整性。
+ *   <li>{@link com.info.platform.application.push.PushRetryJob} —— T15 补推 job：FIXED_DELAY 默认每 30s
+ *       扫（T37 收编 ManagedJob，集中调度） anomaly_event pushed=0（重启未消费异动，复用 PushService 全链路补推）与 push_record
+ *       status=0（离线待推， 在线补推/离线跳过/失败重试1次仍失败 status=2 告警），补全推送链路完整性。
  * </ul>
  *
  * <p>{@link com.info.platform.application.push.AnomalyDetectionJob}（T13）、{@link
  * com.info.platform.application.push.PushService}（T14）、{@link
  * com.info.platform.application.push.PushRetryJob}（T15）同居本包： T13 发事件、T14 实时消费推送、T15 补推 job 扫待推与
- * 重启未消费异动补推，经 Spring ApplicationEvent + @Scheduled 解耦（ADR-0001/0006）。
+ * 重启未消费异动补推，经 Spring ApplicationEvent + 集中调度中心解耦（ADR-0001/0006、ADR-0017）。
  */
 package com.info.platform.application.push;
