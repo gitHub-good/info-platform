@@ -27,6 +27,7 @@
 | ADR-0011 | 公告源弹性 spec 取舍（noRetry 2s 而非 1s 重试 1） | 已决 |
 | ADR-0012 | 前端 React 版本选型偏离基线（React 18 → 19） | 已决 |
 | ADR-0013 | 事件源实现偏差：event-monitor 不存在，改读本地 anomaly_event 表（T08） | 已决 |
+| ADR-0014 | 标的类型扩展位实现方式：预留标记 + 领域构建守卫 + adapter 类型支持自声明（T31） | 已决 |
 
 ## 🔍 关联调研
 
