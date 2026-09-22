@@ -113,6 +113,9 @@ function makeFetch() {
         traceId: 't',
       });
     }
+    if (path.endsWith('/jobs')) {
+      return mockResponse(200, { code: 0, msg: 'ok', data: { jobs: [] }, traceId: 't' });
+    }
     return mockResponse(200, { code: 0, msg: 'ok', data: null, traceId: 't' });
   });
 }
@@ -217,13 +220,12 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(window.location.hash).toBe('#/subjects');
   });
 
-  it('3 个新页路由占位（#/task-center、#/overview、#/feed），#/llm-config（T39）与 #/datasource-config（T40）为实现页', async () => {
+  it('2 个新页路由占位（#/overview、#/feed），#/task-center（T41）/#/llm-config（T39）与 #/datasource-config（T40）为实现页', async () => {
     const user = userEvent.setup();
     const fetchMock = renderLoggedIn('#/overview');
 
     // 经侧栏逐项导航，未实现页渲染「开发中」占位
     const placeholders: Array<[string, string]> = [
-      ['nav-item-task-center', 'task-center-placeholder'],
       ['nav-item-feed', 'feed-placeholder'],
       ['nav-item-overview', 'overview-placeholder'],
     ];
@@ -232,6 +234,16 @@ describe('App 路由与登录守卫（T38）', () => {
       expect(await screen.findByTestId(pageId)).toBeInTheDocument();
       expect(screen.getByTestId(`${pageId}-badge`)).toHaveTextContent('开发中');
     }
+
+    // #/task-center（T41）：真实页挂载并请求任务列表接口（不再渲染占位）
+    await user.click(screen.getByTestId('nav-item-task-center'));
+    expect(await screen.findByTestId('task-center-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-center-placeholder')).toBeNull();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/jobs')),
+      ).toBe(true),
+    );
 
     // #/llm-config（T39）：真实页挂载并请求配置接口（不再渲染占位）
     await user.click(screen.getByTestId('nav-item-llm-config'));

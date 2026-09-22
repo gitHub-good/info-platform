@@ -7,6 +7,7 @@ import { Login } from '@/pages/Login';
 import { PlaceholderPage } from '@/pages/PlaceholderPage';
 import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
+import { TaskCenter } from '@/pages/TaskCenter';
 import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -81,13 +82,7 @@ function renderPage(route: string) {
     return <DatasourceConfig />;
   }
   if (route.startsWith('/task-center')) {
-    return (
-      <PlaceholderPage
-        title="任务执行中心"
-        description="定时任务可手动触发、实时看状态；执行明细见 Job 日志"
-        testId="task-center-placeholder"
-      />
-    );
+    return <TaskCenter />;
   }
   if (route.startsWith('/feed')) {
     return (
