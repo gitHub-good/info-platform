@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AiBrief } from '@/pages/AiBrief';
+import { JobLog } from '@/pages/JobLog';
 import { Login } from '@/pages/Login';
 import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
@@ -47,6 +48,9 @@ export default function App() {
   }
   if (route.startsWith('/policies')) {
     return <Policy />;
+  }
+  if (route.startsWith('/job-logs')) {
+    return <JobLog />;
   }
   if (route.startsWith('/subjects')) {
     return (

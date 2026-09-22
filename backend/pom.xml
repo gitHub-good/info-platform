@@ -42,6 +42,14 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- AOP（T33 Job 执行留痕）：@Aspect @Around 切面拦截 @Scheduled 方法记录执行日志。
+             spring-boot-starter-aop 引入 aspectjweaver + aspectjrt，并经 AopAutoConfiguration
+             开启 @EnableAspectJAutoProxy(proxyTargetClass=true)，使匹配切点的 Bean 自动代理。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- MyBatis-Plus（Spring Boot 3 兼容版） -->
         <dependency>
             <groupId>com.baomidou</groupId>
