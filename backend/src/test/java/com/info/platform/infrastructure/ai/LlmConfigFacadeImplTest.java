@@ -99,7 +99,11 @@ class LlmConfigFacadeImplTest {
         configService =
                 new RuntimeConfigService(
                         repository,
-                        List.of(new LlmConfigValidator(llmConfig)),
+                        // 校验器惰性持服务引用（交叉校验读运行时键，DEFECT-3）：lambda 读字段为调用时点值
+                        List.of(
+                                new LlmConfigValidator(
+                                        llmConfig,
+                                        LlmConfigValidatorTest.lazyProvider(() -> configService))),
                         eventPublisher,
                         clock,
                         objectMapper);
@@ -251,6 +255,66 @@ class LlmConfigFacadeImplTest {
                         e ->
                                 assertThat(((BusinessException) e).getErrorCode())
                                         .isEqualTo(ErrorCode.LLM_PROVIDER_NOT_FOUND));
+    }
+
+    @Test
+    void updateProvider_fallbackToDisabledProvider_rejected() {
+        // DEFECT-3 复现 a（修前红）：fallback 指向停用 provider（qwen 种子 enabled=false）须 2001 拒绝，
+        // 静默接受会让 fallback 链失去灾备保护（运行时网关按 enabled 跳过，用户无感知）
+        assertThatThrownBy(
+                        () ->
+                                facade.updateProvider(
+                                        "deepseek",
+                                        new LlmConfigFacade.LlmProviderUpdate(
+                                                null, null, null, "qwen", null, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((BusinessException) e).getErrorCode())
+                                        .isEqualTo(ErrorCode.PARAM_INVALID))
+                .hasMessageContaining("fallback")
+                .hasMessageContaining("qwen");
+
+        // 原值不动（失败不落库）
+        assertThat(providerOf(facade.view(), "deepseek").fallback()).isEqualTo("glm");
+    }
+
+    @Test
+    void updateProvider_disableReferencedAsFallback_rejected() {
+        // DEFECT-3 复现 b（修前红）：停用被启用中 provider（glm.fallback=deepseek）引用的 deepseek
+        // 须拒绝并点名引用方（单 PUT 无法原子改两条记录 → 提示先解除引用的合理闭环）
+        assertThatThrownBy(
+                        () ->
+                                facade.updateProvider(
+                                        "deepseek",
+                                        new LlmConfigFacade.LlmProviderUpdate(
+                                                null, false, null, null, null, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((BusinessException) e).getErrorCode())
+                                        .isEqualTo(ErrorCode.PARAM_INVALID))
+                .hasMessageContaining("enabled")
+                .hasMessageContaining("glm");
+
+        // 原值不动：deepseek 仍启用
+        assertThat(providerOf(facade.view(), "deepseek").enabled()).isTrue();
+    }
+
+    @Test
+    void updateProvider_disableUnreferencedProvider_accepted() {
+        // 闭环出口：无人引用的 provider（qwen 仅自持 fallback=deepseek，休眠引用）可正常启停
+        facade.updateProvider(
+                "qwen",
+                new LlmConfigFacade.LlmProviderUpdate(
+                        null, true, null, null, null, null, null, null));
+        assertThat(providerOf(facade.view(), "qwen").enabled()).isTrue();
+
+        facade.updateProvider(
+                "qwen",
+                new LlmConfigFacade.LlmProviderUpdate(
+                        null, false, null, null, null, null, null, null));
+        assertThat(providerOf(facade.view(), "qwen").enabled()).isFalse();
     }
 
     @Test
