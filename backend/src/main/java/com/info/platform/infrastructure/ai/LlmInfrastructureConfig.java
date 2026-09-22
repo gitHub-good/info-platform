@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.ai;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,7 +30,11 @@ public class LlmInfrastructureConfig {
 
     @Bean
     LlmCostGuard llmCostGuard(LlmConfig config) {
-        return new LlmCostGuard(config.getDailyTokenBudgetPerUser());
+        // T30：预算 + 告警阈值 + 时钟注入（日界键严格跨日重置，测试可注入固定时钟）
+        return new LlmCostGuard(
+                config.getDailyTokenBudgetPerUser(),
+                config.getBudgetWarnRatio(),
+                Clock.systemDefaultZone());
     }
 
     /** LLM 调用虚拟线程执行器（thread-per-task、daemon、轻量），承载阻塞式外部 HTTP 调用；context 关闭时 shutdown。 */
