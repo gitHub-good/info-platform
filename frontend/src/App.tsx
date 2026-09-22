@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AiBrief } from '@/pages/AiBrief';
 import { JobLog } from '@/pages/JobLog';
+import { LlmCostReport } from '@/pages/LlmCostReport';
 import { Login } from '@/pages/Login';
 import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
@@ -51,6 +52,9 @@ export default function App() {
   }
   if (route.startsWith('/job-logs')) {
     return <JobLog />;
+  }
+  if (route.startsWith('/cost-report')) {
+    return <LlmCostReport />;
   }
   if (route.startsWith('/subjects')) {
     return (

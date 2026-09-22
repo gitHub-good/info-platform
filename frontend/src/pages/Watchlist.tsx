@@ -203,6 +203,22 @@ export function Watchlist() {
           >
             政策时事
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/job-logs')}
+            data-testid="watchlist-goto-job-logs"
+          >
+            Job 日志
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/cost-report')}
+            data-testid="watchlist-goto-cost-report"
+          >
+            成本报表
+          </Button>
           <Button variant="outline" size="sm" onClick={handleLogout} data-testid="watchlist-logout">
             登出
           </Button>
