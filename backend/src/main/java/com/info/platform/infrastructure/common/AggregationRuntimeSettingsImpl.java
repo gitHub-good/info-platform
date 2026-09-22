@@ -1,6 +1,7 @@
 package com.info.platform.infrastructure.common;
 
 import com.info.platform.application.aggregation.AggregationRuntimeSettings;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -20,8 +21,15 @@ public class AggregationRuntimeSettingsImpl implements AggregationRuntimeSetting
     @Value("${aggregation.detail-timeout-millis:2000}")
     private long ymlFallback;
 
+    @Autowired
     public AggregationRuntimeSettingsImpl(ConfigCenter configCenter) {
+        this(configCenter, 2000L);
+    }
+
+    /** 测试构造：显式 yml 回落值（生产走 @Value 字段注入）。 */
+    AggregationRuntimeSettingsImpl(ConfigCenter configCenter, long ymlFallback) {
         this.configCenter = configCenter;
+        this.ymlFallback = ymlFallback;
     }
 
     @Override
