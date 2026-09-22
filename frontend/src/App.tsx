@@ -4,6 +4,7 @@ import { JobLog } from '@/pages/JobLog';
 import { LlmConfig } from '@/pages/LlmConfig';
 import { LlmCostReport } from '@/pages/LlmCostReport';
 import { Login } from '@/pages/Login';
+import { Overview } from '@/pages/Overview';
 import { PlaceholderPage } from '@/pages/PlaceholderPage';
 import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
@@ -64,16 +65,9 @@ function renderPage(route: string) {
       </main>
     );
   }
-  // 新增 5 页：#/llm-config（T39）与 #/datasource-config（T40）已实现，其余占位（「开发中」），T41~T43 逐页填充
+  // 新增 5 页：#/overview（T42）与 #/llm-config（T39）、#/datasource-config（T40）、#/task-center（T41）已实现，#/feed 占位（T43）
   if (route.startsWith('/overview')) {
-    return (
-      <PlaceholderPage
-        title="概览"
-        description="一屏看清平台健康度与今日动态"
-        skeletonCards={5}
-        testId="overview-placeholder"
-      />
-    );
+    return <Overview />;
   }
   if (route.startsWith('/llm-config')) {
     return <LlmConfig />;

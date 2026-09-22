@@ -60,6 +60,18 @@ function emptyLlmConfig() {
   };
 }
 
+/** 概览页空态视图（#/overview 默认落地页：五卡片全零 + 空 sourceHealth）。 */
+function emptyOverviewView() {
+  return {
+    llmToday: { tokenUsed: 0, costMicros: 0, budgetTokens: 20000, status: 'OK', error: null },
+    anomalyToday: { count: 0, error: null },
+    policy24h: { count: 0, latest: [], error: null },
+    jobHealth: { windowRuns: 0, windowFailed: 0, unhealthyJobs: [], error: null },
+    sourceHealth: [],
+    sourceHealthError: null,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
@@ -105,6 +117,9 @@ function makeFetch() {
     if (path.includes('/llm-config')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: emptyLlmConfig(), traceId: 't' });
     }
+    if (path.endsWith('/overview')) {
+      return mockResponse(200, { code: 0, msg: 'ok', data: emptyOverviewView(), traceId: 't' });
+    }
     if (path.includes('/datasource-configs')) {
       return mockResponse(200, {
         code: 0,
@@ -131,11 +146,11 @@ function renderLoggedIn(hash: string) {
 }
 
 describe('App 路由与登录守卫（T38）', () => {
-  it('已登录空 hash → 默认落地 /overview 占位页，hash 同步为 #/overview', async () => {
+  it('已登录空 hash → 默认落地 /overview 概览页（T42 真实页），hash 同步为 #/overview', async () => {
     renderLoggedIn('');
 
-    expect(screen.getByTestId('overview-placeholder')).toBeInTheDocument();
-    expect(screen.getByTestId('overview-placeholder-badge')).toHaveTextContent('开发中');
+    expect(await screen.findByTestId('stat-card-llm-today')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-page')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#/overview'));
   });
 
@@ -144,7 +159,7 @@ describe('App 路由与登录守卫（T38）', () => {
 
     await waitFor(() => expect(window.location.hash).toBe('#/overview'));
     expect(screen.queryByTestId('login-form')).toBeNull();
-    expect(screen.getByTestId('overview-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-page')).toBeInTheDocument();
   });
 
   it('未登录访问受保护路由 → 渲染登录页（无侧栏），登录成功回原目标页', async () => {
@@ -220,14 +235,22 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(window.location.hash).toBe('#/subjects');
   });
 
-  it('2 个新页路由占位（#/overview、#/feed），#/task-center（T41）/#/llm-config（T39）与 #/datasource-config（T40）为实现页', async () => {
+  it('#/overview（T42）/#/task-center（T41）/#/llm-config（T39）与 #/datasource-config（T40）为实现页，#/feed 占位（T43）', async () => {
     const user = userEvent.setup();
     const fetchMock = renderLoggedIn('#/overview');
 
-    // 经侧栏逐项导航，未实现页渲染「开发中」占位
+    // #/overview（T42）：真实页挂载并请求聚合接口（不再渲染占位）
+    expect(await screen.findByTestId('overview-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('overview-placeholder')).toBeNull();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/overview')),
+      ).toBe(true),
+    );
+
+    // 经侧栏导航，未实现页（#/feed，T43）渲染「开发中」占位
     const placeholders: Array<[string, string]> = [
       ['nav-item-feed', 'feed-placeholder'],
-      ['nav-item-overview', 'overview-placeholder'],
     ];
     for (const [navId, pageId] of placeholders) {
       await user.click(screen.getByTestId(navId));
