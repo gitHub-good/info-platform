@@ -143,4 +143,14 @@ class SubjectRepositoryImplTest {
         assertThat(reloaded.get().getName()).isEqualTo("招商银行股份有限公司");
         assertThat(reloaded.get().getVersion()).isEqualTo(1L);
     }
+
+    @Test
+    void findFirstActive_returnsSeedSubject_numericStatusMatch() {
+        // T36 连通性测试探针：status 列为整型（SubjectStatus.code），按枚举名匹配会空手而归（冒烟发现的缺陷回归）
+        Optional<Subject> first = subjectRepository.findFirstActive();
+
+        assertThat(first).isPresent();
+        assertThat(first.orElseThrow().getStatus()).isEqualTo(SubjectStatus.ENABLED);
+        assertThat(first.orElseThrow().getSubjectCode().value()).isEqualTo("SH600519");
+    }
 }

@@ -51,7 +51,7 @@ public class SubjectRepositoryImpl implements SubjectRepository {
         SubjectPO po =
                 mapper.selectOne(
                         new LambdaQueryWrapper<SubjectPO>()
-                                .eq(SubjectPO::getStatus, SubjectStatus.ENABLED.name())
+                                .eq(SubjectPO::getStatus, SubjectStatus.ENABLED.code())
                                 .orderByAsc(SubjectPO::getId)
                                 .last("LIMIT 1"));
         return Optional.ofNullable(po).map(SubjectRepositoryImpl::toEntity);

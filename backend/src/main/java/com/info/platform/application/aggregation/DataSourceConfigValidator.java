@@ -73,17 +73,31 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
         if (code == null) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "未知配置键: " + configKey);
         }
-        ConfigFieldRules.enforce(document, RULES);
-        enforceParams(code, document.get("params"));
+        // 字段表与 params 问题一次性收集（字段表首错抛出不再短路 params 校验，页面一次标全错误）
+        List<String> problems = new ArrayList<>(enforceCollect(document, RULES));
+        problems.addAll(paramsProblems(code, document.get("params")));
+        if (!problems.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, String.join("; ", problems));
+        }
     }
 
-    /** params 结构与取值校验：对象 + 键白名单 + URL/条数按后缀规则。 */
-    private static void enforceParams(SourceCode code, JsonNode params) {
+    /** 字段表收集（不抛出，供与 params 问题合并）。 */
+    private static List<String> enforceCollect(JsonNode document, List<FieldRule> rules) {
+        try {
+            ConfigFieldRules.enforce(document, rules);
+            return List.of();
+        } catch (BusinessException e) {
+            return List.of(e.getMessage());
+        }
+    }
+
+    /** params 结构与取值校验：对象 + 键白名单 + URL/条数按后缀规则（返回问题清单）。 */
+    private static List<String> paramsProblems(SourceCode code, JsonNode params) {
         if (params == null || params.isNull()) {
-            throw new BusinessException(ErrorCode.PARAM_INVALID, "params: 必填（可为空对象）");
+            return List.of("params: 必填（可为空对象）");
         }
         if (!params.isObject()) {
-            throw new BusinessException(ErrorCode.PARAM_INVALID, "params: 须为对象");
+            return List.of("params: 须为对象");
         }
         List<String> problems = new ArrayList<>();
         Set<String> allowed = ALLOWED_PARAMS.get(code);
@@ -108,9 +122,7 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                                 problems.add("params." + key + ": 不能为空");
                             }
                         });
-        if (!problems.isEmpty()) {
-            throw new BusinessException(ErrorCode.PARAM_INVALID, String.join("; ", problems));
-        }
+        return problems;
     }
 
     private static boolean isUrlParam(String key) {
