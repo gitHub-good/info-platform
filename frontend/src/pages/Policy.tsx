@@ -6,6 +6,7 @@ import { PolicyDetail } from '@/components/policy/PolicyDetail';
 import { PolicyList } from '@/components/policy/PolicyList';
 import { logout } from '@/api/auth';
 import { ApiError } from '@/api/http';
+import { trackReadingOnce } from '@/api/readingEvent';
 import { DEFAULT_POLICY_DAYS, getPolicy, listPolicies } from '@/api/policy';
 import { navigate } from '@/lib/navigation';
 import type { PolicyDetailView, PolicyView } from '@/types/policy';
@@ -98,7 +99,13 @@ export function Policy() {
     setDetailError(null);
     setDetail(null);
     try {
-      setDetail(await getPolicy(id));
+      const view = await getPolicy(id);
+      setDetail(view);
+      // 阅读埋点（T29）：详情加载成功后上报一次（会话级去重、静默失败）
+      trackReadingOnce(`policy:${id}`, {
+        contentType: 'POLICY',
+        contentRef: String(id),
+      });
     } catch (err) {
       setDetailError(detailErrorMessage(err));
     } finally {

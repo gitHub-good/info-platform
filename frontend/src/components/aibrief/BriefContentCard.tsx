@@ -52,12 +52,16 @@ function TendencyBadge({
 }
 
 /**
- * 结构化简报展示卡：核心摘要 / 关键事件（含影响方向与回链）/ 倾向与理由 / 关注建议。
+ * 结构化简报展示卡：核心摘要 / 关键事件（含影响方向与回链）/ 倾向与理由 / 关注建议 /
+ * 每日推荐 Top5（briefType=4，含推荐理由——T29 相关性命中因子的人工标注载体）。
  * status=1 直接展示；status=3 仍展示但附「部分数值待核实」降级提示（PRD 故事 2 场景 3）。
  */
 export function BriefContentCard({ content, needVerify }: BriefContentCardProps) {
   const bias = tendencyMeta(content.bias);
   const keyEvents = content.keyEvents ?? [];
+  const topRecommend = [...(content.topRecommend ?? [])].sort(
+    (a, b) => (a.rank ?? 0) - (b.rank ?? 0),
+  );
 
   return (
     <Card data-testid="brief-content">
@@ -138,6 +142,36 @@ export function BriefContentCard({ content, needVerify }: BriefContentCardProps)
           <section data-testid="brief-suggestion">
             <h3 className="mb-1 text-sm font-medium">关注建议</h3>
             <p className="text-sm text-muted-foreground">{content.watchSuggestion}</p>
+          </section>
+        ) : null}
+
+        {topRecommend.length > 0 ? (
+          <section data-testid="brief-top-recommend">
+            <h3 className="mb-1 text-sm font-medium">每日推荐 Top5</h3>
+            <ol className="flex flex-col gap-2">
+              {topRecommend.map((item, i) => (
+                <li
+                  key={item.subjectCode || i}
+                  className="rounded-md border border-border/60 p-2"
+                  data-testid={`brief-top-recommend-${i}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">No.{item.rank}</Badge>
+                    <span className="text-sm">
+                      {item.subjectName}（{item.subjectCode}）
+                    </span>
+                  </div>
+                  {item.reason ? (
+                    <p
+                      className="mt-1 text-xs text-muted-foreground"
+                      data-testid={`brief-top-recommend-reason-${i}`}
+                    >
+                      {item.reason}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
           </section>
         ) : null}
       </CardContent>

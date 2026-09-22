@@ -45,6 +45,18 @@ export interface BriefFact {
   sourceUrl?: string;
 }
 
+/** 每日推荐条目（content.topRecommend[]，仅 briefType=4 产出；T29 理由含命中因子可人工标注）。 */
+export interface TopRecommendItem {
+  /** 标的内部统一代码，如 SH600519 */
+  subjectCode: string;
+  /** 标的名称 */
+  subjectName: string;
+  /** 一句话推荐理由（命中订阅主题/订阅标的/已读热度/信息面活跃 + 评分构成） */
+  reason: string;
+  /** 排序名次（1 起，越小越优先） */
+  rank: number;
+}
+
 /** 结构化简报内容（GET 响应 content，仅 status=1/3 非空）。 */
 export interface BriefContent {
   /** 核心摘要 */
@@ -59,6 +71,8 @@ export interface BriefContent {
   watchSuggestion?: string;
   /** 事实数组（幻觉校验 + 回链） */
   facts?: BriefFact[];
+  /** 每日推荐 Top5（仅 briefType=4 非空，T23/T29） */
+  topRecommend?: TopRecommendItem[];
   /** 免责声明（content 内冗余一份，应用层兜底为「AI 生成，非投资建议」） */
   disclaimer?: string;
 }

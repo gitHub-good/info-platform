@@ -9,6 +9,7 @@ import { DisclaimerBadge } from '@/components/aibrief/DisclaimerBadge';
 import { SourceLinkList } from '@/components/aibrief/SourceLinkList';
 import { logout } from '@/api/auth';
 import { ApiError } from '@/api/http';
+import { trackReadingOnce } from '@/api/readingEvent';
 import {
   AI_BRIEF_POLL_INTERVAL_MS,
   createBrief,
@@ -97,6 +98,16 @@ export function AiBrief({ pollIntervalMs = AI_BRIEF_POLL_INTERVAL_MS }: AiBriefP
     }
   };
 
+  // 简报阅读埋点引用（T29）：终态且有内容时上报一次；ref 读取避免轮询 effect 依赖重启
+  const trackRef = useRef<(taskId: number) => void>(() => {});
+  trackRef.current = (taskId: number) => {
+    trackReadingOnce(`brief:${taskId}`, {
+      contentType: 'AI_BRIEF',
+      contentRef: String(taskId),
+      subjectId: lastParams?.subjectId ?? undefined,
+    });
+  };
+
   // 轮询：taskId 变化或重试 epoch 变化时启动；status=0 继续轮询，终态停止；卸载即取消。
   useEffect(() => {
     if (taskId == null) return;
@@ -111,6 +122,10 @@ export function AiBrief({ pollIntervalMs = AI_BRIEF_POLL_INTERVAL_MS }: AiBriefP
         if (cancelled) return;
         setView(v);
         setPollError(null);
+        // 阅读埋点（T29）：终态且有内容（完成/待核实）→ 上报一次（会话级去重、静默失败）
+        if (isTerminalStatus(v.status) && v.content) {
+          trackRef.current(taskId);
+        }
         if (!isTerminalStatus(v.status)) {
           timer = setTimeout(() => void tick(), pollRef.current);
         }

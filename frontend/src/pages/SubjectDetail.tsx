@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useSubjectDetail } from '@/hooks/useSubjectDetail';
+import { trackReadingOnce } from '@/api/readingEvent';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -77,6 +79,16 @@ function LoadingSkeleton() {
  */
 export function SubjectDetail({ subjectId = 'SH600519', data: injected }: SubjectDetailProps) {
   const { data, loading, error } = useSubjectDetail(subjectId, injected);
+
+  // 阅读埋点（T29）：详情数据加载成功后上报一次（会话级去重、静默失败，不打扰主流程）
+  useEffect(() => {
+    if (!data) return;
+    trackReadingOnce(`subject:${data.subject.subjectCode}`, {
+      contentType: 'SUBJECT_DETAIL',
+      contentRef: data.subject.subjectCode,
+      subjectCode: data.subject.subjectCode,
+    });
+  }, [data]);
 
   if (loading) {
     return <LoadingSkeleton />;
