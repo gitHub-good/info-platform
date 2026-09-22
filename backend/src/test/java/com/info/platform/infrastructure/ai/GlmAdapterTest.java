@@ -13,6 +13,7 @@ import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmProvider;
 import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
+import com.info.platform.infrastructure.common.ConfigCenter;
 import java.util.List;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * GlmAdapter 单测（T19）：GLM/智谱 OpenAI 兼容请求/响应（Spike-2 §4.2）。
+ * GlmAdapter 单测（T19+T35）：GLM/智谱 OpenAI 兼容请求/响应（Spike-2 §4.2）。
  *
  * <p>与 {@link DeepSeekAdapterTest} 同构（共享 {@link AbstractOpenAiCompatProvider}），差异仅在 provider
  * 枚举、model 与 base-url。覆盖正常响应解析 + 请求体（base-url
@@ -70,7 +71,7 @@ class GlmAdapterTest {
 
     @Test
     void chat_notConfigured_throwsIllegalState() {
-        LlmConfig empty = new LlmConfig();
+        ConfigCenter empty = ConfigCenterStubs.stubOf(); // 无任何 provider
         GlmAdapter adapter = new GlmAdapter(RestClient.builder(), empty);
         assertThatThrownBy(
                         () ->
@@ -85,7 +86,7 @@ class GlmAdapterTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         GlmAdapter adapter =
-                new GlmAdapter(builder, LlmConfigTest.configWith(LlmConfigTest.glmProvider()));
+                new GlmAdapter(builder, ConfigCenterStubs.stubOf(LlmConfigTest.glmProvider()));
         setter.accept(server);
         LlmResponse resp = adapter.chat(request);
         server.verify();

@@ -6,23 +6,28 @@ import com.info.platform.domain.ai.LlmCostBudget;
 import com.info.platform.domain.ai.LlmUsage;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import com.info.platform.infrastructure.common.RuntimeLlmGlobal;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * LLM 成本上限守卫（ADR-0004 / ADR-0008 + 技术方案 §4.4 成本上限 + Spike-2 §8.3；T30 调优）。
+ * LLM 成本上限守卫（ADR-0004 / ADR-0008 + 技术方案 §4.4 成本上限 + Spike-2 §8.3；T30 调优；T35 热改）。
  *
- * <p>单用户日 token 预算：Caffeine 按 <b>日界键</b> {@code userId:yyyy-MM-dd} 计数—— T19 的 {@code
- * expireAfterWrite(24h)} 只是从首次写入起算的近似日重置（T19 注释明示「严格跨日重置留 T30」）， 换日后取新键计数自然归零，实现严格跨日重置； 旧键条目由
- * {@code expireAfterWrite(48h)} 兜底逐出（覆盖单日最长写入跨度，只作清理不影响计数）。 日界取 {@link Clock}
+ * <p>单用户日 token 预算：Caffeine 按 <b>日界键</b> {@code userId:yyyy-MM-dd} 计数—— 换日后取新键计数自然归零，实现严格跨日重置；
+ * 旧键条目由 {@code expireAfterWrite(48h)} 兜底逐出（覆盖单日最长写入跨度，只作清理不影响计数）。 日界取 {@link Clock}
  * 系统时区（对齐用户「当日」直觉），测试经构造注入 {@code Clock.fixed} 模拟换日。
+ *
+ * <p><b>预算/告警阈值运行时读取</b>（T35 / ADR-0017 / 方案 §4.3）：构造注入 {@link Supplier}， {@link
+ * #checkBudget}/{@link #dailyBudgetTokens}/{@link #budgetWarnRatio} 用时取当前值——页面改预算保存即对下一次调用生效
+ * （报表预算上限随改随新）；<b>已用计数为内存态保留不清零</b>（改预算不动当日用量）。
  *
  * <p>调用前 {@link #checkBudget} 拦截（已用尽抛 {@link BusinessException}({@link
  * ErrorCode#AI_QUOTA_EXHAUSTED}，429 语义，对齐技术方案 §4.1.4 {@code 30030})）；成功后 {@link #recordUsage}
- * 计入实际用量，并在<b>首次越过告警线</b>（{@code 预算 × budgetWarnRatio}，默认 0.8）时记一次 WARN（跨线一次为限，不逐次刷屏）， 留痕表另落
- * REJECTED 行（T30 报表告警状态同源本阈值）。
+ * 计入实际用量，并在<b>首次越过告警线</b>（{@code 预算 × budgetWarnRatio}）时记一次 WARN（跨线一次为限，不逐次刷屏）， 留痕表另落 REJECTED
+ * 行（T30 报表告警状态同源本阈值）。
  *
  * <p>实现领域端口 {@link LlmCostBudget}（预检 + 预算策略查询），供应用层 {@code AIBriefService} POST 预检注入端口
  * 而非本实现类（守护分层：避 application↔infrastructure 循环依赖）；计费入账由 {@code LlmGatewayImpl} 调本类 {@link
@@ -37,32 +42,27 @@ public class LlmCostGuard implements LlmCostBudget {
 
     private static final Logger log = LoggerFactory.getLogger(LlmCostGuard.class);
 
-    /** 预算告警阈值默认值（0~1，正式值经 {@code llm.budget-warn-ratio} 配置注入）。 */
-    static final double DEFAULT_WARN_RATIO = 0.8;
-
     /** 日界键条目保留时长：覆盖单日最长写入跨度即可，仅作过期清理（换日即取新键，不影响计数）。 */
     private static final Duration ENTRY_RETENTION = Duration.ofHours(48);
 
-    private final long dailyBudget;
-    private final double warnRatio;
+    private final Supplier<RuntimeLlmGlobal> globalView;
     private final Clock clock;
     private final Cache<String, Long> used;
 
-    /** 便捷构造：默认告警阈值 0.8 + 系统时钟（单测/默认场景）。 */
-    public LlmCostGuard(long dailyBudget) {
-        this(dailyBudget, DEFAULT_WARN_RATIO, Clock.systemDefaultZone());
+    /** 便捷构造：系统时钟（生产装配与多数单测）。 */
+    public LlmCostGuard(Supplier<RuntimeLlmGlobal> globalView) {
+        this(globalView, Clock.systemDefaultZone());
     }
 
-    public LlmCostGuard(long dailyBudget, double warnRatio, Clock clock) {
-        this.dailyBudget = dailyBudget;
-        this.warnRatio = warnRatio;
+    public LlmCostGuard(Supplier<RuntimeLlmGlobal> globalView, Clock clock) {
+        this.globalView = globalView;
         this.clock = clock;
         this.used =
                 Caffeine.newBuilder().maximumSize(10_000).expireAfterWrite(ENTRY_RETENTION).build();
     }
 
     /**
-     * 检查当日预算：已用 {@code >= dailyBudget} 抛成本上限异常。
+     * 检查当日预算：已用 {@code >= 当前预算} 抛成本上限异常（预算运行时读取，改小后当次调用即拦截）。
      *
      * @param userId 用户 ID（{@code <=0} 跳过）
      */
@@ -72,6 +72,7 @@ public class LlmCostGuard implements LlmCostBudget {
             return;
         }
         long current = currentUsage(userId);
+        long dailyBudget = dailyBudgetTokens();
         if (current >= dailyBudget) {
             throw new BusinessException(
                     ErrorCode.AI_QUOTA_EXHAUSTED,
@@ -81,7 +82,7 @@ public class LlmCostGuard implements LlmCostBudget {
 
     /**
      * 计入实际用量（按 {@code usage.totalTokens}）；{@code userId <=0} 或 usage null 跳过。 首次越过告警线（{@code 预算 ×
-     * budgetWarnRatio}）记一次 WARN。
+     * budgetWarnRatio}，阈值运行时读取）记一次 WARN。
      */
     public void recordUsage(long userId, LlmUsage usage) {
         if (userId <= 0 || usage == null) {
@@ -90,14 +91,15 @@ public class LlmCostGuard implements LlmCostBudget {
         String key = dayKey(userId);
         long before = rawUsage(key);
         long after = used.asMap().merge(key, (long) usage.totalTokens(), Long::sum);
-        if (before < warnLine() && after >= warnLine()) {
+        long warnLine = warnLine();
+        if (before < warnLine && after >= warnLine) {
             log.warn(
                     "用户 {} 当日 LLM token 用量越过告警线（{}/{}，阈值 {}），余量 {}",
                     userId,
                     after,
-                    dailyBudget,
-                    warnRatio,
-                    Math.max(0, dailyBudget - after));
+                    dailyBudgetTokens(),
+                    budgetWarnRatio(),
+                    Math.max(0, dailyBudgetTokens() - after));
         }
     }
 
@@ -109,16 +111,16 @@ public class LlmCostGuard implements LlmCostBudget {
         return rawUsage(dayKey(userId));
     }
 
-    /** 预算上限（端口暴露，报表同源）。 */
+    /** 预算上限（端口暴露，报表同源；运行时读取，随改随新）。 */
     @Override
     public long dailyBudgetTokens() {
-        return dailyBudget;
+        return globalView.get().dailyTokenBudgetPerUser();
     }
 
-    /** 预算告警阈值比例（端口暴露，报表同源）。 */
+    /** 预算告警阈值比例（端口暴露，报表同源；运行时读取）。 */
     @Override
     public double budgetWarnRatio() {
-        return warnRatio;
+        return globalView.get().budgetWarnRatio();
     }
 
     private long rawUsage(String key) {
@@ -127,7 +129,7 @@ public class LlmCostGuard implements LlmCostBudget {
     }
 
     private long warnLine() {
-        return Math.round(dailyBudget * warnRatio);
+        return Math.round(dailyBudgetTokens() * budgetWarnRatio());
     }
 
     /** 日界键：{@code userId:yyyy-MM-dd}（系统时区），换日取新键即严格跨日重置。 */

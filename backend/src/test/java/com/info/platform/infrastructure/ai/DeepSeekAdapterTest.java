@@ -14,9 +14,13 @@ import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmProvider;
 import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
+import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.RuntimeLlmProvider;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -24,13 +28,16 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * DeepSeekAdapter 单测（T19）：OpenAI 兼容 chat/completions 请求构造与响应解析（Spike-2 §4.1）。
+ * DeepSeekAdapter 单测（T19+T35）：OpenAI 兼容 chat/completions 请求构造与响应解析（Spike-2 §4.1）。
  *
  * <p>用 {@link MockRestServiceServer} 模拟 DeepSeek 响应（不依赖真实 API key）： 覆盖正常响应解析（content + usage +
  * provider + model）/
  * 请求体断言（response_format=json_object、model、messages、stream、max_tokens、Authorization Bearer）/ 模型覆盖 /
  * HTTP 500 抛 {@link RestClientResponseException}（供 gateway 切 fallback）/ 未配置抛 {@link
  * IllegalStateException}（inert）。
+ *
+ * <p>T35 追加：model/api-key <b>每次调用经 ConfigCenter 现读</b>（改模型/换 key 对下一次调用生效）、 baseUrl
+ * 读<b>启动期冻结值</b>（RESTART 级，页面保存不热切端点）。
  *
  * <p>不设 HTTP 超时（MockRestServiceServer 即时响应）；调用级超时由 {@link LlmGatewayImpl} 以 Future 承担。
  */
@@ -98,7 +105,7 @@ class DeepSeekAdapterTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo(containsString("/chat/completions"))).andRespond(withServerError());
-        DeepSeekAdapter boundAdapter = new DeepSeekAdapter(builder, configWithDeepSeek());
+        DeepSeekAdapter boundAdapter = new DeepSeekAdapter(builder, configCenterWithDeepSeek());
 
         assertThatThrownBy(() -> boundAdapter.chat(request))
                 .isInstanceOf(RestClientResponseException.class);
@@ -107,7 +114,7 @@ class DeepSeekAdapterTest {
 
     @Test
     void chat_notConfigured_throwsIllegalState() {
-        LlmConfig empty = new LlmConfig(); // 无 providers
+        ConfigCenter empty = ConfigCenterStubs.stubOf(); // 无任何 provider
         DeepSeekAdapter adapter = new DeepSeekAdapter(RestClient.builder(), empty);
         assertThatThrownBy(
                         () ->
@@ -116,6 +123,75 @@ class DeepSeekAdapterTest {
                                                 List.of(new ChatMessage("user", "x")), "1")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("deepseek");
+    }
+
+    @Test
+    void chat_modelAndKeyChangedAtRuntime_nextCallUsesNewValues() {
+        // Arrange（T35 热改）：可变 provider POJO 承载；两次预期先注册（按序消费），两次调用之间改模型与 key
+        LlmConfig.Provider provider = LlmConfigTest.deepseekProvider();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        DeepSeekAdapter adapter = new DeepSeekAdapter(builder, ConfigCenterStubs.stubOf(provider));
+
+        server.expect(requestTo(containsString("/chat/completions")))
+                .andExpect(jsonPath("$.model", is(MODEL)))
+                .andExpect(
+                        req ->
+                                assertThat(req.getHeaders().getFirst("Authorization"))
+                                        .isEqualTo("Bearer " + API_KEY))
+                .andRespond(withSuccess(RESPONSE_JSON, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(containsString("/chat/completions")))
+                .andExpect(jsonPath("$.model", is("deepseek-v4-pro")))
+                .andExpect(
+                        req ->
+                                assertThat(req.getHeaders().getFirst("Authorization"))
+                                        .isEqualTo("Bearer sk-rotated-key"))
+                .andRespond(withSuccess(RESPONSE_JSON, MediaType.APPLICATION_JSON));
+        LlmRequest request = LlmRequest.json(List.of(new ChatMessage("user", "ctx")), "1");
+
+        // Act：第一次按当前模型/key 调用；随后页面改模型 + 换 key（保存即生效），第二次调用
+        adapter.chat(request);
+        provider.setModel("deepseek-v4-pro");
+        provider.setApiKey("sk-rotated-key");
+        LlmResponse resp = adapter.chat(request);
+
+        // Assert：下一次调用即用新模型与新 key
+        assertThat(resp.model()).isEqualTo("deepseek-v4-pro");
+        server.verify();
+    }
+
+    @Test
+    void chat_baseUrlAlwaysReadsBootSnapshot_evenIfRuntimeDocChanged() {
+        // Arrange（RESTART 级）：运行时视图 baseUrl 已被页面改为新端点，但 boot 冻结值仍是旧端点
+        RuntimeLlmProvider liveView =
+                new RuntimeLlmProvider(
+                        "deepseek",
+                        MODEL,
+                        true,
+                        true,
+                        null,
+                        0,
+                        0,
+                        "https://runtime-changed.example.com",
+                        "k",
+                        null,
+                        null);
+        ConfigCenter configCenter = Mockito.mock(ConfigCenter.class);
+        Mockito.when(configCenter.provider("deepseek")).thenReturn(Optional.of(liveView));
+        Mockito.when(configCenter.bootLlmProviderBaseUrl("deepseek")).thenReturn(BASE_URL);
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(containsString(BASE_URL)))
+                .andExpect(requestTo(containsString("/chat/completions")))
+                .andRespond(withSuccess(RESPONSE_JSON, MediaType.APPLICATION_JSON));
+        DeepSeekAdapter adapter = new DeepSeekAdapter(builder, configCenter);
+
+        // Act + Assert：请求打到 boot 冻结端点（保存的 baseUrl 重启后才生效）
+        LlmResponse resp =
+                adapter.chat(LlmRequest.json(List.of(new ChatMessage("user", "ctx")), "1"));
+        assertThat(resp.model()).isEqualTo(MODEL);
+        server.verify();
     }
 
     /** 断言请求体与 Bearer 头（response_format=json_object 等，Spike-2 §4.1 契约）。 */
@@ -138,14 +214,14 @@ class DeepSeekAdapterTest {
     private LlmResponse callWithMock(LlmRequest request, Consumer<MockRestServiceServer> setter) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        DeepSeekAdapter adapter = new DeepSeekAdapter(builder, configWithDeepSeek());
+        DeepSeekAdapter adapter = new DeepSeekAdapter(builder, configCenterWithDeepSeek());
         setter.accept(server);
         LlmResponse resp = adapter.chat(request);
         server.verify();
         return resp;
     }
 
-    static LlmConfig configWithDeepSeek() {
-        return LlmConfigTest.configWith(LlmConfigTest.deepseekProvider());
+    static ConfigCenter configCenterWithDeepSeek() {
+        return ConfigCenterStubs.stubOf(LlmConfigTest.deepseekProvider());
     }
 }

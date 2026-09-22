@@ -14,9 +14,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
- * LlmCache 单测（T19）：同 prompt+context 命中、briefType 分区、per-entry TTL 解析（ADR-0005 + ADR-0008）。
+ * LlmCache 单测（T19+T35）：同 prompt+context 命中、briefType 分区、per-entry TTL 解析（ADR-0005 + ADR-0008）。
  *
- * <p>不实测真实过期（需等待）；覆盖：命中/未命中、按 {@code briefType} 分区（同内容不同类型不共享）、TTL 解析器被调用、null 响应不缓存。
+ * <p>不实测真实过期（需等待）；覆盖：命中/未命中、按 {@code briefType} 分区（同内容不同类型不共享）、TTL 解析器被调用、 <b>TTL
+ * 运行时热改对新条目生效</b>（T35）、null 响应不缓存。
  */
 class LlmCacheTest {
 
@@ -70,6 +71,31 @@ class LlmCacheTest {
         cache.put(request("4", "ctx"), response());
         assertThat(seen.get()).isEqualTo("4");
         assertThat(calls.get()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void ttlChangedAtRuntime_resolverReadsLatestValueForNewEntries() {
+        // Arrange（T35 热改，方案 §4.3「TTL 分档改运行时」）：解析函数按可变表现算——等价于装配传入的 ConfigCenter 快照函数
+        java.util.Map<String, Long> runtimeTtl = new java.util.HashMap<>();
+        runtimeTtl.put("brief-type-1", 60L);
+        List<Long> resolved = new java.util.ArrayList<>();
+        LlmCache cache =
+                new LlmCache(
+                        bt -> {
+                            long seconds = runtimeTtl.getOrDefault("brief-type-" + bt, 60L);
+                            resolved.add(seconds);
+                            return Duration.ofSeconds(seconds);
+                        },
+                        Duration.ofSeconds(60),
+                        100);
+        cache.put(request("1", "ctx-a"), response());
+
+        // Act：页面把 brief-type-1 的 TTL 从 60s 改为 3600s（保存即生效）
+        runtimeTtl.put("brief-type-1", 3600L);
+        cache.put(request("1", "ctx-b"), response());
+
+        // Assert：新缓存条目按写入时点的新值解析（存量条目按写入时点旧值到期，不回溯）
+        assertThat(resolved).containsExactly(60L, 3600L);
     }
 
     @Test

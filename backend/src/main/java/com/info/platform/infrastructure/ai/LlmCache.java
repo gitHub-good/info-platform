@@ -20,7 +20,10 @@ import java.util.function.Function;
  * briefTypeKey} 本身（用作 TTL 分区，不入哈希——同内容不同简报类型可共 享，但实际调用方按 brief_type 分桶组装，碰撞可忽略）。
  *
  * <p>按 {@code brief_type} 差异化 TTL（个股 1h / 每日推荐 24h，Spike-2 §9）： 单缓存 + 每条目 {@link Expiry}，建/写时按
- * 缓存键中的 {@code briefType} 解析 TTL，读不延长。 Caffeine 红线：必设 {@code maximumSize} + 过期（防 OOM、防陈旧），禁当持久层。
+ * 缓存键中的 {@code briefType} 解析 TTL，读不延长。 <b>TTL 分档与默认 TTL 运行时读取</b>（T35 / ADR-0017 / 方案 §4.3）： {@code
+ * ttlForBriefType} 由装配方传入 ConfigCenter 快照函数，页面改 TTL 保存后<b>新缓存条目</b>即按新值（存量条目按写入时点值到期，不回溯）； {@code
+ * defaultTtl} 仅为解析函数异常时的兜底（正常路径默认值也走运行时）；maximumSize 建缓存时固化（Caffeine 容量建后不可变，RESTART 级）。 Caffeine
+ * 红线：必设 {@code maximumSize} + 过期（防 OOM、防陈旧），禁当持久层。
  */
 public class LlmCache {
 

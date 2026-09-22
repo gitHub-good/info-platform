@@ -8,11 +8,16 @@ import com.info.platform.domain.ai.LlmResponse;
 import com.info.platform.domain.ai.LlmUsage;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.UserContext;
+import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.RuntimeLlmGlobal;
+import com.info.platform.infrastructure.common.RuntimeLlmProvider;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -30,12 +35,15 @@ import org.springframework.stereotype.Component;
  * 落一行调用留痕（{@link LlmCallLog}，经 {@link LlmCallLogger}——缓存命中/成功/失败/预算拒绝四态， 供成本报表 {@code GET
  * /api/v1/llm-cost-report} 聚合；留痕失败不阻断调用）。
  *
- * <p><b>Fallback 链</b>（对齐 §4.4 + ADR-0008）：从 {@code default: true} provider 起，按 {@code fallback}
- * 字段串联（带环检测）；逐个调用 enabled 且已装配的 adapter，任一成功即返。 失败类型（超时 / 限频 429 {@code
- * RestClientResponseException} / 5xx / 连接错误 / 解析异常）均视为本 provider 失败，切下一个； 全部失败抛 {@link
- * LlmException}（T21 据此置 {@code ai_brief.status=2} + 告警）。
+ * <p><b>Fallback 链</b>（对齐 §4.4 + ADR-0008）：从默认 provider 起，按 {@code fallback} 字段串联（带环检测）； 逐个调用
+ * enabled 且已装配的 adapter，任一成功即返。 失败类型（超时 / 限频 429 {@code RestClientResponseException} / 5xx / 连接错误 /
+ * 解析异常）均视为本 provider 失败，切下一个； 全部失败抛 {@link LlmException}（T21 据此置 {@code ai_brief.status=2} + 告警）。
  *
- * <p><b>超时</b>（"自带"，对齐 {@code llm.timeout-seconds} + ADR-0010 思路）： 虚拟线程执行器承载阻塞式 {@code
+ * <p><b>运行时配置读取</b>（T35 / ADR-0017 / 方案 §4.3）：超时/fallback 链/默认与启用/单价全部改为<b>每次调用经 {@link
+ * ConfigCenter} 快照读取</b>（页面保存即对下一次调用生效）； 成本留痕按<b>调用时点单价</b>落死值 {@code
+ * llm_call_log.cost_micros}——之后调价只影响新调用，历史留痕不回溯重算（ADR-0015 红线）。
+ *
+ * <p>超时（"自带"，对齐 {@code llm.timeout-seconds} + ADR-0010 思路）： 虚拟线程执行器承载阻塞式 {@code
  * adapter.chat}，{@code Future.get(timeout)} 兜底，超时 {@code cancel(true)} 中断工作线程后切 fallback。 不在
  * adapter 层设 HTTP {@code requestFactory} 超时——避免与 {@code MockRestServiceServer} 的 mock
  * requestFactory 冲突（测试无 key 不依赖真实 API）。
@@ -50,26 +58,27 @@ public class LlmGatewayImpl implements LlmGateway {
 
     private final List<LlmProviderAdapter> adapters;
     private final LlmConfig config;
+    private final ConfigCenter configCenter;
     private final LlmCostGuard costGuard;
     private final LlmCache cache;
     private final LlmCallLogger callLog;
     private final ExecutorService executor;
-    private final Duration timeout;
 
     public LlmGatewayImpl(
             List<LlmProviderAdapter> adapters,
             LlmConfig config,
+            ConfigCenter configCenter,
             LlmCostGuard costGuard,
             LlmCache cache,
             LlmCallLogger callLog,
             @Qualifier("llmExecutor") ExecutorService executor) {
         this.adapters = adapters == null ? List.of() : adapters;
         this.config = config;
+        this.configCenter = configCenter;
         this.costGuard = costGuard;
         this.cache = cache;
         this.callLog = callLog;
         this.executor = executor;
-        this.timeout = config.timeout();
     }
 
     @Override
@@ -97,7 +106,7 @@ public class LlmGatewayImpl implements LlmGateway {
             throw e;
         }
 
-        List<String> chain = config.fallbackChain();
+        List<String> chain = fallbackChain();
         if (chain.isEmpty()) {
             LlmCallLog noProvider = LlmCallLog.begin(userId, request.briefTypeKey());
             noProvider.markFailed("未配置 default LLM provider", elapsedMillis(startNanos));
@@ -113,19 +122,19 @@ public class LlmGatewayImpl implements LlmGateway {
         Throwable lastError = null;
         for (String name : chain) {
             LlmProviderAdapter adapter = byName.get(name);
-            LlmConfig.Provider providerCfg = config.providerByName(name);
+            RuntimeLlmProvider providerCfg = runtimeProvider(name).orElse(null);
             if (adapter == null) {
                 log.warn("LLM provider '{}' 无 adapter（未实现？），跳过", name);
                 attempted.add(name + "(no-adapter)");
                 continue;
             }
-            if (providerCfg != null && !providerCfg.isEnabled()) {
+            if (providerCfg != null && !providerCfg.enabled()) {
                 log.info("LLM provider '{}' 已禁用，跳过", name);
                 attempted.add(name + "(disabled)");
                 continue;
             }
             try {
-                LlmResponse resp = callWithTimeout(adapter, request);
+                LlmResponse resp = callWithTimeout(adapter, request, runtimeTimeout());
                 costGuard.recordUsage(userId, resp.usage());
                 cache.put(request, resp);
                 LlmCallLog ok = LlmCallLog.begin(userId, request.briefTypeKey());
@@ -138,7 +147,7 @@ public class LlmGatewayImpl implements LlmGateway {
                 callLog.record(ok);
                 return resp;
             } catch (TimeoutException te) {
-                log.warn("LLM provider '{}' 超时（{}），切 fallback", name, timeout);
+                log.warn("LLM provider '{}' 超时（{}），切 fallback", name, runtimeTimeout());
                 attempted.add(name + "(timeout)");
                 lastError = te;
             } catch (Exception e) {
@@ -156,25 +165,61 @@ public class LlmGatewayImpl implements LlmGateway {
         throw new LlmException("所有 LLM provider 均失败：" + attempted, attempted, lastError);
     }
 
-    /** 按 provider 配置单价估算成本（微元）；未配置 provider 或单价默认 0（不估算）。 */
+    /** 运行时 fallback 链：默认 provider 起按运行时 fallback 串联（带环检测）；启用与否链内逐个判定（跳过 disabled）。 */
+    private List<String> fallbackChain() {
+        String start = null;
+        for (LlmConfig.Provider candidate : config.getProviders()) {
+            RuntimeLlmProvider view = runtimeProvider(candidate.getName()).orElse(null);
+            if (view != null && view.isDefault()) {
+                start = view.name();
+                break;
+            }
+        }
+        if (start == null) {
+            return List.of();
+        }
+        List<String> chain = new ArrayList<>();
+        HashSet<String> visited = new HashSet<>();
+        String current = start;
+        while (current != null && visited.add(current)) {
+            chain.add(current);
+            RuntimeLlmProvider view = runtimeProvider(current).orElse(null);
+            current =
+                    view == null || view.fallback() == null || view.fallback().isBlank()
+                            ? null
+                            : view.fallback();
+        }
+        return chain;
+    }
+
+    private Optional<RuntimeLlmProvider> runtimeProvider(String name) {
+        return configCenter.provider(name);
+    }
+
+    /** 当前超时（运行时读取，页面保存即对下一次调用生效）；快照缺键回落 yml。 */
+    private Duration runtimeTimeout() {
+        return configCenter.llmGlobal().map(RuntimeLlmGlobal::timeout).orElseGet(config::timeout);
+    }
+
+    /** 按 provider <b>当前单价</b>估算成本（微元），随调用时点落死值（调价不回溯历史留痕）。 */
     private long costMicros(String providerName, LlmUsage usage) {
-        LlmConfig.Provider providerCfg = config.providerByName(providerName);
+        RuntimeLlmProvider providerCfg = runtimeProvider(providerName).orElse(null);
         if (providerCfg == null || usage == null) {
             return 0L;
         }
         return LlmCallLog.estimateCostMicros(
                 usage.promptTokens(),
                 usage.completionTokens(),
-                providerCfg.getInputPricePerMillion(),
-                providerCfg.getOutputPricePerMillion());
+                providerCfg.inputPricePerMillion(),
+                providerCfg.outputPricePerMillion());
     }
 
     private static long elapsedMillis(long startNanos) {
         return Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);
     }
 
-    private LlmResponse callWithTimeout(LlmProviderAdapter adapter, LlmRequest request)
-            throws Exception {
+    private LlmResponse callWithTimeout(
+            LlmProviderAdapter adapter, LlmRequest request, Duration timeout) throws Exception {
         Future<LlmResponse> future = executor.submit(() -> adapter.chat(request));
         try {
             return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);

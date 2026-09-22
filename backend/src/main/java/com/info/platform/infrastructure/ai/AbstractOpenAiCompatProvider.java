@@ -5,6 +5,8 @@ import com.info.platform.domain.ai.LlmProvider;
 import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
 import com.info.platform.domain.ai.LlmUsage;
+import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.RuntimeLlmProvider;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,11 +16,15 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
- * OpenAI 兼容 provider 公共基类（Spike-2 §4.3）。
+ * OpenAI 兼容 provider 公共基类（Spike-2 §4.3；T35 热改：构造期捕获配置 → 持 provider 名用时解析，ADR-0017 §4.3）。
  *
  * <p>DeepSeek 与 GLM 共享同一请求/响应结构（{@code messages}/{@code model}/{@code temperature}/ {@code
  * response_format}/{@code choices[0].message.content}/{@code usage}），差异仅在 base-url/model/api-key。
  * 本类封装 RestClient + Bearer 认证 + 请求构造 + 响应解析；子类只声明 {@link #name} 与 {@link #provider} 身份。
+ *
+ * <p><b>配置用时解析</b>（每次 chat 经 {@link ConfigCenter} 快照，页面保存即对下一次调用生效）： model 与 apiKey（DB 密文 &gt;
+ * 环境变量）为 LIVE 级取<b>当前</b>值；baseUrl 为 RESTART 级读<b>启动期冻结快照</b> （{@link
+ * ConfigCenter#bootLlmProviderBaseUrl}，页面明示重启后生效）。
  *
  * <p>调用契约：
  *
@@ -32,7 +38,7 @@ import org.springframework.web.client.RestClient;
  *   <li>{@code content} 原样返回（可能空/非法，解析兜底属 T21）；{@code usage} 缺失时记 WARN 并置 0/0。
  * </ul>
  *
- * <p><b>Inert</b>：构造时 provider 配置缺失（如测试上下文未配 {@code llm} 段），{@link #chat} 抛 {@code
+ * <p><b>Inert</b>：运行时无该 provider 配置或无 baseUrl（如测试上下文未配 {@code llm} 段），{@link #chat} 抛 {@code
  * IllegalStateException}，不触发真实 HTTP——保证无 key 的测试/启动上下文不 fail-fast、不误调用。
  */
 public abstract class AbstractOpenAiCompatProvider implements LlmProviderAdapter {
@@ -42,14 +48,14 @@ public abstract class AbstractOpenAiCompatProvider implements LlmProviderAdapter
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
 
     private final RestClient restClient;
-    private final LlmConfig.Provider providerConfig;
+    private final ConfigCenter configCenter;
 
     protected AbstractOpenAiCompatProvider(
-            RestClient.Builder restClientBuilder, LlmConfig.Provider providerConfig) {
-        this.providerConfig = providerConfig;
+            RestClient.Builder restClientBuilder, ConfigCenter configCenter) {
+        this.configCenter = configCenter;
         // 不在共享 builder 上设 baseUrl/默认头/请求工厂（避免多 adapter 互相污染、且不与 MockRestServiceServer
         // 的 requestFactory 冲突）；baseUrl 与 Bearer 头随请求带，超时由 LlmGatewayImpl 以 Future 包装承担。
-        this.restClient = providerConfig == null ? null : restClientBuilder.build();
+        this.restClient = restClientBuilder == null ? null : restClientBuilder.build();
     }
 
     /** 本 adapter 厂商枚举（子类提供，用于回填 {@link LlmResponse#provider}）。 */
@@ -57,11 +63,16 @@ public abstract class AbstractOpenAiCompatProvider implements LlmProviderAdapter
 
     @Override
     public final LlmResponse chat(LlmRequest request) {
-        LlmConfig.Provider cfg = providerConfig;
+        RuntimeLlmProvider cfg = configCenter.provider(name()).orElse(null);
         if (cfg == null || restClient == null) {
             throw new IllegalStateException("LLM provider " + name() + " 未配置，无法调用");
         }
-        String model = resolveModel(request, cfg);
+        // baseUrl 为 RESTART 级：启动期冻结快照（保存后需重启才切端点）
+        String baseUrl = configCenter.bootLlmProviderBaseUrl(name());
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalStateException("LLM provider " + name() + " 未配置 baseUrl，无法调用");
+        }
+        String model = resolveModel(request, cfg.model());
         Map<String, Object> body = buildBody(request, model);
         log.debug(
                 "LLM 调用 provider={} model={} messages={} responseFormat={}",
@@ -74,8 +85,8 @@ public abstract class AbstractOpenAiCompatProvider implements LlmProviderAdapter
         Map<String, Object> resp =
                 restClient
                         .post()
-                        .uri(cfg.getBaseUrl() + CHAT_COMPLETIONS_PATH)
-                        .header("Authorization", "Bearer " + cfg.getApiKey())
+                        .uri(baseUrl + CHAT_COMPLETIONS_PATH)
+                        .header("Authorization", "Bearer " + cfg.apiKey())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body)
                         .retrieve()
@@ -87,10 +98,10 @@ public abstract class AbstractOpenAiCompatProvider implements LlmProviderAdapter
         return parse(resp, model);
     }
 
-    private static String resolveModel(LlmRequest request, LlmConfig.Provider cfg) {
+    private static String resolveModel(LlmRequest request, String configuredModel) {
         return (request.model() != null && !request.model().isBlank())
                 ? request.model()
-                : cfg.getModel();
+                : configuredModel;
     }
 
     private static Map<String, Object> buildBody(LlmRequest request, String model) {

@@ -20,6 +20,7 @@ import com.info.platform.domain.ai.LlmUsage;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.common.UserContext;
+import com.info.platform.infrastructure.ai.ConfigCenterStubs.Runtime;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,13 +28,15 @@ import java.util.concurrent.ThreadFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
- * LlmGatewayImpl 单测（T19+T30）：default/fallback 编排 + 成本上限 + 缓存 + 超时 + 调用留痕四态（ADR-0004/0008 + §4.4）。
+ * LlmGatewayImpl 单测（T19+T30+T35）：default/fallback 编排 + 成本上限 + 缓存 + 超时 + 调用留痕四态 （ADR-0004/0008 +
+ * §4.4）。
  *
- * <p>adapter 全 mock（Mockito，不依赖真实 API key）：覆盖 default 成功（用量入账+写缓存）/ default 失败切 fallback / 全失败抛
- * {@link LlmException} / 成本上限触发拒绝（{@link ErrorCode#AI_QUOTA_EXHAUSTED}，不调 adapter）/ 缓存命中二次不调 /
- * 调用超时切 fallback。T30 追加：每次 chat 落一行 {@link LlmCallLog}（成功含成本估算 / 缓存命中 / 失败 / 预算拒绝）。
+ * <p>adapter 全 mock（Mockito，不依赖真实 API key）；T35 起链/启停/单价/超时经 {@link ConfigCenterStubs} 运行时
+ * stub（可拨动的预算/单价/启停承载），覆盖：<b>热改语义</b>——改预算当次调用即拦截、改单价新调用按新价 且历史留痕不回溯（调价红线）、运行时停用 provider
+ * 即跳过、运行时改超时即对下一次调用生效。
  */
 class LlmGatewayImplTest {
 
@@ -46,6 +49,7 @@ class LlmGatewayImplTest {
     private LlmCallLogger callLog;
     private ExecutorService executor;
     private LlmConfig config;
+    private Runtime runtime;
 
     private static final LlmResponse DS_RESP =
             new LlmResponse(
@@ -63,7 +67,8 @@ class LlmGatewayImplTest {
         config =
                 LlmConfigTest.configWith(
                         LlmConfigTest.deepseekProvider(), LlmConfigTest.glmProvider());
-        costGuard = new LlmCostGuard(config.getDailyTokenBudgetPerUser());
+        runtime = new Runtime(config);
+        costGuard = new LlmCostGuard(runtime.global::get);
         cache =
                 new LlmCache(
                         bt -> java.time.Duration.ofSeconds(60),
@@ -88,7 +93,13 @@ class LlmGatewayImplTest {
 
     private LlmGatewayImpl gateway() {
         return new LlmGatewayImpl(
-                List.of(deepseek, glm), config, costGuard, cache, callLog, executor);
+                List.of(deepseek, glm),
+                config,
+                ConfigCenterStubs.stub(runtime),
+                costGuard,
+                cache,
+                callLog,
+                executor);
     }
 
     @Test
@@ -105,18 +116,15 @@ class LlmGatewayImplTest {
     @Test
     void chat_success_recordsCallLogWithCostEstimate() {
         // Arrange：deepseek 单价 1 元/M 输入、4 元/M 输出 → 100×1 + 50×4 = 300 微元
-        LlmConfig.Provider priced = LlmConfigTest.deepseekProvider();
-        priced.setInputPricePerMillion(1.0);
-        priced.setOutputPricePerMillion(4.0);
-        config = LlmConfigTest.configWith(priced, LlmConfigTest.glmProvider());
+        runtime.providers.get("deepseek").setInputPricePerMillion(1.0);
+        runtime.providers.get("deepseek").setOutputPricePerMillion(4.0);
         when(deepseek.chat(any())).thenReturn(DS_RESP);
 
         // Act
         gateway().chat(request());
 
         // Assert：落 SUCCESS 留痕，provider/model/token/成本齐备
-        org.mockito.ArgumentCaptor<LlmCallLog> captor =
-                org.mockito.ArgumentCaptor.forClass(LlmCallLog.class);
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
         verify(callLog).record(captor.capture());
         LlmCallLog entry = captor.getValue();
         assertThat(entry.getStatus()).isEqualTo(LlmCallStatus.SUCCESS);
@@ -127,6 +135,30 @@ class LlmGatewayImplTest {
         assertThat(entry.getCompletionTokens()).isEqualTo(50);
         assertThat(entry.getCostMicros()).isEqualTo(300L);
         assertThat(entry.isCacheHit()).isFalse();
+    }
+
+    @Test
+    void chat_priceChangedAtRuntime_newCallUsesNewPriceAndHistoryUntouched() {
+        // Arrange（T35 调价红线，PRD 场景 2.3）：第一次调用按 1.0/4.0 计价
+        runtime.providers.get("deepseek").setInputPricePerMillion(1.0);
+        runtime.providers.get("deepseek").setOutputPricePerMillion(4.0);
+        when(deepseek.chat(any())).thenReturn(DS_RESP);
+        LlmGatewayImpl gw = gateway();
+        gw.chat(request());
+
+        // Act：页面调价至 2.0/8.0（保存即生效），第二次调用（不同内容，避开缓存）
+        runtime.providers.get("deepseek").setInputPricePerMillion(2.0);
+        runtime.providers.get("deepseek").setOutputPricePerMillion(8.0);
+        gw.chat(
+                LlmRequest.json(
+                        List.of(new ChatMessage("system", "sys"), new ChatMessage("user", "ctx-2")),
+                        "1"));
+
+        // Assert：第一行留痕维持调价前死值 300，第二行按调用时点新价 600（历史不回溯重算）
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
+        verify(callLog, times(2)).record(captor.capture());
+        assertThat(captor.getAllValues().get(0).getCostMicros()).isEqualTo(300L);
+        assertThat(captor.getAllValues().get(1).getCostMicros()).isEqualTo(600L);
     }
 
     @Test
@@ -143,8 +175,7 @@ class LlmGatewayImplTest {
         verify(deepseek, times(1)).chat(any());
 
         // Assert：第二行留痕为缓存命中（0 token 0 成本，provider 记原响应来源）
-        org.mockito.ArgumentCaptor<LlmCallLog> captor =
-                org.mockito.ArgumentCaptor.forClass(LlmCallLog.class);
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
         verify(callLog, times(2)).record(captor.capture());
         LlmCallLog hit = captor.getAllValues().get(1);
         assertThat(hit.getStatus()).isEqualTo(LlmCallStatus.SUCCESS);
@@ -180,8 +211,7 @@ class LlmGatewayImplTest {
         verify(glm).chat(any());
 
         // Assert：落 FAILED 留痕（attempted 链入 error_message，无 provider）
-        org.mockito.ArgumentCaptor<LlmCallLog> captor =
-                org.mockito.ArgumentCaptor.forClass(LlmCallLog.class);
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
         verify(callLog).record(captor.capture());
         LlmCallLog entry = captor.getValue();
         assertThat(entry.getStatus()).isEqualTo(LlmCallStatus.FAILED);
@@ -191,11 +221,17 @@ class LlmGatewayImplTest {
 
     @Test
     void chat_costBudgetExhausted_throwsBeforeCallingAdapterAndLogsRejected() {
-        LlmCostGuard smallBudget = new LlmCostGuard(100);
+        LlmCostGuard smallBudget = new LlmCostGuard(() -> ConfigCenterStubs.global(30, 100, 0.8));
         smallBudget.recordUsage(USER_ID, new LlmUsage(100, 0)); // 已达上限
         LlmGatewayImpl gw =
                 new LlmGatewayImpl(
-                        List.of(deepseek, glm), config, smallBudget, cache, callLog, executor);
+                        List.of(deepseek, glm),
+                        config,
+                        ConfigCenterStubs.stub(runtime),
+                        smallBudget,
+                        cache,
+                        callLog,
+                        executor);
 
         assertThatThrownBy(() -> gw.chat(request()))
                 .isInstanceOf(BusinessException.class)
@@ -207,8 +243,7 @@ class LlmGatewayImplTest {
         verify(glm, never()).chat(any());
 
         // Assert：落 REJECTED 留痕（未外呼，原因入 error_message）
-        org.mockito.ArgumentCaptor<LlmCallLog> captor =
-                org.mockito.ArgumentCaptor.forClass(LlmCallLog.class);
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
         verify(callLog).record(captor.capture());
         LlmCallLog entry = captor.getValue();
         assertThat(entry.getStatus()).isEqualTo(LlmCallStatus.REJECTED);
@@ -217,31 +252,66 @@ class LlmGatewayImplTest {
     }
 
     @Test
+    void chat_budgetLoweredAtRuntime_nextCallRejectedImmediately() {
+        // Arrange（T35 热改，方案 §6「改预算 → 下一次调用按新值拦截」）：预算 20000 下先成功一次（用 150）
+        when(deepseek.chat(any())).thenReturn(DS_RESP);
+        LlmGatewayImpl gw = gateway();
+        gw.chat(request());
+
+        // Act：页面把预算改小至 100（已用 150），下一次调用即被拦截
+        runtime.setBudget(100);
+
+        // Assert
+        assertThatThrownBy(
+                        () ->
+                                gw.chat(
+                                        LlmRequest.json(
+                                                List.of(
+                                                        new ChatMessage("system", "sys"),
+                                                        new ChatMessage("user", "ctx-3")),
+                                                "1")))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((BusinessException) e).getErrorCode())
+                                        .isEqualTo(ErrorCode.AI_QUOTA_EXHAUSTED))
+                .hasMessageContaining("150/100");
+        verify(deepseek, times(1)).chat(any()); // 拦截后未再外呼
+    }
+
+    @Test
     void chat_noDefaultProvider_throwsAndLogsFailed() {
-        // Arrange：无 default provider → fallback 链为空
-        LlmConfig.Provider glmOnly = LlmConfigTest.glmProvider();
-        glmOnly.setDefault(false);
-        LlmGatewayImpl gw =
-                new LlmGatewayImpl(
-                        List.of(deepseek, glm),
-                        LlmConfigTest.configWith(glmOnly),
-                        costGuard,
-                        cache,
-                        callLog,
-                        executor);
+        // Arrange：运行时无任何 default provider → fallback 链为空
+        runtime.providers.get("deepseek").setDefault(false);
+        runtime.providers.get("glm").setDefault(false);
+        LlmGatewayImpl gw = gateway();
 
         // Act + Assert：抛 LlmException 并落 FAILED 留痕
         assertThatThrownBy(() -> gw.chat(request())).isInstanceOf(LlmException.class);
-        org.mockito.ArgumentCaptor<LlmCallLog> captor =
-                org.mockito.ArgumentCaptor.forClass(LlmCallLog.class);
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
         verify(callLog).record(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(LlmCallStatus.FAILED);
         assertThat(captor.getValue().getErrorMessage()).contains("未配置 default");
     }
 
     @Test
+    void chat_defaultDisabledAtRuntime_fallsToGlmImmediately() {
+        // Arrange（T35 热改）：运行时停用 default provider deepseek
+        runtime.providers.get("deepseek").setEnabled(false);
+        when(glm.chat(any())).thenReturn(GLM_RESP);
+
+        // Act
+        LlmResponse result = gateway().chat(request());
+
+        // Assert：下一次调用即按运行时启停跳过 deepseek，glm 兜底
+        assertThat(result).isEqualTo(GLM_RESP);
+        verify(deepseek, never()).chat(any());
+        verify(glm).chat(any());
+    }
+
+    @Test
     void chat_providerTimeout_triggersFallback() {
-        // default provider 阻塞，超时后切 fallback（"自带" Future 超时，对齐 llm.timeout-seconds）
+        // default provider 阻塞，超时后切 fallback（Future 超时；T35 起超时值运行时读取）
         when(deepseek.chat(any()))
                 .thenAnswer(
                         inv -> {
@@ -253,13 +323,10 @@ class LlmGatewayImplTest {
                             return DS_RESP;
                         });
         when(glm.chat(any())).thenReturn(GLM_RESP);
-        LlmConfig tinyTimeout =
-                LlmConfigTest.configWith(
-                        LlmConfigTest.deepseekProvider(), LlmConfigTest.glmProvider());
-        tinyTimeout.setTimeoutSeconds(1);
-        LlmGatewayImpl gw =
-                new LlmGatewayImpl(
-                        List.of(deepseek, glm), tinyTimeout, costGuard, cache, callLog, executor);
+        LlmGatewayImpl gw = gateway();
+
+        // Act：网关构建后运行时把超时从 30s 改小为 1s（保存即对下一次调用生效）
+        runtime.setTimeoutSeconds(1);
 
         LlmResponse result = gw.chat(request());
 
