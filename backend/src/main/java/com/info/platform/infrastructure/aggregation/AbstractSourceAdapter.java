@@ -6,10 +6,14 @@ import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.infrastructure.common.CircuitBreaker;
+import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import com.info.platform.infrastructure.common.ResilienceException;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.ResilienceSpec;
+import com.info.platform.infrastructure.common.RuntimeDataSource;
 import com.info.platform.infrastructure.common.SourceCache;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,7 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
  *   <li>{@link #doFetch} —— 调外部源取原始字段；返回 {@code Optional.empty()} 表示源当日无数据（→ MISSING），抛异常表示取数失败（→
  *       降级）
  *   <li>{@link #mappingConfig} —— 本源字段映射配置（源字段→目标字段+转换）
- *   <li>{@link #resilienceSpec} —— 本源超时/重试配置（差异化，如行情 1.5s 重试 0）
+ *   <li>{@link #resilienceSpec} —— 本源超时/重试配置（T36 起默认读运行时配置，子类可覆写）
  *   <li>{@link #sourceCode} / {@link #sourceLabel} —— 自我标识与展示标注
  * </ol>
  *
@@ -60,6 +64,13 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
      */
     @Autowired(required = false)
     DataSourceEventRecorder dataSourceEventRecorder;
+
+    /**
+     * 配置中心（T36 热化）：弹性超时/重试改用时读取 {@code datasource.{CODE}}（LIVE 级）。 纯构造单测场景保持
+     * null——{@link #resilienceSpec} 回落 {@link DataSourceDefaults} 代码缺省（与改造前各类 TIMEOUT 常量同值），既有测试零改动。
+     */
+    @Autowired(required = false)
+    ConfigCenter configCenter;
 
     protected AbstractSourceAdapter(
             SourceCache cache,
@@ -115,7 +126,23 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
         SourceResult result =
                 SourceResult.ok(code, subjectId, mapped, fetched.source(), fetched.updatedAt());
         cache.put(code, subjectId, result);
+        recordOkIfDue(code, subjectId);
         return result;
+    }
+
+    /**
+     * 成功心跳旁路（T36，方案 §4.3 OK(5)）：60s/源内存节流，失败静默（同 {@link #recordEvent} 零侵入约定）。
+     */
+    private void recordOkIfDue(SourceCode code, Long subjectId) {
+        DataSourceEventRecorder recorder = this.dataSourceEventRecorder;
+        if (recorder == null) {
+            return;
+        }
+        try {
+            recorder.recordOkIfDue(code, subjectId);
+        } catch (Exception e) {
+            log.error("记录数据源成功心跳失败 sourceCode={} subjectId={}", code, subjectId, e);
+        }
     }
 
     /**
@@ -128,8 +155,27 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
     /** 子类提供本源字段映射配置（源字段→目标字段+转换）。 */
     protected abstract List<FieldMapping> mappingConfig();
 
-    /** 子类提供本源弹性配置（超时/重试，差异化）。 */
-    protected abstract ResilienceSpec resilienceSpec();
+    /**
+     * 本源弹性配置（超时/重试）。
+     *
+     * <p>T36 热化（ADR-0017 / 方案 §4.3）：默认<b>用时读取</b>运行时配置 {@code
+     * datasource.{CODE}}（LIVE 级，页面保存下一次取数即生效）； 配置中心缺失（纯构造单测）回落 {@link DataSourceDefaults} 代码缺省。
+     * 重试 &gt; 0 时启用指数退避（基数 {@link DataSourceDefaults#RETRY_BACKOFF_BASE_MILLIS}）。 子类仍可覆写注入固定值（测试替身先例）。
+     */
+    protected ResilienceSpec resilienceSpec() {
+        RuntimeDataSource config =
+                configCenter == null
+                        ? RuntimeDataSource.fallback(
+                                sourceCode(), RuntimeDataSource.Mode.MOCK)
+                        : configCenter.dataSource(sourceCode());
+        Duration timeout = Duration.ofMillis(Math.max(1, config.timeoutMillis()));
+        return config.retries() > 0
+                ? ResilienceSpec.of(
+                        timeout,
+                        config.retries(),
+                        Duration.ofMillis(DataSourceDefaults.RETRY_BACKOFF_BASE_MILLIS))
+                : ResilienceSpec.noRetry(timeout);
+    }
 
     /** 来源标注（展示用），子类提供，如 "行情源"。 */
     protected abstract String sourceLabel();

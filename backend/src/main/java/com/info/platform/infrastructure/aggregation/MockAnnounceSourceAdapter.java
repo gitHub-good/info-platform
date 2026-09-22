@@ -5,25 +5,19 @@ import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
- * 公告源 mock adapter（T09 骨架）。真实公告 adapter（T05）落地后设 {@code adapter.mock.enabled=false} 切换。
+ * 公告源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.ANNOUNCE.mode} 路由生效）。
  *
  * <p>返回固定假数据（公告列表，承载于 "items" 键），状态 OK。验证列表型分区经 FieldMapper 透传后由应用层提取。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "true", matchIfMissing = true)
 public class MockAnnounceSourceAdapter extends AbstractSourceAdapter {
 
     private static final List<FieldMapping> MAPPING =
@@ -58,10 +52,6 @@ public class MockAnnounceSourceAdapter extends AbstractSourceAdapter {
         return MAPPING;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(Duration.ofSeconds(2));
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

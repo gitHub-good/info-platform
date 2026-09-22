@@ -1,11 +1,14 @@
 package com.info.platform.infrastructure.aggregation;
 
+import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.infrastructure.common.ConfigCenter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -85,6 +88,10 @@ public class EastMoneyAnnounceClient {
     private final int pageSize;
     private final String detailUrlTemplate;
 
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    @Autowired(required = false)
+    ConfigCenter configCenter;
+
     public EastMoneyAnnounceClient(
             RestClient.Builder restClientBuilder,
             @Value("${adapter.eastmoney.announce-url:" + DEFAULT_ANNOUNCE_URL + "}")
@@ -109,7 +116,12 @@ public class EastMoneyAnnounceClient {
      * @return 原始公告列表；{@code data.list} 为空/null 时返回 {@link Optional#empty()}（→ MISSING）
      */
     public Optional<List<Map<String, Object>>> fetchAnnouncements(String stockCode) {
-        String url = buildUrl(stockCode);
+        String announceUrl =
+                RuntimeParams.of(configCenter, SourceCode.ANNOUNCE, "announceUrl", this.announceUrl);
+        int pageSize =
+                RuntimeParams.intOf(
+                        configCenter, SourceCode.ANNOUNCE, "announcePageSize", this.pageSize);
+        String url = buildUrl(announceUrl, stockCode, pageSize);
         log.debug("东财公告请求 stockCode={} pageSize={}", stockCode, pageSize);
         Map<String, Object> root =
                 restClient
@@ -128,7 +140,12 @@ public class EastMoneyAnnounceClient {
      * @return 详情 URL；模板未含占位符时原样返回
      */
     public String detailUrlOf(String artCode) {
-        return detailUrlTemplate.replace(ART_CODE_PLACEHOLDER, artCode);
+        return RuntimeParams.of(
+                        configCenter,
+                        SourceCode.ANNOUNCE,
+                        "announceDetailUrlTemplate",
+                        this.detailUrlTemplate)
+                .replace(ART_CODE_PLACEHOLDER, artCode);
     }
 
     /** 导航 {@code root.data.list}；任一层缺失/空数组返回 {@link Optional#empty()}（→ MISSING）。 */
@@ -154,7 +171,7 @@ public class EastMoneyAnnounceClient {
         return result.isEmpty() ? Optional.empty() : Optional.of(result);
     }
 
-    private String buildUrl(String stockCode) {
+    private String buildUrl(String announceUrl, String stockCode, int pageSize) {
         return UriComponentsBuilder.fromUriString(announceUrl)
                 .queryParam("sr", SORT_REVERSE)
                 .queryParam("page_size", pageSize)

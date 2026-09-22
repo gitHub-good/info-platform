@@ -30,8 +30,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -188,49 +186,6 @@ class ValuationSourceAdapterTest {
         assertThat(result.getData()).isEmpty();
     }
 
-    // ---- 装配切换验证（ApplicationContextRunner，不启 Flyway/DB）----
-
-    private static final ApplicationContextRunner WIRING_RUNNER =
-            new ApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-                    .withUserConfiguration(
-                            SourceAdapterInfrastructureConfig.class,
-                            EastMoneyClient.class,
-                            ValuationSourceAdapter.class,
-                            MockValuationSourceAdapter.class,
-                            RestClientBuilderConfig.class);
-
-    @Test
-    void mockDisabled_realValuationAdapterWired_mockAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=false")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(ValuationSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(MockValuationSourceAdapter.class);
-                            assertThat(context).hasSingleBean(EastMoneyClient.class);
-                        });
-    }
-
-    @Test
-    void mockEnabled_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=true")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(MockValuationSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(ValuationSourceAdapter.class);
-                        });
-    }
-
-    @Test
-    void mockMissing_default_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER.run(
-                context -> {
-                    assertThat(context).hasSingleBean(MockValuationSourceAdapter.class);
-                    assertThat(context).doesNotHaveBean(ValuationSourceAdapter.class);
-                });
-    }
 
     @Test
     void supportedSubjectTypes_stockOnly() {
@@ -255,8 +210,7 @@ class ValuationSourceAdapterTest {
     // ---- helpers ----
 
     private ValuationSourceAdapter newAdapter() {
-        return new ValuationSourceAdapter(
-                cache, fieldMapper, runner, breaker, mockClient(), VALUATION_FIELDS);
+        return new ValuationSourceAdapter(cache, fieldMapper, runner, breaker, mockClient());
     }
 
     /** 构造绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */
@@ -264,10 +218,9 @@ class ValuationSourceAdapterTest {
             Subject subject, Consumer<MockRestServiceServer> responseSetter) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        EastMoneyClient client = new EastMoneyClient(builder, QUOTE_URL, QUOTE_FIELDS);
+        EastMoneyClient client = new EastMoneyClient(builder, QUOTE_URL, QUOTE_FIELDS, VALUATION_FIELDS);
         ValuationSourceAdapter adapter =
-                new ValuationSourceAdapter(
-                        cache, fieldMapper, runner, breaker, client, VALUATION_FIELDS);
+                new ValuationSourceAdapter(cache, fieldMapper, runner, breaker, client);
         responseSetter.accept(server);
         SourceResult result = adapter.fetch(subject);
         server.verify();
@@ -276,7 +229,7 @@ class ValuationSourceAdapterTest {
 
     /** 客户端用真实 URL/字段，但不发请求（供不发 HTTP 的早返回场景）。 */
     private EastMoneyClient mockClient() {
-        return new EastMoneyClient(RestClient.builder(), QUOTE_URL, QUOTE_FIELDS);
+        return new EastMoneyClient(RestClient.builder(), QUOTE_URL, QUOTE_FIELDS, VALUATION_FIELDS);
     }
 
     private static Subject subjectWithSecid(String secid) {

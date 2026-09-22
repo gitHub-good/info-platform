@@ -7,7 +7,6 @@ import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,16 +16,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 东方财富公告源真实 adapter（T05）。
  *
  * <p>真实接入东财 {@code np-anotice-stock/api/security/ann}：按 {@code subject.external_codes} 派生的 6
  * 位证券代码取最新 N 条公告（标题/时间/分类/URL）， 经 {@link FieldMapper} 逐条字段映射后以 {@code data.items} 列表承载落 {@code
- * SourceResult.data}。 与 {@link MockAnnounceSourceAdapter} 互斥——{@code adapter.mock.enabled=false}
- * 时装配本类。
+ * SourceResult.data}。 与 {@link MockAnnounceSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  *
  * <p>代码派生：公告 {@code stock_list} 参数用 6 位代码（如 {@code 600519}），非 secid。优先取 {@code eastmoney_code}
  * 键；缺省则从 {@code eastmoney} secid 按 {@code .} 切分派生（Spike-1 §5：secid 与纯代码可互相派生），兼容当前 V2 种子（仅存 secid）。
@@ -53,8 +49,6 @@ import org.springframework.stereotype.Component;
  * 为列表项顶层字段（实测确认）， {@code column_name}/{@code stock_code}/{@code short_name} 嵌在 {@code
  * columns[0]}/{@code codes[0]}（<b>与 §4.4 平铺假设不符</b>，本 adapter 按实测拍平）。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "false")
 public class AnnounceSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 6 位代码的键名（优先取，Spike-1 §5 建议两者都存）。 */
@@ -63,7 +57,6 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     /** subject.external_codes 中东财 secid 的键名（派生 6 位代码的回退来源，V2 种子用此键）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(2);
 
     /**
      * 模板层 map 步骤用：整张 data map（{@code {"items":[...]}}）的 items 列表原样透传。 逐条字段映射在 {@link #doFetch} 内用
@@ -110,10 +103,6 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
         return ITEMS_PASSTHROUGH;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(TIMEOUT);
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

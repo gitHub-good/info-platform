@@ -67,7 +67,7 @@ class AggregationServiceTest {
                                                 Map.<String, Object>of(
                                                         "anomalyType", "PRICE_CHANGE")))));
         AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -93,7 +93,7 @@ class AggregationServiceTest {
                         okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
                         missingAdapter(SourceCode.EVENT));
         AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -115,7 +115,7 @@ class AggregationServiceTest {
                                 missingAdapter(SourceCode.POLICY))
                         .toList();
         AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -138,7 +138,7 @@ class AggregationServiceTest {
                                 okAdapter(SourceCode.POLICY, Map.of("items", List.of())))
                         .toList();
         AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -161,7 +161,7 @@ class AggregationServiceTest {
                                 missingAdapter(SourceCode.POLICY))
                         .toList();
         AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -188,7 +188,7 @@ class AggregationServiceTest {
                         okAdapter(SourceCode.NEWS, Map.of("items", List.of())),
                         okAdapter(SourceCode.POLICY, Map.of("items", List.of())));
         AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
 
         SubjectDetail detail = service.getDetail(1L, Set.of(SourceCode.QUOTE, SourceCode.FINANCE));
 
@@ -202,7 +202,7 @@ class AggregationServiceTest {
     void getDetail_subjectNotFound_throws30001() {
         when(subjectRepository.findById(999L)).thenReturn(Optional.empty());
         AggregationService service =
-                new AggregationService(subjectRepository, List.of(), syncExecutor, 2000);
+                new AggregationService(subjectRepository, List.of(), syncExecutor, () -> 2000L);
 
         assertThatThrownBy(() -> service.getDetail(999L, Set.of()))
                 .isInstanceOf(BusinessException.class)
@@ -243,7 +243,7 @@ class AggregationServiceTest {
             SourceAdapter fastFinance = okAdapter(SourceCode.FINANCE, Map.of("revenue", "1"));
             AggregationService service =
                     new AggregationService(
-                            subjectRepository, List.of(slowQuote, fastFinance), exec, 50);
+                            subjectRepository, List.of(slowQuote, fastFinance), exec, () -> 50L);
 
             SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -291,7 +291,7 @@ class AggregationServiceTest {
                         subjectRepository,
                         List.of(stockOnlyFinance, defaultQuote),
                         syncExecutor,
-                        2000);
+                        () -> 2000L);
 
         // Act
         SubjectDetail detail = service.getDetail(1L, Set.of());
@@ -316,7 +316,7 @@ class AggregationServiceTest {
                                 okAdapter(SourceCode.QUOTE, Map.of("price", "3000")),
                                 okAdapter(SourceCode.NEWS, Map.of("items", List.of()))),
                         syncExecutor,
-                        2000);
+                        () -> 2000L);
 
         // Act
         SubjectDetail detail = service.getDetail(2L, Set.of());

@@ -30,8 +30,6 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -274,38 +272,6 @@ class EventSourceAdapterTest {
         assertThat(result.getData()).isEmpty();
     }
 
-    // ---- 装配切换验证（ApplicationContextRunner，不启 Flyway/DB）----
-
-    private static final ApplicationContextRunner WIRING_RUNNER =
-            new ApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-                    .withUserConfiguration(
-                            SourceAdapterInfrastructureConfig.class,
-                            AnomalyRepositoryConfig.class,
-                            EventSourceAdapter.class,
-                            MockEventSourceAdapter.class);
-
-    @Test
-    void mockDisabled_realEventAdapterWired_mockAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=false")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(EventSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(MockEventSourceAdapter.class);
-                        });
-    }
-
-    @Test
-    void mockEnabled_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=true")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(MockEventSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(EventSourceAdapter.class);
-                        });
-    }
 
     // ---- helpers ----
 

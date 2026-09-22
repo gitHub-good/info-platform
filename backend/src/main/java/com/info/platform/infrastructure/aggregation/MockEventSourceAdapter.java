@@ -4,34 +4,27 @@ import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 事件源 mock adapter（T09 骨架）：返回一条样例异动，验证 EVENT 分区 OK 链路（列表项经 data.items 承载）。
  *
- * <p>真实事件 adapter（T08，ADR-0013）落地后设 {@code adapter.mock.enabled=false} 切换。 本 mock 取数路径与 {@link
+ * <p>T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.EVENT.mode} 路由生效。 本 mock 取数路径与 {@link
  * EventSourceAdapter#doFetch} 同构（构建 items 列表包装进 {@code RawFetch.data}）， 仅数据源换为硬编码样例。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "true", matchIfMissing = true)
 public class MockEventSourceAdapter extends AbstractSourceAdapter {
 
     private static final List<FieldMapping> ITEMS_PASSTHROUGH =
             List.of(new FieldMapping("items", "items", Transform.NONE));
 
     /** 本地调用超时：与真实事件源同口径（Spike-1 §6.7：noRetry 500ms）。 */
-    private static final Duration TIMEOUT = Duration.ofMillis(500);
 
     public MockEventSourceAdapter(
             SourceCache cache,
@@ -56,10 +49,6 @@ public class MockEventSourceAdapter extends AbstractSourceAdapter {
         return ITEMS_PASSTHROUGH;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(TIMEOUT);
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

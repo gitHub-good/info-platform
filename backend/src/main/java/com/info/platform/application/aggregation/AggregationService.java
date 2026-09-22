@@ -23,15 +23,14 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
  * 标的详情聚合编排服务（应用层，对齐技术方案 §4.3 流程 1）。
  *
  * <p>核心编排：先取标的主数据（不存在抛 30001）→ 按 sections 选源 → {@link CompletableFuture} 并行调各 {@link SourceAdapter}
- * → {@code allOf().get(2s)} 总超时兜底 → 收集降级（任一源 MISSING/FAILED/超时 不抛异常、不阻断其他分区）→ 组装统一 {@link
- * SubjectDetail}。
+ * → {@code allOf().get(总超时)} 兜底（T36 起每请求读 {@code aggregation.global}，LIVE 级热生效）→ 收集降级（任一源
+ * MISSING/FAILED/超时 不抛异常、不阻断其他分区）→ 组装统一 {@link SubjectDetail}。
  *
  * <p>各 adapter 自带弹性超时级联收敛（下游之和 < 上游 2s 预算）；应用层仅依赖 {@code SourceAdapter} 端口 （领域层）与 {@code
  * SubjectRepository} 端口，不引基础设施实现细节。真实 adapter（T03~T08）替换 mock 后本类无需改动。
@@ -47,13 +46,13 @@ public class AggregationService {
     private final SubjectRepository subjectRepository;
     private final Map<SourceCode, SourceAdapter> adapters;
     private final Executor executor;
-    private final long overallTimeoutMillis;
+    private final AggregationRuntimeSettings runtimeSettings;
 
     public AggregationService(
             SubjectRepository subjectRepository,
             List<SourceAdapter> adapters,
             @Qualifier("aggregationExecutor") Executor executor,
-            @Value("${aggregation.detail-timeout-millis:2000}") long overallTimeoutMillis) {
+            AggregationRuntimeSettings runtimeSettings) {
         this.subjectRepository = subjectRepository;
         this.adapters =
                 adapters.stream()
@@ -61,7 +60,7 @@ public class AggregationService {
                                 Collectors.toUnmodifiableMap(
                                         SourceAdapter::sourceCode, Function.identity()));
         this.executor = executor;
-        this.overallTimeoutMillis = overallTimeoutMillis;
+        this.runtimeSettings = runtimeSettings;
     }
 
     /**
@@ -106,6 +105,8 @@ public class AggregationService {
                     code, CompletableFuture.supplyAsync(() -> adapter.fetch(subject), executor));
         }
 
+        // T36 热化：总超时每请求读 aggregation.global（LIVE 级，页面保存即生效）
+        long overallTimeoutMillis = runtimeSettings.detailTimeoutMillis();
         CompletableFuture<Void> all =
                 CompletableFuture.allOf(futures.values().toArray(new CompletableFuture[0]));
         try {

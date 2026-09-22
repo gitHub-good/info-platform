@@ -5,25 +5,20 @@ import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 东方财富财务源真实 adapter（T04）。
  *
  * <p>真实接入东财 datacenter {@code RPT_F10_FINANCE_MAINFINADATA}：按 {@code subject.external_codes} 派生的 6
  * 位证券代码取最新报告期一条主财务指标（营收/归母净利/净利率/毛利率/ROE/报告期），经 {@link FieldMapper} JSON 映射落 {@code
- * SourceResult.data}。 与 {@link MockFinanceSourceAdapter} 互斥——{@code adapter.mock.enabled=false}
- * 时装配本类。
+ * SourceResult.data}。 与 {@link MockFinanceSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  *
  * <p>代码派生：datacenter filter 用 6 位代码（如 {@code 600519}），非 secid（如 {@code 1.600519}）。优先取 {@code
  * eastmoney_code} 键； 缺省则从 {@code eastmoney} secid 按 {@code .} 切分派生（Spike-1 §5：secid 与纯代码可互相派生），兼容当前
@@ -36,8 +31,6 @@ import org.springframework.stereotype.Component;
  * HH:mm:ss} 字符串。响应结构为 {@code result.data[0]}（实测；Spike-1 §6.2 载为 {@code data.list[0]} 与实跑不符，本
  * adapter 按实测实现）。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "false")
 public class FinanceSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 6 位代码的键名（优先取，Spike-1 §5 建议两者都存）。 */
@@ -46,7 +39,6 @@ public class FinanceSourceAdapter extends AbstractSourceAdapter {
     /** subject.external_codes 中东财 secid 的键名（派生 6 位代码的回退来源）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(2);
 
     private final EastMoneyFinanceClient client;
     private final List<FieldMapping> mapping;
@@ -83,10 +75,6 @@ public class FinanceSourceAdapter extends AbstractSourceAdapter {
         return mapping;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(TIMEOUT);
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

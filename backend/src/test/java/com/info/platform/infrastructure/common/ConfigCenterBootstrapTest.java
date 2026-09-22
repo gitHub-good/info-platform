@@ -22,7 +22,7 @@ class ConfigCenterBootstrapTest {
 
     @Test
     void contextBootstraps_seedsImportedAndSnapshotReadable() {
-        // Assert：LLM / 任务 / 聚合三域种子键均落库并进快照（测试 yml 任务开关全 false → 种子 enabled=false）
+        // Assert：LLM / 任务 / 聚合 / 数据源四域种子键均落库并进快照（测试 yml 任务开关全 false → 种子 enabled=false）
         assertThat(configService.read("llm.global")).isPresent();
         assertThat(configService.read("job.POLICY_FETCH")).isPresent();
         assertThat(configService.read("job.DAILY_RECOMMEND")).isPresent();
@@ -35,7 +35,10 @@ class ConfigCenterBootstrapTest {
                                 .get("enabled")
                                 .asBoolean())
                 .isFalse();
-        // 数据源域种子随 T36 落地，本批不应出现
-        assertThat(configService.read("datasource.QUOTE")).isEmpty();
+        // 数据源域 7 键随 T36 落地（测试 yml 无 adapter.mock.enabled → 缺省 true → 种子 mode=MOCK）
+        assertThat(configService.read("datasource.QUOTE")).isPresent();
+        assertThat(configService.read("datasource.EVENT")).isPresent();
+        assertThat(configCenter.dataSource(com.info.platform.domain.aggregation.SourceCode.QUOTE).mode())
+                .isEqualTo(com.info.platform.infrastructure.common.RuntimeDataSource.Mode.MOCK);
     }
 }

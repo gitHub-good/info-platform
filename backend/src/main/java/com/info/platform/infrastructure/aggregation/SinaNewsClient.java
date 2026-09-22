@@ -1,11 +1,14 @@
 package com.info.platform.infrastructure.aggregation;
 
+import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.infrastructure.common.ConfigCenter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -87,6 +90,10 @@ public class SinaNewsClient {
     private final int pageSize;
     private final String referer;
 
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    @Autowired(required = false)
+    ConfigCenter configCenter;
+
     public SinaNewsClient(
             RestClient.Builder restClientBuilder,
             @Value("${adapter.sina.news-url:" + DEFAULT_NEWS_URL + "}") String newsUrl,
@@ -108,7 +115,14 @@ public class SinaNewsClient {
      * @return 原始新闻列表；{@code result.data} 为空/null 时返回 {@link Optional#empty()}（→ MISSING）
      */
     public Optional<List<Map<String, Object>>> fetchRollNews() {
-        String url = buildUrl();
+        String newsUrl = RuntimeParams.of(configCenter, SourceCode.NEWS, "newsUrl", this.newsUrl);
+        int pageId = RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsPageId", this.pageId);
+        int lid = RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsLid", this.lid);
+        int pageSize =
+                RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsPageSize", this.pageSize);
+        String referer =
+                RuntimeParams.of(configCenter, SourceCode.NEWS, "newsReferer", this.referer);
+        String url = buildUrl(newsUrl, pageId, lid, pageSize);
         log.debug("新浪新闻请求 lid={} pageSize={}", lid, pageSize);
         Map<String, Object> root =
                 restClient
@@ -145,7 +159,7 @@ public class SinaNewsClient {
         return news.isEmpty() ? Optional.empty() : Optional.of(news);
     }
 
-    private String buildUrl() {
+    private String buildUrl(String newsUrl, int pageId, int lid, int pageSize) {
         return UriComponentsBuilder.fromUriString(newsUrl)
                 .queryParam("pageid", pageId)
                 .queryParam("lid", lid)

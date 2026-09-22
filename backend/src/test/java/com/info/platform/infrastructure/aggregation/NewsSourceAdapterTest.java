@@ -33,8 +33,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -344,49 +342,6 @@ class NewsSourceAdapterTest {
         assertThat(NewsSourceAdapter.isRelevant(raw("60051涨停", "A股"), "贵州茅台", "600519")).isFalse();
     }
 
-    // ---- 装配切换验证（ApplicationContextRunner，不启 Flyway/DB）----
-
-    private static final ApplicationContextRunner WIRING_RUNNER =
-            new ApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-                    .withUserConfiguration(
-                            SourceAdapterInfrastructureConfig.class,
-                            SinaNewsClient.class,
-                            NewsSourceAdapter.class,
-                            MockNewsSourceAdapter.class,
-                            RestClientBuilderConfig.class);
-
-    @Test
-    void mockDisabled_realNewsAdapterWired_mockAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=false")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(NewsSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(MockNewsSourceAdapter.class);
-                            assertThat(context).hasSingleBean(SinaNewsClient.class);
-                        });
-    }
-
-    @Test
-    void mockEnabled_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=true")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(MockNewsSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(NewsSourceAdapter.class);
-                        });
-    }
-
-    @Test
-    void mockMissing_default_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER.run(
-                context -> {
-                    assertThat(context).hasSingleBean(MockNewsSourceAdapter.class);
-                    assertThat(context).doesNotHaveBean(NewsSourceAdapter.class);
-                });
-    }
 
     @Configuration
     static class RestClientBuilderConfig {

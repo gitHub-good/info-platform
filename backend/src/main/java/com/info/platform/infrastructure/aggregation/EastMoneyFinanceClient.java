@@ -1,10 +1,13 @@
 package com.info.platform.infrastructure.aggregation;
 
+import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.infrastructure.common.ConfigCenter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -58,6 +61,10 @@ public class EastMoneyFinanceClient {
     private final String financeUrl;
     private final String referer;
 
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    @Autowired(required = false)
+    ConfigCenter configCenter;
+
     public EastMoneyFinanceClient(
             RestClient.Builder restClientBuilder,
             @Value("${adapter.eastmoney.finance-url:" + DEFAULT_FINANCE_URL + "}")
@@ -75,7 +82,11 @@ public class EastMoneyFinanceClient {
      * @return {@code result.data[0]} 原始字段 map；无数据（result/data 为空）时返回 {@link Optional#empty()}
      */
     public Optional<Map<String, Object>> fetchFinance(String securityCode) {
-        String url = buildUrl(securityCode);
+        String financeUrl =
+                RuntimeParams.of(configCenter, SourceCode.FINANCE, "financeUrl", this.financeUrl);
+        String referer =
+                RuntimeParams.of(configCenter, SourceCode.FINANCE, "financeReferer", this.referer);
+        String url = buildUrl(financeUrl, securityCode);
         log.debug("东财财务请求 securityCode={}", securityCode);
         Map<String, Object> root =
                 restClient
@@ -109,7 +120,7 @@ public class EastMoneyFinanceClient {
         return Optional.of((Map<String, Object>) first);
     }
 
-    private String buildUrl(String securityCode) {
+    private String buildUrl(String financeUrl, String securityCode) {
         // 双引号须 %22 编码（实测字面双引号 → HTTP 400）；圆括号/等号字面 eastmoney 接受（与实测可用 curl 一致）。
         // 手工拼接 query 串而非 UriComponentsBuilder.build(true)：后者经 RestClient.uri(String)→URI.create 解析时
         // 对已编码 %22 行为不稳、抛 IllegalArgumentException 致 doFetch 降级（MockRestServiceServer

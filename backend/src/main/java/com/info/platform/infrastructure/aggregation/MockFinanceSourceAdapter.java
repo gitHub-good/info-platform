@@ -5,9 +5,7 @@ import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -15,16 +13,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
- * 财务源 mock adapter（T09 骨架）。真实财务 adapter（T04）落地后设 {@code adapter.mock.enabled=false} 切换。
+ * 财务源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.FINANCE.mode} 路由生效）。
  *
  * <p>返回固定假数据（净利润/营收/EPS/ROE），状态 OK。映射配置直接构造（identity + to_decimal）。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "true", matchIfMissing = true)
 public class MockFinanceSourceAdapter extends AbstractSourceAdapter {
 
     private static final List<FieldMapping> MAPPING =
@@ -63,10 +57,6 @@ public class MockFinanceSourceAdapter extends AbstractSourceAdapter {
         return MAPPING;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(Duration.ofSeconds(2));
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

@@ -17,15 +17,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 新浪新闻源真实 adapter（T06）。
  *
  * <p>真实接入新浪 {@code feed.mix.sina.com.cn} 滚动新闻：取财经分类（lid=2510）全市场新闻流，在 {@link #doFetch}
  * 内按标的名称/代码关键词匹配过滤出相关条目，逐条字段映射后以 {@code data.items} 列表承载落 {@code SourceResult.data}。 与 {@link
- * MockNewsSourceAdapter} 互斥——{@code adapter.mock.enabled=false} 时装配本类。
+ * MockNewsSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  *
  * <p><b>个股关联策略</b>（核心难点，Spike-1 §6.5）：新浪滚动新闻为<b>全市场流</b>，不支持个股过滤 （2026-09-21 curl 实测 {@code
  * stock}/{@code k} 参数被忽略）。故 {@link #doFetch} 拉全市场 {@code num} 条后本地按关键词 {@code contains}
@@ -61,8 +59,6 @@ import org.springframework.stereotype.Component;
  * <p>字段语义依据 Spike-1 §4.5 + 2026-09-21 curl 实测：docid/title/ctime/intro/url/media_name/keywords 为
  * 列表项顶层字段（实测确认，与 §4.5 一致）；{@code ctime} 为 epoch 秒（偏差见上）。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "false")
 public class NewsSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 6 位代码的键名（优先取）。 */
@@ -71,7 +67,6 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
     /** subject.external_codes 中东财 secid 的键名（派生 6 位代码的回退来源，V2 种子用此键）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(2);
 
     /** 新浪为中国新闻源，ctime 为 UTC epoch 秒，按 +08:00 落地展示时间。 */
     private static final ZoneId NEWS_ZONE = ZoneId.of("Asia/Shanghai");
@@ -118,10 +113,6 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
         return ITEMS_PASSTHROUGH;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(TIMEOUT);
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

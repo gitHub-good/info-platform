@@ -30,8 +30,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -396,49 +394,6 @@ class PolicySourceAdapterTest {
         assertThat(PolicySourceAdapter.extractDepartment("")).isEqualTo("");
     }
 
-    // ---- 装配切换验证（ApplicationContextRunner，不启 Flyway/DB）----
-
-    private static final ApplicationContextRunner WIRING_RUNNER =
-            new ApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-                    .withUserConfiguration(
-                            SourceAdapterInfrastructureConfig.class,
-                            GovPolicyClient.class,
-                            PolicySourceAdapter.class,
-                            MockPolicySourceAdapter.class,
-                            RestClientBuilderConfig.class);
-
-    @Test
-    void mockDisabled_realPolicyAdapterWired_mockAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=false")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(PolicySourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(MockPolicySourceAdapter.class);
-                            assertThat(context).hasSingleBean(GovPolicyClient.class);
-                        });
-    }
-
-    @Test
-    void mockEnabled_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=true")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(MockPolicySourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(PolicySourceAdapter.class);
-                        });
-    }
-
-    @Test
-    void mockMissing_default_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER.run(
-                context -> {
-                    assertThat(context).hasSingleBean(MockPolicySourceAdapter.class);
-                    assertThat(context).doesNotHaveBean(PolicySourceAdapter.class);
-                });
-    }
 
     @Configuration
     static class RestClientBuilderConfig {

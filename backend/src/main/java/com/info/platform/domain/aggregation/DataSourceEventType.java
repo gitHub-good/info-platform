@@ -23,7 +23,9 @@ public enum DataSourceEventType {
     /** 取数异常 / 中断（doFetch 抛异常或线程被中断）。 */
     ERROR(3),
     /** 熔断限频（circuit-open，快速失败不调 doFetch）。 */
-    LIMITED(4);
+    LIMITED(4),
+    /** 取数成功心跳（T36 / 方案 §4.3：成功路径旁路记录，60s/源内存节流；健康徽章与概览「最近一次抓取结果」的数据来源）。 */
+    OK(5);
 
     private final int code;
 

@@ -2,6 +2,8 @@ package com.info.platform.infrastructure.aggregation;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.infrastructure.common.ConfigCenter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,6 +15,7 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -99,6 +102,10 @@ public class GovPolicyClient {
     private final String policyUrl;
     private final String referer;
 
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    @Autowired(required = false)
+    ConfigCenter configCenter;
+
     public GovPolicyClient(
             RestClient.Builder restClientBuilder,
             @Value("${adapter.gov.policy-url:" + DEFAULT_POLICY_URL + "}") String policyUrl,
@@ -115,6 +122,10 @@ public class GovPolicyClient {
      * @throws java.io.IOException Jsoup 读流解析失败（网络/编码异常，由调用方 doFetch 经弹性降级）
      */
     public Optional<List<Map<String, Object>>> fetchPolicies() throws java.io.IOException {
+        String policyUrl =
+                RuntimeParams.of(configCenter, SourceCode.POLICY, "policyUrl", this.policyUrl);
+        String referer =
+                RuntimeParams.of(configCenter, SourceCode.POLICY, "policyReferer", this.referer);
         log.debug("gov.cn 政策请求 url={}", policyUrl);
         byte[] body =
                 restClient

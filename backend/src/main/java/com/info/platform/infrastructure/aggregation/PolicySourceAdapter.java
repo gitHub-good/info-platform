@@ -15,8 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 政策源真实 adapter（T07）：gov.cn/zhengce 政策库 HTML 抓取。
@@ -24,7 +22,7 @@ import org.springframework.stereotype.Component;
  * <p>真实接入国务院 {@code gov.cn/zhengce} 政策库（6 源中<b>唯一无统一 API</b> 的源）： {@link GovPolicyClient} 抓列表页 HTML
  * + Jsoup 解析为政策条目（标题/日期/URL），本 adapter 在 {@link #doFetch} 内按 {@code subject.industry} 关键词命中过滤、
  * 切出发文单位、逐条字段映射后以 {@code data.items} 列表承载落 {@code SourceResult.data}。 与 {@link
- * MockPolicySourceAdapter} 互斥—— {@code adapter.mock.enabled=false} 时装配本类。
+ * MockPolicySourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  *
  * <p><b>行业关联策略</b>（核心，Spike-1 §6.6 + §4.6）：gov.cn 政策列表<b>无行业分类标签</b>（2026-09-21 curl 实测确认），
  * 政策为宏观流、不绑个股。 故 {@link #doFetch} 拉最近约 9 条政策后，按 {@code subject.industry} 在标题中命中行业热词过滤：
@@ -60,11 +58,8 @@ import org.springframework.stereotype.Component;
  * <p>字段语义依据 Spike-1 §4.6 + 2026-09-21 curl 实测：title（a 文本含发文单位/文号）/publishedAt（span yyyy-MM-dd）/
  * url（a@href 绝对链接）/department（正则切标题前缀）/relatedIndustries（关键词字典命中）为政策条目目标字段。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "false")
 public class PolicySourceAdapter extends AbstractSourceAdapter {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(2);
 
     /**
      * 模板层 map 步骤用：整张 data map（{@code {"items":[...]}}）的 items 列表原样透传。 逐条字段映射在 {@link #doFetch} 内用
@@ -131,10 +126,6 @@ public class PolicySourceAdapter extends AbstractSourceAdapter {
         return ITEMS_PASSTHROUGH;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(TIMEOUT);
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

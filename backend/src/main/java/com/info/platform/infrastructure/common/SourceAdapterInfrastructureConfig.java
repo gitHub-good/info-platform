@@ -11,14 +11,18 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 数据源 adapter 框架的共享基础设施 Bean（T02）：Caffeine 缓存、字段映射器、弹性执行器、熔断器占位。
  *
- * <p>具体各源 adapter（T03~T08）注入这些 Bean 即可，无需各自重复装配。弹性选型见 ADR-0010。
+ * <p>具体各源 adapter（T03~T08，T36 起由 {@code SourceAdapterRoutingConfig} 注册为内部 bean）注入这些 Bean
+ * 即可，无需各自重复装配。弹性选型见 ADR-0010。
  */
 @Configuration
 public class SourceAdapterInfrastructureConfig {
 
+    /**
+     * 数据源缓存（T36 TTL 热化）：每条目写入时从 {@code datasource.{CODE}.cacheTtlSeconds} 解析（LIVE 级）， 容量启动期固化。
+     */
     @Bean
-    public SourceCache sourceCache() {
-        return new SourceCache();
+    public SourceCache sourceCache(ConfigCenter configCenter) {
+        return new SourceCache(code -> configCenter.dataSource(code).cacheTtl());
     }
 
     @Bean

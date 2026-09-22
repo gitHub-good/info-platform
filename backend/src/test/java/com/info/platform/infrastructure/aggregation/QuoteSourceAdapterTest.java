@@ -29,8 +29,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -203,49 +201,6 @@ class QuoteSourceAdapterTest {
         assertThat(result.getData()).isEmpty();
     }
 
-    // ---- 装配切换验证（ApplicationContextRunner，不启 Flyway/DB）----
-
-    private static final ApplicationContextRunner WIRING_RUNNER =
-            new ApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-                    .withUserConfiguration(
-                            SourceAdapterInfrastructureConfig.class,
-                            EastMoneyClient.class,
-                            QuoteSourceAdapter.class,
-                            MockQuoteSourceAdapter.class,
-                            RestClientBuilderConfig.class);
-
-    @Test
-    void mockDisabled_realQuoteAdapterWired_mockAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=false")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(QuoteSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(MockQuoteSourceAdapter.class);
-                            assertThat(context).hasSingleBean(EastMoneyClient.class);
-                        });
-    }
-
-    @Test
-    void mockEnabled_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER
-                .withPropertyValues("adapter.mock.enabled=true")
-                .run(
-                        context -> {
-                            assertThat(context).hasSingleBean(MockQuoteSourceAdapter.class);
-                            assertThat(context).doesNotHaveBean(QuoteSourceAdapter.class);
-                        });
-    }
-
-    @Test
-    void mockMissing_default_mockWired_realAdapterAbsent() {
-        WIRING_RUNNER.run(
-                context -> {
-                    assertThat(context).hasSingleBean(MockQuoteSourceAdapter.class);
-                    assertThat(context).doesNotHaveBean(QuoteSourceAdapter.class);
-                });
-    }
 
     @Configuration
     static class RestClientBuilderConfig {
@@ -266,7 +221,7 @@ class QuoteSourceAdapterTest {
             Subject subject, Consumer<MockRestServiceServer> responseSetter) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        EastMoneyClient client = new EastMoneyClient(builder, QUOTE_URL, FIELDS);
+        EastMoneyClient client = new EastMoneyClient(builder, QUOTE_URL, FIELDS, "f57,f162,f167");
         QuoteSourceAdapter adapter =
                 new QuoteSourceAdapter(cache, fieldMapper, runner, breaker, client);
         responseSetter.accept(server);
@@ -277,7 +232,7 @@ class QuoteSourceAdapterTest {
 
     /** 客户端用真实 URL/字段，但不发请求（供不发 HTTP 的早返回场景）。 */
     private EastMoneyClient mockClient() {
-        return new EastMoneyClient(RestClient.builder(), QUOTE_URL, FIELDS);
+        return new EastMoneyClient(RestClient.builder(), QUOTE_URL, FIELDS, "f57,f162,f167");
     }
 
     private static Subject subjectWithSecid(String secid) {

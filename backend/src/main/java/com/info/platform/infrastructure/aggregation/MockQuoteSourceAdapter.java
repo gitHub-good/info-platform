@@ -4,26 +4,20 @@ import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 行情源 mock adapter（T09 骨架，验证 FieldMapper JSON 映射链路）。
  *
- * <p>真实行情 adapter（T03）落地后设置 {@code adapter.mock.enabled=false} 即切换。 本 mock 返回固定假数据（开高低收量额），状态
+ * <p>T36 起与真实行情 adapter 经 {@link RoutingSourceAdapter} 运行时路由共存（{@code datasource.QUOTE.mode=MOCK} 时本类生效）。 本 mock 返回固定假数据（开高低收量额），状态
  * OK。映射配置走 classpath JSON（{@code field-mapping/quote-mock.json}），验证 to_decimal/to_long/to_iso_date
  * 转换。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "true", matchIfMissing = true)
 public class MockQuoteSourceAdapter extends AbstractSourceAdapter {
 
     private final List<FieldMapping> mapping;
@@ -52,10 +46,6 @@ public class MockQuoteSourceAdapter extends AbstractSourceAdapter {
         return mapping;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(Duration.ofMillis(1500));
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

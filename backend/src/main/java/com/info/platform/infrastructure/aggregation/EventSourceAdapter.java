@@ -6,7 +6,6 @@ import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.ResilienceSpec;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.time.Duration;
 import java.time.Instant;
@@ -15,8 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 事件源真实 adapter（T08，ADR-0013）：读本地 {@code anomaly_event} 表取某标的近期异动/事件记录。
@@ -40,10 +37,8 @@ import org.springframework.stereotype.Component;
  * <p><b>降级</b>：本地读表异常（如 DB 不可用/数据损坏解析失败）走模板默认 {@code onDegraded} → MISSING（事件分区属「有则展示、无则 missing
  * 不阻断」语义，同新闻/政策源），不阻断详情页其他分区。
  *
- * <p>与 {@link MockEventSourceAdapter} 互斥——{@code adapter.mock.enabled=false} 时装配本类。
+ * <p>与 {@link MockEventSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  */
-@Component
-@ConditionalOnProperty(name = "adapter.mock.enabled", havingValue = "false")
 public class EventSourceAdapter extends AbstractSourceAdapter {
 
     /** 近期事件时间窗：7 天（与 PRD 场景 1「最近 7 天相关新闻」窗口口径一致）。 */
@@ -53,7 +48,6 @@ public class EventSourceAdapter extends AbstractSourceAdapter {
     private static final int MAX_ITEMS = 10;
 
     /** 本地调用超时（Spike-1 §6.7 契约要点：noRetry 500ms）。 */
-    private static final Duration TIMEOUT = Duration.ofMillis(500);
 
     /**
      * 模板层 map 步骤用：整张 data map（{@code {"items":[...]}}）的 items 列表原样透传。 逐条字段映射在 {@link #doFetch} 内用
@@ -89,10 +83,6 @@ public class EventSourceAdapter extends AbstractSourceAdapter {
         return ITEMS_PASSTHROUGH;
     }
 
-    @Override
-    protected ResilienceSpec resilienceSpec() {
-        return ResilienceSpec.noRetry(TIMEOUT);
-    }
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

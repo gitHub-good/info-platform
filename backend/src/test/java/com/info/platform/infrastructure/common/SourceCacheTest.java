@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceStatus;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -79,5 +81,61 @@ class SourceCacheTest {
         SourceResult got = cache.getIfPresent(SourceCode.POLICY, 7L);
         assertThat(got).isNotNull();
         assertThat(got.getStatus()).isEqualTo(SourceStatus.OK);
+    }
+
+    @Test
+    void runtimeTtlSupplier_readAtPutTimeForNewEntries() {
+        // Arrange（T36 热化，对齐 LlmCache 测试口径）：供应函数按可变表现算——等价于装配传入的 ConfigCenter 快照函数
+        java.util.Map<SourceCode, Long> runtimeTtl = new java.util.HashMap<>();
+        runtimeTtl.put(SourceCode.QUOTE, 5L);
+        java.util.List<Long> resolved = new java.util.ArrayList<>();
+        SourceCache cache =
+                new SourceCache(
+                        code -> {
+                            long seconds = runtimeTtl.getOrDefault(code, 60L);
+                            resolved.add(seconds);
+                            return Duration.ofSeconds(seconds);
+                        });
+        SourceResult ok =
+                SourceResult.ok(SourceCode.QUOTE, 1L, Map.of("price", 1), "src", Instant.now());
+
+        // Act：页面把 QUOTE 的 cacheTtlSeconds 从 5s 改为 60s（保存即换快照），再写一条新缓存
+        cache.put(SourceCode.QUOTE, 1L, ok);
+        runtimeTtl.put(SourceCode.QUOTE, 60L);
+        SourceResult ok2 =
+                SourceResult.ok(SourceCode.QUOTE, 2L, Map.of("price", 2), "src", Instant.now());
+        cache.put(SourceCode.QUOTE, 2L, ok2);
+
+        // Assert：新条目按写入时点的新值解析（存量条目按写入时点旧值到期，不回溯）
+        assertThat(resolved).containsExactly(5L, 60L);
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isSameAs(ok);
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 2L)).isSameAs(ok2);
+    }
+
+    @Test
+    void supplierThrows_fallsBackToCodeDefaults_notBreakingWrites() {
+        SourceCache cache =
+                new SourceCache(
+                        code -> {
+                            throw new IllegalStateException("snapshot broken");
+                        });
+        SourceResult ok =
+                SourceResult.ok(SourceCode.POLICY, 1L, Map.of("items", 1), "src", Instant.now());
+
+        cache.put(SourceCode.POLICY, 1L, ok);
+
+        assertThat(cache.getIfPresent(SourceCode.POLICY, 1L)).isSameAs(ok);
+    }
+
+    @Test
+    void defaultConstructor_usesCodeDefaultTtls() {
+        // 无供应构造（纯构造单测/降级）：回落 DataSourceDefaults（QUOTE 5s）
+        SourceCache cache = new SourceCache();
+        SourceResult ok =
+                SourceResult.ok(SourceCode.QUOTE, 1L, Map.of("price", 1), "src", Instant.now());
+
+        cache.put(SourceCode.QUOTE, 1L, ok);
+
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isSameAs(ok);
     }
 }
