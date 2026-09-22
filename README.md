@@ -60,6 +60,14 @@ info-platform/
 - 看决策 → [ADR 目录](/docs/02-设计/adr/README.md)
 - 看质量 → [M3 回归测试报告](/docs/04-测试/测试报告-信息整合平台-M3.md)（零缺陷，Go 附 2 项跟进）
 
+## 🔐 环境变量（部署）
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `JWT_SECRET` | 是 | JWT 签名密钥（≥32 字节，缺失启动 fail-fast） |
+| `CONFIG_SECRET` | 否 | 运行时配置中 **LLM API key 密文的主密钥**（AES-256-GCM，≥32 字节，ADR-0018）。配置后可在「模型配置」页录入/轮换各 provider 的 API key（加密落库、只写不回显）；**未配置不阻断启动**，key 写入接口返回 30064（503），页面降级为只读态「key 走环境变量」。注意：轮换 `CONFIG_SECRET` 会使已存密文不可解，需在页面重新录入 key |
+| `DEEPSEEK_API_KEY` / `GLM_API_KEY` / `QWEN_API_KEY` / `KIMI_API_KEY` | 否 | 各 LLM provider 的环境变量 key（一等来源；页面写入 DB 密文后优先生效） |
+
 ## 📌 当前待办
 
 - [x] Spike-1 数据源调研 / Spike-2 LLM 网关调研（2026-09-21 完成）
