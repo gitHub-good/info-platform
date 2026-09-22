@@ -49,6 +49,7 @@ class BriefContextBuilderTest {
                                         "url",
                                         "http://n")),
                         List.of(),
+                        List.of(),
                         Map.of());
 
         // Act
@@ -92,6 +93,7 @@ class BriefContextBuilderTest {
                         null,
                         null,
                         null,
+                        null,
                         Map.of());
 
         // Act
@@ -116,6 +118,7 @@ class BriefContextBuilderTest {
                         null,
                         null,
                         null,
+                        null,
                         Map.of());
 
         // Act + Assert：preClose 回退 close
@@ -134,6 +137,7 @@ class BriefContextBuilderTest {
                         null,
                         List.of(),
                         List.of(),
+                        null,
                         null,
                         Map.of());
 

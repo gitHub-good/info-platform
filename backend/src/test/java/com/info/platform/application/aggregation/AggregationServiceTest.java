@@ -56,13 +56,20 @@ class AggregationServiceTest {
                                 Map.of("items", List.of(Map.<String, Object>of("title", "news1")))),
                         okAdapter(
                                 SourceCode.POLICY,
-                                Map.of("items", List.of(Map.<String, Object>of("title", "pol1")))));
+                                Map.of("items", List.of(Map.<String, Object>of("title", "pol1")))),
+                        okAdapter(
+                                SourceCode.EVENT,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.<String, Object>of(
+                                                        "anomalyType", "PRICE_CHANGE")))));
         AggregationService service =
                 new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 
-        assertThat(detail.sourceStatus()).hasSize(6);
+        assertThat(detail.sourceStatus()).hasSize(7);
         assertThat(detail.sourceStatus().values()).allMatch("ok"::equals);
         assertThat(detail.quote()).containsEntry("price", "1680.50");
         assertThat(detail.finance()).containsEntry("revenue", "100");
@@ -70,7 +77,27 @@ class AggregationServiceTest {
         assertThat(detail.announcements()).hasSize(1);
         assertThat(detail.news()).hasSize(1);
         assertThat(detail.policies()).hasSize(1);
+        assertThat(detail.events()).hasSize(1);
+        assertThat(detail.events().get(0)).containsEntry("anomalyType", "PRICE_CHANGE");
         assertThat(detail.subject().subjectCode()).isEqualTo("SH600519");
+    }
+
+    @Test
+    void getDetail_eventSourceMissing_statusMissingAndEventsNull() {
+        // T08：事件源近期无记录 → MISSING 不阻断，events 分区 null、sourceStatus.event=missing
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        List<SourceAdapter> adapters =
+                List.of(
+                        okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
+                        missingAdapter(SourceCode.EVENT));
+        AggregationService service =
+                new AggregationService(subjectRepository, adapters, syncExecutor, 2000);
+
+        SubjectDetail detail = service.getDetail(1L, Set.of());
+
+        assertThat(detail.sourceStatus().get("event")).isEqualTo("missing");
+        assertThat(detail.events()).isNull();
+        assertThat(detail.sourceStatus().get("quote")).isEqualTo("ok");
     }
 
     @Test

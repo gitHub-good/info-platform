@@ -65,7 +65,7 @@ public class AggregationService {
      * 聚合取数并组装详情。
      *
      * @param subjectId 标的内部主键
-     * @param sections 要取的分区（空集 = 全部 6 类）
+     * @param sections 要取的分区（空集 = 全部 7 类）
      * @return 聚合详情（sourceStatus 标注每分区状态）
      * @throws BusinessException 30001 标的不存在
      */
@@ -115,6 +115,7 @@ public class AggregationService {
         List<Map<String, Object>> announcements = null;
         List<Map<String, Object>> news = null;
         List<Map<String, Object>> policies = null;
+        List<Map<String, Object>> events = null;
 
         for (Map.Entry<SourceCode, CompletableFuture<SourceResult>> entry : futures.entrySet()) {
             SourceCode code = entry.getKey();
@@ -132,6 +133,7 @@ public class AggregationService {
                             case ANNOUNCE -> announcements = extractItems(result.getData());
                             case NEWS -> news = extractItems(result.getData());
                             case POLICY -> policies = extractItems(result.getData());
+                            case EVENT -> events = extractItems(result.getData());
                         }
                     }
                 } catch (Exception ex) {
@@ -160,6 +162,7 @@ public class AggregationService {
                 announcements,
                 news,
                 policies,
+                events,
                 Map.copyOf(sourceStatus));
     }
 
@@ -171,7 +174,7 @@ public class AggregationService {
         };
     }
 
-    /** 列表型分区（公告/新闻/政策）原始 data 中以 "items" 键承载列表，提取为 {@code List<Map>}。 */
+    /** 列表型分区（公告/新闻/政策/事件）原始 data 中以 "items" 键承载列表，提取为 {@code List<Map>}。 */
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> extractItems(Map<String, Object> data) {
         Object items = data.get("items");

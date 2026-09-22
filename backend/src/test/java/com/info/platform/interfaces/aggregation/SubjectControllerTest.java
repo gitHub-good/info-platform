@@ -55,6 +55,7 @@ class SubjectControllerTest {
                         null,
                         null,
                         null,
+                        null,
                         Map.of("quote", "ok", "finance", "missing", "policy", "missing"));
         when(aggregationService.getDetail(eq(1L), any())).thenReturn(detail);
 
@@ -83,6 +84,7 @@ class SubjectControllerTest {
                         List.of(Map.<String, Object>of("title", "公告1", "url", "https://x")),
                         null,
                         null,
+                        null,
                         Map.of("announce", "ok"));
         when(aggregationService.getDetail(eq(1L), any())).thenReturn(detail);
 
@@ -104,6 +106,39 @@ class SubjectControllerTest {
     }
 
     @Test
+    void getDetail_returns200WithEventsList() throws Exception {
+        // T08（ADR-0013）：事件分区（本地 anomaly_event 近期异动）以 events 数组承载，sourceStatus.event 三态之一
+        SubjectDetail detail =
+                new SubjectDetail(
+                        new SubjectDetail.SubjectInfo("SH600519", "贵州茅台", "A_SHARE", 1, "白酒"),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(
+                                Map.of(
+                                        "anomalyType",
+                                        "PRICE_CHANGE",
+                                        "changePct",
+                                        new BigDecimal("3.25"),
+                                        "triggerTime",
+                                        "2026-09-21T02:00:00Z",
+                                        "detail",
+                                        "日涨跌幅 3.25% 触发阈值 3.0%")),
+                        Map.of("event", "ok"));
+        when(aggregationService.getDetail(eq(1L), any())).thenReturn(detail);
+
+        mockMvc.perform(get("/api/v1/subjects/1/detail?sections=event"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.events[0].anomalyType").value("PRICE_CHANGE"))
+                .andExpect(jsonPath("$.data.events[0].changePct").value(3.25))
+                .andExpect(jsonPath("$.data.events[0].triggerTime").value("2026-09-21T02:00:00Z"))
+                .andExpect(jsonPath("$.data.sourceStatus.event").value("ok"));
+    }
+
+    @Test
     void getDetail_illegalSection_returns400AndCode2001() throws Exception {
         mockMvc.perform(get("/api/v1/subjects/1/detail?sections=invalid"))
                 .andExpect(status().isBadRequest())
@@ -115,6 +150,7 @@ class SubjectControllerTest {
         SubjectDetail detail =
                 new SubjectDetail(
                         new SubjectDetail.SubjectInfo("SH600519", "贵州茅台", "A_SHARE", 1, "白酒"),
+                        null,
                         null,
                         null,
                         null,

@@ -577,6 +577,7 @@ class AIBriefServiceTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(),
                 Map.of());
     }
 
