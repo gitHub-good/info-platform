@@ -45,6 +45,12 @@ management:
       exposure:
         include: health,info
 
+# 配置中心（T34，ADR-0017/0018）：CONFIG_SECRET 为 runtime_config 中 API key 密文的主密钥（AES-256-GCM）。
+# 可选环境变量：未配置不阻断启动，key 写入功能降级（写接口 30064，key 继续走环境变量）；
+# 配置但 <32 字节启动 fail-fast（与 JWT_SECRET 同策略）。轮换会使已存密文不可解，需在页面重新录入 key。
+config:
+  secret: ${CONFIG_SECRET:}
+
 # 数据源 adapter 切换：mock（T09 骨架）默认开启；T03~T08 真实 adapter 落地后设 false 切换
 adapter:
   mock:

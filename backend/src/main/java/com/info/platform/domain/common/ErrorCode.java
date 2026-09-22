@@ -48,6 +48,19 @@ public enum ErrorCode {
     /** 无权操作该订阅（403，行级越权） */
     SUBSCRIPTION_FORBIDDEN(30051, "无权操作该订阅", 403),
 
+    /** LLM provider 不存在（M4 配置可视化，方案 §4.4） */
+    LLM_PROVIDER_NOT_FOUND(30060, "LLM provider 不存在", 404),
+    /** 数据源配置不存在 */
+    DATASOURCE_CONFIG_NOT_FOUND(30061, "数据源配置不存在", 404),
+    /** 任务不存在 */
+    JOB_NOT_FOUND(30062, "任务不存在", 404),
+    /** 任务正在运行，拒绝重复触发（防重入，409） */
+    JOB_ALREADY_RUNNING(30063, "任务正在运行，请等待本轮执行完成", 409),
+    /** API key 写入未启用（CONFIG_SECRET 未配置，ADR-0018 降级态，503） */
+    API_KEY_WRITE_DISABLED(30064, "API key 写入未启用（未配置 CONFIG_SECRET，key 暂走环境变量）", 503),
+    /** 配置已被并发修改（expectedUpdatedAt 与当前 updated_at 不符，409） */
+    CONFIG_CONFLICT(30065, "配置已被并发修改，请刷新后重试", 409),
+
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
 
