@@ -131,6 +131,12 @@ function makeFetch() {
     if (path.endsWith('/jobs')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { jobs: [] }, traceId: 't' });
     }
+    if (path.includes('/feed/personal')) {
+      return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
+    }
+    if (path.includes('/subscriptions')) {
+      return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
+    }
     return mockResponse(200, { code: 0, msg: 'ok', data: null, traceId: 't' });
   });
 }
@@ -235,7 +241,7 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(window.location.hash).toBe('#/subjects');
   });
 
-  it('#/overview（T42）/#/task-center（T41）/#/llm-config（T39）与 #/datasource-config（T40）为实现页，#/feed 占位（T43）', async () => {
+  it('五个新页均为实现页（T39~T43）：#/feed 挂载真实信息流页并请求接口', async () => {
     const user = userEvent.setup();
     const fetchMock = renderLoggedIn('#/overview');
 
@@ -248,15 +254,16 @@ describe('App 路由与登录守卫（T38）', () => {
       ).toBe(true),
     );
 
-    // 经侧栏导航，未实现页（#/feed，T43）渲染「开发中」占位
-    const placeholders: Array<[string, string]> = [
-      ['nav-item-feed', 'feed-placeholder'],
-    ];
-    for (const [navId, pageId] of placeholders) {
-      await user.click(screen.getByTestId(navId));
-      expect(await screen.findByTestId(pageId)).toBeInTheDocument();
-      expect(screen.getByTestId(`${pageId}-badge`)).toHaveTextContent('开发中');
-    }
+    // #/feed（T43）：真实页挂载并请求信息流接口（不再渲染占位），侧栏项 active
+    await user.click(screen.getByTestId('nav-item-feed'));
+    expect(await screen.findByTestId('feed-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('feed-placeholder')).toBeNull();
+    expect(screen.getByTestId('nav-item-feed')).toHaveAttribute('aria-current', 'page');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/feed/personal')),
+      ).toBe(true),
+    );
 
     // #/task-center（T41）：真实页挂载并请求任务列表接口（不再渲染占位）
     await user.click(screen.getByTestId('nav-item-task-center'));

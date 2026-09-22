@@ -5,12 +5,12 @@ import { LlmConfig } from '@/pages/LlmConfig';
 import { LlmCostReport } from '@/pages/LlmCostReport';
 import { Login } from '@/pages/Login';
 import { Overview } from '@/pages/Overview';
-import { PlaceholderPage } from '@/pages/PlaceholderPage';
 import { Policy } from '@/pages/Policy';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { TaskCenter } from '@/pages/TaskCenter';
 import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
+import { Feed } from '@/pages/Feed';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { getToken } from '@/api/http';
 import { navigate, parseSubjectCode, queryOf } from '@/lib/navigation';
@@ -65,7 +65,7 @@ function renderPage(route: string) {
       </main>
     );
   }
-  // 新增 5 页：#/overview（T42）与 #/llm-config（T39）、#/datasource-config（T40）、#/task-center（T41）已实现，#/feed 占位（T43）
+  // 新增 5 页均已实现：#/overview（T42）、#/llm-config（T39）、#/datasource-config（T40）、#/task-center（T41）、#/feed（T43）
   if (route.startsWith('/overview')) {
     return <Overview />;
   }
@@ -79,13 +79,7 @@ function renderPage(route: string) {
     return <TaskCenter />;
   }
   if (route.startsWith('/feed')) {
-    return (
-      <PlaceholderPage
-        title="个人信息流"
-        description="按时间倒序 · 命中你的主题 / 标的 / 事件类型订阅"
-        testId="feed-placeholder"
-      />
-    );
+    return <Feed />;
   }
   return null;
 }
