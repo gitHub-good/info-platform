@@ -8,6 +8,7 @@ import com.info.platform.domain.aggregation.SourceCode;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -71,6 +72,39 @@ public class DataSourceEventRepositoryImpl implements DataSourceEventRepository 
                                 .lt(DataSourceEventPO::getCreatedAt, to.toString())
                                 .orderByAsc(DataSourceEventPO::getCreatedAt));
         return toEntities(pos);
+    }
+
+    @Override
+    public Optional<DataSourceEvent> findLatestBySourceCode(SourceCode sourceCode) {
+        if (sourceCode == null) {
+            return Optional.empty();
+        }
+        DataSourceEventPO po =
+                dataSourceEventMapper.selectOne(
+                        new LambdaQueryWrapper<DataSourceEventPO>()
+                                .eq(DataSourceEventPO::getSourceCode, sourceCode.name())
+                                .orderByDesc(DataSourceEventPO::getCreatedAt)
+                                .orderByDesc(DataSourceEventPO::getId)
+                                .last("LIMIT 1"));
+        return Optional.ofNullable(po).map(DataSourceEventRepositoryImpl::toEntity);
+    }
+
+    @Override
+    public long countErrorsSince(SourceCode sourceCode, Instant from) {
+        if (sourceCode == null || from == null) {
+            return 0;
+        }
+        return dataSourceEventMapper.selectCount(
+                new LambdaQueryWrapper<DataSourceEventPO>()
+                        .eq(DataSourceEventPO::getSourceCode, sourceCode.name())
+                        .ge(DataSourceEventPO::getCreatedAt, from.toString())
+                        .in(
+                                DataSourceEventPO::getEventType,
+                                java.util.Arrays.asList(
+                                        DataSourceEventType.MISSING.code(),
+                                        DataSourceEventType.TIMEOUT.code(),
+                                        DataSourceEventType.ERROR.code(),
+                                        DataSourceEventType.LIMITED.code())));
     }
 
     private List<DataSourceEvent> toEntities(List<DataSourceEventPO> pos) {

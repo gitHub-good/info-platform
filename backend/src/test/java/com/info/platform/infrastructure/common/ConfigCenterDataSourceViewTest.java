@@ -18,8 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link ConfigCenter#dataSource(SourceCode)} 视图测试（T36）：键存在时类型化解析（含 params 访问器）、 写后快照替换即热生效、键缺失回落代码缺省（mode
- * 按全局 mock 开关裁定）、损坏文档回落不阻断。
+ * {@link ConfigCenter#dataSource(SourceCode)} 视图测试（T36）：键存在时类型化解析（含 params 访问器）、
+ * 写后快照替换即热生效、键缺失回落代码缺省（mode 按全局 mock 开关裁定）、损坏文档回落不阻断。
  */
 class ConfigCenterDataSourceViewTest {
 
@@ -59,7 +59,8 @@ class ConfigCenterDataSourceViewTest {
                         event -> {},
                         Clock.fixed(T1, ZoneOffset.UTC),
                         objectMapper);
-        configCenter = new ConfigCenter(service, List.of(), new LlmConfigStubs(), null, objectMapper);
+        configCenter =
+                new ConfigCenter(service, List.of(), new LlmConfigStubs(), null, objectMapper);
     }
 
     private void store(String key, String json) {
@@ -132,5 +133,6 @@ class ConfigCenterDataSourceViewTest {
     }
 
     /** LlmConfig 最小替身（构造 ConfigCenter 必填，本测试不触 LLM 视图）。 */
-    private static final class LlmConfigStubs extends com.info.platform.infrastructure.ai.LlmConfig {}
+    private static final class LlmConfigStubs
+            extends com.info.platform.infrastructure.ai.LlmConfig {}
 }

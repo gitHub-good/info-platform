@@ -19,7 +19,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -224,7 +223,6 @@ class FinanceSourceAdapterTest {
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
         assertThat(result.getData().get("externalCode")).isEqualTo("600519");
     }
-
 
     @Test
     void supportedSubjectTypes_stockOnly() {

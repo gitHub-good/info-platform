@@ -2,6 +2,7 @@ package com.info.platform.domain.aggregation;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 数据源事件仓储端口（依赖倒置：领域层定义、基础设施层实现）。
@@ -37,4 +38,16 @@ public interface DataSourceEventRepository {
      */
     List<DataSourceEvent> findBySourceCodeAndTimeRange(
             SourceCode sourceCode, Instant from, Instant to);
+
+    /**
+     * 取该源最近一条事件（含 T36 OK 心跳，任意类型；健康徽章「最近一次抓取结果」口径）。
+     *
+     * @return 该源从未产生事件时返回空（前端「暂无抓取记录」空态）
+     */
+    Optional<DataSourceEvent> findLatestBySourceCode(SourceCode sourceCode);
+
+    /**
+     * 统计该源自 from 起的异常事件数（type ∈ MISSING/TIMEOUT/ERROR/LIMITED，即 1~4；OK 心跳不计，方案 §4.6 errors24h 口径）。
+     */
+    long countErrorsSince(SourceCode sourceCode, Instant from);
 }

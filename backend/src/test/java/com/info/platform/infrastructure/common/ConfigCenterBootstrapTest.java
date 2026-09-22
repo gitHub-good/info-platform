@@ -38,7 +38,10 @@ class ConfigCenterBootstrapTest {
         // 数据源域 7 键随 T36 落地（测试 yml 无 adapter.mock.enabled → 缺省 true → 种子 mode=MOCK）
         assertThat(configService.read("datasource.QUOTE")).isPresent();
         assertThat(configService.read("datasource.EVENT")).isPresent();
-        assertThat(configCenter.dataSource(com.info.platform.domain.aggregation.SourceCode.QUOTE).mode())
+        assertThat(
+                        configCenter
+                                .dataSource(com.info.platform.domain.aggregation.SourceCode.QUOTE)
+                                .mode())
                 .isEqualTo(com.info.platform.infrastructure.common.RuntimeDataSource.Mode.MOCK);
     }
 }

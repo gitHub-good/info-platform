@@ -1,9 +1,9 @@
 package com.info.platform.infrastructure.aggregation;
 
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

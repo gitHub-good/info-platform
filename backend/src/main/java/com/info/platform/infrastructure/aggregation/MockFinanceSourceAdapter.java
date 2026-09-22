@@ -15,7 +15,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 财务源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.FINANCE.mode} 路由生效）。
+ * 财务源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.FINANCE.mode}
+ * 路由生效）。
  *
  * <p>返回固定假数据（净利润/营收/EPS/ROE），状态 OK。映射配置直接构造（identity + to_decimal）。
  */
@@ -56,7 +57,6 @@ public class MockFinanceSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return MAPPING;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

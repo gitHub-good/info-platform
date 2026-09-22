@@ -12,8 +12,8 @@ import java.util.Optional;
 /**
  * 新闻源 mock adapter（T09 骨架，验证 FAILED 降级路径）。
  *
- * <p>T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.NEWS.mode} 路由生效。 本 mock 的 doFetch 抛异常， 经模板弹性降级后
- * {@link #onDegraded} 覆写为 {@link SourceResult#failed}（默认返回 MISSING，此处演示 FAILED 语义），
+ * <p>T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.NEWS.mode} 路由生效。 本 mock 的 doFetch 抛异常，
+ * 经模板弹性降级后 {@link #onDegraded} 覆写为 {@link SourceResult#failed}（默认返回 MISSING，此处演示 FAILED 语义），
  * 验证「单源异常不阻断其他分区」。
  */
 public class MockNewsSourceAdapter extends AbstractSourceAdapter {
@@ -40,7 +40,6 @@ public class MockNewsSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return List.of();
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

@@ -14,7 +14,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 公告源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.ANNOUNCE.mode} 路由生效）。
+ * 公告源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.ANNOUNCE.mode}
+ * 路由生效）。
  *
  * <p>返回固定假数据（公告列表，承载于 "items" 键），状态 OK。验证列表型分区经 FieldMapper 透传后由应用层提取。
  */
@@ -51,7 +52,6 @@ public class MockAnnounceSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return MAPPING;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

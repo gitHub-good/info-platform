@@ -13,17 +13,14 @@ import org.springframework.boot.context.annotation.UserConfigurations;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-/**
- * 数据源域种子契约测试（T36）：7 键齐备、权威值形状锁定（供页面/消费点对齐）， mock 全局开关语义平移为分源 mode 种子默认值。
- */
+/** 数据源域种子契约测试（T36）：7 键齐备、权威值形状锁定（供页面/消费点对齐）， mock 全局开关语义平移为分源 mode 种子默认值。 */
 class DataSourceRuntimeConfigSeederTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final ApplicationContextRunner runner =
             new ApplicationContextRunner()
-                    .withConfiguration(
-                            AutoConfigurations.of(JacksonAutoConfiguration.class))
+                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
                     .withConfiguration(UserConfigurations.of(SeederConfig.class))
                     .withPropertyValues(
                             "adapter.mock.enabled=false",
@@ -56,8 +53,7 @@ class DataSourceRuntimeConfigSeederTest {
         List<RuntimeConfigSeed>[] holder = new List[1];
         runner.run(
                 context ->
-                        holder[0] =
-                                context.getBean(DataSourceRuntimeConfigSeeder.class).seeds());
+                        holder[0] = context.getBean(DataSourceRuntimeConfigSeeder.class).seeds());
         return holder[0];
     }
 

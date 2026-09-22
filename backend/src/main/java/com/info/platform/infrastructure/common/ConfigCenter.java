@@ -51,8 +51,8 @@ public class ConfigCenter {
     private final ObjectMapper objectMapper;
 
     /**
-     * 全局 mock 开关（yml {@code adapter.mock.enabled}）：降级为<b>分源 mode 的种子默认值</b>（T36 / ADR-0017
-     * 冲突解法 1），true → 各源初始 MOCK。字段默认 true 对齐改造前 {@code matchIfMissing = true} 语义， 纯构造场景（无 Spring
+     * 全局 mock 开关（yml {@code adapter.mock.enabled}）：降级为<b>分源 mode 的种子默认值</b>（T36 / ADR-0017 冲突解法
+     * 1），true → 各源初始 MOCK。字段默认 true 对齐改造前 {@code matchIfMissing = true} 语义， 纯构造场景（无 Spring
      * 处理 @Value）与生产缺省一致。
      */
     @Value("${adapter.mock.enabled:true}")
@@ -97,8 +97,8 @@ public class ConfigCenter {
     /**
      * {@code datasource.{SOURCE_CODE}} 类型化视图（T36，LIVE 级用时读取）。
      *
-     * <p>键缺失（种子前）或文档解析失败（值损坏）不阻断热路径：记 WARN 后回落 {@link
-     * RuntimeDataSource#fallback} 代码缺省（mode 按全局 mock 开关裁定），对齐方案 §5「降级预案：旧值继续生效」精神。
+     * <p>键缺失（种子前）或文档解析失败（值损坏）不阻断热路径：记 WARN 后回落 {@link RuntimeDataSource#fallback} 代码缺省（mode 按全局
+     * mock 开关裁定），对齐方案 §5「降级预案：旧值继续生效」精神。
      */
     public RuntimeDataSource dataSource(SourceCode code) {
         RuntimeConfigEntry entry =

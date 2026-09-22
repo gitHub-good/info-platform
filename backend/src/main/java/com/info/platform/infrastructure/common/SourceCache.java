@@ -15,8 +15,7 @@ import java.util.function.Function;
  * 数据源本地缓存（Caffeine Cache-Aside，ADR-0005）。
  *
  * <p>按 {@link SourceCode} 分缓存区，差异化 TTL（行情 5s / 财务·估值 1h / 公告 5min / 新闻 2min / 政策 10min / 事件 30s），
- * 各区均设 maximumSize + 过期（Caffeine 红线：防 OOM、防陈旧数据；禁当持久层）。 key=subjectId，value={@link
- * SourceResult}。
+ * 各区均设 maximumSize + 过期（Caffeine 红线：防 OOM、防陈旧数据；禁当持久层）。 key=subjectId，value={@link SourceResult}。
  *
  * <p><b>T36 TTL 热化</b>（方案 §4.3「SourceCache 改 per-entry Expiry + 运行时 TTL 供应」，对齐 LlmCache 模式）：TTL
  * 改为每条目写入/更新时经 {@code ttlSupplier} 从运行时配置 {@code datasource.{CODE}.cacheTtlSeconds} 解析（LIVE
@@ -87,12 +86,14 @@ public class SourceCache {
         }
 
         @Override
-        public long expireAfterUpdate(Long key, SourceResult value, long currentTime, long currentDuration) {
+        public long expireAfterUpdate(
+                Long key, SourceResult value, long currentTime, long currentDuration) {
             return resolveTtl().toNanos();
         }
 
         @Override
-        public long expireAfterRead(Long key, SourceResult value, long currentTime, long currentDuration) {
+        public long expireAfterRead(
+                Long key, SourceResult value, long currentTime, long currentDuration) {
             return Long.MIN_VALUE;
         }
 

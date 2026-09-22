@@ -17,8 +17,8 @@ import org.springframework.stereotype.Component;
  * 数据源域运行时配置校验器（T36，键空间规则见方案 §4.1 / UI 方案 §5.3）。
  *
  * <p>覆盖 {@code datasource.{SOURCE_CODE}} 7 键。字段表：enabled 布尔、mode 枚举（REAL|MOCK）、timeoutMillis 正整数、
- * retries 0~3、cacheTtlSeconds 正整数；params 为各源自由参数（URL http(s) 格式、条数正整数），键空间按源白名单收口（防拼写错静默失效），
- * EVENT 源读本地表无外呼参数、params 须为空。 校验对象为「当前文档合并请求字段后」的完整文档（部分更新由 facade 先合并再落库）， 故种子始终写入的字段按必填校验。
+ * retries 0~3、cacheTtlSeconds 正整数；params 为各源自由参数（URL http(s) 格式、条数正整数），键空间按源白名单收口（防拼写错静默失效）， EVENT
+ * 源读本地表无外呼参数、params 须为空。 校验对象为「当前文档合并请求字段后」的完整文档（部分更新由 facade 先合并再落库）， 故种子始终写入的字段按必填校验。
  */
 @Component
 public class DataSourceConfigValidator implements RuntimeConfigValidator {
@@ -29,8 +29,11 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
     private static final List<FieldRule> RULES =
             List.of(
                     required(ConfigFieldRules.bool("enabled")),
-                    required(ConfigFieldRules.oneOf(
-                            "mode", RuntimeDataSourceMode.REAL, RuntimeDataSourceMode.MOCK)),
+                    required(
+                            ConfigFieldRules.oneOf(
+                                    "mode",
+                                    RuntimeDataSourceMode.REAL,
+                                    RuntimeDataSourceMode.MOCK)),
                     required(ConfigFieldRules.positiveLong("timeoutMillis")),
                     required(ConfigFieldRules.longRange("retries", 0, 3)),
                     required(ConfigFieldRules.positiveLong("cacheTtlSeconds")));
@@ -44,7 +47,12 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                     SourceCode.ANNOUNCE,
                             Set.of("announceUrl", "announcePageSize", "announceDetailUrlTemplate"),
                     SourceCode.NEWS,
-                            Set.of("newsUrl", "newsPageId", "newsLid", "newsPageSize", "newsReferer"),
+                            Set.of(
+                                    "newsUrl",
+                                    "newsPageId",
+                                    "newsLid",
+                                    "newsPageSize",
+                                    "newsReferer"),
                     SourceCode.POLICY, Set.of("policyUrl", "policyReferer"),
                     SourceCode.EVENT, Set.of());
 

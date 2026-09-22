@@ -18,7 +18,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.time.Instant;
 import java.util.List;
@@ -364,7 +363,6 @@ class AnnounceSourceAdapterTest {
         assertThat(items).hasSize(1);
         assertThat(items.get(0).get("externalCode")).isEqualTo("600519");
     }
-
 
     @Test
     void supportedSubjectTypes_stockOnly() {

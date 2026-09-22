@@ -19,7 +19,8 @@ class DataSourceConfigValidatorTest {
     private final DataSourceConfigValidator validator = new DataSourceConfigValidator();
 
     private void assertInvalid(String json, String expectedFragment) {
-        assertThatThrownBy(() -> validator.validate("datasource.QUOTE", objectMapper.readTree(json)))
+        assertThatThrownBy(
+                        () -> validator.validate("datasource.QUOTE", objectMapper.readTree(json)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         e -> {

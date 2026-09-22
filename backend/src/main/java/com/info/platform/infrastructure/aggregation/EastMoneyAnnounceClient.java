@@ -117,7 +117,8 @@ public class EastMoneyAnnounceClient {
      */
     public Optional<List<Map<String, Object>>> fetchAnnouncements(String stockCode) {
         String announceUrl =
-                RuntimeParams.of(configCenter, SourceCode.ANNOUNCE, "announceUrl", this.announceUrl);
+                RuntimeParams.of(
+                        configCenter, SourceCode.ANNOUNCE, "announceUrl", this.announceUrl);
         int pageSize =
                 RuntimeParams.intOf(
                         configCenter, SourceCode.ANNOUNCE, "announcePageSize", this.pageSize);

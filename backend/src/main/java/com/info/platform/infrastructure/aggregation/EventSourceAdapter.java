@@ -83,7 +83,6 @@ public class EventSourceAdapter extends AbstractSourceAdapter {
         return ITEMS_PASSTHROUGH;
     }
 
-
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {
         List<AnomalyRecord> records = anomalyRepository.findBySubjectId(subject.getId());

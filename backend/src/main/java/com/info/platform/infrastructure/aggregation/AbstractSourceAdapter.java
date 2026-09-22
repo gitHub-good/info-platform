@@ -4,6 +4,7 @@ import com.info.platform.domain.aggregation.DataSourceEventType;
 import com.info.platform.domain.aggregation.SourceAdapter;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
+import com.info.platform.domain.aggregation.SourceStatus;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ConfigCenter;
@@ -66,8 +67,8 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
     DataSourceEventRecorder dataSourceEventRecorder;
 
     /**
-     * 配置中心（T36 热化）：弹性超时/重试改用时读取 {@code datasource.{CODE}}（LIVE 级）。 纯构造单测场景保持
-     * null——{@link #resilienceSpec} 回落 {@link DataSourceDefaults} 代码缺省（与改造前各类 TIMEOUT 常量同值），既有测试零改动。
+     * 配置中心（T36 热化）：弹性超时/重试改用时读取 {@code datasource.{CODE}}（LIVE 级）。 纯构造单测场景保持 null——{@link
+     * #resilienceSpec} 回落 {@link DataSourceDefaults} 代码缺省（与改造前各类 TIMEOUT 常量同值），既有测试零改动。
      */
     @Autowired(required = false)
     ConfigCenter configCenter;
@@ -83,7 +84,7 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
         this.circuitBreaker = circuitBreaker;
     }
 
-    /** 模板方法：缓存命中直返，否则熔断闸门 → 超时/重试取数 → 字段映射 → 写缓存 → 返回。 final 锁定编排，子类只扩展 doFetch/映射/弹性。 */
+    /** 模板方法：缓存命中直返，否则走 {@link #fetchFresh} 全链路并写缓存。 final 锁定编排，子类只扩展 doFetch/映射/弹性。 */
     @Override
     public final SourceResult fetch(Subject subject) {
         SourceCode code = sourceCode();
@@ -93,6 +94,23 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
         if (cached != null) {
             return cached;
         }
+
+        SourceResult result = fetchFresh(subject);
+        if (result.getStatus() == SourceStatus.OK) {
+            cache.put(code, subjectId, result);
+        }
+        return result;
+    }
+
+    /**
+     * 绕过缓存的完整取数链路（T36 连通性测试口径）：熔断闸门 → 超时/重试 doFetch → 字段映射 → 返回（不读写缓存）。
+     *
+     * <p>事件旁路（含 OK 心跳）照常触发——测试抓取的结果即为该源「最近一次抓取结果」。package-private：仅供同包 {@code
+     * DataSourceConfigFacadeImpl} 连通性测试调用，不进对外契约。
+     */
+    SourceResult fetchFresh(Subject subject) {
+        SourceCode code = sourceCode();
+        Long subjectId = subject.getId();
 
         if (!circuitBreaker.allowRequest(code)) {
             log.info("熔断开启，降级 sourceCode={} subjectId={}", code, subjectId);
@@ -125,14 +143,11 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
         Map<String, Object> mapped = fieldMapper.map(fetched.data(), mappingConfig());
         SourceResult result =
                 SourceResult.ok(code, subjectId, mapped, fetched.source(), fetched.updatedAt());
-        cache.put(code, subjectId, result);
         recordOkIfDue(code, subjectId);
         return result;
     }
 
-    /**
-     * 成功心跳旁路（T36，方案 §4.3 OK(5)）：60s/源内存节流，失败静默（同 {@link #recordEvent} 零侵入约定）。
-     */
+    /** 成功心跳旁路（T36，方案 §4.3 OK(5)）：60s/源内存节流，失败静默（同 {@link #recordEvent} 零侵入约定）。 */
     private void recordOkIfDue(SourceCode code, Long subjectId) {
         DataSourceEventRecorder recorder = this.dataSourceEventRecorder;
         if (recorder == null) {
@@ -158,15 +173,14 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
     /**
      * 本源弹性配置（超时/重试）。
      *
-     * <p>T36 热化（ADR-0017 / 方案 §4.3）：默认<b>用时读取</b>运行时配置 {@code
-     * datasource.{CODE}}（LIVE 级，页面保存下一次取数即生效）； 配置中心缺失（纯构造单测）回落 {@link DataSourceDefaults} 代码缺省。
-     * 重试 &gt; 0 时启用指数退避（基数 {@link DataSourceDefaults#RETRY_BACKOFF_BASE_MILLIS}）。 子类仍可覆写注入固定值（测试替身先例）。
+     * <p>T36 热化（ADR-0017 / 方案 §4.3）：默认<b>用时读取</b>运行时配置 {@code datasource.{CODE}}（LIVE
+     * 级，页面保存下一次取数即生效）； 配置中心缺失（纯构造单测）回落 {@link DataSourceDefaults} 代码缺省。 重试 &gt; 0 时启用指数退避（基数 {@link
+     * DataSourceDefaults#RETRY_BACKOFF_BASE_MILLIS}）。 子类仍可覆写注入固定值（测试替身先例）。
      */
     protected ResilienceSpec resilienceSpec() {
         RuntimeDataSource config =
                 configCenter == null
-                        ? RuntimeDataSource.fallback(
-                                sourceCode(), RuntimeDataSource.Mode.MOCK)
+                        ? RuntimeDataSource.fallback(sourceCode(), RuntimeDataSource.Mode.MOCK)
                         : configCenter.dataSource(sourceCode());
         Duration timeout = Duration.ofMillis(Math.max(1, config.timeoutMillis()));
         return config.retries() > 0

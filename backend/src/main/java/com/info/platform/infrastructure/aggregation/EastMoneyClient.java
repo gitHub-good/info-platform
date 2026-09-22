@@ -21,8 +21,8 @@ import org.springframework.web.util.UriComponentsBuilder;
  * 行情与估值同走该端点（Spike-1 §3.1 选型「端点收敛」），仅 f 字段列表不同—— 行情传行情列（f43/f44…）， 估值传估值列（f162/f167…）。端点 URL
  * 与行情字段列表走 {@code application.yml}（{@code adapter.eastmoney.*}）可配，不硬编码全 URL。
  *
- * <p>两类调用入口： {@link #fetchQuote}（行情 adapter 用）与 {@link #fetchValuation}（估值 adapter 用）——同端点不同 f
- * 字段列。 <b>T36 热化</b>：URL 与字段列表改<b>每次调用</b>从运行时配置 {@code datasource.QUOTE / VALUATION.params} 读取（LIVE
+ * <p>两类调用入口： {@link #fetchQuote}（行情 adapter 用）与 {@link #fetchValuation}（估值 adapter 用）——同端点不同 f 字段列。
+ * <b>T36 热化</b>：URL 与字段列表改<b>每次调用</b>从运行时配置 {@code datasource.QUOTE / VALUATION.params} 读取（LIVE
  * 级，页面保存即生效）； 配置中心缺失（纯构造单测）回落构造期 {@code @Value} yml 值。
  *
  * <p>超时不在本客户端重复设置——弹性超时由上层 {@link com.info.platform.infrastructure.common.ResilienceRunner}（行情 1.5s
@@ -127,5 +127,4 @@ public class EastMoneyClient {
                 .build()
                 .toUriString();
     }
-
 }

@@ -47,6 +47,17 @@ public class SubjectRepositoryImpl implements SubjectRepository {
     }
 
     @Override
+    public Optional<Subject> findFirstActive() {
+        SubjectPO po =
+                mapper.selectOne(
+                        new LambdaQueryWrapper<SubjectPO>()
+                                .eq(SubjectPO::getStatus, SubjectStatus.ENABLED.name())
+                                .orderByAsc(SubjectPO::getId)
+                                .last("LIMIT 1"));
+        return Optional.ofNullable(po).map(SubjectRepositoryImpl::toEntity);
+    }
+
+    @Override
     public boolean existsByCode(SubjectCode subjectCode) {
         return mapper.exists(
                 new LambdaQueryWrapper<SubjectPO>()

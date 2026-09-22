@@ -14,17 +14,17 @@ import org.slf4j.LoggerFactory;
 /**
  * 数据源热路由 adapter（T36 / ADR-0017 冲突解法 1）：每源唯一对外的 {@link SourceAdapter}。
  *
- * <p>原 mock/real 以 {@code adapter.mock.enabled} 启动期互斥装配（{@code @ConditionalOnProperty}），
- * 改为 14 个实现无条件装配为内部 bean + 本路由器<b>取数时按当前 {@code datasource.{CODE}} 配置分发</b>：
+ * <p>原 mock/real 以 {@code adapter.mock.enabled} 启动期互斥装配（{@code @ConditionalOnProperty}）， 改为 14
+ * 个实现无条件装配为内部 bean + 本路由器<b>取数时按当前 {@code datasource.{CODE}} 配置分发</b>：
  *
  * <ul>
  *   <li>{@code enabled=false} → 直接返回 MISSING（不外调，聚合分区"暂无数据"，不阻断其他源）；
  *   <li>{@code mode=REAL} → 委派真实 adapter；{@code mode=MOCK} → 委派 mock adapter。
  * </ul>
  *
- * <p>配置经 {@link ConfigCenter} 内存快照用时读取——页面保存（写后换快照）下一次 {@link #fetch}
- * 即走新路由，无需重启（PRD 场景 3.2「切 mock 即生效」）。 {@code AggregationService} 等注入 {@code
- * List<SourceAdapter>} 的消费方只见本路由器（内部 adapter bean 已标记非自动装配候选），既有代码零改动。
+ * <p>配置经 {@link ConfigCenter} 内存快照用时读取——页面保存（写后换快照）下一次 {@link #fetch} 即走新路由，无需重启（PRD 场景 3.2「切 mock
+ * 即生效」）。 {@code AggregationService} 等注入 {@code List<SourceAdapter>} 的消费方只见本路由器（内部 adapter bean
+ * 已标记非自动装配候选），既有代码零改动。
  */
 public final class RoutingSourceAdapter implements SourceAdapter {
 

@@ -26,8 +26,8 @@ import org.springframework.stereotype.Component;
  *
  * <h2>T36 · OK 成功心跳（60s/源内存节流）</h2>
  *
- * <p>{@link #recordOkIfDue} 供成功路径旁路调用（方案 §4.3「OK(5) 成功心跳」）：每源 60s 至多一条 OK
- * 事件（内存时间戳节流，重启即重置）， 行情 5s TTL 高频命中下仍把表增速控制在 ~1.4k 行/日/源上限内（方案 §5 容量）。竞态双写至多多一条，量级无害。
+ * <p>{@link #recordOkIfDue} 供成功路径旁路调用（方案 §4.3「OK(5) 成功心跳」）：每源 60s 至多一条 OK 事件（内存时间戳节流，重启即重置）， 行情 5s
+ * TTL 高频命中下仍把表增速控制在 ~1.4k 行/日/源上限内（方案 §5 容量）。竞态双写至多多一条，量级无害。
  */
 @Component
 public class DataSourceEventRecorder {

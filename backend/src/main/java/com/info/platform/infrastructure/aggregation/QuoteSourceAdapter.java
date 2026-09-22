@@ -15,7 +15,8 @@ import java.util.Optional;
  *
  * <p>真实接入东财 push2 {@code stock/get}：按 {@code subject.external_codes} 的 {@code eastmoney} secid
  * 取实时行情 （开高低收量额振幅），经 {@link FieldMapper} JSON 映射落 {@code SourceResult.data}。 与 {@link
- * MockQuoteSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36：{@code datasource.QUOTE.mode} 分发，页面可热切换）。
+ * MockQuoteSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36：{@code datasource.QUOTE.mode}
+ * 分发，页面可热切换）。
  *
  * <p>弹性：超时 1.5s、重试 0（实时行情重试无意义、热路径，对齐技术方案 §4.3 流程 1 行情）。降级默认 MISSING——行情源挂不阻断 详情页其他分区。
  *
@@ -27,7 +28,6 @@ public class QuoteSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 secid 的键名。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
-
 
     private final EastMoneyClient client;
     private final List<FieldMapping> mapping;
@@ -57,7 +57,6 @@ public class QuoteSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return mapping;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

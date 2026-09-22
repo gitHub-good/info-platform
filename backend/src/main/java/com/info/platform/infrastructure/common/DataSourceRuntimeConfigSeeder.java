@@ -15,10 +15,10 @@ import org.springframework.stereotype.Component;
 /**
  * 数据源域种子（{@code datasource.{SOURCE_CODE}} 7 键，T36）。
  *
- * <p>首启从 yml / 代码缺省导入（DB 已有键不动，页面改过即权威）：超时/重试/缓存 TTL 取 {@link
- * DataSourceDefaults}（原各 adapter/SourceCache 硬编码提取）；params（URL/条数/referer）取 {@code adapter.*} yml
- * 绑定值（原各 client 构造期 @Value）；mode 取全局 {@code adapter.mock.enabled}（true → 各源初始 MOCK，ADR-0017
- * 冲突解法 1 的语义平移）；enabled 恒 true。
+ * <p>首启从 yml / 代码缺省导入（DB 已有键不动，页面改过即权威）：超时/重试/缓存 TTL 取 {@link DataSourceDefaults}（原各
+ * adapter/SourceCache 硬编码提取）；params（URL/条数/referer）取 {@code adapter.*} yml 绑定值（原各 client
+ * 构造期 @Value）；mode 取全局 {@code adapter.mock.enabled}（true → 各源初始 MOCK，ADR-0017 冲突解法 1 的语义平移）；enabled
+ * 恒 true。
  */
 @Component
 public class DataSourceRuntimeConfigSeeder implements RuntimeConfigSeeder {
@@ -31,15 +31,13 @@ public class DataSourceRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${adapter.eastmoney.quote-url:https://push2.eastmoney.com/api/qt/stock/get}")
     private String quoteUrl;
 
-    @Value(
-            "${adapter.eastmoney.fields:f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171}")
+    @Value("${adapter.eastmoney.fields:f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171}")
     private String quoteFields;
 
     @Value("${adapter.eastmoney.valuation-fields:f57,f162,f167}")
     private String valuationFields;
 
-    @Value(
-            "${adapter.eastmoney.finance-url:https://datacenter-web.eastmoney.com/api/data/v1/get}")
+    @Value("${adapter.eastmoney.finance-url:https://datacenter-web.eastmoney.com/api/data/v1/get}")
     private String financeUrl;
 
     @Value("${adapter.eastmoney.finance-referer:https://data.eastmoney.com/}")
@@ -93,7 +91,11 @@ public class DataSourceRuntimeConfigSeeder implements RuntimeConfigSeeder {
     private RuntimeConfigSeed seedOf(SourceCode code) {
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put("enabled", true);
-        doc.put("mode", mockEnabled ? RuntimeDataSource.Mode.MOCK.name() : RuntimeDataSource.Mode.REAL.name());
+        doc.put(
+                "mode",
+                mockEnabled
+                        ? RuntimeDataSource.Mode.MOCK.name()
+                        : RuntimeDataSource.Mode.REAL.name());
         doc.put("timeoutMillis", DataSourceDefaults.timeoutMillis(code));
         doc.put("retries", DataSourceDefaults.RETRIES_NONE);
         doc.put("cacheTtlSeconds", DataSourceDefaults.cacheTtlSeconds(code));

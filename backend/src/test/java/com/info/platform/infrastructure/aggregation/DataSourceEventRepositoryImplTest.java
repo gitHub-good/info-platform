@@ -104,6 +104,45 @@ class DataSourceEventRepositoryImplTest {
     }
 
     /** 经 mapper 直接灌入一行（固定 createdAt/updatedAt，绕过 repository.save 的 Instant.now()，保证排序确定性）。 */
+    @Test
+    void findLatestBySourceCode_returnsNewestIncludingOkHeartbeat() {
+        // Arrange：NEWS 三条（含 OK 心跳），最新为 OK
+        seed(SourceCode.NEWS, DataSourceEventType.ERROR, T1);
+        seed(SourceCode.NEWS, DataSourceEventType.OK, T2);
+        seed(SourceCode.QUOTE, DataSourceEventType.OK, T2.plusSeconds(10)); // 异源更晚，不应干扰
+
+        // Act
+        var latest = dataSourceEventRepository.findLatestBySourceCode(SourceCode.NEWS);
+
+        // Assert：取 NEWS 最新一条（OK 心跳，T2）
+        assertThat(latest).isPresent();
+        assertThat(latest.orElseThrow().getEventType()).isEqualTo(DataSourceEventType.OK);
+        assertThat(latest.orElseThrow().getCreatedAt()).isEqualTo(T2);
+    }
+
+    @Test
+    void findLatestBySourceCode_neverOccurred_returnsEmpty() {
+        assertThat(dataSourceEventRepository.findLatestBySourceCode(SourceCode.EVENT)).isEmpty();
+    }
+
+    @Test
+    void countErrorsSince_countsTypes1To4_excludesOkHeartbeat_andRespectsWindow() {
+        // Arrange：T1 起 POLICY：MISSING/TIMEOUT/ERROR/LIMITED/OK 各一条 + 窗外 ERROR 一条 + 异源 ERROR 一条
+        seed(SourceCode.POLICY, DataSourceEventType.MISSING, T1);
+        seed(SourceCode.POLICY, DataSourceEventType.TIMEOUT, T1.plusSeconds(1));
+        seed(SourceCode.POLICY, DataSourceEventType.ERROR, T1.plusSeconds(2));
+        seed(SourceCode.POLICY, DataSourceEventType.LIMITED, T1.plusSeconds(3));
+        seed(SourceCode.POLICY, DataSourceEventType.OK, T1.plusSeconds(4));
+        seed(SourceCode.POLICY, DataSourceEventType.ERROR, T1.minusSeconds(86400));
+        seed(SourceCode.NEWS, DataSourceEventType.ERROR, T1.plusSeconds(5));
+
+        // Act：窗口 [T1, +∞)
+        long count = dataSourceEventRepository.countErrorsSince(SourceCode.POLICY, T1);
+
+        // Assert：4 条异常（OK 不计、窗外不计、异源不计）
+        assertThat(count).isEqualTo(4);
+    }
+
     private void seed(SourceCode code, DataSourceEventType type, Instant createdAt) {
         DataSourceEventPO po = new DataSourceEventPO();
         po.setSourceCode(code.name());

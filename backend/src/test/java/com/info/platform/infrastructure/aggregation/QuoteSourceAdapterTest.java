@@ -18,7 +18,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -200,7 +199,6 @@ class QuoteSourceAdapterTest {
         assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
         assertThat(result.getData()).isEmpty();
     }
-
 
     @Configuration
     static class RestClientBuilderConfig {

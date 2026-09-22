@@ -17,7 +17,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -393,7 +392,6 @@ class PolicySourceAdapterTest {
         assertThat(PolicySourceAdapter.extractDepartment(null)).isEqualTo("");
         assertThat(PolicySourceAdapter.extractDepartment("")).isEqualTo("");
     }
-
 
     @Configuration
     static class RestClientBuilderConfig {

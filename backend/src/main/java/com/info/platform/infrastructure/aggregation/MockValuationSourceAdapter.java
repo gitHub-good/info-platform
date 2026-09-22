@@ -15,7 +15,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 估值源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.VALUATION.mode} 路由生效）。
+ * 估值源 mock adapter（T09 骨架；T36 起经 {@link RoutingSourceAdapter} 按 {@code datasource.VALUATION.mode}
+ * 路由生效）。
  *
  * <p>返回固定假数据（PE/PB/总市值），状态 OK。
  */
@@ -55,7 +56,6 @@ public class MockValuationSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return MAPPING;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

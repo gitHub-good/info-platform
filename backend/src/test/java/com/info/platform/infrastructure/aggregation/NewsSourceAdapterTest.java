@@ -18,7 +18,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -341,7 +340,6 @@ class NewsSourceAdapterTest {
         // 6 位代码精确性：含「600519」命中；仅含片段「60051」不命中（防误命中）
         assertThat(NewsSourceAdapter.isRelevant(raw("60051涨停", "A股"), "贵州茅台", "600519")).isFalse();
     }
-
 
     @Configuration
     static class RestClientBuilderConfig {

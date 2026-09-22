@@ -36,9 +36,9 @@ import org.junit.jupiter.api.Test;
 /**
  * {@link RoutingSourceAdapter} 热路由单测（T36 / ADR-0017 冲突解法 1，方案 §6「切 mock → 路由立即走 mock 分区」）。
  *
- * <p>真实链路：{@link RuntimeConfigService}（内存仓储）+ 真实 {@link ConfigCenter} 快照，real/mock adapter 用 Mockito
- * 替身。覆盖：MOCK/REAL 分发、enabled=false 短路 MISSING 不外调、<b>运行时改 mode 下一次 fetch 即走新 adapter（热切换）</b>、
- * supportedSubjectTypes 跟随当前路由目标。
+ * <p>真实链路：{@link RuntimeConfigService}（内存仓储）+ 真实 {@link ConfigCenter} 快照，real/mock adapter 用
+ * Mockito 替身。覆盖：MOCK/REAL 分发、enabled=false 短路 MISSING 不外调、<b>运行时改 mode 下一次 fetch 即走新
+ * adapter（热切换）</b>、 supportedSubjectTypes 跟随当前路由目标。
  */
 class RoutingSourceAdapterTest {
 
@@ -76,7 +76,11 @@ class RoutingSourceAdapterTest {
     void setUp() {
         configService =
                 new RuntimeConfigService(
-                        repository, List.of(), event -> {}, Clock.fixed(T1, ZoneOffset.UTC), objectMapper);
+                        repository,
+                        List.of(),
+                        event -> {},
+                        Clock.fixed(T1, ZoneOffset.UTC),
+                        objectMapper);
         LlmConfig llmConfig = new LlmConfig();
         llmConfig.setProviders(List.of());
         configCenter = new ConfigCenter(configService, List.of(), llmConfig, null, objectMapper);
@@ -84,7 +88,8 @@ class RoutingSourceAdapterTest {
         when(realAdapter.sourceCode()).thenReturn(SourceCode.QUOTE);
         mockAdapter = mock(SourceAdapter.class);
         when(mockAdapter.sourceCode()).thenReturn(SourceCode.QUOTE);
-        routing = new RoutingSourceAdapter(SourceCode.QUOTE, realAdapter, mockAdapter, configCenter);
+        routing =
+                new RoutingSourceAdapter(SourceCode.QUOTE, realAdapter, mockAdapter, configCenter);
     }
 
     private void storeMode(RuntimeDataSource.Mode mode) {

@@ -67,7 +67,6 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
     /** subject.external_codes 中东财 secid 的键名（派生 6 位代码的回退来源，V2 种子用此键）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
 
-
     /** 新浪为中国新闻源，ctime 为 UTC epoch 秒，按 +08:00 落地展示时间。 */
     private static final ZoneId NEWS_ZONE = ZoneId.of("Asia/Shanghai");
 
@@ -112,7 +111,6 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return ITEMS_PASSTHROUGH;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

@@ -60,7 +60,6 @@ import java.util.Set;
  */
 public class PolicySourceAdapter extends AbstractSourceAdapter {
 
-
     /**
      * 模板层 map 步骤用：整张 data map（{@code {"items":[...]}}）的 items 列表原样透传。 逐条字段映射在 {@link #doFetch} 内用
      * {@link #itemMapping} 完成。
@@ -125,7 +124,6 @@ public class PolicySourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return ITEMS_PASSTHROUGH;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

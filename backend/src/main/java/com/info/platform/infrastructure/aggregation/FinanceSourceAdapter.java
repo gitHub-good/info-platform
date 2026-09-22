@@ -18,7 +18,8 @@ import java.util.Set;
  *
  * <p>真实接入东财 datacenter {@code RPT_F10_FINANCE_MAINFINADATA}：按 {@code subject.external_codes} 派生的 6
  * 位证券代码取最新报告期一条主财务指标（营收/归母净利/净利率/毛利率/ROE/报告期），经 {@link FieldMapper} JSON 映射落 {@code
- * SourceResult.data}。 与 {@link MockFinanceSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
+ * SourceResult.data}。 与 {@link MockFinanceSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36
+ * 热切换）。
  *
  * <p>代码派生：datacenter filter 用 6 位代码（如 {@code 600519}），非 secid（如 {@code 1.600519}）。优先取 {@code
  * eastmoney_code} 键； 缺省则从 {@code eastmoney} secid 按 {@code .} 切分派生（Spike-1 §5：secid 与纯代码可互相派生），兼容当前
@@ -38,7 +39,6 @@ public class FinanceSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 secid 的键名（派生 6 位代码的回退来源）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
-
 
     private final EastMoneyFinanceClient client;
     private final List<FieldMapping> mapping;
@@ -74,7 +74,6 @@ public class FinanceSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return mapping;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

@@ -25,7 +25,6 @@ public class MockEventSourceAdapter extends AbstractSourceAdapter {
             List.of(new FieldMapping("items", "items", Transform.NONE));
 
     /** 本地调用超时：与真实事件源同口径（Spike-1 §6.7：noRetry 500ms）。 */
-
     public MockEventSourceAdapter(
             SourceCache cache,
             FieldMapper fieldMapper,
@@ -48,7 +47,6 @@ public class MockEventSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return ITEMS_PASSTHROUGH;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

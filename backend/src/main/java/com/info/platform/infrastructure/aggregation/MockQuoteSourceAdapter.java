@@ -14,9 +14,9 @@ import java.util.Optional;
 /**
  * 行情源 mock adapter（T09 骨架，验证 FieldMapper JSON 映射链路）。
  *
- * <p>T36 起与真实行情 adapter 经 {@link RoutingSourceAdapter} 运行时路由共存（{@code datasource.QUOTE.mode=MOCK} 时本类生效）。 本 mock 返回固定假数据（开高低收量额），状态
- * OK。映射配置走 classpath JSON（{@code field-mapping/quote-mock.json}），验证 to_decimal/to_long/to_iso_date
- * 转换。
+ * <p>T36 起与真实行情 adapter 经 {@link RoutingSourceAdapter} 运行时路由共存（{@code datasource.QUOTE.mode=MOCK}
+ * 时本类生效）。 本 mock 返回固定假数据（开高低收量额），状态 OK。映射配置走 classpath JSON（{@code
+ * field-mapping/quote-mock.json}），验证 to_decimal/to_long/to_iso_date 转换。
  */
 public class MockQuoteSourceAdapter extends AbstractSourceAdapter {
 
@@ -45,7 +45,6 @@ public class MockQuoteSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return mapping;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) {

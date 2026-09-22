@@ -18,8 +18,8 @@ import java.util.Set;
  *
  * <p>真实接入东财 push2 {@code stock/get}（与行情同端点，Spike-1 §3.1「端点收敛」）：按 {@code subject.external_codes} 的
  * {@code eastmoney} secid + 估值 f 字段（f162/f167）取估值原始数据，经 {@link FieldMapper} JSON 映射落 {@code
- * SourceResult.data}。复用 {@link EastMoneyClient#fetchValuation(String)}（行情/估值同端点不同 fields，省一个客户端类）。 与
- * {@link MockValuationSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
+ * SourceResult.data}。复用 {@link EastMoneyClient#fetchValuation(String)}（行情/估值同端点不同 fields，省一个客户端类）。
+ * 与 {@link MockValuationSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  *
  * <p>弹性（T36 热化）：超时/重试运行时读 {@code datasource.VALUATION}（种子默认超时 2s 重试 0）。降级默认 MISSING——估值源挂不阻断其他分区。
  *
@@ -33,7 +33,6 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 secid 的键名（与 QuoteSourceAdapter 一致）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
-
 
     private final EastMoneyClient client;
     private final List<FieldMapping> mapping;
@@ -69,7 +68,6 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
     protected List<FieldMapping> mappingConfig() {
         return mapping;
     }
-
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {

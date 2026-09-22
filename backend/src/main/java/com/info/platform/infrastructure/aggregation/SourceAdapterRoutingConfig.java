@@ -17,10 +17,9 @@ import org.springframework.context.annotation.Configuration;
  * 数据源 adapter 热路由装配（T36 / ADR-0017 冲突解法 1）。
  *
  * <p>改造前：7 对 real/mock adapter 以 {@code adapter.mock.enabled} {@code @ConditionalOnProperty}
- * 启动期互斥装配。改造后：14 个实现全部经本配置注册为<b>内部 bean</b>（非自动装配候选，见 {@link
- * #internalAdapterNonCandidateMarker}）， 每源一个 {@link RoutingSourceAdapter} 作为该源唯一对外
- * {@link SourceAdapter}——消费方（{@code AggregationService} 等注入 {@code List<SourceAdapter>}）只见 7 个路由
- * bean，既有代码零改动。
+ * 启动期互斥装配。改造后：14 个实现全部经本配置注册为<b>内部 bean</b>（非自动装配候选，见 {@link #internalAdapterNonCandidateMarker}），
+ * 每源一个 {@link RoutingSourceAdapter} 作为该源唯一对外 {@link SourceAdapter}——消费方（{@code AggregationService}
+ * 等注入 {@code List<SourceAdapter>}）只见 7 个路由 bean，既有代码零改动。
  *
  * <p>yml {@code adapter.mock.enabled} 降级为分源 mode 的种子默认值（true → 各源初始 MOCK， 见 {@code
  * DataSourceRuntimeConfigSeeder}），测试 profile 语义平移。
@@ -47,8 +46,8 @@ public class SourceAdapterRoutingConfig {
                     "mockEventSourceAdapter");
 
     /**
-     * 把 14 个内部 adapter bean 标记为非自动装配候选：按类型注入（如 {@code List<SourceAdapter>}）不可见，
-     * 仅本配置内直接方法调用引用（CGLIB 代理保证单例）。缺失 bean 名即装配面错误，fail-fast。
+     * 把 14 个内部 adapter bean 标记为非自动装配候选：按类型注入（如 {@code List<SourceAdapter>}）不可见， 仅本配置内直接方法调用引用（CGLIB
+     * 代理保证单例）。缺失 bean 名即装配面错误，fail-fast。
      */
     @Bean
     public static BeanFactoryPostProcessor internalAdapterNonCandidateMarker() {
@@ -181,7 +180,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockQuoteSourceAdapter mockQuoteSourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockQuoteSourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
@@ -197,7 +199,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockFinanceSourceAdapter mockFinanceSourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockFinanceSourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
@@ -213,7 +218,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockValuationSourceAdapter mockValuationSourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockValuationSourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
@@ -229,7 +237,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockAnnounceSourceAdapter mockAnnounceSourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockAnnounceSourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
@@ -245,7 +256,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockNewsSourceAdapter mockNewsSourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockNewsSourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
@@ -261,7 +275,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockPolicySourceAdapter mockPolicySourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockPolicySourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
@@ -277,7 +294,10 @@ public class SourceAdapterRoutingConfig {
 
     @Bean
     MockEventSourceAdapter mockEventSourceAdapter(
-            SourceCache cache, FieldMapper fieldMapper, ResilienceRunner runner, CircuitBreaker breaker) {
+            SourceCache cache,
+            FieldMapper fieldMapper,
+            ResilienceRunner runner,
+            CircuitBreaker breaker) {
         return new MockEventSourceAdapter(cache, fieldMapper, runner, breaker);
     }
 }

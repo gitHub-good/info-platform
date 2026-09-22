@@ -7,12 +7,13 @@ import java.util.Map;
 /**
  * 数据源弹性/缓存权威缺省值（T36，从各 adapter/client 硬编码提取）。
  *
- * <p>三处用途共用同一份常量，保证不漂移：① {@code DataSourceRuntimeConfigSeeder} 种子值（首启导入
- * runtime_config，页面改过即以 DB 为权威）； ② {@code ConfigCenter#dataSource} 键缺失/解析失败的回落； ③ 纯构造单测
- * （无 Spring 上下文）的 {@code AbstractSourceAdapter} 弹性缺省。 提取对照（源码硬编码 → 配置键）见 T36 交付说明：
+ * <p>三处用途共用同一份常量，保证不漂移：① {@code DataSourceRuntimeConfigSeeder} 种子值（首启导入 runtime_config，页面改过即以 DB
+ * 为权威）； ② {@code ConfigCenter#dataSource} 键缺失/解析失败的回落； ③ 纯构造单测 （无 Spring 上下文）的 {@code
+ * AbstractSourceAdapter} 弹性缺省。 提取对照（源码硬编码 → 配置键）见 T36 交付说明：
  *
  * <ul>
- *   <li>超时：QuoteSourceAdapter 1500ms；Valuation/Finance/Announce/News/Policy 各 2s；Event 500ms（原各类 TIMEOUT 常量）
+ *   <li>超时：QuoteSourceAdapter 1500ms；Valuation/Finance/Announce/News/Policy 各 2s；Event 500ms（原各类
+ *       TIMEOUT 常量）
  *   <li>重试：全部源 0（原全部 {@code ResilienceSpec.noRetry}）
  *   <li>缓存 TTL：SourceCache.specFor —— 行情 5s / 财务·估值 1h / 公告 5min / 新闻 2min / 政策 10min / 事件 30s
  *   <li>params：各 HTTP client 构造期 {@code @Value} 默认值（与 application.yml 同值）
@@ -68,10 +69,12 @@ public final class DataSourceDefaults {
                 params.put("valuationFields", "f57,f162,f167");
             }
             case ANNOUNCE -> {
-                params.put("announceUrl", "https://np-anotice-stock.eastmoney.com/api/security/ann");
+                params.put(
+                        "announceUrl", "https://np-anotice-stock.eastmoney.com/api/security/ann");
                 params.put("announcePageSize", 3);
                 params.put(
-                        "announceDetailUrlTemplate", "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
+                        "announceDetailUrlTemplate",
+                        "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
             }
             case NEWS -> {
                 params.put("newsUrl", "https://feed.mix.sina.com.cn/api/roll/get");

@@ -7,9 +7,10 @@ import java.util.Map;
 /**
  * 数据源运行时配置视图（基础设施层值对象，T36 / ADR-0017）。
  *
- * <p>对应 {@code runtime_config} 键 {@code datasource.{SOURCE_CODE}} 的类型化读取，消费点（RoutingSourceAdapter 路由 /
- * AbstractSourceAdapter 弹性 / SourceCache TTL / 各 HTTP client 参数）<b>用时读取</b>即热生效（方案 §4.2 数据源参数全部 LIVE）。
- * 键不存在或解析失败时经 {@link #fallback} 回落到 {@link DataSourceDefaults} 代码缺省（对齐改造前各 adapter/client 的硬编码值）。
+ * <p>对应 {@code runtime_config} 键 {@code datasource.{SOURCE_CODE}} 的类型化读取，消费点（RoutingSourceAdapter
+ * 路由 / AbstractSourceAdapter 弹性 / SourceCache TTL / 各 HTTP client 参数）<b>用时读取</b>即热生效（方案 §4.2
+ * 数据源参数全部 LIVE）。 键不存在或解析失败时经 {@link #fallback} 回落到 {@link DataSourceDefaults} 代码缺省（对齐改造前各
+ * adapter/client 的硬编码值）。
  *
  * @param sourceCode 数据源标识
  * @param enabled 是否参与聚合（false → RoutingSourceAdapter 直接 MISSING，不外调）

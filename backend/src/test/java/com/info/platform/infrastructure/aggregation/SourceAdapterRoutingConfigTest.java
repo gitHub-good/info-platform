@@ -27,10 +27,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
 /**
- * {@link SourceAdapterRoutingConfig} 装配测试（T36）：14 adapter 无条件装配为内部 bean（非自动装配候选）， 每源唯一对外
- * {@link SourceAdapter} 为 RoutingSourceAdapter——注入 {@code List<SourceAdapter>} 的消费方（AggregationService 等）
- * 恰见 7 个、sourceCode 无重复（对齐方案 §4.3「AggregationService 零改动」）。 mock/real 双注册后上下文行为由
- * datasource.{CODE} 种子/缺省决定，不再由条件装配决定。
+ * {@link SourceAdapterRoutingConfig} 装配测试（T36）：14 adapter 无条件装配为内部 bean（非自动装配候选）， 每源唯一对外 {@link
+ * SourceAdapter} 为 RoutingSourceAdapter——注入 {@code List<SourceAdapter>} 的消费方（AggregationService 等）
+ * 恰见 7 个、sourceCode 无重复（对齐方案 §4.3「AggregationService 零改动」）。 mock/real 双注册后上下文行为由 datasource.{CODE}
+ * 种子/缺省决定，不再由条件装配决定。
  */
 class SourceAdapterRoutingConfigTest {
 
@@ -135,8 +135,7 @@ class SourceAdapterRoutingConfigTest {
         runner.run(
                 context -> {
                     assertThat(context).hasNotFailed();
-                    List<SourceAdapter> adapters =
-                            context.getBean(AdapterConsumer.class).adapters;
+                    List<SourceAdapter> adapters = context.getBean(AdapterConsumer.class).adapters;
                     assertThat(adapters).hasSize(7);
                     long distinctCodes =
                             adapters.stream().map(SourceAdapter::sourceCode).distinct().count();
@@ -158,7 +157,8 @@ class SourceAdapterRoutingConfigTest {
                     assertThat(context).hasBean("eventRoutingSourceAdapter");
                     RoutingSourceAdapter routing =
                             (RoutingSourceAdapter)
-                                    context.getBean("quoteRoutingSourceAdapter", SourceAdapter.class);
+                                    context.getBean(
+                                            "quoteRoutingSourceAdapter", SourceAdapter.class);
                     assertThat(routing.sourceCode()).isEqualTo(SourceCode.QUOTE);
                 });
     }
@@ -169,13 +169,17 @@ class SourceAdapterRoutingConfigTest {
                 context -> {
                     SourceAdapter valuation =
                             context.getBean("valuationRoutingSourceAdapter", SourceAdapter.class);
-                    SourceAdapter quote = context.getBean("quoteRoutingSourceAdapter", SourceAdapter.class);
+                    SourceAdapter quote =
+                            context.getBean("quoteRoutingSourceAdapter", SourceAdapter.class);
                     // T31 声明语义平移：估值/财务仅股票，行情全类型
                     assertThat(valuation.supportedSubjectTypes())
-                            .containsExactly(com.info.platform.domain.aggregation.SubjectType.STOCK);
+                            .containsExactly(
+                                    com.info.platform.domain.aggregation.SubjectType.STOCK);
                     assertThat(quote.supportedSubjectTypes())
                             .containsAnyElementsOf(
-                                    List.of(com.info.platform.domain.aggregation.SubjectType.STOCK));
+                                    List.of(
+                                            com.info.platform.domain.aggregation.SubjectType
+                                                    .STOCK));
                 });
     }
 }

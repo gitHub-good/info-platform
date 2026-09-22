@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * DataSourceEventRecorder 单元测试（T16 + T36）：mock {@link DataSourceEventRepository} 端口，验证 record 委托落库 +
- * 落库失败不外抛（可观测性不拖垮主链路）+ OK 成功心跳 60s/源节流（窗口内不重复落库、窗口外再落一条）。 AAA 结构，纯单元（不启 Spring 上下文）。
+ * DataSourceEventRecorder 单元测试（T16 + T36）：mock {@link DataSourceEventRepository} 端口，验证 record 委托落库
+ * + 落库失败不外抛（可观测性不拖垮主链路）+ OK 成功心跳 60s/源节流（窗口内不重复落库、窗口外再落一条）。 AAA 结构，纯单元（不启 Spring 上下文）。
  */
 class DataSourceEventRecorderTest {
 
@@ -141,7 +141,11 @@ class DataSourceEventRecorderTest {
         // Arrange：QUOTE 两次相隔 61s（跨窗口），POLICY 首次（节流按源独立）
         DataSourceEventRepository repository = mock(DataSourceEventRepository.class);
         DataSourceEventRecorder recorder =
-                recorder(repository, T0, T0.plus(Duration.ofSeconds(61)), T0.plus(Duration.ofSeconds(61)));
+                recorder(
+                        repository,
+                        T0,
+                        T0.plus(Duration.ofSeconds(61)),
+                        T0.plus(Duration.ofSeconds(61)));
 
         // Act
         recorder.recordOkIfDue(SourceCode.QUOTE, 1L);

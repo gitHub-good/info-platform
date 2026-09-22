@@ -18,7 +18,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
-import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -186,7 +185,6 @@ class ValuationSourceAdapterTest {
         assertThat(result.getData()).isEmpty();
     }
 
-
     @Test
     void supportedSubjectTypes_stockOnly() {
         // Arrange: T31 类型注册位 —— PE-TTM/PB 为个股估值语义
@@ -218,7 +216,8 @@ class ValuationSourceAdapterTest {
             Subject subject, Consumer<MockRestServiceServer> responseSetter) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        EastMoneyClient client = new EastMoneyClient(builder, QUOTE_URL, QUOTE_FIELDS, VALUATION_FIELDS);
+        EastMoneyClient client =
+                new EastMoneyClient(builder, QUOTE_URL, QUOTE_FIELDS, VALUATION_FIELDS);
         ValuationSourceAdapter adapter =
                 new ValuationSourceAdapter(cache, fieldMapper, runner, breaker, client);
         responseSetter.accept(server);
