@@ -38,6 +38,12 @@ import org.springframework.stereotype.Component;
  * 一条内容命中任一订阅即入流（首次命中为准，break），命中原因串形如「主题订阅:半导体」/「标的订阅:贵州茅台」/ 「事件类型订阅:公告」/「政策主题订阅:货币政策」。多订阅同命中的聚合原因留
  * M3 优化。
  *
+ * <h2>命中关键词（T43）</h2>
+ *
+ * 命中同时携带 {@code keywords}（与首次命中订阅同源）：主题/政策主题为 subKey（标题或摘要文本必现）；标的为标的展示名 （按
+ * subjectId/行业命中，文本未必出现，由前端仅出现时高亮）；事件类型按类型命中无文本关键词（空列表）。 供 FeedItem {@code
+ * keywords[]} 透出，前端命中词高亮用（UI 方案 §6.2 联判点 5）。
+ *
  * <h2>可扩展</h2>
  *
  * 首期 {@code contains} + 行业关联；后续语义匹配/AI 命中可在本类内按 subType 扩展策略，不改调用方契约。
@@ -58,28 +64,28 @@ public class FeedMatcher {
         }
         List<MatchedFeedContent> matched = new ArrayList<>();
         for (FeedContent content : contents) {
-            String reason = firstMatchReason(active, content, subjectIndex);
-            if (reason != null) {
-                matched.add(new MatchedFeedContent(content, reason));
+            MatchHit hit = firstMatch(active, content, subjectIndex);
+            if (hit != null) {
+                matched.add(new MatchedFeedContent(content, hit.reason(), hit.keywords()));
             }
         }
         return matched;
     }
 
-    /** 遍历订阅，返回首个命中原因；无命中返回 null。 */
-    private String firstMatchReason(
+    /** 遍历订阅，返回首个命中（原因 + 关键词）；无命中返回 null。 */
+    private MatchHit firstMatch(
             List<Subscription> active, FeedContent content, Map<Long, SubjectRef> subjectIndex) {
         for (Subscription sub : active) {
-            String reason = matchReason(sub, content, subjectIndex);
-            if (reason != null) {
-                return reason;
+            MatchHit hit = matchHit(sub, content, subjectIndex);
+            if (hit != null) {
+                return hit;
             }
         }
         return null;
     }
 
-    /** 单订阅对单内容的命中判定，命中返回原因串，否则 null。 */
-    private String matchReason(
+    /** 单订阅对单内容的命中判定，命中返回原因+关键词，否则 null。 */
+    private MatchHit matchHit(
             Subscription sub, FeedContent content, Map<Long, SubjectRef> subjectIndex) {
         return switch (sub.getSubType()) {
             case TOPIC -> topicMatch(sub.getSubKey(), content);
@@ -89,17 +95,17 @@ public class FeedMatcher {
         };
     }
 
-    /** 主题：标题或摘要含 subKey（大小写不敏感）。 */
-    private String topicMatch(String subKey, FeedContent content) {
+    /** 主题：标题或摘要含 subKey（大小写不敏感）；关键词为 subKey（文本必现）。 */
+    private MatchHit topicMatch(String subKey, FeedContent content) {
         if (containsIgnoreCase(content.title(), subKey)
                 || containsIgnoreCase(content.summary(), subKey)) {
-            return "主题订阅:" + subKey;
+            return new MatchHit("主题订阅:" + subKey, List.of(subKey));
         }
         return null;
     }
 
-    /** 标的：公告/新闻按 subjectId 归属；政策按行业关联。subjectRef 缺失不命中。 */
-    private String subjectMatch(
+    /** 标的：公告/新闻按 subjectId 归属；政策按行业关联。subjectRef 缺失不命中。关键词为标的展示名。 */
+    private MatchHit subjectMatch(
             String subKey, FeedContent content, Map<Long, SubjectRef> subjectIndex) {
         Long subjectId = parseSubjectId(subKey);
         if (subjectId == null) {
@@ -114,41 +120,41 @@ public class FeedMatcher {
             if (industry != null
                     && !industry.isBlank()
                     && content.relatedIndustries().contains(industry)) {
-                return "标的订阅:" + nameOrCode(ref);
+                return new MatchHit("标的订阅:" + nameOrCode(ref), List.of(nameOrCode(ref)));
             }
             return null;
         }
         if (subjectId.equals(content.subjectId())) {
-            return "标的订阅:" + nameOrCode(ref);
+            return new MatchHit("标的订阅:" + nameOrCode(ref), List.of(nameOrCode(ref)));
         }
         return null;
     }
 
-    /** 事件类型：subKey 等于类型枚举名 / 含中文标签 / 公告分类含 subKey。 */
-    private String eventTypeMatch(String subKey, FeedContent content) {
+    /** 事件类型：subKey 等于类型枚举名 / 含中文标签 / 公告分类含 subKey；按类型命中，无文本关键词。 */
+    private MatchHit eventTypeMatch(String subKey, FeedContent content) {
         String key = subKey == null ? "" : subKey.trim();
         if (key.isEmpty()) {
             return null;
         }
         if (key.equalsIgnoreCase(content.type().name())
                 || containsIgnoreCase(key, typeLabel(content.type()))) {
-            return "事件类型订阅:" + subKey;
+            return new MatchHit("事件类型订阅:" + subKey, List.of());
         }
         if (content.type() == FeedItemType.ANNOUNCE
                 && containsIgnoreCase(content.category(), key)) {
-            return "事件类型订阅:" + subKey;
+            return new MatchHit("事件类型订阅:" + subKey, List.of());
         }
         return null;
     }
 
-    /** 政策主题：政策标题或摘要含 subKey；非政策不命中。 */
-    private String policyThemeMatch(String subKey, FeedContent content) {
+    /** 政策主题：政策标题或摘要含 subKey；非政策不命中。关键词为 subKey（政策文本必现）。 */
+    private MatchHit policyThemeMatch(String subKey, FeedContent content) {
         if (content.type() != FeedItemType.POLICY) {
             return null;
         }
         if (containsIgnoreCase(content.title(), subKey)
                 || containsIgnoreCase(content.summary(), subKey)) {
-            return "政策主题订阅:" + subKey;
+            return new MatchHit("政策主题订阅:" + subKey, List.of(subKey));
         }
         return null;
     }
@@ -190,4 +196,7 @@ public class FeedMatcher {
             return null;
         }
     }
+
+    /** 单次命中结果（原因串 + 可高亮关键词）。 */
+    private record MatchHit(String reason, List<String> keywords) {}
 }

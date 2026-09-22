@@ -302,13 +302,14 @@ public class FeedService {
                             null,
                             r.subjectCode(),
                             r.subjectName(),
-                            "每日推荐");
+                            "每日推荐",
+                            List.of());
             out.add(new FeedEntry(now, "recommendation", "rec-" + r.subjectCode(), item));
         }
         return out;
     }
 
-    /** 命中内容 → 排序条目（publishedAt 为排序键，合成 id 待分页回填）。 */
+    /** 命中内容 → 排序条目（publishedAt 为排序键，合成 id 待分页回填；keywords 与命中原因同源）。 */
     private static FeedEntry toEntry(MatchedFeedContent matched) {
         FeedContent c = matched.content();
         FeedItem item =
@@ -322,7 +323,8 @@ public class FeedService {
                         c.url(),
                         c.subjectCode(),
                         c.subjectName(),
-                        matched.matchReason());
+                        matched.matchReason(),
+                        matched.keywords());
         return new FeedEntry(c.publishedAt(), c.type().jsonValue(), c.contentId(), item);
     }
 

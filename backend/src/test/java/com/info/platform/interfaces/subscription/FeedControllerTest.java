@@ -60,7 +60,8 @@ class FeedControllerTest {
                                                 "https://ex/ann/1",
                                                 "SH600519",
                                                 "贵州茅台",
-                                                "标的订阅:贵州茅台"),
+                                                "标的订阅:贵州茅台",
+                                                List.of("贵州茅台")),
                                         new FeedItem(
                                                 2L,
                                                 FeedItemType.RECOMMENDATION,
@@ -71,18 +72,21 @@ class FeedControllerTest {
                                                 null,
                                                 "SH600036",
                                                 "招商银行",
-                                                "每日推荐")),
+                                                "每日推荐",
+                                                null)),
                                 2L));
 
-        // Act + Assert：200 + code=0 + 命中原因 + nextCursor
+        // Act + Assert：200 + code=0 + 命中原因/关键词 + nextCursor
         mockMvc.perform(get("/api/v1/feed/personal"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.items[0].type").value("announce"))
                 .andExpect(jsonPath("$.data.items[0].title").value("2026年半年度报告"))
                 .andExpect(jsonPath("$.data.items[0].matchReason").value("标的订阅:贵州茅台"))
+                .andExpect(jsonPath("$.data.items[0].keywords[0]").value("贵州茅台"))
                 .andExpect(jsonPath("$.data.items[1].type").value("recommendation"))
                 .andExpect(jsonPath("$.data.items[1].matchReason").value("每日推荐"))
+                .andExpect(jsonPath("$.data.items[1].keywords").isEmpty())
                 .andExpect(jsonPath("$.data.nextCursor").value(2));
     }
 

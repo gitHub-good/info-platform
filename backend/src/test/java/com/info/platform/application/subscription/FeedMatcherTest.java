@@ -99,6 +99,7 @@ class FeedMatcherTest {
         // Assert
         assertThat(matched).hasSize(1);
         assertThat(matched.get(0).matchReason()).isEqualTo("主题订阅:半导体");
+        assertThat(matched.get(0).keywords()).containsExactly("半导体");
     }
 
     @Test
@@ -118,6 +119,7 @@ class FeedMatcherTest {
                 matcher.match(List.of(topic), List.of(withSummary), Map.of());
         assertThat(matched).hasSize(1);
         assertThat(matched.get(0).matchReason()).isEqualTo("主题订阅:降准");
+        assertThat(matched.get(0).keywords()).containsExactly("降准");
     }
 
     @Test
@@ -144,6 +146,7 @@ class FeedMatcherTest {
         // Assert
         assertThat(matched).hasSize(1);
         assertThat(matched.get(0).matchReason()).isEqualTo("标的订阅:贵州茅台");
+        assertThat(matched.get(0).keywords()).containsExactly("贵州茅台");
     }
 
     @Test
@@ -197,6 +200,8 @@ class FeedMatcherTest {
         List<MatchedFeedContent> matched = matcher.match(List.of(ev), List.of(content), Map.of());
         assertThat(matched).hasSize(1);
         assertThat(matched.get(0).matchReason()).isEqualTo("事件类型订阅:公告");
+        // 按类型命中无文本关键词 → 空列表（序列化 []）
+        assertThat(matched.get(0).keywords()).isEmpty();
     }
 
     @Test
@@ -226,6 +231,7 @@ class FeedMatcherTest {
                 matcher.match(List.of(theme), List.of(content), Map.of());
         assertThat(matched).hasSize(1);
         assertThat(matched.get(0).matchReason()).isEqualTo("政策主题订阅:货币政策");
+        assertThat(matched.get(0).keywords()).containsExactly("货币政策");
     }
 
     @Test
@@ -320,5 +326,15 @@ class FeedMatcherTest {
         assertThatThrownBy(
                         () -> new MatchedFeedContent(announce("a1", "报告", 600519L, "财务报告"), "  "))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void matchedFeedContent_nullKeywords_normalizedToEmpty() {
+        // Arrange + Act：便捷/透传构造允许 null 关键词 → 归一化为空列表（响应恒为 []）
+        MatchedFeedContent matched =
+                new MatchedFeedContent(announce("a1", "报告", 600519L, "财务报告"), "事件类型订阅:公告", null);
+
+        // Assert
+        assertThat(matched.keywords()).isNotNull().isEmpty();
     }
 }

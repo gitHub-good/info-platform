@@ -138,10 +138,16 @@ class FeedServiceTest {
         assertThat(view.nextCursor()).isNull();
         assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.RECOMMENDATION);
         assertThat(view.items().get(0).matchReason()).isEqualTo("每日推荐");
+        // 推荐项无文本命中词 → 空列表（T43 keywords 契约）
+        assertThat(view.items().get(0).keywords()).isEmpty();
         assertThat(view.items().get(1).type()).isEqualTo(FeedItemType.POLICY);
         assertThat(view.items().get(1).matchReason()).isEqualTo("主题订阅:白酒");
+        // 主题订阅命中词 = subKey（标题必现，可高亮）
+        assertThat(view.items().get(1).keywords()).containsExactly("白酒");
         assertThat(view.items().get(2).type()).isEqualTo(FeedItemType.ANNOUNCE);
         assertThat(view.items().get(2).matchReason()).isEqualTo("标的订阅:贵州茅台");
+        // 标的订阅命中词 = 标的展示名（文本未必出现，前端仅出现时高亮）
+        assertThat(view.items().get(2).keywords()).containsExactly("贵州茅台");
         assertThat(view.items().get(2).id()).isEqualTo(3L);
     }
 

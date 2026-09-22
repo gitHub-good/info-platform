@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  * UserContext}），服务层取当前用户活跃订阅行级过滤——退订订阅（status=0）不参与匹配，对应内容不入流 （PRD 故事 5 场景 3 退订降噪）。空订阅仅返回每日推荐。
  *
  * <p>响应 {@code FeedItem.type}：{@code announce/news/policy}（订阅命中，附 {@code matchReason}）+ {@code
- * recommendation}（每日推荐，{@code matchReason="每日推荐"}）。
+ * recommendation}（每日推荐，{@code matchReason="每日推荐"}）。{@code FeedItem.keywords[]} 为命中订阅关键词（与 matchReason 同源：主题/政策主题为订阅词、标的为标的名、事件类型/推荐为空数组），前端命中词高亮用（T43，UI 方案 §6.2 联判点 5；只加字段，既有字段语义不变）。
  */
 @RestController
 @RequestMapping("/api/v1/feed")
