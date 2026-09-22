@@ -1,5 +1,6 @@
 package com.info.platform.interfaces.subscription;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -22,6 +23,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 /**
  * FeedController 切片测试（T27）：GET /api/v1/feed/personal。standalone MockMvc（不加载 Spring 上下文），
  * FeedService Mockito mock，UserContext @BeforeEach 模拟 JwtAuthFilter 写入。
+ *
+ * <p>DEFECT-2 回归（M4）：cursor 三态——非法格式（zzz）→ 400/2001 字段级原因（勿落兜底 500/50000）、 合法数值透传 service、缺省首页。
  */
 class FeedControllerTest {
 
@@ -100,5 +103,15 @@ class FeedControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void personal_withIllegalCursor_returns400ParamInvalid() throws Exception {
+        // DEFECT-2 回归（修前红）：cursor=zzz 类型不匹配须按参数校验拒绝（400/2001 字段级原因），
+        // 而非被兜底异常处理器吞成 500/50000（与三域配置校验口径一致）
+        mockMvc.perform(get("/api/v1/feed/personal").param("cursor", "zzz"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value(containsString("cursor")));
     }
 }
