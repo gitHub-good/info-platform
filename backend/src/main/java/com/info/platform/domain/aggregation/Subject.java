@@ -31,7 +31,7 @@ public class Subject {
         return new Builder();
     }
 
-    /** 从持久化数据重建实体（基础设施层落库后回读时用）。 */
+    /** 从持久化数据重建实体（基础设施层落库后回读时用）；不走 {@link Builder} 预留类型守卫，读路径容忍历史/预留行。 */
     public static Subject reconstruct(
             Long id,
             SubjectCode subjectCode,
@@ -154,6 +154,15 @@ public class Subject {
             Objects.requireNonNull(subject.market, "market 必填");
             Objects.requireNonNull(subject.subjectType, "subjectType 必填");
             Objects.requireNonNull(subject.name, "name 必填");
+            if (subject.subjectType.isReserved()) {
+                // T31 扩展位守卫：预留类型（基金/债券）只开放类型体系与映射注册位，不允许创建标的数据。
+                throw new IllegalArgumentException(
+                        "标的类型预留未开放，不允许创建标的: "
+                                + subject.subjectType.label()
+                                + "(subjectType="
+                                + subject.subjectType.code()
+                                + ")");
+            }
             if (subject.status == null) {
                 subject.status = SubjectStatus.ENABLED;
             }
