@@ -106,6 +106,24 @@ public class ConfigCenter {
         return yml == null ? Optional.empty() : Optional.of(fromYmlProvider(yml));
     }
 
+    /**
+     * RESTART 级 provider baseUrl（T35）：启动期冻结快照读取，页面保存不热生效、重启后生效（ADR-0017 §4.2）。
+     *
+     * <p>启动快照无该键（种子前/未写入）回落 yml 绑定值；均无返回 null（消费方 inert）。
+     */
+    public String bootLlmProviderBaseUrl(String name) {
+        String fromBoot =
+                boot().find(KEY_LLM_PROVIDER_PREFIX + name)
+                        .map(entry -> entry.document().path("baseUrl").asText(null))
+                        .filter(value -> value != null && !value.isBlank())
+                        .orElse(null);
+        if (fromBoot != null) {
+            return fromBoot;
+        }
+        LlmConfig.Provider yml = llmConfig.providerByName(name);
+        return yml == null ? null : yml.getBaseUrl();
+    }
+
     private RuntimeLlmProvider resolveProvider(String name, RuntimeConfigEntry entry) {
         ProviderDoc doc = parse(entry, ProviderDoc.class);
         String apiKey = "";
