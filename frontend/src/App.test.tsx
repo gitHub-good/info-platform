@@ -17,6 +17,26 @@ function jobLogPage(items: Array<Record<string, unknown>> = []) {
   return { items, nextCursor: null };
 }
 
+/** LLM 配置页最小视图（#/llm-config 导航用：全局卡 + 空 provider）。 */
+function emptyLlmConfig() {
+  return {
+    global: {
+      timeoutSeconds: 30,
+      retry: 1,
+      dailyTokenBudgetPerUser: 20000,
+      budgetWarnRatio: 0.8,
+      cacheDefaultTtlSeconds: 3600,
+      cacheTtlSeconds: {},
+      cacheMaximumSize: 1000,
+      todayUsedTokens: 0,
+      updatedAt: null,
+      effectiveModes: {},
+    },
+    providers: [],
+    apiKeyWriteEnabled: false,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
@@ -58,6 +78,9 @@ function makeFetch() {
         data: { accessToken: 'jwt-new', refreshToken: 'r', tokenType: 'Bearer', expiresIn: 3600 },
         traceId: 't',
       });
+    }
+    if (path.includes('/llm-config')) {
+      return mockResponse(200, { code: 0, msg: 'ok', data: emptyLlmConfig(), traceId: 't' });
     }
     return mockResponse(200, { code: 0, msg: 'ok', data: null, traceId: 't' });
   });
@@ -163,13 +186,12 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(window.location.hash).toBe('#/subjects');
   });
 
-  it('5 个新页路由占位（#/llm-config、#/datasource-config、#/task-center、#/overview、#/feed）', async () => {
+  it('4 个新页路由占位（#/datasource-config、#/task-center、#/overview、#/feed），#/llm-config 为 T39 实现页', async () => {
     const user = userEvent.setup();
     renderLoggedIn('#/overview');
 
-    // 经侧栏逐项导航，每页渲染「开发中」占位
+    // 经侧栏逐项导航，未实现页渲染「开发中」占位
     const placeholders: Array<[string, string]> = [
-      ['nav-item-llm-config', 'llm-config-placeholder'],
       ['nav-item-datasource-config', 'datasource-config-placeholder'],
       ['nav-item-task-center', 'task-center-placeholder'],
       ['nav-item-feed', 'feed-placeholder'],
@@ -180,6 +202,11 @@ describe('App 路由与登录守卫（T38）', () => {
       expect(await screen.findByTestId(pageId)).toBeInTheDocument();
       expect(screen.getByTestId(`${pageId}-badge`)).toHaveTextContent('开发中');
     }
+
+    // #/llm-config（T39）：真实页挂载并请求配置接口（不再渲染占位）
+    await user.click(screen.getByTestId('nav-item-llm-config'));
+    expect(await screen.findByTestId('llm-config-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('llm-config-placeholder')).toBeNull();
   });
 
   it('未知路由已登录时无内容区崩坏（侧栏仍在，内容区空）', () => {

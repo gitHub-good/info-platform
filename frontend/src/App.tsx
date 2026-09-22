@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AiBrief } from '@/pages/AiBrief';
 import { JobLog } from '@/pages/JobLog';
+import { LlmConfig } from '@/pages/LlmConfig';
 import { LlmCostReport } from '@/pages/LlmCostReport';
 import { Login } from '@/pages/Login';
 import { PlaceholderPage } from '@/pages/PlaceholderPage';
@@ -61,7 +62,7 @@ function renderPage(route: string) {
       </main>
     );
   }
-  // 新增 5 页：本批占位（「开发中」），T39~T43 逐页填充
+  // 新增 5 页：#/llm-config 已实现（T39），其余本批占位（「开发中」），T40~T43 逐页填充
   if (route.startsWith('/overview')) {
     return (
       <PlaceholderPage
@@ -73,13 +74,7 @@ function renderPage(route: string) {
     );
   }
   if (route.startsWith('/llm-config')) {
-    return (
-      <PlaceholderPage
-        title="模型配置"
-        description="单价 / 预算 / 告警 / 缓存 / 超时前端可改；API Key 只写不回显"
-        testId="llm-config-placeholder"
-      />
-    );
+    return <LlmConfig />;
   }
   if (route.startsWith('/datasource-config')) {
     return (
