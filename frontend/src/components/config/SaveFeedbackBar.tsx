@@ -8,6 +8,8 @@ interface SaveFeedbackBarProps {
   restartFields?: string[];
   message?: string;
   testId: string;
+  /** success 前缀文案（默认「已保存」；激活切换/删除等非保存操作可自定义，M5 T48）。 */
+  successLabel?: string;
 }
 
 function effectSummary(hotFields: string[], restartFields: string[]): string {
@@ -32,6 +34,7 @@ export function SaveFeedbackBar({
   restartFields = [],
   message,
   testId,
+  successLabel = '已保存',
 }: SaveFeedbackBarProps) {
   if (state === 'idle') {
     return null;
@@ -65,7 +68,7 @@ export function SaveFeedbackBar({
       aria-live="polite"
       data-testid={testId}
     >
-      <span className="font-medium">已保存</span>
+      <span className="font-medium">{successLabel}</span>
       {effectSummary(hotFields, restartFields)}
     </p>
   );

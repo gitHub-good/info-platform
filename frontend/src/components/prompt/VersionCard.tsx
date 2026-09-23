@@ -1,4 +1,5 @@
-// 版本卡（M5 T47，UI 方案 §3.1/§5.2）：卡头常驻（版本号/状态徽章/元信息）+ 操作行 + 内联详情开关。
+// 版本卡（M5 T47+T48，UI 方案 §3.1/§3.5/§5.2）：卡头常驻（版本号/状态徽章/元信息）+
+// 操作行（按状态分化：激活卡仅编辑；置废卡设为激活/编辑/删除）+ 内联详情开关。
 // 激活卡 ring-1 ring-emerald-500/40 + emerald「使用中」；置废卡 opacity-60 hover 恢复（D8）。
 
 import { Badge } from '@/components/ui/badge';
@@ -30,10 +31,16 @@ export interface VersionCardProps {
   detailError: string | null;
   /** 注册表键集（占位符着色：未注册 amber；null = 未加载全部按已注册配色）。 */
   registeredKeys: Set<string> | null;
+  /** 同场景操作在途锁（激活/删除互斥，UI 方案 §3.5 交互 3）。 */
+  busy?: boolean;
   onToggleDetail: (version: PromptVersionView) => void;
+  /** 编辑 = 基于此版本创建新版本（保存后自动激活）。 */
+  onEdit: (version: PromptVersionView) => void;
+  onActivate: (version: PromptVersionView) => void;
+  onDelete: (version: PromptVersionView) => void;
 }
 
-/** 版本卡：徽章/元信息/内联详情开关（T47 骨架；编辑与版本操作入口由 T48 增补）。 */
+/** 版本卡：徽章/元信息/操作行（按状态分化）/内联详情开关（UI 方案 §3.1 交互 2~4）。 */
 export function VersionCard({
   briefType,
   version,
@@ -42,10 +49,15 @@ export function VersionCard({
   detailLoading,
   detailError,
   registeredKeys,
+  busy = false,
   onToggleDetail,
+  onEdit,
+  onActivate,
+  onDelete,
 }: VersionCardProps) {
   const isActive = version.status === 'ACTIVE';
   const idSuffix = `${briefType}-${version.version}`;
+  const editTitle = '基于此版本创建新版本，保存后自动激活';
 
   return (
     <Card
@@ -70,6 +82,48 @@ export function VersionCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          {isActive ? (
+            <Button
+              size="sm"
+              title={editTitle}
+              disabled={busy}
+              onClick={() => onEdit(version)}
+              data-testid={`prompt-edit-${idSuffix}`}
+            >
+              编辑
+            </Button>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => onActivate(version)}
+                data-testid={`prompt-activate-${idSuffix}`}
+              >
+                设为激活
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                title={editTitle}
+                disabled={busy}
+                onClick={() => onEdit(version)}
+                data-testid={`prompt-edit-${idSuffix}`}
+              >
+                编辑
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hover:text-rose-400"
+                disabled={busy}
+                onClick={() => onDelete(version)}
+                data-testid={`prompt-delete-${idSuffix}`}
+              >
+                删除
+              </Button>
+            </>
+          )}
           <Button
             variant="ghost"
             size="sm"

@@ -47,14 +47,17 @@ export class ApiError extends Error {
   msg: string;
   httpStatus: number;
   traceId?: string;
+  /** 结构化业务错误数据（M5：409/30068 携带 removed/unknown 待确认清单，T48）。 */
+  data?: unknown;
 
-  constructor(code: number, msg: string, httpStatus: number, traceId?: string) {
+  constructor(code: number, msg: string, httpStatus: number, traceId?: string, data?: unknown) {
     super(msg);
     this.name = 'ApiError';
     this.code = code;
     this.msg = msg;
     this.httpStatus = httpStatus;
     this.traceId = traceId;
+    this.data = data;
   }
 }
 
@@ -127,6 +130,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       parsed.msg ?? '服务异常',
       res.status,
       parsed.traceId,
+      parsed.data,
     );
   }
   return parsed.data as T;

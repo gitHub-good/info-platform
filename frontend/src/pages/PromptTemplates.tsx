@@ -1,22 +1,27 @@
-// 提示词模板治理页（M5 T47，#/prompt-templates，UI 方案 §3.1）。
-// 单列纵向：4 场景分区（Section Card）× 版本卡网格；版本详情内联展开（D3）；
-// activeCount 0/≥2 异常警示不静默；三态：骨架 / 空态两档 / 整页错误重试。
-// 编辑视图（页内替换式，D4）与版本操作由 T48 增补。
+// 提示词模板治理页（M5 T47+T48，#/prompt-templates，UI 方案 §3.1/§3.5）。
+// 单列纵向：4 场景分区 × 版本卡网格 + 版本操作（编辑/新建 → 页内替换式编辑视图 D4；
+// 激活切换与删除 → 二次确认 Dialog + 操作后重拉列表不做乐观更新）+ 场景级 SaveFeedbackBar。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
 import {
+  activatePromptTemplate,
+  deletePromptTemplate,
   getPromptPlaceholders,
   getPromptTemplateDetail,
   getPromptTemplates,
 } from '@/api/promptTemplates';
 import { VersionCard } from '@/components/prompt/VersionCard';
+import { SaveFeedbackBar, type SaveFeedbackState } from '@/components/config/SaveFeedbackBar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { compareVersions } from '@/lib/promptTemplate';
+import { PromptTemplateEditor } from '@/pages/PromptTemplateEditor';
 import type {
+  PromptCreateResult,
   PromptDetailView,
   PromptGroupView,
   PromptListView,
@@ -37,6 +42,16 @@ function orderVersions(versions: PromptVersionView[]): PromptVersionView[] {
   });
 }
 
+/** 场景级操作反馈（激活/删除共用一条反馈条，UI 方案 §4.2）。 */
+interface SceneFeedback {
+  state: SaveFeedbackState;
+  label: string;
+  hot: string[];
+  msg: string;
+}
+
+const IDLE_FEEDBACK: SceneFeedback = { state: 'idle', label: '', hot: [], msg: '' };
+
 interface SceneSectionProps {
   group: PromptGroupView;
   /** 该场景注册表（首张卡展开详情时懒加载；null = 未拉取，分区头不显示注册数）。 */
@@ -45,10 +60,16 @@ interface SceneSectionProps {
   details: Record<number, PromptDetailView>;
   detailLoading: Record<number, boolean>;
   detailErrors: Record<number, string>;
+  busy: boolean;
+  feedback: SceneFeedback;
   onToggleDetail: (group: PromptGroupView, version: PromptVersionView) => void;
+  onNewVersion: (group: PromptGroupView) => void;
+  onEdit: (group: PromptGroupView, version: PromptVersionView) => void;
+  onActivate: (group: PromptGroupView, version: PromptVersionView) => void;
+  onDelete: (group: PromptGroupView, version: PromptVersionView) => void;
 }
 
-/** 场景分区：分区头（场景名 + 当前使用徽章 + 注册数）+ activeCount 警示 + 版本卡网格。 */
+/** 场景分区：分区头（场景名 + 当前使用徽章 + 注册数 + 新建版本）+ 警示 + 版本卡网格 + 反馈条。 */
 function SceneSection({
   group,
   registry,
@@ -56,7 +77,13 @@ function SceneSection({
   details,
   detailLoading,
   detailErrors,
+  busy,
+  feedback,
   onToggleDetail,
+  onNewVersion,
+  onEdit,
+  onActivate,
+  onDelete,
 }: SceneSectionProps) {
   const briefType = group.briefType;
   const activeVersion = group.versions.find((v) => v.id === group.activeVersionId) ?? null;
@@ -79,25 +106,28 @@ function SceneSection({
               占位符注册 {registry.placeholders.length} 项
             </span>
           ) : null}
+          <Button
+            size="sm"
+            className="ml-auto"
+            disabled={busy}
+            title="以当前激活版本为底稿创建新版本，保存后自动激活"
+            onClick={() => onNewVersion(group)}
+            data-testid={`prompt-new-${briefType}`}
+          >
+            新建版本
+          </Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {group.activeCount === 0 ? (
+        {group.activeCount !== 1 ? (
           <p
             className="rounded bg-rose-500/15 px-2 py-1 text-xs text-rose-400"
             role="alert"
             data-testid={`prompt-scene-warning-${briefType}`}
           >
-            该场景无启用模板，AI 生成将失败
-          </p>
-        ) : null}
-        {group.activeCount >= 2 ? (
-          <p
-            className="rounded bg-rose-500/15 px-2 py-1 text-xs text-rose-400"
-            role="alert"
-            data-testid={`prompt-scene-warning-${briefType}`}
-          >
-            检测到多个启用版本，生成将取其一，请重新切换激活修复
+            {group.activeCount === 0
+              ? '该场景无启用模板，AI 生成将失败'
+              : '检测到多个启用版本，生成将取其一，请重新切换激活修复'}
           </p>
         ) : null}
         {group.versions.length === 0 ? (
@@ -116,19 +146,31 @@ function SceneSection({
                 detailLoading={detailLoading[version.id] ?? false}
                 detailError={detailErrors[version.id] ?? null}
                 registeredKeys={registeredKeys}
+                busy={busy}
                 onToggleDetail={(v) => onToggleDetail(group, v)}
+                onEdit={(v) => onEdit(group, v)}
+                onActivate={(v) => onActivate(group, v)}
+                onDelete={(v) => onDelete(group, v)}
               />
             ))}
           </div>
         )}
+        <SaveFeedbackBar
+          state={feedback.state}
+          successLabel={feedback.label}
+          hotFields={feedback.hot}
+          message={feedback.msg}
+          testId={`prompt-scene-feedback-${briefType}`}
+        />
       </CardContent>
     </Card>
   );
 }
 
 /**
- * 提示词模板管理页（T47）：4 场景 × 全部版本一页可见。
- * 列表为轻列表；详情全文与场景注册表按需懒加载（展开首张卡时触发，页面级缓存）。
+ * 提示词模板管理页：4 场景 × 全部版本一页可见；编辑视图为同路由 state 切换（D4）。
+ * 列表为轻列表；详情全文与场景注册表按需懒加载（页面级缓存）；
+ * 激活/删除/保存成功后一律重拉列表（不做乐观更新，不变量以后端为准，UI 方案 §3.5 交互 4）。
  */
 export function PromptTemplates() {
   const [view, setView] = useState<PromptListView | null>(null);
@@ -140,6 +182,26 @@ export function PromptTemplates() {
   const [detailErrors, setDetailErrors] = useState<Record<number, string>>({});
   const [registries, setRegistries] = useState<Record<number, PromptScenarioView>>({});
   const abortRef = useRef<AbortController | null>(null);
+
+  // 编辑视图（D4：单路由两视图，hash 不变）
+  const [editorTarget, setEditorTarget] = useState<{
+    briefType: number;
+    sceneName: string;
+    baseVersionId: number | null;
+    baseVersionLabel: string;
+  } | null>(null);
+
+  // 版本操作（二次确认 Dialog 承载，场景级互斥）
+  const [activateTarget, setActivateTarget] = useState<{
+    group: PromptGroupView;
+    version: PromptVersionView;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    group: PromptGroupView;
+    version: PromptVersionView;
+  } | null>(null);
+  const [sceneBusy, setSceneBusy] = useState<Record<number, boolean>>({});
+  const [sceneFeedback, setSceneFeedback] = useState<Record<number, SceneFeedback>>({});
 
   const load = useCallback(async () => {
     abortRef.current?.abort();
@@ -206,6 +268,113 @@ export function PromptTemplates() {
     [details, ensureDetail, ensureRegistry, expanded, registries],
   );
 
+  /** 打开编辑器：编辑入口以所点版本为底稿；新建入口以当前激活版为底稿（§2.2）。 */
+  const openEditor = (group: PromptGroupView, base: PromptVersionView | null) => {
+    setEditorTarget({
+      briefType: group.briefType,
+      sceneName: group.name,
+      baseVersionId: base ? base.id : null,
+      baseVersionLabel: base ? base.version : '',
+    });
+  };
+
+  const handleNewVersion = (group: PromptGroupView) => {
+    const active = group.versions.find((v) => v.id === group.activeVersionId) ?? null;
+    openEditor(group, active);
+  };
+
+  /** 确认激活切换：POST activate → 反馈条 + 重拉列表（唯一不变量以后端为准）。 */
+  const confirmActivate = async () => {
+    if (!activateTarget) return;
+    const { group, version } = activateTarget;
+    setSceneBusy((prev) => ({ ...prev, [group.briefType]: true }));
+    try {
+      await activatePromptTemplate(version.id);
+      setActivateTarget(null);
+      setSceneFeedback((prev) => ({
+        ...prev,
+        [group.briefType]: {
+          state: 'success',
+          label: `已激活 ${version.version}`,
+          hot: [`下一次${group.name}生成即用该版本`],
+          msg: '',
+        },
+      }));
+      await load();
+    } catch (err) {
+      setSceneFeedback((prev) => ({
+        ...prev,
+        [group.briefType]: {
+          state: 'error',
+          label: '',
+          hot: [],
+          msg: messageOf(err, '激活切换失败，请重试'),
+        },
+      }));
+    } finally {
+      setSceneBusy((prev) => ({ ...prev, [group.briefType]: false }));
+    }
+  };
+
+  /** 确认删除置废版本：DELETE → 反馈条 + 重拉列表（激活版由后端 30069 守卫兜底）。 */
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { group, version } = deleteTarget;
+    setSceneBusy((prev) => ({ ...prev, [group.briefType]: true }));
+    try {
+      await deletePromptTemplate(version.id);
+      setDeleteTarget(null);
+      setSceneFeedback((prev) => ({
+        ...prev,
+        [group.briefType]: {
+          state: 'success',
+          label: `已删除 ${version.version}`,
+          hot: [],
+          msg: '',
+        },
+      }));
+      await load();
+    } catch (err) {
+      setSceneFeedback((prev) => ({
+        ...prev,
+        [group.briefType]: {
+          state: 'error',
+          label: '',
+          hot: [],
+          msg: messageOf(err, '删除失败，请重试'),
+        },
+      }));
+    } finally {
+      setSceneBusy((prev) => ({ ...prev, [group.briefType]: false }));
+    }
+  };
+
+  /** 保存成功：重拉列表呈现新版本（编辑器保持打开，手动返回）。 */
+  const handleEditorSaved = (_result: PromptCreateResult) => {
+    void load();
+  };
+
+  // 编辑视图渲染（页内替换式：列表整棵卸载，hash 不变）
+  if (editorTarget) {
+    const sceneVersions =
+      view?.groups
+        .find((g) => g.briefType === editorTarget.briefType)
+        ?.versions.map((v) => v.version) ?? [];
+    return (
+      <PromptTemplateEditor
+        key={editorTarget.briefType}
+        briefType={editorTarget.briefType}
+        sceneName={editorTarget.sceneName}
+        baseVersionId={editorTarget.baseVersionId}
+        baseVersionLabel={editorTarget.baseVersionLabel}
+        sceneVersions={sceneVersions}
+        onBack={() => setEditorTarget(null)}
+        onSaved={handleEditorSaved}
+        onConflict={() => void load()}
+      />
+    );
+  }
+
   // 4 场景全空 = 整页数据异常（UI 方案 §3.1 三态表 empty 档）→ 按错误态处理
   const anomalyEmpty =
     view !== null && (view.groups.length === 0 || view.groups.every((g) => g.versions.length === 0));
@@ -260,10 +429,66 @@ export function PromptTemplates() {
               details={details}
               detailLoading={detailLoading}
               detailErrors={detailErrors}
+              busy={sceneBusy[group.briefType] ?? false}
+              feedback={sceneFeedback[group.briefType] ?? IDLE_FEEDBACK}
               onToggleDetail={toggleDetail}
+              onNewVersion={handleNewVersion}
+              onEdit={(g, v) => openEditor(g, v)}
+              onActivate={(g, v) => setActivateTarget({ group: g, version: v })}
+              onDelete={(g, v) => setDeleteTarget({ group: g, version: v })}
             />
           ))}
         </div>
+      ) : null}
+
+      {activateTarget ? (
+        <Dialog
+          open
+          title={`切换激活 · ${activateTarget.group.name}`}
+          description={`将激活 ${activateTarget.version.version}（回滚），当前激活版本将自动置废留痕。即时生效：下一次${activateTarget.group.name}生成即用 ${activateTarget.version.version} 模板。`}
+          onClose={() => setActivateTarget(null)}
+          footer={
+            <>
+              <Button variant="outline" size="sm" onClick={() => setActivateTarget(null)}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                disabled={sceneBusy[activateTarget.group.briefType]}
+                onClick={() => void confirmActivate()}
+                data-testid={`prompt-activate-confirm-${activateTarget.group.briefType}-${activateTarget.version.version}`}
+              >
+                {sceneBusy[activateTarget.group.briefType] ? '执行中…' : '确认切换并激活'}
+              </Button>
+            </>
+          }
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <Dialog
+          open
+          title={`删除版本 · ${deleteTarget.group.name} ${deleteTarget.version.version}`}
+          description="物理删除不可恢复；该版本已置废、不在生成链路使用，删除不影响其余版本与激活状态。"
+          onClose={() => setDeleteTarget(null)}
+          footer={
+            <>
+              <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
+                取消
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-rose-400 hover:text-rose-400"
+                disabled={sceneBusy[deleteTarget.group.briefType]}
+                onClick={() => void confirmDelete()}
+                data-testid={`prompt-delete-confirm-${deleteTarget.group.briefType}-${deleteTarget.version.version}`}
+              >
+                {sceneBusy[deleteTarget.group.briefType] ? '执行中…' : '确认删除'}
+              </Button>
+            </>
+          }
+        />
       ) : null}
     </main>
   );
