@@ -145,57 +145,5 @@ policy:
     days: 7
     batch-size: 20
 
-# LLM 网关（T19，§4.4 + ADR-0004/0008 + Spike-2 调研）：配置驱动多 provider + fallback。
-# DeepSeek default（deepseek-flash 性价比档，JSON mode 稳，Spike-2 §3）+ GLM fallback（glm-4-flash-250414 免费档）。
-# api-key 走环境变量，缺失默认空串（mock 测试/无 key 不 fail-fast）；生产注入 DEEPSEEK_API_KEY/GLM_API_KEY。
-# 预留通义/文心/Kimi（enabled=false，按需启用各加 provider adapter，不影响主链路）。
-llm:
-  providers:
-    - name: deepseek
-      base-url: https://api.deepseek.com          # OpenAI 兼容；RestClient 拼 /chat/completions
-      model: deepseek-flash                       # DeepSeek-V4.1-Flash（原 design 的 deepseek-chat 已迭代，见 Spike-2 §0）
-      api-key: ${DEEPSEEK_API_KEY:}               # 环境变量注入，永不入文件；缺失默认空串
-      # 成本估算单价（元/百万 token，Spike-2 §8.1 公开定价，空闲档；高峰 input 2.0/output 8.0，按需调）。
-      # 厂商调价只改此处，报表口径（微元）随配置即时生效，无需改代码。
-      input-price-per-million: 1.0
-      output-price-per-million: 4.0
-      enabled: true
-      default: true
-      fallback: glm
-    - name: glm
-      base-url: https://open.bigmodel.cn/api/paas/v4
-      model: glm-4-flash-250414                   # 免费档 128K；重负载可改 glm-4-plus（定价待控制台确认）
-      api-key: ${GLM_API_KEY:}
-      # 免费档 0 元（限频内），不估算成本；切付费档时补单价即可
-      input-price-per-million: 0
-      output-price-per-million: 0
-      enabled: true
-      default: false
-      fallback: deepseek
-    # 预留（enabled=false，按需启用）：
-    - name: qwen
-      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      model: qwen-plus
-      api-key: ${QWEN_API_KEY:}
-      enabled: false
-      default: false
-      fallback: deepseek
-    - name: kimi
-      base-url: https://api.moonshot.cn/v1
-      model: moonshot-v1-8k
-      api-key: ${KIMI_API_KEY:}
-      enabled: false
-      default: false
-      fallback: deepseek
-  timeout-seconds: 30
-  retry: 1                 # 同 provider 重试（幂等只读）；M2 以 fallback 链承担重试语义，值预留
-  daily-token-budget-per-user: 20000  # 成本上限（单用户日 token 预算，Spike-2 §8.3，~4 次/日/用户）
-  budget-warn-ratio: 0.8   # 预算告警阈值：用量达预算 80% 记 WARN + 报表置 WARNING（T30）；耗尽 100% 才拦截
-  cache:
-    # TTL 按 brief_type 差异化（Spike-2 §9 建议：个股 1h / 每日推荐 24h，行情与简报时效对齐；T30 核对维持）
-    default-ttl-seconds: 3600
-    maximum-size: 1000      # 个人量级上限护栏（Caffeine 红线：必设 maximumSize + 过期，防 OOM 防陈旧）
-    ttl:
-      brief-type-1: 3600    # 个股简报 1h
-      brief-type-3: 3600    # 政策解读/倾向判断 1h（同政策条目重复判断短窗去重；政策本身按日抓取）
-      brief-type-4: 86400   # 每日推荐 24h
+# LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
+# 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

@@ -59,8 +59,7 @@ class ConfigCenterDataSourceViewTest {
                         event -> {},
                         Clock.fixed(T1, ZoneOffset.UTC),
                         objectMapper);
-        configCenter =
-                new ConfigCenter(service, List.of(), new LlmConfigStubs(), null, objectMapper);
+        configCenter = new ConfigCenter(service, List.of(), null, objectMapper);
     }
 
     private void store(String key, String json) {
@@ -131,8 +130,4 @@ class ConfigCenterDataSourceViewTest {
                 + mode.name()
                 + "\",\"timeoutMillis\":2000,\"retries\":0,\"cacheTtlSeconds\":120,\"params\":{\"newsPageSize\":20}}";
     }
-
-    /** LlmConfig 最小替身（构造 ConfigCenter 必填，本测试不触 LLM 视图）。 */
-    private static final class LlmConfigStubs
-            extends com.info.platform.infrastructure.ai.LlmConfig {}
 }

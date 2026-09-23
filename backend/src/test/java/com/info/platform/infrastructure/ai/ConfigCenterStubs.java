@@ -14,25 +14,26 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * T35 测试夹具：把 {@link LlmConfig}（yml 形状）桥接为 {@link ConfigCenter} 运行时视图的 Mockito stub。
+ * T35 测试夹具：把 {@link LlmProviderFixtures.ProviderFixture}（可变 provider 形状）桥接为 {@link ConfigCenter}
+ * 运行时视图的 Mockito stub。
  *
  * <p>热改测试拨动点：{@code llmGlobal()} 读 {@link AtomicReference}（改预算/阈值/超时即换引用）、 {@code provider(name)}
- * 每次调用按 {@link Map} 当前值现算视图（改单价/启停即改 map 内 POJO）、 {@code bootLlmProviderBaseUrl} 同源取
- * baseUrl（RESTART 级在测试内恒定即可）。
+ * 每次调用按 {@link Map} 当前值现算视图（改单价/启停即改 map 内夹具）、 {@code bootLlmProviderBaseUrl} 同源取 baseUrl（RESTART
+ * 级在测试内恒定即可）。缺省全局视图取 {@link LlmDefaults} 内置值（ADR-0020）。
  */
 final class ConfigCenterStubs {
 
     private ConfigCenterStubs() {}
 
-    /** 由 yml 形状配置构造运行时全局视图。 */
-    static RuntimeLlmGlobal globalOf(LlmConfig config) {
+    /** 内置缺省的全局视图（对齐 {@code LlmInfrastructureConfig#runtimeGlobal} 缺键回落）。 */
+    static RuntimeLlmGlobal globalOfDefaults() {
         return new RuntimeLlmGlobal(
-                config.getTimeoutSeconds(),
-                config.getRetry(),
-                config.getDailyTokenBudgetPerUser(),
-                config.getBudgetWarnRatio(),
-                config.getCache().getDefaultTtlSeconds(),
-                config.getCache().getTtl());
+                LlmDefaults.TIMEOUT_SECONDS,
+                LlmDefaults.RETRY,
+                LlmDefaults.DAILY_TOKEN_BUDGET_PER_USER,
+                LlmDefaults.BUDGET_WARN_RATIO,
+                LlmDefaults.CACHE_DEFAULT_TTL_SECONDS,
+                LlmDefaults.CACHE_TTL_SECONDS);
     }
 
     /** 便捷全局视图（预算/阈值/超时按需覆盖，其余缺省）。 */
@@ -40,8 +41,8 @@ final class ConfigCenterStubs {
         return new RuntimeLlmGlobal(timeoutSeconds, 1, dailyBudget, warnRatio, 3600, Map.of());
     }
 
-    /** yml provider POJO → 运行时视图（apiKey 按 ENV 来源解析，DB 来源由 Facade 写路径覆盖）。 */
-    static RuntimeLlmProvider viewOf(LlmConfig.Provider provider) {
+    /** provider 夹具 → 运行时视图（apiKey 按 ENV 来源解析，DB 来源由 Facade 写路径覆盖）。 */
+    static RuntimeLlmProvider viewOf(LlmProviderFixtures.ProviderFixture provider) {
         boolean hasKey = provider.getApiKey() != null && !provider.getApiKey().isBlank();
         return new RuntimeLlmProvider(
                 provider.getName(),
@@ -57,14 +58,16 @@ final class ConfigCenterStubs {
                 hasKey ? provider.getApiKey().substring(provider.getApiKey().length() - 4) : null);
     }
 
-    /** 可变运行时状态：全局视图引用 + provider POJO 表（测试拨动预算/单价/启停）。 */
+    /** 可变运行时状态：全局视图引用 + provider 夹具表（测试拨动预算/单价/启停）。 */
     static final class Runtime {
         final AtomicReference<RuntimeLlmGlobal> global;
-        final Map<String, LlmConfig.Provider> providers = new HashMap<>();
+        final Map<String, LlmProviderFixtures.ProviderFixture> providers = new HashMap<>();
 
-        Runtime(LlmConfig config) {
-            this.global = new AtomicReference<>(globalOf(config));
-            config.getProviders().forEach(p -> providers.put(p.getName(), p));
+        Runtime(LlmProviderFixtures.ProviderFixture... providers) {
+            this.global = new AtomicReference<>(globalOfDefaults());
+            for (LlmProviderFixtures.ProviderFixture provider : providers) {
+                this.providers.put(provider.getName(), provider);
+            }
         }
 
         void setBudget(long dailyBudget) {
@@ -99,7 +102,7 @@ final class ConfigCenterStubs {
         when(configCenter.provider(anyString()))
                 .thenAnswer(
                         inv -> {
-                            LlmConfig.Provider provider =
+                            LlmProviderFixtures.ProviderFixture provider =
                                     runtime.providers.get(inv.getArgument(0, String.class));
                             return provider == null
                                     ? Optional.empty()
@@ -108,7 +111,7 @@ final class ConfigCenterStubs {
         when(configCenter.bootLlmProviderBaseUrl(anyString()))
                 .thenAnswer(
                         inv -> {
-                            LlmConfig.Provider provider =
+                            LlmProviderFixtures.ProviderFixture provider =
                                     runtime.providers.get(inv.getArgument(0, String.class));
                             return provider == null ? null : provider.getBaseUrl();
                         });
@@ -116,8 +119,7 @@ final class ConfigCenterStubs {
     }
 
     /** 固定单 provider stub（adapter 单测：无热改诉求）。 */
-    static ConfigCenter stubOf(LlmConfig.Provider... providers) {
-        LlmConfig config = LlmConfigTest.configWith(providers);
-        return stub(new Runtime(config));
+    static ConfigCenter stubOf(LlmProviderFixtures.ProviderFixture... providers) {
+        return stub(new Runtime(providers));
     }
 }

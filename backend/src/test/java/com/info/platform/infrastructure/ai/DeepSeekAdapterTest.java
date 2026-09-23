@@ -127,8 +127,8 @@ class DeepSeekAdapterTest {
 
     @Test
     void chat_modelAndKeyChangedAtRuntime_nextCallUsesNewValues() {
-        // Arrange（T35 热改）：可变 provider POJO 承载；两次预期先注册（按序消费），两次调用之间改模型与 key
-        LlmConfig.Provider provider = LlmConfigTest.deepseekProvider();
+        // Arrange（T35 热改）：可变 provider 夹具承载；两次预期先注册（按序消费），两次调用之间改模型与 key
+        LlmProviderFixtures.ProviderFixture provider = LlmProviderFixtures.deepseek();
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         DeepSeekAdapter adapter = new DeepSeekAdapter(builder, ConfigCenterStubs.stubOf(provider));
@@ -222,6 +222,6 @@ class DeepSeekAdapterTest {
     }
 
     static ConfigCenter configCenterWithDeepSeek() {
-        return ConfigCenterStubs.stubOf(LlmConfigTest.deepseekProvider());
+        return ConfigCenterStubs.stubOf(LlmProviderFixtures.deepseek());
     }
 }

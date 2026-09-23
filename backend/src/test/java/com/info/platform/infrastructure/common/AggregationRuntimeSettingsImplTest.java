@@ -56,10 +56,7 @@ class AggregationRuntimeSettingsImplTest {
                         event -> {},
                         Clock.fixed(T1, ZoneOffset.UTC),
                         new ObjectMapper());
-        com.info.platform.infrastructure.ai.LlmConfig llmConfig =
-                new com.info.platform.infrastructure.ai.LlmConfig();
-        llmConfig.setProviders(List.of());
-        configCenter = new ConfigCenter(service, List.of(), llmConfig, null, new ObjectMapper());
+        configCenter = new ConfigCenter(service, List.of(), null, new ObjectMapper());
         settings = new AggregationRuntimeSettingsImpl(configCenter, 2500L);
     }
 

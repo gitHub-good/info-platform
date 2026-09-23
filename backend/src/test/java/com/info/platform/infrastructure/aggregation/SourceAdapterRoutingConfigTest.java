@@ -9,7 +9,6 @@ import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.common.RuntimeConfig;
 import com.info.platform.domain.common.RuntimeConfigRepository;
 import com.info.platform.domain.push.AnomalyRepository;
-import com.info.platform.infrastructure.ai.LlmConfig;
 import com.info.platform.infrastructure.common.AggregationRuntimeSettingsImpl;
 import com.info.platform.infrastructure.common.ConfigCenter;
 import com.info.platform.infrastructure.common.SourceAdapterInfrastructureConfig;
@@ -64,16 +63,8 @@ class SourceAdapterRoutingConfigTest {
         }
 
         @Bean
-        LlmConfig llmConfig() {
-            LlmConfig config = new LlmConfig();
-            config.setProviders(List.of());
-            return config;
-        }
-
-        @Bean
-        ConfigCenter configCenter(
-                RuntimeConfigService service, LlmConfig llmConfig, ObjectMapper objectMapper) {
-            return new ConfigCenter(service, List.of(), llmConfig, null, objectMapper);
+        ConfigCenter configCenter(RuntimeConfigService service, ObjectMapper objectMapper) {
+            return new ConfigCenter(service, List.of(), null, objectMapper);
         }
 
         @Bean

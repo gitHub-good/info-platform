@@ -44,14 +44,11 @@ class LlmConfigValidatorTest {
 
     @BeforeEach
     void setUp() {
-        validator =
-                newValidator(
-                        LlmConfigTest.configWith(
-                                LlmConfigTest.deepseekProvider(), LlmConfigTest.glmProvider()));
+        validator = newValidator();
     }
 
-    /** 校验器 + 只读配置服务（快照读运行时键；写路径不在本测试范围）。 */
-    private LlmConfigValidator newValidator(LlmConfig config) {
+    /** 校验器 + 只读配置服务（快照读运行时键；写路径不在本测试范围；已知集 = LlmDefaults 内置缺省）。 */
+    private LlmConfigValidator newValidator() {
         RuntimeConfigService configService =
                 new RuntimeConfigService(
                         repository,
@@ -59,7 +56,7 @@ class LlmConfigValidatorTest {
                         event -> {},
                         Clock.fixed(NOW, ZoneOffset.UTC),
                         MAPPER);
-        return new LlmConfigValidator(config, fixedProvider(configService));
+        return new LlmConfigValidator(fixedProvider(configService));
     }
 
     /** 固定解析的 ObjectProvider 桩（复刻 Spring 对构造环的 lazy 解析语义，同包 facade 测试复用）。 */
@@ -266,13 +263,9 @@ class LlmConfigValidatorTest {
     }
 
     @Test
-    void provider_fallbackTargetDisabledInYml_rejected() {
+    void provider_fallbackTargetDisabledByDefaults_rejected() {
         // DEFECT-3 复现 a（修前红）：键空间表「fallback 须为存在且 enabled 的 provider」——
-        // 目标 provider 停用（yml 缺省即停，同生产 kimi/qwen 形态）时写入须拒绝，静默接受=失去灾备
-        LlmConfig.Provider glm = LlmConfigTest.glmProvider();
-        glm.setEnabled(false);
-        validator = newValidator(LlmConfigTest.configWith(LlmConfigTest.deepseekProvider(), glm));
-
+        // 目标 provider 停用（内置缺省即停，同生产 qwen/kimi 形态）时写入须拒绝，静默接受=失去灾备
         assertThatThrownBy(
                         () ->
                                 validator.validate(
@@ -280,16 +273,17 @@ class LlmConfigValidatorTest {
                                         MAPPER.readTree(
                                                 """
                                                 {"model":"deepseek-flash","enabled":true,"isDefault":true,
-                                                 "fallback":"glm","baseUrl":"https://api.deepseek.com"}
+                                                 "fallback":"qwen","baseUrl":"https://api.deepseek.com"}
                                                 """)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("fallback")
+                .hasMessageContaining("qwen")
                 .hasMessageContaining("停用");
     }
 
     @Test
     void provider_fallbackTargetDisabledByRuntimeRow_rejected() {
-        // 页面已停用目标（运行时键覆盖 yml 缺省）同样拒绝：目标状态读当前生效配置
+        // 页面已停用目标（运行时键覆盖内置缺省的启用态）同样拒绝：目标状态读当前生效配置
         seedRuntimeRow(
                 ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "glm",
                 """
@@ -313,15 +307,13 @@ class LlmConfigValidatorTest {
 
     @Test
     void provider_fallbackTargetEnabledByRuntimeRow_accepted() {
-        // 对照：目标 yml 缺省停用、但运行时键已启用 → 允许指向（enabled 读当前生效配置，非静态 yml）
+        // 对照：目标内置缺省停用（qwen）、但运行时键已启用 → 允许指向（enabled 读当前生效配置，非静态缺省）
         seedRuntimeRow(
-                ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "glm",
+                ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "qwen",
                 """
-                {"model":"glm-4-flash-250414","enabled":true,"isDefault":false,"fallback":"deepseek",
-                 "inputPricePerMillion":0,"outputPricePerMillion":0,"baseUrl":"https://open.bigmodel.cn"}
+                {"model":"qwen-plus","enabled":true,"isDefault":false,"fallback":"deepseek",
+                 "inputPricePerMillion":0,"outputPricePerMillion":0,"baseUrl":"https://dashscope.aliyuncs.com"}
                 """);
-        LlmConfig.Provider glm = LlmConfigTest.glmProvider();
-        glm.setEnabled(false);
 
         assertThatCode(
                         () ->
@@ -330,7 +322,7 @@ class LlmConfigValidatorTest {
                                         MAPPER.readTree(
                                                 """
                                                 {"model":"deepseek-flash","enabled":true,"isDefault":true,
-                                                 "fallback":"glm","baseUrl":"https://api.deepseek.com"}
+                                                 "fallback":"qwen","baseUrl":"https://api.deepseek.com"}
                                                 """)))
                 .doesNotThrowAnyException();
     }
@@ -356,13 +348,14 @@ class LlmConfigValidatorTest {
 
     @Test
     void provider_disableOnlyReferencedByDormantProvider_accepted() {
-        // 不扩大拒绝面：引用方自身停用（休眠引用，运行时链不经过）不阻塞停用
-        LlmConfig.Provider deepseek = LlmConfigTest.deepseekProvider();
-        LlmConfig.Provider glm = LlmConfigTest.glmProvider();
-        glm.setFallback(null); // 解除 glm 对 deepseek 的引用
-        LlmConfig.Provider dormant =
-                LlmConfigFacadeImplTest.qwenProvider(); // enabled=false，fallback=deepseek
-        validator = newValidator(LlmConfigTest.configWith(deepseek, glm, dormant));
+        // 不扩大拒绝面：引用方自身停用（休眠引用，运行时链不经过）不阻塞停用。
+        // 内置缺省中 glm（启用）引用 deepseek，先经运行时键解除其引用；qwen/kimi 停用引用 deepseek = 休眠引用
+        seedRuntimeRow(
+                ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "glm",
+                """
+                {"model":"glm-4-flash-250414","enabled":true,"isDefault":false,"fallback":"",
+                 "inputPricePerMillion":0,"outputPricePerMillion":0,"baseUrl":"https://open.bigmodel.cn"}
+                """);
 
         assertThatCode(
                         () ->

@@ -10,7 +10,7 @@ import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.application.common.RuntimeConfigSnapshot;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.common.BusinessException;
-import com.info.platform.infrastructure.ai.LlmConfig;
+import com.info.platform.infrastructure.ai.LlmDefaults;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,7 +47,6 @@ public class ConfigCenter {
 
     private final RuntimeConfigService configService;
     private final List<RuntimeConfigSeeder> seeders;
-    private final LlmConfig llmConfig;
     private final ConfigSecretCipher cipher;
     private final ObjectMapper objectMapper;
 
@@ -65,12 +64,10 @@ public class ConfigCenter {
     public ConfigCenter(
             RuntimeConfigService configService,
             List<RuntimeConfigSeeder> seeders,
-            LlmConfig llmConfig,
             ConfigSecretCipher cipher,
             ObjectMapper objectMapper) {
         this.configService = configService;
         this.seeders = List.copyOf(seeders);
-        this.llmConfig = llmConfig;
         this.cipher = cipher;
         this.objectMapper = objectMapper;
     }
@@ -146,7 +143,7 @@ public class ConfigCenter {
      *
      * <p>密文解密失败（CONFIG_SECRET 轮换/密文损坏）不阻断读：记 WARN 后回落环境变量（ADR-0018「不禁读」），重新录入 key 后恢复 DB 优先。
      *
-     * @return provider 不存在（无该键且无 yml 条目）返回空
+     * @return provider 不存在（无该键且无内置缺省条目）返回空
      */
     public Optional<RuntimeLlmProvider> provider(String name) {
         Optional<RuntimeConfigEntry> entry =
@@ -154,15 +151,14 @@ public class ConfigCenter {
         if (entry.isPresent()) {
             return Optional.of(resolveProvider(name, entry.orElseThrow()));
         }
-        // 无运行时键：yml 条目兜底（种子前/种子失败的降级读取，保持 providerByName 语义）
-        LlmConfig.Provider yml = llmConfig.providerByName(name);
-        return yml == null ? Optional.empty() : Optional.of(fromYmlProvider(yml));
+        // 无运行时键：内置缺省兜底（种子前/种子失败的降级读取，保持 providerByName 语义）
+        return LlmDefaults.providerByName(name).map(this::fromDefaultsProvider);
     }
 
     /**
      * RESTART 级 provider baseUrl（T35）：启动期冻结快照读取，页面保存不热生效、重启后生效（ADR-0017 §4.2）。
      *
-     * <p>启动快照无该键（种子前/未写入）回落 yml 绑定值；均无返回 null（消费方 inert）。
+     * <p>启动快照无该键（种子前/未写入）回落内置缺省；均无返回 null（消费方 inert）。
      */
     public String bootLlmProviderBaseUrl(String name) {
         String fromBoot =
@@ -173,8 +169,7 @@ public class ConfigCenter {
         if (fromBoot != null) {
             return fromBoot;
         }
-        LlmConfig.Provider yml = llmConfig.providerByName(name);
-        return yml == null ? null : yml.getBaseUrl();
+        return LlmDefaults.providerByName(name).map(LlmDefaults.Provider::baseUrl).orElse(null);
     }
 
     private RuntimeLlmProvider resolveProvider(String name, RuntimeConfigEntry entry) {
@@ -213,18 +208,18 @@ public class ConfigCenter {
                 last4);
     }
 
-    private RuntimeLlmProvider fromYmlProvider(LlmConfig.Provider yml) {
-        String envKey = yml.getApiKey();
-        boolean envPresent = envKey != null && !envKey.isBlank();
+    private RuntimeLlmProvider fromDefaultsProvider(LlmDefaults.Provider defaults) {
+        String envKey = LlmDefaults.envApiKey(defaults.name());
+        boolean envPresent = envKey != null;
         return new RuntimeLlmProvider(
-                yml.getName(),
-                yml.getModel(),
-                yml.isEnabled(),
-                yml.isDefault(),
-                yml.getFallback(),
-                yml.getInputPricePerMillion(),
-                yml.getOutputPricePerMillion(),
-                yml.getBaseUrl(),
+                defaults.name(),
+                defaults.model(),
+                defaults.enabled(),
+                defaults.isDefault(),
+                defaults.fallback(),
+                defaults.inputPricePerMillion(),
+                defaults.outputPricePerMillion(),
+                defaults.baseUrl(),
                 envPresent ? envKey : "",
                 envPresent
                         ? RuntimeLlmProvider.ApiKeySource.ENV
@@ -233,8 +228,7 @@ public class ConfigCenter {
     }
 
     private String envApiKey(String name) {
-        LlmConfig.Provider yml = llmConfig.providerByName(name);
-        return yml == null ? null : yml.getApiKey();
+        return LlmDefaults.envApiKey(name);
     }
 
     private RuntimeConfigSnapshot boot() {

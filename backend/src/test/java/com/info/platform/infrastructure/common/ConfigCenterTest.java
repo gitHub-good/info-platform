@@ -1,6 +1,8 @@
 package com.info.platform.infrastructure.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigSeed;
@@ -8,7 +10,7 @@ import com.info.platform.application.common.RuntimeConfigSeeder;
 import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.domain.common.RuntimeConfig;
 import com.info.platform.domain.common.RuntimeConfigRepository;
-import com.info.platform.infrastructure.ai.LlmConfig;
+import com.info.platform.infrastructure.ai.LlmDefaults;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -18,10 +20,12 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 /**
- * {@link ConfigCenter} 测试（T34）：启动种子导入与启动期冻结快照（bootValue）、类型化视图解析、API key 解析优先级
- * DB&gt;ENV&gt;空（ADR-0018）、密文解密失败回落 ENV。
+ * {@link ConfigCenter} 测试（T34；ADR-0020 起 LLM 域回落为 {@code LlmDefaults} 内置缺省、ENV key 直读 {@code
+ * System.getenv}）：启动种子导入与启动期冻结快照（bootValue）、类型化视图解析、API key 解析优先级 DB&gt;ENV&gt;空（ADR-0018）、密文解密失败回落
+ * ENV。
  */
 class ConfigCenterTest {
 
@@ -52,7 +56,6 @@ class ConfigCenterTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private InMemoryRepository repository;
     private RuntimeConfigService service;
-    private LlmConfig llmConfig;
     private ConfigSecretCipher cipher;
     private ConfigCenter configCenter;
 
@@ -66,14 +69,22 @@ class ConfigCenterTest {
                         (event) -> {},
                         Clock.fixed(T1, ZoneOffset.UTC),
                         objectMapper);
-        llmConfig = new LlmConfig();
         cipher = new ConfigSecretCipher(SECRET);
-        configCenter = new ConfigCenter(service, List.of(), llmConfig, cipher, objectMapper);
+        configCenter = new ConfigCenter(service, List.of(), cipher, objectMapper);
     }
 
     private void store(String key, String json) {
         repository.save(RuntimeConfig.create(key, json, null, T1));
         service.reload();
+    }
+
+    /** ENV key 注入桩：stub {@link LlmDefaults#envApiKey}（全部 ENV 读取的唯一收敛点；System 不可 mock），其余静态真调。 */
+    private static void withEnvKey(String providerName, String value, Runnable body) {
+        try (MockedStatic<LlmDefaults> defaults =
+                mockStatic(LlmDefaults.class, CALLS_REAL_METHODS)) {
+            defaults.when(() -> LlmDefaults.envApiKey(providerName)).thenReturn(value);
+            body.run();
+        }
     }
 
     @Test
@@ -93,11 +104,7 @@ class ConfigCenterTest {
                                         "聚合总超时"));
         configCenter =
                 new ConfigCenter(
-                        service,
-                        List.of(llmSeeder, aggregationSeeder),
-                        llmConfig,
-                        cipher,
-                        objectMapper);
+                        service, List.of(llmSeeder, aggregationSeeder), cipher, objectMapper);
 
         // Act：模拟 ApplicationReadyEvent
         configCenter.onApplicationReady();
@@ -169,8 +176,7 @@ class ConfigCenterTest {
 
     @Test
     void provider_dbCipherBeatsEnv() {
-        // Arrange：DB 已写入密文 + 尾 4 位；环境变量同名的 yml 条目也有 key（DB 优先）
-        setEnvProvider("deepseek", "sk-env-9999");
+        // Arrange：DB 已写入密文 + 尾 4 位；环境变量同 provider 也有 key（DB 优先）
         store(
                 ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "deepseek",
                 "{\"model\":\"deepseek-flash\",\"enabled\":true,\"isDefault\":true,\"fallback\":\"glm\","
@@ -180,23 +186,24 @@ class ConfigCenterTest {
                         + cipher.encrypt("sk-db-secret")
                         + "\",\"apiKeyLast4\":\"cret\"}");
 
-        // Act
-        var provider = configCenter.provider("deepseek");
-
-        // Assert
-        assertThat(provider).isPresent();
-        assertThat(provider.orElseThrow().apiKey()).isEqualTo("sk-db-secret");
-        assertThat(provider.orElseThrow().apiKeySource())
-                .isEqualTo(RuntimeLlmProvider.ApiKeySource.DB);
-        assertThat(provider.orElseThrow().apiKeyLast4()).isEqualTo("cret");
-        assertThat(provider.orElseThrow().model()).isEqualTo("deepseek-flash");
+        // Act + Assert
+        withEnvKey(
+                "deepseek",
+                "sk-env-9999",
+                () -> {
+                    var provider = configCenter.provider("deepseek");
+                    assertThat(provider).isPresent();
+                    assertThat(provider.orElseThrow().apiKey()).isEqualTo("sk-db-secret");
+                    assertThat(provider.orElseThrow().apiKeySource())
+                            .isEqualTo(RuntimeLlmProvider.ApiKeySource.DB);
+                    assertThat(provider.orElseThrow().apiKeyLast4()).isEqualTo("cret");
+                    assertThat(provider.orElseThrow().model()).isEqualTo("deepseek-flash");
+                });
     }
 
     @Test
     void provider_envFallbackWhenNoCipher_andNoneWhenNoSource() {
         // Arrange：deepseek 有 ENV key 无密文；glm 两者皆无
-        setEnvProvider("deepseek", "sk-env-9999");
-        setEnvProvider("glm", "");
         store(
                 ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "deepseek",
                 "{\"model\":\"deepseek-flash\",\"enabled\":true,\"isDefault\":true,"
@@ -207,21 +214,26 @@ class ConfigCenterTest {
                 "{\"model\":\"glm-4-flash\",\"enabled\":true,\"baseUrl\":\"https://open.bigmodel.cn\"}");
 
         // Act + Assert：deepseek 回落 ENV（尾 4 位来自 env 明文）；glm 无来源
-        var deepseek = configCenter.provider("deepseek").orElseThrow();
-        assertThat(deepseek.apiKey()).isEqualTo("sk-env-9999");
-        assertThat(deepseek.apiKeySource()).isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
-        assertThat(deepseek.apiKeyLast4()).isEqualTo("9999");
+        withEnvKey(
+                "deepseek",
+                "sk-env-9999",
+                () -> {
+                    var deepseek = configCenter.provider("deepseek").orElseThrow();
+                    assertThat(deepseek.apiKey()).isEqualTo("sk-env-9999");
+                    assertThat(deepseek.apiKeySource())
+                            .isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
+                    assertThat(deepseek.apiKeyLast4()).isEqualTo("9999");
 
-        var glm = configCenter.provider("glm").orElseThrow();
-        assertThat(glm.apiKey()).isEmpty();
-        assertThat(glm.apiKeySource()).isEqualTo(RuntimeLlmProvider.ApiKeySource.NONE);
-        assertThat(glm.hasApiKey()).isFalse();
+                    var glm = configCenter.provider("glm").orElseThrow();
+                    assertThat(glm.apiKey()).isEmpty();
+                    assertThat(glm.apiKeySource()).isEqualTo(RuntimeLlmProvider.ApiKeySource.NONE);
+                    assertThat(glm.hasApiKey()).isFalse();
+                });
     }
 
     @Test
     void provider_undecryptableCipher_fallsBackToEnvWithDegrade() {
         // Arrange：密文由另一主密钥加密（模拟 CONFIG_SECRET 轮换）；ENV 有 key
-        setEnvProvider("deepseek", "sk-env-9999");
         ConfigSecretCipher rotated = new ConfigSecretCipher("rotated-config-secret-0123456789");
         store(
                 ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "deepseek",
@@ -231,39 +243,50 @@ class ConfigCenterTest {
                         + "\"}");
 
         // Act + Assert：解密失败不阻断读，回落 ENV（ADR-0018「不禁读」）
-        var provider = configCenter.provider("deepseek").orElseThrow();
-        assertThat(provider.apiKey()).isEqualTo("sk-env-9999");
-        assertThat(provider.apiKeySource()).isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
+        withEnvKey(
+                "deepseek",
+                "sk-env-9999",
+                () -> {
+                    var provider = configCenter.provider("deepseek").orElseThrow();
+                    assertThat(provider.apiKey()).isEqualTo("sk-env-9999");
+                    assertThat(provider.apiKeySource())
+                            .isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
+                });
     }
 
     @Test
-    void provider_unknownName_andYmlOnlyFallback() {
-        // Arrange：qwen 仅存在于 yml（无运行时键，模拟种子前读取）
-        setEnvProvider("qwen", "sk-qwen-env");
-        LlmConfig.Provider yml = new LlmConfig.Provider();
-        yml.setName("qwen");
-        yml.setModel("qwen-plus");
-        yml.setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
-        yml.setEnabled(false);
-        yml.setFallback("deepseek");
-        yml.setApiKey("sk-qwen-env");
-        llmConfig.setProviders(List.of(yml));
-
-        // Act + Assert：未知名 → 空；仅有 yml 条目 → 从 yml 兜底（ENV key + last4）
-        assertThat(configCenter.provider("nonexistent")).isEmpty();
-        var provider = configCenter.provider("qwen").orElseThrow();
-        assertThat(provider.model()).isEqualTo("qwen-plus");
-        assertThat(provider.enabled()).isFalse();
-        assertThat(provider.apiKeySource()).isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
-        assertThat(provider.apiKeyLast4()).isEqualTo("-env");
+    void provider_unknownName_andDefaultsFallback() {
+        // Arrange：qwen 无运行时键（模拟种子前读取）；ENV 注入 QWEN_API_KEY（无 yml 段下直读环境变量，ADR-0018）
+        withEnvKey(
+                "qwen",
+                "sk-qwen-env",
+                () -> {
+                    // Act + Assert：未知名 → 空；内置缺省条目 → 从 LlmDefaults 兜底（ENV key + last4）
+                    assertThat(configCenter.provider("nonexistent")).isEmpty();
+                    var provider = configCenter.provider("qwen").orElseThrow();
+                    assertThat(provider.model()).isEqualTo("qwen-plus");
+                    assertThat(provider.baseUrl())
+                            .isEqualTo("https://dashscope.aliyuncs.com/compatible-mode/v1");
+                    assertThat(provider.enabled()).isFalse();
+                    assertThat(provider.apiKeySource())
+                            .isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
+                    assertThat(provider.apiKeyLast4()).isEqualTo("-env");
+                });
     }
 
-    private void setEnvProvider(String name, String apiKey) {
-        LlmConfig.Provider provider = new LlmConfig.Provider();
-        provider.setName(name);
-        provider.setApiKey(apiKey);
-        List<LlmConfig.Provider> merged = new java.util.ArrayList<>(llmConfig.getProviders());
-        merged.add(provider);
-        llmConfig.setProviders(merged);
+    @Test
+    void bootLlmProviderBaseUrl_bootSnapshotFirst_defaultsFallback() {
+        // Arrange：启动冻结快照含 glm 键；qwen 无键回落内置缺省；未知名 null
+        store(
+                ConfigCenter.KEY_LLM_PROVIDER_PREFIX + "glm",
+                "{\"model\":\"glm-4-flash-250414\",\"baseUrl\":\"https://glm.example.custom\"}");
+        configCenter.onApplicationReady();
+
+        // Act + Assert
+        assertThat(configCenter.bootLlmProviderBaseUrl("glm"))
+                .isEqualTo("https://glm.example.custom");
+        assertThat(configCenter.bootLlmProviderBaseUrl("qwen"))
+                .isEqualTo("https://dashscope.aliyuncs.com/compatible-mode/v1");
+        assertThat(configCenter.bootLlmProviderBaseUrl("nonexistent")).isNull();
     }
 }

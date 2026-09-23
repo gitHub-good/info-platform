@@ -43,7 +43,7 @@ import org.springframework.stereotype.Component;
  * ConfigCenter} 快照读取</b>（页面保存即对下一次调用生效）； 成本留痕按<b>调用时点单价</b>落死值 {@code
  * llm_call_log.cost_micros}——之后调价只影响新调用，历史留痕不回溯重算（ADR-0015 红线）。
  *
- * <p>超时（"自带"，对齐 {@code llm.timeout-seconds} + ADR-0010 思路）： 虚拟线程执行器承载阻塞式 {@code
+ * <p>超时（"自带"，对齐 {@code llm.global} 的 timeoutSeconds + ADR-0010 思路）： 虚拟线程执行器承载阻塞式 {@code
  * adapter.chat}，{@code Future.get(timeout)} 兜底，超时 {@code cancel(true)} 中断工作线程后切 fallback。 不在
  * adapter 层设 HTTP {@code requestFactory} 超时——避免与 {@code MockRestServiceServer} 的 mock
  * requestFactory 冲突（测试无 key 不依赖真实 API）。
@@ -57,7 +57,6 @@ public class LlmGatewayImpl implements LlmGateway {
     private static final Logger log = LoggerFactory.getLogger(LlmGatewayImpl.class);
 
     private final List<LlmProviderAdapter> adapters;
-    private final LlmConfig config;
     private final ConfigCenter configCenter;
     private final LlmCostGuard costGuard;
     private final LlmCache cache;
@@ -66,14 +65,12 @@ public class LlmGatewayImpl implements LlmGateway {
 
     public LlmGatewayImpl(
             List<LlmProviderAdapter> adapters,
-            LlmConfig config,
             ConfigCenter configCenter,
             LlmCostGuard costGuard,
             LlmCache cache,
             LlmCallLogger callLog,
             @Qualifier("llmExecutor") ExecutorService executor) {
         this.adapters = adapters == null ? List.of() : adapters;
-        this.config = config;
         this.configCenter = configCenter;
         this.costGuard = costGuard;
         this.cache = cache;
@@ -168,8 +165,8 @@ public class LlmGatewayImpl implements LlmGateway {
     /** 运行时 fallback 链：默认 provider 起按运行时 fallback 串联（带环检测）；启用与否链内逐个判定（跳过 disabled）。 */
     private List<String> fallbackChain() {
         String start = null;
-        for (LlmConfig.Provider candidate : config.getProviders()) {
-            RuntimeLlmProvider view = runtimeProvider(candidate.getName()).orElse(null);
+        for (LlmDefaults.Provider candidate : LlmDefaults.providers()) {
+            RuntimeLlmProvider view = runtimeProvider(candidate.name()).orElse(null);
             if (view != null && view.isDefault()) {
                 start = view.name();
                 break;
@@ -196,9 +193,12 @@ public class LlmGatewayImpl implements LlmGateway {
         return configCenter.provider(name);
     }
 
-    /** 当前超时（运行时读取，页面保存即对下一次调用生效）；快照缺键回落 yml。 */
+    /** 当前超时（运行时读取，页面保存即对下一次调用生效）；快照缺键回落内置缺省。 */
     private Duration runtimeTimeout() {
-        return configCenter.llmGlobal().map(RuntimeLlmGlobal::timeout).orElseGet(config::timeout);
+        return configCenter
+                .llmGlobal()
+                .map(RuntimeLlmGlobal::timeout)
+                .orElseGet(LlmDefaults::timeout);
     }
 
     /** 按 provider <b>当前单价</b>估算成本（微元），随调用时点落死值（调价不回溯历史留痕）。 */

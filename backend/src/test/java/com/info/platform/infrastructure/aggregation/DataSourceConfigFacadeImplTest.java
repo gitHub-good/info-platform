@@ -25,7 +25,6 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.common.RuntimeConfig;
 import com.info.platform.domain.common.RuntimeConfigRepository;
-import com.info.platform.infrastructure.ai.LlmConfig;
 import com.info.platform.infrastructure.common.ConfigCenter;
 import com.info.platform.infrastructure.common.NoopCircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
@@ -146,9 +145,7 @@ class DataSourceConfigFacadeImplTest {
                         event -> {},
                         clock,
                         objectMapper);
-        LlmConfig llmConfig = new LlmConfig();
-        llmConfig.setProviders(List.of());
-        configCenter = new ConfigCenter(configService, List.of(), llmConfig, null, objectMapper);
+        configCenter = new ConfigCenter(configService, List.of(), null, objectMapper);
         ResilienceRunner runner = new ResilienceRunner(executor);
         realQuote =
                 new FakeAdapter(

@@ -48,7 +48,6 @@ class LlmGatewayImplTest {
     private LlmCache cache;
     private LlmCallLogger callLog;
     private ExecutorService executor;
-    private LlmConfig config;
     private Runtime runtime;
 
     private static final LlmResponse DS_RESP =
@@ -64,10 +63,7 @@ class LlmGatewayImplTest {
         glm = mock(LlmProviderAdapter.class);
         when(deepseek.name()).thenReturn("deepseek");
         when(glm.name()).thenReturn("glm");
-        config =
-                LlmConfigTest.configWith(
-                        LlmConfigTest.deepseekProvider(), LlmConfigTest.glmProvider());
-        runtime = new Runtime(config);
+        runtime = new Runtime(LlmProviderFixtures.deepseek(), LlmProviderFixtures.glm());
         costGuard = new LlmCostGuard(runtime.global::get);
         cache =
                 new LlmCache(
@@ -94,7 +90,6 @@ class LlmGatewayImplTest {
     private LlmGatewayImpl gateway() {
         return new LlmGatewayImpl(
                 List.of(deepseek, glm),
-                config,
                 ConfigCenterStubs.stub(runtime),
                 costGuard,
                 cache,
@@ -226,7 +221,6 @@ class LlmGatewayImplTest {
         LlmGatewayImpl gw =
                 new LlmGatewayImpl(
                         List.of(deepseek, glm),
-                        config,
                         ConfigCenterStubs.stub(runtime),
                         smallBudget,
                         cache,

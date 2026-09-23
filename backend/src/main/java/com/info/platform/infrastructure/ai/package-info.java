@@ -6,8 +6,9 @@
  * com.info.platform.infrastructure.ai.AbstractOpenAiCompatProvider} + {@link
  * com.info.platform.infrastructure.ai.DeepSeekAdapter}/{@link
  * com.info.platform.infrastructure.ai.GlmAdapter} 为各厂商 provider adapter（OpenAI 兼容，Spring RestClient
- * 直调）； {@link com.info.platform.infrastructure.ai.LlmConfig} 绑定 {@code llm.*} 多 provider
- * 配置（ADR-0008）。 T20 增 {@link com.info.platform.infrastructure.ai.PromptTemplatePO} + {@link
+ * 直调）； {@link com.info.platform.infrastructure.ai.LlmDefaults} 承载 {@code llm.*} 多 provider
+ * 内置缺省（ADR-0008 / ADR-0020，运行时权威在配置中心）。 T20 增 {@link
+ * com.info.platform.infrastructure.ai.PromptTemplatePO} + {@link
  * com.info.platform.infrastructure.ai.PromptTemplateMapper} + {@link
  * com.info.platform.infrastructure.ai.PromptTemplateRepositoryImpl}（实现 {@code
  * PromptTemplateRepository} 加载端口，V8 播种驱动）。

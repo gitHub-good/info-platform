@@ -83,7 +83,6 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
     private final RuntimeConfigService configService;
     private final ConfigCenter configCenter;
     private final ConfigSecretCipher cipher;
-    private final LlmConfig llmConfig;
     private final List<LlmProviderAdapter> adapters;
     private final LlmCallLogger callLog;
     private final LlmCostGuard costGuard;
@@ -94,7 +93,6 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
             RuntimeConfigService configService,
             ConfigCenter configCenter,
             ConfigSecretCipher cipher,
-            LlmConfig llmConfig,
             List<LlmProviderAdapter> adapters,
             LlmCallLogger callLog,
             LlmCostGuard costGuard,
@@ -103,7 +101,6 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
         this.configService = configService;
         this.configCenter = configCenter;
         this.cipher = cipher;
-        this.llmConfig = llmConfig;
         this.adapters = List.copyOf(adapters);
         this.callLog = callLog;
         this.costGuard = costGuard;
@@ -118,7 +115,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
 
     @Override
     public GlobalConfigView updateGlobal(LlmGlobalUpdate update) {
-        ObjectNode merged = mutableDoc(ConfigCenter.KEY_LLM_GLOBAL, ymlGlobalDoc());
+        ObjectNode merged = mutableDoc(ConfigCenter.KEY_LLM_GLOBAL, defaultsGlobalDoc());
         if (update.timeoutSeconds() != null) {
             merged.put("timeoutSeconds", update.timeoutSeconds());
         }
@@ -146,7 +143,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
     public ProviderConfigView updateProvider(String name, LlmProviderUpdate update) {
         requireKnownProvider(name);
         String key = ConfigCenter.KEY_LLM_PROVIDER_PREFIX + name;
-        ObjectNode merged = mutableDoc(key, ymlProviderDoc(name));
+        ObjectNode merged = mutableDoc(key, defaultsProviderDoc(name));
         if (update.model() != null) {
             merged.put("model", update.model());
         }
@@ -185,7 +182,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
         // 未配置 CONFIG_SECRET 时 encrypt 抛 30064（接口层映射 503，页面只读降级，ADR-0018）
         String encrypted = cipher.encrypt(plaintext);
         String key = ConfigCenter.KEY_LLM_PROVIDER_PREFIX + name;
-        ObjectNode merged = mutableDoc(key, ymlProviderDoc(name));
+        ObjectNode merged = mutableDoc(key, defaultsProviderDoc(name));
         merged.put("apiKeyCipher", encrypted);
         merged.put("apiKeyLast4", ConfigSecretCipher.last4(plaintext));
         write(key, merged, update.expectedUpdatedAt());
@@ -231,7 +228,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
     }
 
     private GlobalConfigView globalView(RuntimeConfigEntry entry) {
-        JsonNode doc = entry == null ? ymlGlobalDoc() : entry.document();
+        JsonNode doc = entry == null ? defaultsGlobalDoc() : entry.document();
         Map<String, Long> ttl = new LinkedHashMap<>();
         doc.path("cacheTtlSeconds")
                 .fields()
@@ -243,25 +240,24 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
                 doc.path("budgetWarnRatio").asDouble(),
                 doc.path("cacheDefaultTtlSeconds").asLong(),
                 ttl,
-                llmConfig.getCache().getMaximumSize(),
+                LlmDefaults.CACHE_MAXIMUM_SIZE,
                 costGuard.currentUsage(currentUserId()),
                 entry == null ? null : entry.updatedAt().toString(),
                 GLOBAL_EFFECTIVE_MODES);
     }
 
     private List<ProviderConfigView> providerViews() {
-        return llmConfig.getProviders().stream().map(p -> providerView(p.getName())).toList();
+        return LlmDefaults.providers().stream().map(p -> providerView(p.name())).toList();
     }
 
     private ProviderConfigView providerView(String name) {
         RuntimeConfigEntry entry =
                 configService.read(ConfigCenter.KEY_LLM_PROVIDER_PREFIX + name).orElse(null);
-        JsonNode doc = entry == null ? ymlProviderDoc(name) : entry.document();
-        LlmConfig.Provider yml = llmConfig.providerByName(name);
+        JsonNode doc = entry == null ? defaultsProviderDoc(name) : entry.document();
         String cipherText = doc.path("apiKeyCipher").asText("");
         boolean fromDb = !cipherText.isBlank();
-        boolean fromEnv =
-                !fromDb && yml != null && yml.getApiKey() != null && !yml.getApiKey().isBlank();
+        String envKey = LlmDefaults.envApiKey(name);
+        boolean fromEnv = !fromDb && envKey != null;
         ApiKeyView apiKey =
                 fromDb
                         ? new ApiKeyView(
@@ -272,7 +268,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
                                 ? new ApiKeyView(
                                         ApiKeyView.STATUS_CONFIGURED,
                                         RuntimeLlmProvider.ApiKeySource.ENV.name(),
-                                        ConfigSecretCipher.last4(yml.getApiKey()))
+                                        ConfigSecretCipher.last4(envKey))
                                 : new ApiKeyView(ApiKeyView.STATUS_NOT_SET, null, null);
         return new ProviderConfigView(
                 name,
@@ -291,10 +287,13 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
 
     // —— 写路径（合并 → 校验落库 → 互斥默认） ——
 
-    /** 当前文档为基（无键时以 yml 缺省文档为基），返回可变副本供字段合并。 */
-    private ObjectNode mutableDoc(String configKey, ObjectNode ymlBase) {
+    /** 当前文档为基（无键时以内置缺省文档为基），返回可变副本供字段合并。 */
+    private ObjectNode mutableDoc(String configKey, ObjectNode defaultsBase) {
         JsonNode current =
-                configService.read(configKey).map(RuntimeConfigEntry::document).orElse(ymlBase);
+                configService
+                        .read(configKey)
+                        .map(RuntimeConfigEntry::document)
+                        .orElse(defaultsBase);
         // 文档均为 JSON 对象（种子/校验器保证），deepCopy 后可安全改写
         return (ObjectNode) current.deepCopy();
     }
@@ -305,8 +304,8 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
     }
 
     private void demoteOtherDefaults(String promotedName) {
-        for (LlmConfig.Provider provider : llmConfig.getProviders()) {
-            String name = provider.getName();
+        for (LlmDefaults.Provider provider : LlmDefaults.providers()) {
+            String name = provider.name();
             if (name.equals(promotedName)) {
                 continue;
             }
@@ -326,7 +325,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
     }
 
     private void requireKnownProvider(String name) {
-        if (llmConfig.providerByName(name) == null) {
+        if (LlmDefaults.providerByName(name).isEmpty()) {
             throw new BusinessException(
                     ErrorCode.LLM_PROVIDER_NOT_FOUND, "provider " + name + " 不存在");
         }
@@ -358,7 +357,7 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
                         null,
                         CONNECTIVITY_SCENE_KEY);
         Duration timeout =
-                configCenter.llmGlobal().map(g -> g.timeout()).orElse(llmConfig.timeout());
+                configCenter.llmGlobal().map(g -> g.timeout()).orElseGet(LlmDefaults::timeout);
         Future<LlmResponse> future = executor.submit(() -> adapter.chat(probe));
         try {
             return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
@@ -421,33 +420,35 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
         return node;
     }
 
-    private ObjectNode ymlGlobalDoc() {
+    /** 内置缺省的全局文档（DB 无键时的合并基与展示兜底，值同种子）。 */
+    private ObjectNode defaultsGlobalDoc() {
         ObjectNode doc = objectMapper.createObjectNode();
-        doc.put("timeoutSeconds", llmConfig.getTimeoutSeconds());
-        doc.put("retry", llmConfig.getRetry());
-        doc.put("dailyTokenBudgetPerUser", llmConfig.getDailyTokenBudgetPerUser());
-        doc.put("budgetWarnRatio", llmConfig.getBudgetWarnRatio());
-        doc.put("cacheDefaultTtlSeconds", llmConfig.getCache().getDefaultTtlSeconds());
-        doc.set("cacheTtlSeconds", toJson(llmConfig.getCache().getTtl()));
+        doc.put("timeoutSeconds", LlmDefaults.TIMEOUT_SECONDS);
+        doc.put("retry", LlmDefaults.RETRY);
+        doc.put("dailyTokenBudgetPerUser", LlmDefaults.DAILY_TOKEN_BUDGET_PER_USER);
+        doc.put("budgetWarnRatio", LlmDefaults.BUDGET_WARN_RATIO);
+        doc.put("cacheDefaultTtlSeconds", LlmDefaults.CACHE_DEFAULT_TTL_SECONDS);
+        doc.set("cacheTtlSeconds", toJson(LlmDefaults.CACHE_TTL_SECONDS));
         return doc;
     }
 
-    private ObjectNode ymlProviderDoc(String name) {
-        LlmConfig.Provider yml = llmConfig.providerByName(name);
+    /** 内置缺省的 provider 文档（DB 无键时的合并基与展示兜底，值同种子）。 */
+    private ObjectNode defaultsProviderDoc(String name) {
+        LlmDefaults.Provider defaults = LlmDefaults.providerByName(name).orElse(null);
         ObjectNode doc = objectMapper.createObjectNode();
-        if (yml == null) {
+        if (defaults == null) {
             return doc;
         }
-        doc.put("model", yml.getModel());
-        doc.put("enabled", yml.isEnabled());
-        doc.put("isDefault", yml.isDefault());
-        if (yml.getFallback() != null) {
-            doc.put("fallback", yml.getFallback());
+        doc.put("model", defaults.model());
+        doc.put("enabled", defaults.enabled());
+        doc.put("isDefault", defaults.isDefault());
+        if (defaults.fallback() != null) {
+            doc.put("fallback", defaults.fallback());
         }
-        doc.put("inputPricePerMillion", yml.getInputPricePerMillion());
-        doc.put("outputPricePerMillion", yml.getOutputPricePerMillion());
-        if (yml.getBaseUrl() != null) {
-            doc.put("baseUrl", yml.getBaseUrl());
+        doc.put("inputPricePerMillion", defaults.inputPricePerMillion());
+        doc.put("outputPricePerMillion", defaults.outputPricePerMillion());
+        if (defaults.baseUrl() != null) {
+            doc.put("baseUrl", defaults.baseUrl());
         }
         return doc;
     }

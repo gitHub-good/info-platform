@@ -3,7 +3,9 @@ package com.info.platform.infrastructure.ai;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.springframework.context.ApplicationEventPublisher;
 
 /**
@@ -82,7 +85,6 @@ class LlmConfigFacadeImplTest {
 
     private RuntimeConfigService configService;
     private ConfigCenter configCenter;
-    private LlmConfig llmConfig;
     private LlmCostGuard costGuard;
     private LlmProviderAdapter deepseekAdapter;
     private LlmCallLogger callLog;
@@ -91,30 +93,23 @@ class LlmConfigFacadeImplTest {
 
     @BeforeEach
     void setUp() {
-        llmConfig =
-                LlmConfigTest.configWith(
-                        LlmConfigTest.deepseekProvider(),
-                        LlmConfigTest.glmProvider(),
-                        qwenProvider());
         configService =
                 new RuntimeConfigService(
                         repository,
                         // 校验器惰性持服务引用（交叉校验读运行时键，DEFECT-3）：lambda 读字段为调用时点值
                         List.of(
                                 new LlmConfigValidator(
-                                        llmConfig,
                                         LlmConfigValidatorTest.lazyProvider(() -> configService))),
                         eventPublisher,
                         clock,
                         objectMapper);
         List<RuntimeConfigSeed> seeds =
-                new com.info.platform.infrastructure.common.LlmRuntimeConfigSeeder(
-                                llmConfig, objectMapper)
+                new com.info.platform.infrastructure.common.LlmRuntimeConfigSeeder(objectMapper)
                         .seeds();
         configService.seedIfAbsent(seeds);
         ConfigSecretCipher cipher = new ConfigSecretCipher(SECRET);
-        configCenter = new ConfigCenter(configService, List.of(), llmConfig, cipher, objectMapper);
-        costGuard = new LlmCostGuard(() -> ConfigCenterStubs.globalOf(llmConfig), clock);
+        configCenter = new ConfigCenter(configService, List.of(), cipher, objectMapper);
+        costGuard = new LlmCostGuard(ConfigCenterStubs::globalOfDefaults, clock);
         deepseekAdapter = mock(LlmProviderAdapter.class);
         when(deepseekAdapter.name()).thenReturn("deepseek");
         callLog = mock(LlmCallLogger.class);
@@ -124,7 +119,6 @@ class LlmConfigFacadeImplTest {
                         configService,
                         configCenter,
                         cipher,
-                        llmConfig,
                         List.of(deepseekAdapter),
                         callLog,
                         costGuard,
@@ -139,45 +133,61 @@ class LlmConfigFacadeImplTest {
         UserContext.clear();
     }
 
-    static LlmConfig.Provider qwenProvider() {
-        LlmConfig.Provider p = new LlmConfig.Provider();
-        p.setName("qwen");
-        p.setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
-        p.setModel("qwen-plus");
-        p.setApiKey(""); // 未配置 key → NOT_SET
-        p.setEnabled(false);
-        p.setDefault(false);
-        p.setFallback("deepseek");
-        return p;
+    /** 环境变量注入桩体（允许受检异常，由 withEnvKey 归一为 IllegalStateException）。 */
+    interface EnvBody {
+        void run() throws Exception;
+    }
+
+    /** ENV key 注入桩：stub {@link LlmDefaults#envApiKey}（ENV 读取唯一收敛点；System 不可 mock），其余静态真调。 */
+    private static void withEnvKey(String providerName, String value, EnvBody body) {
+        try (MockedStatic<LlmDefaults> defaults =
+                mockStatic(LlmDefaults.class, CALLS_REAL_METHODS)) {
+            defaults.when(() -> LlmDefaults.envApiKey(providerName)).thenReturn(value);
+            try {
+                body.run();
+            } catch (RuntimeException | Error e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
     }
 
     @Test
     void view_returnsMaskedKeyStatePerProviderAndEffectiveModes() {
-        LlmConfigView view = facade.view();
+        // ENV key 经 System.getenv 解析（ADR-0020 后无 yml 段，一等来源不动）→ deepseek ENV 态
+        withEnvKey(
+                "deepseek",
+                "sk-env-test-key",
+                () -> {
+                    LlmConfigView view = facade.view();
 
-        // 全局：种子值 + 只读展示项 + 逐字段生效级别（baseUrl/容量 RESTART，其余 LIVE）
-        assertThat(view.global().timeoutSeconds()).isEqualTo(30L);
-        assertThat(view.global().dailyTokenBudgetPerUser()).isEqualTo(20000L);
-        assertThat(view.global().cacheMaximumSize()).isEqualTo(1000L);
-        assertThat(view.global().updatedAt()).isEqualTo(NOW.toString());
-        assertThat(view.global().effectiveModes())
-                .containsEntry("cacheMaximumSize", "RESTART")
-                .containsEntry("dailyTokenBudgetPerUser", "LIVE");
+                    // 全局：种子值 + 只读展示项 + 逐字段生效级别（baseUrl/容量 RESTART，其余 LIVE）
+                    assertThat(view.global().timeoutSeconds()).isEqualTo(30L);
+                    assertThat(view.global().dailyTokenBudgetPerUser()).isEqualTo(20000L);
+                    assertThat(view.global().cacheMaximumSize()).isEqualTo(1000L);
+                    assertThat(view.global().updatedAt()).isEqualTo(NOW.toString());
+                    assertThat(view.global().effectiveModes())
+                            .containsEntry("cacheMaximumSize", "RESTART")
+                            .containsEntry("dailyTokenBudgetPerUser", "LIVE");
 
-        // provider：key 脱敏（deepseek ENV / qwen NOT_SET）；baseUrl 契约字段
-        assertThat(view.providers()).hasSize(3);
-        LlmConfigView.ProviderConfigView deepseek = providerOf(view, "deepseek");
-        assertThat(deepseek.apiKey().status())
-                .isEqualTo(LlmConfigView.ApiKeyView.STATUS_CONFIGURED);
-        assertThat(deepseek.apiKey().source()).isEqualTo("ENV");
-        assertThat(deepseek.apiKey().last4()).isEqualTo("-key");
-        assertThat(deepseek.baseUrlEffective()).isEqualTo("RESTART");
-        assertThat(deepseek.effectiveModes())
-                .containsEntry("baseUrl", "RESTART")
-                .containsEntry("model", "LIVE");
-        assertThat(providerOf(view, "qwen").apiKey().status())
-                .isEqualTo(LlmConfigView.ApiKeyView.STATUS_NOT_SET);
-        assertThat(view.apiKeyWriteEnabled()).isTrue();
+                    // provider：key 脱敏（deepseek ENV / qwen 与 kimi NOT_SET）；baseUrl 契约字段
+                    assertThat(view.providers()).hasSize(4);
+                    LlmConfigView.ProviderConfigView deepseek = providerOf(view, "deepseek");
+                    assertThat(deepseek.apiKey().status())
+                            .isEqualTo(LlmConfigView.ApiKeyView.STATUS_CONFIGURED);
+                    assertThat(deepseek.apiKey().source()).isEqualTo("ENV");
+                    assertThat(deepseek.apiKey().last4()).isEqualTo("-key");
+                    assertThat(deepseek.baseUrlEffective()).isEqualTo("RESTART");
+                    assertThat(deepseek.effectiveModes())
+                            .containsEntry("baseUrl", "RESTART")
+                            .containsEntry("model", "LIVE");
+                    assertThat(providerOf(view, "qwen").apiKey().status())
+                            .isEqualTo(LlmConfigView.ApiKeyView.STATUS_NOT_SET);
+                    assertThat(providerOf(view, "kimi").apiKey().status())
+                            .isEqualTo(LlmConfigView.ApiKeyView.STATUS_NOT_SET);
+                    assertThat(view.apiKeyWriteEnabled()).isTrue();
+                });
     }
 
     @Test
@@ -333,14 +343,14 @@ class LlmConfigFacadeImplTest {
                 .hasMessageContaining("inputPricePerMillion")
                 .hasMessageContaining("不能为负");
 
-        // 原值不变（失败不落库）
+        // 原值不变（失败不落库）：deepseek 内置缺省单价 1.0（ADR-0020 迁移值）
         assertThat(
                         facade.view().providers().stream()
                                 .filter(p -> p.name().equals("deepseek"))
                                 .findFirst()
                                 .orElseThrow()
                                 .inputPricePerMillion())
-                .isEqualTo(0.0);
+                .isEqualTo(1.0);
     }
 
     @Test
@@ -365,51 +375,59 @@ class LlmConfigFacadeImplTest {
 
     @Test
     void writeApiKey_configSecretMissing_throws30064AndNothingWritten() throws Exception {
-        LlmConfigFacadeImpl degradedFacade =
-                new LlmConfigFacadeImpl(
-                        configService,
-                        configCenter,
-                        new ConfigSecretCipher(""), // CONFIG_SECRET 未配置 → 降级态
-                        llmConfig,
-                        List.of(deepseekAdapter),
-                        callLog,
-                        costGuard,
-                        executor,
-                        objectMapper);
+        withEnvKey(
+                "deepseek",
+                "sk-env-test-key",
+                () -> {
+                    LlmConfigFacadeImpl degradedFacade =
+                            new LlmConfigFacadeImpl(
+                                    configService,
+                                    configCenter,
+                                    new ConfigSecretCipher(""), // CONFIG_SECRET 未配置 → 降级态
+                                    List.of(deepseekAdapter),
+                                    callLog,
+                                    costGuard,
+                                    executor,
+                                    objectMapper);
 
-        assertThatThrownBy(
-                        () ->
-                                degradedFacade.writeApiKey(
-                                        "deepseek",
-                                        new LlmConfigFacade.LlmApiKeyWrite("sk-any", null)))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(
-                        e -> {
-                            assertThat(((BusinessException) e).getErrorCode())
-                                    .isEqualTo(ErrorCode.API_KEY_WRITE_DISABLED);
-                            assertThat(((BusinessException) e).getErrorCode().getHttpStatus())
-                                    .isEqualTo(503);
-                        });
+                    assertThatThrownBy(
+                                    () ->
+                                            degradedFacade.writeApiKey(
+                                                    "deepseek",
+                                                    new LlmConfigFacade.LlmApiKeyWrite(
+                                                            "sk-any", null)))
+                            .isInstanceOf(BusinessException.class)
+                            .satisfies(
+                                    e -> {
+                                        assertThat(((BusinessException) e).getErrorCode())
+                                                .isEqualTo(ErrorCode.API_KEY_WRITE_DISABLED);
+                                        assertThat(
+                                                        ((BusinessException) e)
+                                                                .getErrorCode()
+                                                                .getHttpStatus())
+                                                .isEqualTo(503);
+                                    });
 
-        // 读不受降级影响，且未写入任何密文字段
-        assertThat(degradedFacade.view().apiKeyWriteEnabled()).isFalse();
-        assertThat(
-                        degradedFacade.view().providers().stream()
-                                .filter(p -> p.name().equals("deepseek"))
-                                .findFirst()
-                                .orElseThrow()
-                                .apiKey()
-                                .source())
-                .isEqualTo("ENV");
-        assertThat(
-                        objectMapper
-                                .readTree(
-                                        repository
-                                                .rows
-                                                .get("llm.provider.deepseek")
-                                                .getConfigValue())
-                                .has("apiKeyCipher"))
-                .isFalse();
+                    // 读不受降级影响，且未写入任何密文字段
+                    assertThat(degradedFacade.view().apiKeyWriteEnabled()).isFalse();
+                    assertThat(
+                                    degradedFacade.view().providers().stream()
+                                            .filter(p -> p.name().equals("deepseek"))
+                                            .findFirst()
+                                            .orElseThrow()
+                                            .apiKey()
+                                            .source())
+                            .isEqualTo("ENV");
+                    assertThat(
+                                    objectMapper
+                                            .readTree(
+                                                    repository
+                                                            .rows
+                                                            .get("llm.provider.deepseek")
+                                                            .getConfigValue())
+                                            .has("apiKeyCipher"))
+                            .isFalse();
+                });
     }
 
     @Test
@@ -427,18 +445,25 @@ class LlmConfigFacadeImplTest {
 
     @Test
     void writeApiKey_dbKeyTakesPriorityOverEnvInRuntimeResolution() {
-        // Arrange：deepseek yml 有 env key（test-key）
-        assertThat(configCenter.provider("deepseek").orElseThrow().apiKeySource())
-                .isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
+        withEnvKey(
+                "deepseek",
+                "sk-env-test-key",
+                () -> {
+                    // Arrange：deepseek 有 ENV key（无 yml 段下经 System.getenv 解析）
+                    assertThat(configCenter.provider("deepseek").orElseThrow().apiKeySource())
+                            .isEqualTo(RuntimeLlmProvider.ApiKeySource.ENV);
 
-        // Act：页面写入新 key
-        facade.writeApiKey(
-                "deepseek", new LlmConfigFacade.LlmApiKeyWrite("sk-db-priority-key", null));
+                    // Act：页面写入新 key
+                    facade.writeApiKey(
+                            "deepseek",
+                            new LlmConfigFacade.LlmApiKeyWrite("sk-db-priority-key", null));
 
-        // Assert：消费点解析 DB 优先（ADR-0018），adapter 下一次调用即用新 key
-        RuntimeLlmProvider resolved = configCenter.provider("deepseek").orElseThrow();
-        assertThat(resolved.apiKeySource()).isEqualTo(RuntimeLlmProvider.ApiKeySource.DB);
-        assertThat(resolved.apiKey()).isEqualTo("sk-db-priority-key");
+                    // Assert：消费点解析 DB 优先（ADR-0018），adapter 下一次调用即用新 key
+                    RuntimeLlmProvider resolved = configCenter.provider("deepseek").orElseThrow();
+                    assertThat(resolved.apiKeySource())
+                            .isEqualTo(RuntimeLlmProvider.ApiKeySource.DB);
+                    assertThat(resolved.apiKey()).isEqualTo("sk-db-priority-key");
+                });
     }
 
     @Test
@@ -467,7 +492,8 @@ class LlmConfigFacadeImplTest {
                 ArgumentCaptor.forClass(com.info.platform.domain.ai.LlmCallLog.class);
         verify(callLog).record(entry.capture());
         assertThat(entry.getValue().getSceneKey()).isEqualTo("test");
-        assertThat(entry.getValue().getCostMicros()).isEqualTo(0L); // deepseek 单价 0（未配价）
+        // deepseek 内置缺省单价 1.0/4.0（ADR-0020 迁移值）：5×1 + 2×4 = 13 微元，按调用时点落死值
+        assertThat(entry.getValue().getCostMicros()).isEqualTo(13L);
     }
 
     @Test

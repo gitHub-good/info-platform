@@ -86,7 +86,7 @@ class GlmAdapterTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         GlmAdapter adapter =
-                new GlmAdapter(builder, ConfigCenterStubs.stubOf(LlmConfigTest.glmProvider()));
+                new GlmAdapter(builder, ConfigCenterStubs.stubOf(LlmProviderFixtures.glm()));
         setter.accept(server);
         LlmResponse resp = adapter.chat(request);
         server.verify();

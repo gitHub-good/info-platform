@@ -51,17 +51,13 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
                     ConfigFieldRules.nonBlank("apiKeyCipher"),
                     ConfigFieldRules.nonBlank("apiKeyLast4"));
 
-    private final LlmConfig llmConfig;
-
     /**
      * 惰性解析的配置服务：运行时键是交叉校验（fallback 目标 enabled、被引用状态）的读取源。 须 {@link ObjectProvider} 惰性注入——{@link
      * RuntimeConfigService} 构造持有全部校验器，直接注入成环。
      */
     private final ObjectProvider<RuntimeConfigService> configServiceProvider;
 
-    public LlmConfigValidator(
-            LlmConfig llmConfig, ObjectProvider<RuntimeConfigService> configServiceProvider) {
-        this.llmConfig = llmConfig;
+    public LlmConfigValidator(ObjectProvider<RuntimeConfigService> configServiceProvider) {
         this.configServiceProvider = configServiceProvider;
     }
 
@@ -84,8 +80,8 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
     }
 
     /**
-     * fallback 须为已知 provider（本期不增删条目，已知集 = yml 配置名）、不得指向自身、 且目标当前须为启用状态（DEFECT-3 复现 a：指向停用目标 =
-     * 静默失去灾备保护）。目标 enabled 读当前生效配置（运行时键 &gt; yml 缺省）。
+     * fallback 须为已知 provider（本期不增删条目，已知集 = {@link LlmDefaults} 内置条目）、不得指向自身、 且目标当前须为启用状态（DEFECT-3
+     * 复现 a：指向停用目标 = 静默失去灾备保护）。目标 enabled 读当前生效配置（运行时键 &gt; 内置缺省）。
      */
     private void checkFallback(String configKey, JsonNode document) {
         JsonNode fallback = document.get("fallback");
@@ -95,8 +91,8 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
         String self = configKey.substring(ConfigCenter.KEY_LLM_PROVIDER_PREFIX.length());
         String target = fallback.asText();
         Set<String> known =
-                llmConfig.getProviders().stream()
-                        .map(LlmConfig.Provider::getName)
+                LlmDefaults.providers().stream()
+                        .map(LlmDefaults.Provider::name)
                         .collect(Collectors.toSet());
         if (target.equals(self)) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "fallback: 不得指向自身（" + self + "）");
@@ -128,8 +124,8 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
         }
         String self = configKey.substring(ConfigCenter.KEY_LLM_PROVIDER_PREFIX.length());
         List<String> referencing =
-                llmConfig.getProviders().stream()
-                        .map(LlmConfig.Provider::getName)
+                LlmDefaults.providers().stream()
+                        .map(LlmDefaults.Provider::name)
                         .filter(name -> !name.equals(self))
                         .filter(this::effectiveEnabled)
                         .filter(name -> self.equals(effectiveFallback(name)))
@@ -145,7 +141,7 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
         }
     }
 
-    /** 当前生效 enabled：运行时键文档 &gt; yml 缺省（键缺失 = 未写入/种子前）。 */
+    /** 当前生效 enabled：运行时键文档 &gt; 内置缺省（键缺失 = 未写入/种子前）。 */
     private boolean effectiveEnabled(String name) {
         return configServiceProvider
                 .getObject()
@@ -153,11 +149,12 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
                 .map(entry -> entry.document().path("enabled").asBoolean(false))
                 .orElseGet(
                         () ->
-                                llmConfig.providerByName(name) != null
-                                        && llmConfig.providerByName(name).isEnabled());
+                                LlmDefaults.providerByName(name)
+                                        .map(LlmDefaults.Provider::enabled)
+                                        .orElse(false));
     }
 
-    /** 当前生效 fallback（运行时键文档 &gt; yml 缺省；未配置/空白返回 null）。 */
+    /** 当前生效 fallback（运行时键文档 &gt; 内置缺省；未配置/空白返回 null）。 */
     private String effectiveFallback(String name) {
         java.util.Optional<RuntimeConfigEntry> entry =
                 configServiceProvider.getObject().read(ConfigCenter.KEY_LLM_PROVIDER_PREFIX + name);
@@ -165,8 +162,7 @@ public class LlmConfigValidator implements RuntimeConfigValidator {
             String value = entry.orElseThrow().document().path("fallback").asText(null);
             return value == null || value.isBlank() ? null : value;
         }
-        LlmConfig.Provider yml = llmConfig.providerByName(name);
-        return yml == null ? null : yml.getFallback();
+        return LlmDefaults.providerByName(name).map(LlmDefaults.Provider::fallback).orElse(null);
     }
 
     /** 可选规则升为必填（种子始终写入的字段，缺行/缺字段即配置面异常）。 */

@@ -31,7 +31,7 @@ public record RuntimeLlmGlobal(
         return Duration.ofSeconds(timeoutSeconds);
     }
 
-    /** 简报类型键 → TTL；未分档回落默认 TTL（对齐 LlmConfig.Cache#ttlFor 语义）。 */
+    /** 简报类型键 → TTL；未分档回落默认 TTL（对齐 LlmDefaults#ttlFor 语义）。 */
     public Duration ttlFor(String briefTypeKey) {
         Long seconds =
                 cacheTtlSeconds == null ? null : cacheTtlSeconds.get("brief-type-" + briefTypeKey);

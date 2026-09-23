@@ -20,7 +20,6 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.domain.common.RuntimeConfig;
 import com.info.platform.domain.common.RuntimeConfigRepository;
-import com.info.platform.infrastructure.ai.LlmConfig;
 import com.info.platform.infrastructure.common.ConfigCenter;
 import com.info.platform.infrastructure.common.RuntimeDataSource;
 import java.time.Clock;
@@ -81,9 +80,7 @@ class RoutingSourceAdapterTest {
                         event -> {},
                         Clock.fixed(T1, ZoneOffset.UTC),
                         objectMapper);
-        LlmConfig llmConfig = new LlmConfig();
-        llmConfig.setProviders(List.of());
-        configCenter = new ConfigCenter(configService, List.of(), llmConfig, null, objectMapper);
+        configCenter = new ConfigCenter(configService, List.of(), null, objectMapper);
         realAdapter = mock(SourceAdapter.class);
         when(realAdapter.sourceCode()).thenReturn(SourceCode.QUOTE);
         mockAdapter = mock(SourceAdapter.class);

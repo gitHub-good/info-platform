@@ -39,7 +39,7 @@ public record RuntimeLlmProvider(
     public enum ApiKeySource {
         /** 页面写入的 DB 密文解密所得 */
         DB,
-        /** 环境变量（LlmConfig yml 绑定值） */
+        /** 环境变量（{@code LlmDefaults#envApiKey} 按 provider 名解析，如 DEEPSEEK_API_KEY） */
         ENV,
         /** 未配置（adapter inert） */
         NONE
