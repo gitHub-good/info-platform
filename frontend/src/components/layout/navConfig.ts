@@ -5,6 +5,7 @@ import {
   FileText,
   LayoutDashboard,
   LineChart,
+  MessageSquareText,
   Newspaper,
   PlayCircle,
   Rss,
@@ -27,7 +28,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 11 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准）。 */
+/** 4 分组 12 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -57,6 +58,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/cost-report', label: '成本报表', icon: Coins },
       { to: '/llm-config', label: '模型配置', icon: Bot },
       { to: '/datasource-config', label: '数据源配置', icon: Database },
+      // 运维组第 6 项（全站第 13 页，M5 T47）：紧邻模型/数据源配置，同属「改 AI 产出」入口（UI 方案 D1）
+      { to: '/prompt-templates', label: '提示词模板', icon: MessageSquareText },
     ],
   },
 ];

@@ -72,6 +72,28 @@ function emptyOverviewView() {
   };
 }
 
+/** 提示词模板页最小视图（#/prompt-templates 导航用：4 场景各 1 激活版本）。 */
+function promptTemplatesList() {
+  return {
+    groups: [1, 2, 3, 4].map((briefType) => ({
+      briefType,
+      name: `场景${briefType}`,
+      activeVersionId: briefType,
+      activeCount: 1,
+      versions: [
+        {
+          id: briefType,
+          version: 'v1.0',
+          status: 'ACTIVE',
+          placeholderCount: 1,
+          createdAt: '2026-09-22T00:00:00Z',
+          updatedAt: '2026-09-22T00:00:00Z',
+        },
+      ],
+    })),
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
@@ -125,6 +147,14 @@ function makeFetch() {
         code: 0,
         msg: 'ok',
         data: datasourceConfigView(),
+        traceId: 't',
+      });
+    }
+    if (path.endsWith('/prompt-templates')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: promptTemplatesList(),
         traceId: 't',
       });
     }
@@ -287,6 +317,15 @@ describe('App 路由与登录守卫（T38）', () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some((call) => String(call[0]).includes('/datasource-configs')),
+      ).toBe(true),
+    );
+
+    // #/prompt-templates（T47，M5 第 13 页）：真实页挂载并请求模板列表接口
+    await user.click(screen.getByTestId('nav-item-prompt-templates'));
+    expect(await screen.findByTestId('prompt-templates-page')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/prompt-templates')),
       ).toBe(true),
     );
   });

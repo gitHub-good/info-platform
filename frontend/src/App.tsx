@@ -6,6 +6,7 @@ import { LlmCostReport } from '@/pages/LlmCostReport';
 import { Login } from '@/pages/Login';
 import { Overview } from '@/pages/Overview';
 import { Policy } from '@/pages/Policy';
+import { PromptTemplates } from '@/pages/PromptTemplates';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { TaskCenter } from '@/pages/TaskCenter';
 import { Watchlist } from '@/pages/Watchlist';
@@ -77,6 +78,10 @@ function renderPage(route: string) {
   }
   if (route.startsWith('/feed')) {
     return <Feed />;
+  }
+  // 提示词模板（M5 T47）：单路由两视图（列表 ⇄ 编辑器 state 切换，hash 不变，UI 方案 D4）
+  if (route.startsWith('/prompt-templates')) {
+    return <PromptTemplates />;
   }
   return null;
 }
