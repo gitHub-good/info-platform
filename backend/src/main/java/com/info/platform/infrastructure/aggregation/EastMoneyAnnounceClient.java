@@ -47,9 +47,10 @@ import org.springframework.web.util.UriComponentsBuilder;
  * <p>空结果（无公告或代码不存在）实测：{@code data.list=[]}、{@code total_hits=0}，返回 {@link Optional#empty()}（→
  * MISSING）。 不验 {@code success} 标志（与 {@link EastMoneyFinanceClient} 一致，靠结构导航）。
  *
- * <p>软限频：东财 {@code np-anotice-stock} 无 token、按 IP 软限，<b>无需 Referer 头</b>（2026-09-21 curl 实测无
- * Referer 返回 200，与 datacenter 财务端需 Referer 不同）。超时不在本客户端设——由 {@link
- * com.info.platform.infrastructure.common.ResilienceRunner}（2s 重试 0，见 ADR-0011）兜底。 HTTP
+ * <p>软限频：东财 {@code np-anotice-stock} 无 token、按 IP 软限。<b>ISSUE-A 实测收紧（2026-09-22）</b>：WAF 升级后需带浏览器
+ * User-Agent，并同 datacenter 财务端补东财站内 {@code Referer}（此前「无需 Referer」结论失效）。 响应实测以 {@code
+ * text/plain;charset=UTF-8} 声明返回 JSON 体，容错读见 {@link EastMoneyHttpSupport}（ISSUE-B）。 超时不在本客户端设——由
+ * {@link com.info.platform.infrastructure.common.ResilienceRunner}（2s 重试 0，见 ADR-0011）兜底。 HTTP
  * 异常直接抛出，由模板层降级。
  *
  * <p>详情 URL：eastmoney 公告 web 详情页为 JS 渲染，无稳定的 art_code 直链（{@code /notices/detail/<art_code>.html} 实测
@@ -65,6 +66,9 @@ public class EastMoneyAnnounceClient {
 
     private static final String DEFAULT_ANNOUNCE_URL =
             "https://np-anotice-stock.eastmoney.com/api/security/ann";
+
+    /** 东财软限频来源页（ISSUE-A：公告端点 WAF 收紧后与 datacenter 财务端同带站内 Referer）。 */
+    private static final String DEFAULT_ANNOUNCE_REFERER = "https://data.eastmoney.com/";
 
     /** 详情 PDF 直链模板（art_code 占位由 {@link #detailUrlOf} 替换）。H2_ 前缀已 A 股实测确认。 */
     private static final String DEFAULT_DETAIL_URL_TEMPLATE =
@@ -87,6 +91,7 @@ public class EastMoneyAnnounceClient {
     private final String announceUrl;
     private final int pageSize;
     private final String detailUrlTemplate;
+    private final String referer;
 
     /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
     @Autowired(required = false)
@@ -102,11 +107,14 @@ public class EastMoneyAnnounceClient {
                             "${adapter.eastmoney.announce-detail-url-template:"
                                     + DEFAULT_DETAIL_URL_TEMPLATE
                                     + "}")
-                    String detailUrlTemplate) {
-        this.restClient = restClientBuilder.build();
+                    String detailUrlTemplate,
+            @Value("${adapter.eastmoney.announce-referer:" + DEFAULT_ANNOUNCE_REFERER + "}")
+                    String referer) {
+        this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.announceUrl = announceUrl;
         this.pageSize = pageSize;
         this.detailUrlTemplate = detailUrlTemplate;
+        this.referer = referer;
     }
 
     /**
@@ -122,6 +130,9 @@ public class EastMoneyAnnounceClient {
         int pageSize =
                 RuntimeParams.intOf(
                         configCenter, SourceCode.ANNOUNCE, "announcePageSize", this.pageSize);
+        String referer =
+                RuntimeParams.of(
+                        configCenter, SourceCode.ANNOUNCE, "announceReferer", this.referer);
         String url = buildUrl(announceUrl, stockCode, pageSize);
         log.debug("东财公告请求 stockCode={} pageSize={}", stockCode, pageSize);
         Map<String, Object> root =
@@ -129,6 +140,8 @@ public class EastMoneyAnnounceClient {
                         .get()
                         .uri(url)
                         .accept(MediaType.APPLICATION_JSON)
+                        .header("User-Agent", EastMoneyHttpSupport.USER_AGENT)
+                        .header("Referer", referer)
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Object>>() {});
         return extractList(root);

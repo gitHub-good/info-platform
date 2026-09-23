@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -90,6 +91,8 @@ class QuoteSourceAdapterTest {
                         server ->
                                 server.expect(requestTo(containsString("secid=1.600519")))
                                         .andExpect(method(HttpMethod.GET))
+                                        // ISSUE-A：东财 WAF 对无 UA 请求断连，须带浏览器 UA
+                                        .andExpect(header("User-Agent", containsString("Mozilla")))
                                         .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
@@ -118,6 +121,28 @@ class QuoteSourceAdapterTest {
                 .isEqualByComparingTo(new BigDecimal("0.12"));
         assertThat(result.getData().get("externalCode")).isEqualTo("600519");
         assertThat(result.getData().get("name")).isEqualTo("贵州茅台");
+    }
+
+    @Test
+    void fetch_textPlainJsonBody_stillParses() {
+        // ISSUE-B：东财端点 content-type 漂移——datacenter/np-anotice 实测返回 text/plain 的 JSON 体，
+        // push2 同族防御（200 + text/plain 的 JSON 体须能解析，而非 UnknownContentTypeException 降级 MISSING）
+        String json =
+                """
+                {"rc":0,"data":{"f57":"600519","f58":"贵州茅台","f43":"1680.50","f46":"1670.00",
+                  "f44":"1690.00","f45":"1665.00","f60":"1669.00","f169":"11.50","f170":"0.69",
+                  "f47":123456,"f48":"9876543210","f171":"1.50","f168":"0.12"}}
+                """;
+        SourceResult result =
+                fetchWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        server ->
+                                server.expect(requestTo(containsString("secid=1.600519")))
+                                        .andRespond(withSuccess(json, MediaType.TEXT_PLAIN)));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((BigDecimal) result.getData().get("price"))
+                .isEqualByComparingTo(new BigDecimal("1680.50"));
     }
 
     @Test

@@ -102,6 +102,8 @@ class FinanceSourceAdapterTest {
                                         .andExpect(requestTo(containsString("SECURITY_CODE")))
                                         .andExpect(requestTo(containsString("600519")))
                                         .andExpect(method(HttpMethod.GET))
+                                        // ISSUE-A：东财 WAF 对无 UA 请求断连，须带浏览器 UA
+                                        .andExpect(header("User-Agent", containsString("Mozilla")))
                                         .andExpect(header("Referer", REFERER))
                                         .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
 
@@ -120,6 +122,30 @@ class FinanceSourceAdapterTest {
                 .isEqualByComparingTo(new BigDecimal("16.75"));
         assertThat(result.getData().get("reportDate")).isEqualTo("2026-06-30T00:00:00");
         assertThat(result.getData().get("externalCode")).isEqualTo("600519");
+    }
+
+    @Test
+    void fetch_textPlainJsonBody_mapsFieldsAndReturnsOk() {
+        // ISSUE-B：datacenter 实测返回 200 + text/plain;charset=UTF-8 的 JSON 体，
+        // 须能解析为 Map 而非 UnknownContentTypeException（→ 降级 MISSING）
+        String json =
+                """
+                {"result":{"pages":103,"data":[{
+                  "SECURITY_CODE":"600519","REPORT_DATE":"2026-06-30 00:00:00",
+                  "TOTALOPERATEREVE":92278072083.21,"PARENTNETPROFIT":44516880421.86,
+                  "XSJLL":50.75,"XSMLL":89.56,"ROEJQ":16.75
+                }]}}
+                """;
+        SourceResult result =
+                fetchWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        server ->
+                                server.expect(requestTo(containsString("SECURITY_CODE")))
+                                        .andRespond(withSuccess(json, MediaType.TEXT_PLAIN)));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((BigDecimal) result.getData().get("roe"))
+                .isEqualByComparingTo(new BigDecimal("16.75"));
     }
 
     @Test

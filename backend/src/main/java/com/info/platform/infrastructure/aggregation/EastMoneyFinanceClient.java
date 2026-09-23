@@ -34,9 +34,10 @@ import org.springframework.web.client.RestClient;
  *
  * <p>导航 {@code root.result.data[0]} 为原始字段 map。字段语义依据 Spike-1 §2.2/§4.2（🟢 实跑确认）。
  *
- * <p>软限频：东财 datacenter 无 token、按 IP 软限，请求需带 {@code Referer: https://data.eastmoney.com/}（对齐 Spike-1
- * §6.2）。 超时不在此设——由 {@link com.info.platform.infrastructure.common.ResilienceRunner}（2s 重试 0）兜底。
- * HTTP 异常直接抛出，由模板层降级。
+ * <p>软限频：东财 datacenter 无 token、按 IP 软限，请求需带浏览器 User-Agent + {@code Referer:
+ * https://data.eastmoney.com/}（对齐 Spike-1 §6.2；UA 为 ISSUE-A 实测补齐——WAF 对裸 UA 断连）。 响应实测以 {@code
+ * text/plain;charset=UTF-8} 声明返回 JSON 体，容错读见 {@link EastMoneyHttpSupport}（ISSUE-B）。 超时不在此设——由
+ * {@link com.info.platform.infrastructure.common.ResilienceRunner}（2s 重试 0）兜底。 HTTP 异常直接抛出，由模板层降级。
  *
  * <p>filter 中双引号须 {@code %22} 编码（实测字面双引号返回 HTTP 400）；圆括号/等号字面 eastmoney 接受。 手工拼接 query 串而非 {@code
  * UriComponentsBuilder.build(true)}：后者经 {@code RestClient.uri(String)→URI.create} 解析时对已编码 {@code
@@ -70,7 +71,7 @@ public class EastMoneyFinanceClient {
             @Value("${adapter.eastmoney.finance-url:" + DEFAULT_FINANCE_URL + "}")
                     String financeUrl,
             @Value("${adapter.eastmoney.finance-referer:" + DEFAULT_REFERER + "}") String referer) {
-        this.restClient = restClientBuilder.build();
+        this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.financeUrl = financeUrl;
         this.referer = referer;
     }
@@ -93,6 +94,7 @@ public class EastMoneyFinanceClient {
                         .get()
                         .uri(url)
                         .accept(MediaType.APPLICATION_JSON)
+                        .header("User-Agent", EastMoneyHttpSupport.USER_AGENT)
                         .header("Referer", referer)
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Object>>() {});

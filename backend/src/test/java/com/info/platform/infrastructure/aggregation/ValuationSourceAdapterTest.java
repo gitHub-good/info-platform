@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -93,6 +94,8 @@ class ValuationSourceAdapterTest {
                                         .andExpect(
                                                 requestTo(containsString("fields=f57,f162,f167")))
                                         .andExpect(method(HttpMethod.GET))
+                                        // ISSUE-A：估值与行情共用 EastMoneyClient，同样须带浏览器 UA
+                                        .andExpect(header("User-Agent", containsString("Mozilla")))
                                         .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);

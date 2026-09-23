@@ -28,6 +28,9 @@ import org.springframework.web.util.UriComponentsBuilder;
  * <p>超时不在本客户端重复设置——弹性超时由上层 {@link com.info.platform.infrastructure.common.ResilienceRunner}（行情 1.5s
  * / 估值 2s）统一兜底， 对齐 ADR-0010（弹性收敛在 ResilienceRunner）。HTTP 异常（4xx/5xx/连接失败）直接抛出，由模板层降级。
  *
+ * <p>防断连与容错读：请求带浏览器 User-Agent（东财 WAF 对裸 UA 间歇断连，ISSUE-A），响应容错读 {@code text/plain} 声明的 JSON
+ * 体（同族端点实测 content-type 漂移，ISSUE-B）——共用约定见 {@link EastMoneyHttpSupport}。
+ *
  * <p>{@code fltt=2} / {@code invt=2} 为东财返回格式契约（价格返回带小数、单位元），属 API 契约常量非配置项。
  */
 @Component
@@ -57,7 +60,7 @@ public class EastMoneyClient {
             @Value("${adapter.eastmoney.fields:f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171}")
                     String fields,
             @Value("${adapter.eastmoney.valuation-fields:f57,f162,f167}") String valuationFields) {
-        this.restClient = restClientBuilder.build();
+        this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.quoteUrl = quoteUrl;
         this.fields = fields;
         this.valuationFields = valuationFields;
@@ -104,6 +107,7 @@ public class EastMoneyClient {
                         .get()
                         .uri(requestUrl)
                         .accept(MediaType.APPLICATION_JSON)
+                        .header("User-Agent", EastMoneyHttpSupport.USER_AGENT)
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Object>>() {});
         if (root == null) {

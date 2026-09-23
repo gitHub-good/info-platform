@@ -67,8 +67,10 @@ adapter:
     finance-url: https://datacenter-web.eastmoney.com/api/data/v1/get
     # 东财软限频来源页（无 token，靠 Referer 标识来源）
     finance-referer: https://data.eastmoney.com/
-    # 公告源（T05）：东财 np-anotice-stock，无需 Referer（实测无 Referer 返回 200）
+    # 公告源（T05）：东财 np-anotice-stock；ISSUE-A（2026-09-22）WAF 收紧，需 UA + 站内 Referer（此前"无需 Referer"结论失效）
     announce-url: https://np-anotice-stock.eastmoney.com/api/security/ann
+    # 东财软限频来源页（与 datacenter 财务端同款）
+    announce-referer: https://data.eastmoney.com/
     # 公告取数条数（PRD 取最新 3 条）
     announce-page-size: 3
     # 公告详情 PDF 直链模板（art_code 占位由 adapter 替换；H2_ 前缀已 A 股实测确认）

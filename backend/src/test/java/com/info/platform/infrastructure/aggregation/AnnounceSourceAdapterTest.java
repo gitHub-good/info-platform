@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -42,10 +43,10 @@ import org.springframework.web.client.RestClient;
  *
  * <p>行为测试用 {@link MockRestServiceServer} 模拟公告响应 JSON（结构 {@code data.list[]}，2026-09-21 curl
  * 实测确认），覆盖： 正常取数→拍平嵌套→逐条映射→OK（含
- * title/publishedAt/category/url/externalId/externalCode/subjectName，且断言<b>无需 Referer</b>）/
- * 空列表→MISSING / data 节点 null→MISSING / null 响应体→MISSING / HTTP 500→异常降级 MISSING / 缺 eastmoney 与
- * eastmoney_code→MISSING（不发请求）/ externalCodes 为 null→MISSING / 从 secid 派生 6 位代码 / 优先 eastmoney_code
- * 键。
+ * title/publishedAt/category/url/externalId/externalCode/subjectName，且断言<b>带 UA + 东财站内
+ * Referer</b>，ISSUE-A）/ text/plain JSON 体→OK（ISSUE-B）/ 空列表→MISSING / data 节点 null→MISSING / null
+ * 响应体→MISSING / HTTP 500→异常降级 MISSING / 缺 eastmoney 与 eastmoney_code→MISSING（不发请求）/ externalCodes 为
+ * null→MISSING / 从 secid 派生 6 位代码 / 优先 eastmoney_code 键。
  *
  * <p><b>字段嵌套偏差</b>（vs Spike-1 §4.4）：实测 {@code stock_code}/{@code short_name} 嵌在 {@code codes[0]}、
  * {@code column_name} 嵌在 {@code columns[0]}（非列表项顶层）。mock 响应按实测结构构造，验证 adapter 拍平逻辑。响应路径 {@code
@@ -61,6 +62,7 @@ class AnnounceSourceAdapterTest {
 
     private static final String ANNOUNCE_URL =
             "https://np-anotice-stock.eastmoney.com/api/security/ann";
+    private static final String ANNOUNCE_REFERER = "https://data.eastmoney.com/";
     private static final int PAGE_SIZE = 3;
     private static final String DETAIL_URL_TEMPLATE =
             "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf";
@@ -116,14 +118,9 @@ class AnnounceSourceAdapterTest {
                                         .andExpect(requestTo(containsString("ann_type=A")))
                                         .andExpect(requestTo(containsString("client_source=web")))
                                         .andExpect(method(HttpMethod.GET))
-                                        // 公告端点无需 Referer（实测无 Referer 返回 200，与 datacenter 财务端不同）
-                                        .andExpect(
-                                                req ->
-                                                        assertThat(
-                                                                        req.getHeaders()
-                                                                                .getFirst(
-                                                                                        "Referer"))
-                                                                .isNull())
+                                        // ISSUE-A：公告端点 WAF 收紧——须带浏览器 UA + 东财站内 Referer
+                                        .andExpect(header("User-Agent", containsString("Mozilla")))
+                                        .andExpect(header("Referer", ANNOUNCE_REFERER))
                                         .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
@@ -151,6 +148,36 @@ class AnnounceSourceAdapterTest {
         assertThat(second.get("category")).isEqualTo("半年度报告摘要");
         assertThat(second.get("url"))
                 .isEqualTo("https://pdf.dfcfw.com/pdf/H2_AN202608141827994403_1.pdf");
+    }
+
+    @Test
+    void fetch_textPlainJsonBody_mapsItemsAndReturnsOk() {
+        // ISSUE-B：np-anotice 实测返回 200 + text/plain;charset=UTF-8 的 JSON 体，
+        // 须能解析为 Map 而非 UnknownContentTypeException（→ 降级 MISSING）
+        String json =
+                """
+                {"data":{"list":[
+                  {"art_code":"AN202608141827994407",
+                   "title":"贵州茅台:贵州茅台关于召开2026年半年度业绩说明会的公告",
+                   "notice_date":"2026-08-15 00:00:00","source_type":"31",
+                   "codes":[{"short_name":"贵州茅台","stock_code":"600519"}],
+                   "columns":[{"column_name":"其他"}]}
+                ],"page_index":1,"page_size":3,"total_hits":1074},"error":"","success":1}
+                """;
+        SourceResult result =
+                fetchWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        server ->
+                                server.expect(requestTo(containsString("stock_list=600519")))
+                                        .andRespond(withSuccess(json, MediaType.TEXT_PLAIN)));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        Object itemsObj = result.getData().get("items");
+        assertThat(itemsObj).isInstanceOf(List.class);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) itemsObj;
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).get("externalId")).isEqualTo("AN202608141827994407");
     }
 
     @Test
@@ -396,7 +423,8 @@ class AnnounceSourceAdapterTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         EastMoneyAnnounceClient client =
-                new EastMoneyAnnounceClient(builder, ANNOUNCE_URL, PAGE_SIZE, DETAIL_URL_TEMPLATE);
+                new EastMoneyAnnounceClient(
+                        builder, ANNOUNCE_URL, PAGE_SIZE, DETAIL_URL_TEMPLATE, ANNOUNCE_REFERER);
         AnnounceSourceAdapter adapter =
                 new AnnounceSourceAdapter(cache, fieldMapper, runner, breaker, client);
         responseSetter.accept(server);
@@ -408,7 +436,11 @@ class AnnounceSourceAdapterTest {
     /** 客户端用真实 URL/参数，但不发请求（供不发 HTTP 的早返回场景）。 */
     private EastMoneyAnnounceClient mockClient() {
         return new EastMoneyAnnounceClient(
-                RestClient.builder(), ANNOUNCE_URL, PAGE_SIZE, DETAIL_URL_TEMPLATE);
+                RestClient.builder(),
+                ANNOUNCE_URL,
+                PAGE_SIZE,
+                DETAIL_URL_TEMPLATE,
+                ANNOUNCE_REFERER);
     }
 
     private static Subject subjectWithSecid(String secid) {
