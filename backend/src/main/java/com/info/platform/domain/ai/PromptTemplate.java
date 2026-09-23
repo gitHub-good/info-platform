@@ -1,5 +1,6 @@
 package com.info.platform.domain.ai;
 
+import java.time.Instant;
 import java.util.Objects;
 
 /**
@@ -27,14 +28,24 @@ public class PromptTemplate {
     private final String version;
     private final String template;
     private final int status;
+    private final Instant createdAt;
+    private final Instant updatedAt;
 
     private PromptTemplate(
-            Long id, BriefType briefType, String version, String template, int status) {
+            Long id,
+            BriefType briefType,
+            String version,
+            String template,
+            int status,
+            Instant createdAt,
+            Instant updatedAt) {
         this.id = id;
         this.briefType = briefType;
         this.version = version;
         this.template = template;
         this.status = status;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
     }
 
     /**
@@ -48,10 +59,34 @@ public class PromptTemplate {
      */
     public static PromptTemplate reconstruct(
             Long id, BriefType briefType, String version, String template, int status) {
+        return reconstruct(id, briefType, version, template, status, null, null);
+    }
+
+    /** 从持久化数据重建实体（含时间戳，M5 管理面列表/详情展示用；时间戳由基础设施层回填，ISO-8601 文本转 {@link Instant}）。 */
+    public static PromptTemplate reconstruct(
+            Long id,
+            BriefType briefType,
+            String version,
+            String template,
+            int status,
+            Instant createdAt,
+            Instant updatedAt) {
         Objects.requireNonNull(briefType, "briefType 必填");
         Objects.requireNonNull(version, "version 必填");
         Objects.requireNonNull(template, "template 必填");
-        return new PromptTemplate(id, briefType, version, template, status);
+        return new PromptTemplate(id, briefType, version, template, status, createdAt, updatedAt);
+    }
+
+    /**
+     * 构建新版本行（M5 管理面「保存即激活」语义：新行直接 {@code status=1}，旧版由仓储先置废）。
+     *
+     * <p>id/时间戳留空，落库后由 {@code PromptTemplateRepositoryImpl.insert} 回填。
+     */
+    public static PromptTemplate newVersion(BriefType briefType, String version, String template) {
+        Objects.requireNonNull(briefType, "briefType 必填");
+        Objects.requireNonNull(version, "version 必填");
+        Objects.requireNonNull(template, "template 必填");
+        return new PromptTemplate(null, briefType, version, template, 1, null, null);
     }
 
     public Long getId() {
@@ -72,6 +107,14 @@ public class PromptTemplate {
 
     public int getStatus() {
         return status;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
     }
 
     /** 是否启用（{@code status==1}），T21 加载时据此过滤。 */

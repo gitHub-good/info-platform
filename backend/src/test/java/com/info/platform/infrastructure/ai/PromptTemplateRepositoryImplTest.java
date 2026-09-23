@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.PromptTemplate;
 import com.info.platform.domain.ai.PromptTemplateRepository;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -114,6 +116,104 @@ class PromptTemplateRepositoryImplTest {
     void findActiveByBriefType_nullArg_returnsEmptyDefensively() {
         // Act + Assert：null 入参直接返回 empty（防御，避免 NPE）
         assertThat(promptTemplateRepository.findActiveByBriefType(null)).isEmpty();
+    }
+
+    @Test
+    void findAllByBriefType_returnsActiveAndRetiredRows() {
+        // Arrange：V8 播种 v1.0(1) 之外补 v1.1(0)
+        seed(BriefType.STOCK, "v1.1", 0);
+
+        // Act
+        List<PromptTemplate> all = promptTemplateRepository.findAllByBriefType(BriefType.STOCK);
+
+        // Assert：含启用与置废（顺序不保证——真实版本序由应用层表达，ADR-0021）
+        assertThat(all)
+                .extracting(PromptTemplate::getVersion)
+                .containsExactlyInAnyOrder("v1.0", "v1.1");
+        assertThat(promptTemplateRepository.findAllByBriefType(null)).isEmpty();
+    }
+
+    @Test
+    void findById_returnsRowWithTimestamps_orEmpty() {
+        // Arrange：V8 播种行（created_at/updated_at 为 ISO 文本）
+        Long id = promptTemplateRepository.findAllByBriefType(BriefType.POLICY).get(0).getId();
+
+        // Act + Assert：回读实体含时间戳与全文
+        Optional<PromptTemplate> found = promptTemplateRepository.findById(id);
+        assertThat(found).isPresent();
+        assertThat(found.get().getCreatedAt()).isEqualTo(Instant.parse("2026-09-21T00:00:00Z"));
+        assertThat(found.get().getUpdatedAt()).isNotNull();
+        assertThat(found.get().getTemplate()).contains("---SYSTEM---");
+        assertThat(promptTemplateRepository.findById(999999L)).isEmpty();
+        assertThat(promptTemplateRepository.findById(null)).isEmpty();
+    }
+
+    @Test
+    void insert_backfillsIdAndTimestamps() {
+        // Arrange：newVersion 工厂（保存即激活语义 status=1）
+        PromptTemplate fresh =
+                PromptTemplate.newVersion(
+                        BriefType.STOCK, "v1.2", "---SYSTEM---\ns json\n---USER---\nu");
+
+        // Act
+        PromptTemplate saved = promptTemplateRepository.insert(fresh);
+
+        // Assert：id/时间戳回填 + 落库可见
+        assertThat(saved.getId()).isNotNull();
+        assertThat(saved.getStatus()).isEqualTo(1);
+        assertThat(saved.getCreatedAt()).isNotNull();
+        assertThat(saved.getUpdatedAt()).isNotNull();
+        assertThat(promptTemplateRepository.findById(saved.getId()))
+                .hasValueSatisfying(t -> assertThat(t.getVersion()).isEqualTo("v1.2"));
+    }
+
+    @Test
+    void deactivateActive_flipsOnlyActiveRowsAndRefreshesUpdatedAt() {
+        // Arrange：V8 播种 v1.0(1) + v1.1(0)
+        seed(BriefType.STOCK, "v1.1", 0);
+
+        // Act
+        int flipped = promptTemplateRepository.deactivateActive(BriefType.STOCK);
+
+        // Assert：只置废启用行；置废行 updated_at 刷新、created_at 不动
+        assertThat(flipped).isEqualTo(1);
+        assertThat(promptTemplateRepository.findActiveByBriefType(BriefType.STOCK)).isEmpty();
+        PromptTemplatePO v10 =
+                promptTemplateMapper.selectList(null).stream()
+                        .filter(
+                                po ->
+                                        po.getBriefType() == BriefType.STOCK.code()
+                                                && "v1.0".equals(po.getVersion()))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(v10.getStatus()).isZero();
+        assertThat(v10.getUpdatedAt()).isNotEqualTo("2026-09-21T00:00:00Z");
+        assertThat(v10.getCreatedAt()).isEqualTo("2026-09-21T00:00:00Z");
+    }
+
+    @Test
+    void updateStatus_setsStatusAndReturnsWhetherHit() {
+        // Arrange
+        Long id = promptTemplateRepository.findAllByBriefType(BriefType.POLICY).get(0).getId();
+
+        // Act + Assert：命中置废
+        assertThat(promptTemplateRepository.updateStatus(id, 0)).isTrue();
+        assertThat(promptTemplateRepository.findById(id))
+                .hasValueSatisfying(t -> assertThat(t.isActive()).isFalse());
+        // 未命中（不存在 id）
+        assertThat(promptTemplateRepository.updateStatus(999999L, 1)).isFalse();
+    }
+
+    @Test
+    void deleteById_physicallyRemovesRow() {
+        // Arrange：先置废（激活守卫在应用层）再删
+        Long id = promptTemplateRepository.findAllByBriefType(BriefType.POLICY).get(0).getId();
+        promptTemplateRepository.updateStatus(id, 0);
+
+        // Act + Assert：物理删除（连同 UNIQUE 约束位释放）
+        assertThat(promptTemplateRepository.deleteById(id)).isTrue();
+        assertThat(promptTemplateRepository.findById(id)).isEmpty();
+        assertThat(promptTemplateRepository.deleteById(id)).isFalse();
     }
 
     /** 经 mapper 灌入一行（自定义 version/status，测试用例结束随 @Transactional 回滚）。 */

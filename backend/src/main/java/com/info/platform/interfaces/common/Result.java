@@ -43,6 +43,19 @@ public class Result<T> {
                 currentTraceId());
     }
 
+    /**
+     * 失败响应 + 携带业务数据（M5：30068 待确认占位符移除需回传 removed/unknown 清单供前端渲染勾选，T45）。
+     *
+     * <p>全局异常处理器不适用（其 {@code Result<Void>} 无 data），此形态仅供控制器对结构化业务错误直返。
+     */
+    public static <T> Result<T> fail(ErrorCode errorCode, String detail, T data) {
+        return new Result<>(
+                errorCode.getCode(),
+                detail != null ? detail : errorCode.getMsg(),
+                data,
+                currentTraceId());
+    }
+
     public int getCode() {
         return code;
     }

@@ -64,6 +64,17 @@ public enum ErrorCode {
     /** 配置已被并发修改（expectedUpdatedAt 与当前 updated_at 不符，409） */
     CONFIG_CONFLICT(30065, "配置已被并发修改，请刷新后重试", 409),
 
+    /** 模板版本不存在（M5 管理面 404；区别于 30031 生成时无激活模板的 500 语义） */
+    PROMPT_TEMPLATE_VERSION_NOT_FOUND(30066, "模板版本不存在", 404),
+    /** 模板校验失败：分段标记/顺序、system 段 json 字样、长度上限（msg 逐条，400） */
+    PROMPT_TEMPLATE_INVALID(30067, "模板校验失败", 400),
+    /** 存在待确认的占位符移除（data 返回 removed/unknown 清单，409） */
+    PROMPT_PLACEHOLDER_REMOVAL_UNCONFIRMED(30068, "存在待确认的占位符移除，请逐项确认后重试", 409),
+    /** 激活版本不可删除（仅置废版本可物理删除，409） */
+    PROMPT_TEMPLATE_ACTIVE_DELETE_FORBIDDEN(30069, "激活版本不可删除，请先切换激活到其他版本", 409),
+    /** 版本号冲突（UNIQUE(brief_type, version) 兜底，msg 注明冲突版本，409） */
+    PROMPT_TEMPLATE_VERSION_CONFLICT(30070, "版本号冲突，请刷新列表后重试", 409),
+
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
 

@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,7 +26,8 @@ import org.springframework.stereotype.Service;
  * <h2>模板分段约定</h2>
  *
  * 单 {@code template} 列用独占行的 {@code ---SYSTEM---} / {@code ---USER---} 标记分段，system 在前 user 在后（V8
- * 播种即此格式）。 {@link #render} 按标记切分两段，分别替换占位符后 trim 去除标记行的残余换行（保留正文内换行）。
+ * 播种即此格式）。 {@link #render} 按标记切分两段，分别替换占位符后 trim 去除标记行的残余换行（保留正文内换行）。T45 起分段切分与占位符 正则等价提取至 {@link
+ * PromptSections} 共享工具（校验器与渲染器单一事实源），本服务行为零变（既有单测守护）。
  *
  * <h2>占位符约定</h2>
  *
@@ -41,14 +41,6 @@ import org.springframework.stereotype.Service;
 public class PromptTemplateService {
 
     private static final Logger log = LoggerFactory.getLogger(PromptTemplateService.class);
-
-    /** 模板分段标记（独占行）。 */
-    private static final String SYSTEM_MARKER = "---SYSTEM---";
-
-    private static final String USER_MARKER = "---USER---";
-
-    /** 占位符 {@code {{key}}}（键名仅字母数字下划线，允许前后空白）。 */
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*(\\w+)\\s*\\}\\}");
 
     private final PromptTemplateRepository repository;
 
@@ -92,36 +84,18 @@ public class PromptTemplateService {
     public List<ChatMessage> render(PromptTemplate template, Map<String, String> context) {
         Objects.requireNonNull(template, "template 必填");
         Map<String, String> ctx = context == null ? Map.of() : context;
-        String[] sections = splitSections(template.getTemplate(), template.getVersion());
+        String[] sections = PromptSections.split(template.getTemplate(), template.getVersion());
         String system = replacePlaceholders(sections[0], ctx).strip();
         String user = replacePlaceholders(sections[1], ctx).strip();
         return List.of(new ChatMessage("system", system), new ChatMessage("user", user));
     }
 
-    /** 切分 system/user 两段；标记缺失或顺序错视为数据损坏抛 {@link IllegalStateException}。 */
-    private static String[] splitSections(String raw, String version) {
-        int sysIdx = raw.indexOf(SYSTEM_MARKER);
-        int userIdx = raw.indexOf(USER_MARKER);
-        if (sysIdx < 0 || userIdx < 0 || userIdx <= sysIdx) {
-            throw new IllegalStateException(
-                    "提示词模板缺少 "
-                            + SYSTEM_MARKER
-                            + "/"
-                            + USER_MARKER
-                            + " 分段标记或顺序错误: version="
-                            + version);
-        }
-        String system = raw.substring(sysIdx + SYSTEM_MARKER.length(), userIdx);
-        String user = raw.substring(userIdx + USER_MARKER.length());
-        return new String[] {system, user};
-    }
-
-    /** 替换 {@code {{key}}}：context 有值则替换、无值保留原占位符（缺失可见）。 */
+    /** 替换 {@code {{key}}}：context 有值则替换、无值保留原占位符（缺失可见）；正则与切分共享 {@link PromptSections}。 */
     private static String replacePlaceholders(String text, Map<String, String> context) {
         if (text == null || text.isEmpty()) {
             return "";
         }
-        Matcher m = PLACEHOLDER.matcher(text);
+        Matcher m = PromptSections.PLACEHOLDER.matcher(text);
         StringBuilder sb = new StringBuilder();
         while (m.find()) {
             String key = m.group(1);
