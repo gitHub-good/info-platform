@@ -2,9 +2,11 @@ package com.info.platform.application.ai;
 
 import com.info.platform.application.aggregation.SubjectDetail;
 import com.info.platform.domain.ai.BriefType;
+import com.info.platform.domain.ai.PlaceholderDescriptor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,11 +18,40 @@ import org.springframework.stereotype.Component;
  *
  * <p>事件归因（2）/政策解读（3）/每日推荐（4）的专属占位符（eventTitle/policyTitle/subjectsMetrics 等）不在本构建器范围
  * （来自事件/政策/订阅上下文，T28/T23 装配），缺失则保留 {@code {{key}}} 由上游填充——本类只负责聚合数据投影。
+ *
+ * <p>T46（ADR-0022）：实现 {@link PlaceholderProvider}，向占位符注册表自述本装配器实际注入的 17 键清单—— {@link #PLACEHOLDERS}
+ * 与 {@link #build} 的 {@code ctx.put} 调用同文件同序维护，场景 1（个股简报）与 2（事件归因）
+ * 共用（事件型专属键当前无生产注入来源，注册表不登记，按「无来源」警告披露）。
  */
 @Component
-public class BriefContextBuilder {
+public class BriefContextBuilder implements PlaceholderProvider {
 
     private static final String NA = "暂无";
+
+    /**
+     * 本装配器实际注入的占位符描述符（T46 注册表单一事实源）。
+     *
+     * <p>键序与 {@link #build} 的 {@code ctx.put} 调用序逐一对齐——加/删键必须同时改两处，同源单测守护。
+     */
+    private static final List<PlaceholderDescriptor> PLACEHOLDERS =
+            List.of(
+                    new PlaceholderDescriptor("subjectName", "标的名称"),
+                    new PlaceholderDescriptor("subjectCode", "标的代码"),
+                    new PlaceholderDescriptor("industry", "所属行业"),
+                    new PlaceholderDescriptor("price", "当前价"),
+                    new PlaceholderDescriptor("changePct", "日涨跌幅%"),
+                    new PlaceholderDescriptor("preClose", "昨收价"),
+                    new PlaceholderDescriptor("reportDate", "财报报告期"),
+                    new PlaceholderDescriptor("revenue", "营收"),
+                    new PlaceholderDescriptor("netProfit", "归母净利"),
+                    new PlaceholderDescriptor("netProfitYoy", "归母净利同比%（当前源不产出，恒「暂无」）"),
+                    new PlaceholderDescriptor("grossMargin", "毛利率%"),
+                    new PlaceholderDescriptor("roe", "ROE"),
+                    new PlaceholderDescriptor("peTtm", "PE(TTM)"),
+                    new PlaceholderDescriptor("pb", "PB"),
+                    new PlaceholderDescriptor("ps", "PS（当前源不产出，恒「暂无」）"),
+                    new PlaceholderDescriptor("announcementsList", "近 24h 公告（每条: 标题|时间|url）"),
+                    new PlaceholderDescriptor("newsList", "近 7 天新闻（每条: 标题|时间|url）"));
 
     /** 构建上下文 Map（保序，便于人看组装后的 prompt）。 */
     public Map<String, String> build(SubjectDetail detail, BriefType briefType) {
@@ -92,5 +123,17 @@ public class BriefContextBuilder {
 
     private static String orNa(String v) {
         return v == null || v.isBlank() ? NA : v;
+    }
+
+    /** T46：场景 1（个股简报）与 2（事件归因）共用本装配器的 17 键清单。 */
+    @Override
+    public Set<BriefType> briefTypes() {
+        return Set.of(BriefType.STOCK, BriefType.EVENT_ATTRIBUTION);
+    }
+
+    /** T46：注册表读取实际注入清单（与 {@code ctx.put} 同源，防漂移闸门见同源单测）。 */
+    @Override
+    public List<PlaceholderDescriptor> provided() {
+        return PLACEHOLDERS;
     }
 }

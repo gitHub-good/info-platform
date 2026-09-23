@@ -1,5 +1,6 @@
 package com.info.platform.application.policy;
 
+import com.info.platform.application.ai.PlaceholderProvider;
 import com.info.platform.application.ai.PromptTemplateService;
 import com.info.platform.domain.ai.BriefContent;
 import com.info.platform.domain.ai.BriefContentCodec;
@@ -9,6 +10,7 @@ import com.info.platform.domain.ai.LlmException;
 import com.info.platform.domain.ai.LlmGateway;
 import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
+import com.info.platform.domain.ai.PlaceholderDescriptor;
 import com.info.platform.domain.ai.PromptTemplate;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.policy.AiTendency;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,14 +41,33 @@ import org.springframework.stereotype.Service;
  * <p>上下文装配（对齐 Spike-2 §7.3 模板占位符）：policyTitle/publishedAt/source/policySummary/policyUrl/
  * relatedIndustries（逗号连接）/watchlistSubjects（系统批量判断时无关联用户自选，置占位说明）。nullable 字段（summary/
  * sourceUrl）置占位而非 null——避免模板保留 {@code {{key}}} 误导模型。
+ *
+ * <p>T46（ADR-0022）：实现 {@link PlaceholderProvider}，向占位符注册表自述本服务实际注入的 7 键清单—— {@link
+ * #POLICY_PLACEHOLDERS} 与 {@link #buildContext} 的 {@code ctx.put} 调用同文件同序维护（不拆 buildContext
+ * 结构，生成链路零改动），同源单测守护。
  */
 @Service
-public class PolicyTendencyService {
+public class PolicyTendencyService implements PlaceholderProvider {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyTendencyService.class);
 
     /** 系统批量判断时 watchlistSubjects 占位（无关联用户自选池）。 */
     static final String NO_WATCHLIST_SUBJECTS = "（系统批量判断，暂无关联自选标的）";
+
+    /**
+     * 本服务实际注入的占位符描述符（T46 注册表单一事实源）。
+     *
+     * <p>键序与 {@link #buildContext} 的 {@code ctx.put} 调用序逐一对齐——加/删键必须同时改两处，同源单测守护。
+     */
+    private static final List<PlaceholderDescriptor> POLICY_PLACEHOLDERS =
+            List.of(
+                    new PlaceholderDescriptor("policyTitle", "政策标题"),
+                    new PlaceholderDescriptor("publishedAt", "发布时间"),
+                    new PlaceholderDescriptor("source", "来源"),
+                    new PlaceholderDescriptor("policySummary", "摘要"),
+                    new PlaceholderDescriptor("policyUrl", "原文链接"),
+                    new PlaceholderDescriptor("relatedIndustries", "关联行业（顿号分隔）"),
+                    new PlaceholderDescriptor("watchlistSubjects", "关联自选标的（当前恒为提示文案，无标的明细）"));
 
     private final PolicyRepository policyRepository;
     private final LlmGateway llmGateway;
@@ -123,8 +145,8 @@ public class PolicyTendencyService {
         return tendency;
     }
 
-    /** 装配政策解读模板上下文（占位符 {@code {{key}}}，对齐 Spike-2 §7.3）。 */
-    private static Map<String, String> buildContext(PolicyItem item) {
+    /** 装配政策解读模板上下文（占位符 {@code {{key}}}，对齐 Spike-2 §7.3；包内可见供同源单测，无行为变化）。 */
+    static Map<String, String> buildContext(PolicyItem item) {
         Map<String, String> ctx = new LinkedHashMap<>();
         ctx.put("policyTitle", orDefault(item.getTitle(), "（无标题）"));
         ctx.put(
@@ -143,5 +165,17 @@ public class PolicyTendencyService {
 
     private static String orDefault(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    /** T46：本服务仅服务场景 3（政策解读）。 */
+    @Override
+    public Set<BriefType> briefTypes() {
+        return Set.of(BriefType.POLICY);
+    }
+
+    /** T46：注册表读取实际注入清单（与 {@code ctx.put} 同源，防漂移闸门见同源单测）。 */
+    @Override
+    public List<PlaceholderDescriptor> provided() {
+        return POLICY_PLACEHOLDERS;
     }
 }

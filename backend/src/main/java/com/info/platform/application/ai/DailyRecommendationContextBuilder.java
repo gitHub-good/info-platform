@@ -6,6 +6,8 @@ import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceStatus;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectRepository;
+import com.info.platform.domain.ai.BriefType;
+import com.info.platform.domain.ai.PlaceholderDescriptor;
 import com.info.platform.domain.subscription.Watchlist;
 import com.info.platform.domain.subscription.WatchlistItem;
 import com.info.platform.domain.subscription.WatchlistRepository;
@@ -43,14 +45,31 @@ import org.springframework.stereotype.Component;
  * <p>容错：单只标的的 adapter 取数异常 → 记 WARN 跳过该指标（归 0），不阻断整池装配（对齐技术方案 §5 降级预案「每日推荐用规则兜底」）；画像装配失败由
  * Personalizer 内部降级为空画像。自选池空（无活跃清单项）→ 返回空指标 + {@code poolSize=0}，由 {@link
  * DailyRecommendationService} 返回空提示。
+ *
+ * <p>T46（ADR-0022）：实现 {@link PlaceholderProvider}，向占位符注册表自述本装配器实际注入的 6 键清单—— {@link #PLACEHOLDERS}
+ * 与 {@link #toContext} 的 {@code ctx.put} 调用同文件同序维护，同源单测守护。
  */
 @Component
-public class DailyRecommendationContextBuilder {
+public class DailyRecommendationContextBuilder implements PlaceholderProvider {
 
     private static final Logger log =
             LoggerFactory.getLogger(DailyRecommendationContextBuilder.class);
 
     private static final String NA = "暂无";
+
+    /**
+     * 本装配器实际注入的占位符描述符（T46 注册表单一事实源）。
+     *
+     * <p>键序与 {@link #toContext} 的 {@code ctx.put} 调用序逐一对齐——加/删键必须同时改两处，同源单测守护。
+     */
+    private static final List<PlaceholderDescriptor> PLACEHOLDERS =
+            List.of(
+                    new PlaceholderDescriptor("poolSize", "自选池标的数"),
+                    new PlaceholderDescriptor("subjectsMetrics", "自选池指标快照（每只: 代码|名称|涨跌幅|公告数|新闻数）"),
+                    new PlaceholderDescriptor("subscribedThemes", "订阅主题"),
+                    new PlaceholderDescriptor("subscribedSubjects", "订阅标的（代码|名称）"),
+                    new PlaceholderDescriptor("readingProfile", "近 30 天阅读画像（代码|名称|阅读次数|最近阅读日期）"),
+                    new PlaceholderDescriptor("today", "今日日期"));
 
     private final WatchlistRepository watchlistRepository;
     private final SubjectRepository subjectRepository;
@@ -282,5 +301,17 @@ public class DailyRecommendationContextBuilder {
         } catch (NumberFormatException e) {
             return 0.0;
         }
+    }
+
+    /** T46：本装配器仅服务场景 4（每日推荐）。 */
+    @Override
+    public Set<BriefType> briefTypes() {
+        return Set.of(BriefType.DAILY_RECOMMEND);
+    }
+
+    /** T46：注册表读取实际注入清单（与 {@code ctx.put} 同源，防漂移闸门见同源单测）。 */
+    @Override
+    public List<PlaceholderDescriptor> provided() {
+        return PLACEHOLDERS;
     }
 }
