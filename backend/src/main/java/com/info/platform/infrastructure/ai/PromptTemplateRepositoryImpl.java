@@ -8,9 +8,12 @@ import com.info.platform.domain.ai.PromptTemplateRepository;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -85,7 +88,22 @@ public class PromptTemplateRepositoryImpl implements PromptTemplateRepository {
         String now = Instant.now().toString();
         po.setCreatedAt(now);
         po.setUpdatedAt(now);
-        promptTemplateMapper.insert(po);
+        try {
+            promptTemplateMapper.insert(po);
+        } catch (DataAccessException e) {
+            // sqlite-jdbc 不抛 JDBC4 约束子类（Spring 不会自动译成 DuplicateKeyException），
+            // 按 UNIQUE 关键字识别翻译——UNIQUE(brief_type, version) 是版本号冲突兜底防线（30070）
+            if (e.getMessage() != null
+                    && e.getMessage().toUpperCase(Locale.ROOT).contains("UNIQUE")) {
+                throw new DuplicateKeyException(
+                        "UNIQUE(brief_type, version) 冲突: briefType="
+                                + template.getBriefType()
+                                + " version="
+                                + template.getVersion(),
+                        e);
+            }
+            throw e;
+        }
         return toEntity(po);
     }
 
