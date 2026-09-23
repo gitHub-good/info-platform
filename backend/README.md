@@ -26,33 +26,13 @@
 
 跨域协作只走应用层领域事件（Spring ApplicationEvent），不 import 其他域内部类；单拆某域为服务时抽其各层切片即可，演进缝仍保留。
 
-## 🔌 LLM 多厂商配置（ADR-0008）
+## 🔌 LLM 多厂商配置（ADR-0008 / ADR-0020）
 
-配置驱动接入 DeepSeek / GLM（智谱）等厂商，运行时可切默认 provider、支持 fallback，密钥走环境变量不硬编码：
-
-```yaml
-llm:
-  providers:
-    - name: deepseek
-      base-url: https://api.deepseek.com/v1
-      model: deepseek-chat
-      api-key: ${DEEPSEEK_API_KEY}
-      enabled: true
-      default: true
-      fallback: glm
-    - name: glm
-      base-url: https://open.bigmodel.cn/api/paas/v4
-      model: glm-4
-      api-key: ${GLM_API_KEY}
-      enabled: true
-      default: false
-      fallback: deepseek
-    # 预留: qwen / wenxin / kimi (enabled=false, 按需启用)
-```
+配置驱动接入 DeepSeek / GLM（智谱）等厂商，运行时可切默认 provider、支持 fallback。**模型参数（provider/模型/单价/预算/超时/缓存 TTL）仅页面配置**（「模型配置」页，runtime_config DB 持久化，保存即热生效/重启生效分级见 ADR-0017）；首启由代码内置缺省 `infrastructure/ai/LlmDefaults` 播种（application.yml 已无 `llm:` 段）。API key 不入文件：环境变量（`DEEPSEEK_API_KEY` 等）为一等来源，页面录入后以 DB 密文优先（ADR-0018）。
 
 - `LlmGateway` 接口定义在领域层（纯净可单测），基础设施层按 provider 实现 adapter。
 - 主 provider 超时/限频/错误则按 `fallback` 切下一个 `enabled: true` 厂商，全部失败才置简报失败并告警。
-- 增减厂商只改配置不改代码。
+- 换模型/调价/启停 provider 走页面即可；增减厂商需加 provider adapter（代码），内置缺省随 `LlmDefaults` 维护。
 
 ## 🚀 构建与运行
 

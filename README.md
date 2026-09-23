@@ -67,6 +67,8 @@ info-platform/
 
 ## 🔐 环境变量（部署）
 
+> LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）**仅页面配置**（runtime_config DB 持久化，首启由代码内置缺省播种，ADR-0020），不走环境变量与 application.yml；API key 环境变量仍为一等来源（页面写入 DB 密文后优先生效，ADR-0018）。
+
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
 | `JWT_SECRET` | 是 | JWT 签名密钥（≥32 字节，缺失启动 fail-fast） |
