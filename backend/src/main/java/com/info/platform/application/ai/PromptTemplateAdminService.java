@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +32,9 @@ import org.springframework.transaction.annotation.Transactional;
  * </ul>
  *
  * <p>并发防护：单人低频操作 + 前端二次确认，不设乐观锁（V8 头注既有裁定）；UNIQUE 索引是脏数据最后防线 （生成器取 max+1 后仍冲突 = 并发竞争，30070 +
- * 事务回滚零变更）。审计：create/activate/delete 各记一条 INFO。
+ * 事务回滚零变更）。并发败者的另一形态——读写同事务命中 WAL 过期快照（SQLITE_BUSY 族，busy_timeout 不挽救）—— 由仓储统一翻译为 {@link
+ * CannotAcquireLockException}，本服务 create/activate 据此转 30070「请刷新重试」（DEFECT-1，客户端重试即成；
+ * 不做服务端写冲突重试——重试需重走读阶段换新快照，须拆事务，超出轻量修复边界）。审计：create/activate/delete 各记一条 INFO。
  */
 @Service
 public class PromptTemplateAdminService {
@@ -110,7 +113,8 @@ public class PromptTemplateAdminService {
      * <p>校验基准 = baseVersionId 指向的底稿版本行（与前端编辑底稿一致，UI 联判点 3）；缺省/无效回落当前激活版， 无激活版基准为空集。放行条件见 {@link
      * PromptTemplateValidator.ValidationResult#passableWith}。
      *
-     * @throws BusinessException 30067 硬校验失败（msg 逐条）；30070 版本号冲突（UNIQUE 兜底，事务回滚）
+     * @throws BusinessException 30067 硬校验失败（msg 逐条）；30070 版本号冲突（UNIQUE 兜底 + SQLITE_BUSY 族
+     *     并发写冲突，DEFECT-1；事务回滚）
      * @throws RemovalConfirmationRequiredException 30068 存在未确认的占位符移除（携带 removed/unknown 清单）
      */
     @Transactional
@@ -138,15 +142,20 @@ public class PromptTemplateAdminService {
                         .findActiveByBriefType(briefType)
                         .map(PromptTemplate::getVersion)
                         .orElse(null);
-        repository.deactivateActive(briefType);
         PromptTemplate saved;
         try {
+            repository.deactivateActive(briefType);
             saved =
                     repository.insert(
                             PromptTemplate.newVersion(briefType, nextVersion, command.template()));
-        } catch (DuplicateKeyException e) {
-            // 正常不可能（生成器取 max+1）；命中即并发竞争——事务回滚零变更，旧激活继续生效
-            log.warn("提示词版本号冲突回滚: briefType={}, version={}", briefType.code(), nextVersion);
+        } catch (DuplicateKeyException | CannotAcquireLockException e) {
+            // 并发竞争败者统一 30070（DEFECT-1）：UNIQUE 兜底（生成器 max+1 仍撞既有版本）或并发写冲突
+            // （读后写同事务命中 WAL 过期快照，仓储已译 SQLITE_BUSY 族）——事务回滚零变更，旧激活继续生效，请重试
+            log.warn(
+                    "提示词版本冲突回滚: briefType={}, version={}, cause={}",
+                    briefType.code(),
+                    nextVersion,
+                    e.getClass().getSimpleName());
             throw new BusinessException(
                     ErrorCode.PROMPT_TEMPLATE_VERSION_CONFLICT,
                     "版本号冲突: briefType="
@@ -176,7 +185,8 @@ public class PromptTemplateAdminService {
     /**
      * 激活切换（回滚任意保留版本；目标已是激活幂等 200 无变更）。
      *
-     * @throws BusinessException 30066 版本不存在（404）
+     * @throws BusinessException 30066 版本不存在（404）；30070 并发写冲突（读后写同事务与 create 同机制，DEFECT-1
+     *     一并收敛——败者事务回滚不变量无中间态，请刷新重试）
      */
     @Transactional
     public ActivateResult activate(Long id) {
@@ -195,8 +205,20 @@ public class PromptTemplateAdminService {
                         .findActiveByBriefType(target.getBriefType())
                         .map(PromptTemplate::getVersion)
                         .orElse(null);
-        repository.deactivateActive(target.getBriefType());
-        repository.updateStatus(target.getId(), 1);
+        try {
+            repository.deactivateActive(target.getBriefType());
+            repository.updateStatus(target.getId(), 1);
+        } catch (CannotAcquireLockException e) {
+            // 并发写冲突败者（SQLITE_BUSY 族，仓储已译）→ 30070：事务回滚，激活唯一不变量保持，请重试
+            log.warn(
+                    "提示词模板激活切换冲突回滚: briefType={}, targetVersion={}, cause={}",
+                    target.getBriefType().code(),
+                    target.getVersion(),
+                    e.getClass().getSimpleName());
+            throw new BusinessException(
+                    ErrorCode.PROMPT_TEMPLATE_VERSION_CONFLICT,
+                    "激活切换冲突: briefType=" + target.getBriefType().code() + "（可能被并发操作，请刷新列表后重试）");
+        }
         log.info(
                 "提示词模板激活切换: briefType={}, version={}, deactivatedVersion={}",
                 target.getBriefType().code(),

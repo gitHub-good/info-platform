@@ -394,6 +394,38 @@ class PromptTemplateAdminServiceTest {
     }
 
     @Test
+    void create_writePhaseLockConflict_throws30070_noInsertAttempted() {
+        // Arrange（DEFECT-1）：先置废 UPDATE 撞并发写冲突（仓储已译 CannotAcquireLockException——
+        // 生产 WAL 为 SQLITE_BUSY 族过期快照，败者事务回滚零变更）
+        PromptTemplate active = row(1L, BriefType.STOCK, "v1.0", 1);
+        when(repository.findActiveByBriefType(BriefType.STOCK)).thenReturn(Optional.of(active));
+        when(repository.findAllByBriefType(BriefType.STOCK)).thenReturn(List.of(active));
+        when(repository.deactivateActive(BriefType.STOCK))
+                .thenThrow(
+                        new org.springframework.dao.CannotAcquireLockException(
+                                "SQLITE 并发写冲突: deactivateActive"));
+
+        // Act + Assert：30070 请刷新重试；写阶段已中止（insert 未触达）
+        assertThatThrownBy(
+                        () ->
+                                service.create(
+                                        new CreateCommand(
+                                                BriefType.STOCK,
+                                                null,
+                                                TEMPLATE_FULL,
+                                                null,
+                                                Set.of())))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        ex -> {
+                            assertThat(((BusinessException) ex).getErrorCode())
+                                    .isEqualTo(ErrorCode.PROMPT_TEMPLATE_VERSION_CONFLICT);
+                            assertThat(ex.getMessage()).contains("v1.1").contains("重试");
+                        });
+        verify(repository, never()).insert(any(PromptTemplate.class));
+    }
+
+    @Test
     void activate_targetAlreadyActive_idempotentNoWrites() {
         // Arrange
         when(repository.findById(1L)).thenReturn(Optional.of(row(1L, BriefType.STOCK, "v1.1", 1)));
@@ -425,6 +457,28 @@ class PromptTemplateAdminServiceTest {
         InOrder order = inOrder(repository);
         order.verify(repository).deactivateActive(BriefType.STOCK);
         order.verify(repository).updateStatus(2L, 1);
+    }
+
+    @Test
+    void activate_writePhaseLockConflict_throws30070() {
+        // Arrange（DEFECT-1 同机制）：activate 读后写事务并发暴露——置 1 UPDATE 撞并发写冲突
+        when(repository.findById(2L)).thenReturn(Optional.of(row(2L, BriefType.STOCK, "v1.0", 0)));
+        when(repository.findActiveByBriefType(BriefType.STOCK))
+                .thenReturn(Optional.of(row(1L, BriefType.STOCK, "v1.1", 1)));
+        when(repository.updateStatus(2L, 1))
+                .thenThrow(
+                        new org.springframework.dao.CannotAcquireLockException(
+                                "SQLITE 并发写冲突: updateStatus"));
+
+        // Act + Assert：与 create 同判 30070（请刷新重试），事务回滚不变量无中间态
+        assertThatThrownBy(() -> service.activate(2L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        ex -> {
+                            assertThat(((BusinessException) ex).getErrorCode())
+                                    .isEqualTo(ErrorCode.PROMPT_TEMPLATE_VERSION_CONFLICT);
+                            assertThat(ex.getMessage()).contains("重试");
+                        });
     }
 
     @Test

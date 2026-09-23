@@ -2,12 +2,16 @@ package com.info.platform.infrastructure.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.reset;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.info.platform.application.ai.PromptTemplateAdminService;
 import com.info.platform.application.ai.PromptTemplateAdminService.CreateCommand;
+import com.info.platform.application.ai.PromptTemplateAdminService.CreateResult;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.PromptTemplate;
 import com.info.platform.domain.ai.PromptTemplateRepository;
@@ -15,6 +19,13 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -230,6 +241,98 @@ class PromptTemplateAdminServiceIntegrationTest {
                         promptTemplateRepository.findAllByBriefType(BriefType.STOCK).stream()
                                 .filter(PromptTemplate::isActive))
                 .hasSize(1);
+    }
+
+    /**
+     * DEFECT-1 回归：真实两连接并发创建同场景版本——败者必须收到 30070（409 请重试语义），胜者数据完好、不变量保持。
+     *
+     * <p>编排（无时序抖动）：线程 A 经 spy 闸在 create 写阶段入口挂起（此刻 A 的读事务已开启并持有读锁/快照—— 与生产 WAL 过期快照同构的「读后写」暴露点）；线程
+     * B 完整执行一次 create，其写在 A 读事务未结束前必然撞并发冲突。 冲突码族按隔离机制不同而不同： 测试共享内存库为共享缓存 {@code SQLITE_LOCKED}
+     * 族，生产文件库 WAL 为 {@code SQLITE_BUSY} 族 ——两者都应被仓储翻译层映射为 30070（翻译路径对两族同判，BUSY 族另由仓储翻译单测以生产报文实证）。
+     */
+    @Test
+    void create_concurrentSameScene_loserGets30070_winnerIntact() throws Exception {
+        // Arrange：第一个进入写阶段的调用（线程 A）闸住，后续调用（线程 B）直通真实实现
+        CountDownLatch aEnteredWrite = new CountDownLatch(1);
+        CountDownLatch releaseA = new CountDownLatch(1);
+        AtomicInteger writeEntries = new AtomicInteger();
+        doAnswer(
+                        inv -> {
+                            if (writeEntries.incrementAndGet() == 1) {
+                                aEnteredWrite.countDown();
+                                releaseA.await(10, TimeUnit.SECONDS);
+                            }
+                            return inv.callRealMethod();
+                        })
+                .when(promptTemplateRepository)
+                .deactivateActive(any(BriefType.class));
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CreateResult winner;
+        try {
+            Future<CreateResult> a =
+                    pool.submit(
+                            () ->
+                                    adminService.create(
+                                            new CreateCommand(
+                                                    BriefType.STOCK,
+                                                    null,
+                                                    NEW_TEMPLATE,
+                                                    null,
+                                                    Set.of())));
+            assertThat(aEnteredWrite.await(10, TimeUnit.SECONDS))
+                    .as("线程 A 应已进入写阶段（读事务持锁中）")
+                    .isTrue();
+            Future<CreateResult> b =
+                    pool.submit(
+                            () ->
+                                    adminService.create(
+                                            new CreateCommand(
+                                                    BriefType.STOCK,
+                                                    null,
+                                                    NEW_TEMPLATE,
+                                                    null,
+                                                    Set.of())));
+
+            // Act + Assert（败者）：并发写冲突 → 30070「版本冲突请重试」。
+            // 修前红：翻译缺失，SQLite 并发冲突以 DataAccessException 冒泡（对外 500/50000）
+            ExecutionException loser =
+                    catchThrowableOfType(
+                            () -> b.get(10, TimeUnit.SECONDS), ExecutionException.class);
+            assertThat(loser).isNotNull();
+            assertThat(loser.getCause())
+                    .as("败者应为 30070 版本冲突（DEFECT-1）")
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(
+                            e ->
+                                    assertThat(((BusinessException) e).getErrorCode())
+                                            .isEqualTo(ErrorCode.PROMPT_TEMPLATE_VERSION_CONFLICT));
+
+            // Assert（胜者）：释放 A 后完整落库
+            releaseA.countDown();
+            winner = a.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseA.countDown();
+            pool.shutdownNow();
+        }
+
+        // Assert：胜者 v1.1 激活；败者零残留（v1.1 恰一行、唯一激活不变量、v1.0 置废）——经 mapper 断言绕开 spy 读桩
+        assertThat(winner.version()).isEqualTo("v1.1");
+        assertThat(winner.status()).isEqualTo("ACTIVE");
+        List<PromptTemplatePO> stockRows =
+                promptTemplateMapper.selectList(
+                        new LambdaQueryWrapper<PromptTemplatePO>()
+                                .eq(PromptTemplatePO::getBriefType, BriefType.STOCK.code()));
+        assertThat(stockRows).hasSize(2);
+        assertThat(stockRows.stream().map(PromptTemplatePO::getVersion))
+                .containsExactlyInAnyOrder("v1.0", "v1.1");
+        assertThat(stockRows.stream().filter(po -> po.getStatus() == 1)).hasSize(1);
+        assertThat(
+                        stockRows.stream()
+                                .filter(po -> "v1.1".equals(po.getVersion()))
+                                .findFirst()
+                                .orElseThrow())
+                .satisfies(po -> assertThat(po.getStatus()).isEqualTo(1));
     }
 
     /** 经 mapper 预埋一行（测试结束由 restoreSeed 清理）。 */

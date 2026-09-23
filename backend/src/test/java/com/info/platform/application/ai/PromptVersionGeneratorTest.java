@@ -64,6 +64,47 @@ class PromptVersionGeneratorTest {
     }
 
     @Test
+    void nextVersion_nullCollectionOrNullElement_defensivelyStartsFromValidBase() {
+        // null 集合（防御）按空集处理 → v1.0
+        assertThat(PromptVersionGenerator.nextVersion(null, null)).isEqualTo("v1.0");
+        // 清单含 null 元素（防御）忽略之，仅按合法行取 max
+        assertThat(
+                        PromptVersionGenerator.nextVersion(
+                                Arrays.asList("v1.0", (String) null),
+                                PromptVersionGenerator.VersionStrategy.MINOR))
+                .isEqualTo("v1.1");
+    }
+
+    @Test
+    void nextVersion_numericOverflowVersion_ignoredAsInvalid() {
+        // 超长数字串（\d+ 可超 int 上限）→ parseInt 溢出防御分支：忽略不参与 max
+        String overflow = "v" + "9".repeat(20) + ".0";
+        assertThat(
+                        PromptVersionGenerator.nextVersion(
+                                Arrays.asList(overflow, "v1.2"),
+                                PromptVersionGenerator.VersionStrategy.MINOR))
+                .isEqualTo("v1.3");
+        // 仅溢出行 → 全部忽略，从 v1.0 起
+        assertThat(PromptVersionGenerator.nextVersion(List.of(overflow), null)).isEqualTo("v1.0");
+    }
+
+    @Test
+    void compareNumeric_nullArguments_fallBackToStringOrderWithoutThrowing() {
+        // null 入参防御：退化为 "null" 字符串比较，全序稳定不抛异常
+        assertThat(PromptVersionGenerator.compareNumeric(null, "v1.0")).isNegative();
+        assertThat(PromptVersionGenerator.compareNumeric("v1.0", null)).isPositive();
+        assertThat(PromptVersionGenerator.compareNumeric(null, null)).isZero();
+    }
+
+    @Test
+    void descending_ordersVersionsNumericallyDesc() {
+        // 便捷比较器（versions 列表降序排序用，list() 同款用法）：数值序 v1.10 > v1.9 > v1.0（字典序会错序）
+        List<String> versions = new java.util.ArrayList<>(List.of("v1.0", "v1.10", "v1.9"));
+        versions.sort(PromptVersionGenerator.descending().reversed());
+        assertThat(versions).containsExactly("v1.10", "v1.9", "v1.0");
+    }
+
+    @Test
     void compareNumeric_ordersByNumericNotLexicographic() {
         // 字典序陷阱：v1.10 < v1.9；数值序：v1.9 < v1.10
         assertThat(PromptVersionGenerator.compareNumeric("v1.10", "v1.9")).isPositive();
