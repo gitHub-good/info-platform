@@ -1,5 +1,6 @@
 package com.info.platform.interfaces.aggregation;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -115,6 +116,17 @@ class DataSourceConfigControllerTest {
                                 .content("{\"detailTimeoutMillis\":3000}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.detailTimeoutMillis").value(3000));
+    }
+
+    @Test
+    void getAggregationGlobal_methodNotAllowed_maps405Not500() throws Exception {
+        // ISSUE-C：/aggregation/global 仅注册 PATCH，GET 打来应 405/2002——
+        // 此前 HttpRequestMethodNotSupportedException 被兜底 Exception 处理器吞成 500/50000
+        mockMvc.perform(get("/api/v1/datasource-configs/aggregation/global"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value(2002))
+                .andExpect(jsonPath("$.msg", containsString("GET")))
+                .andExpect(jsonPath("$.msg", containsString("PATCH")));
     }
 
     @Test

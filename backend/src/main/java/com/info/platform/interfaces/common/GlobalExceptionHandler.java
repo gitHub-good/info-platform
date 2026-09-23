@@ -2,10 +2,13 @@ package com.info.platform.interfaces.common;
 
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -15,7 +18,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
  * 全局异常处理器（接口层横切）：业务异常→对应状态码、参数校验失败→2xxx、兜底→5xxx。
  *
  * <p>统一以 {@link Result} 包装返回；不向调用方泄露堆栈（兜底异常仅记 ERROR 告警）。参数类型不匹配（如 {@code cursor=zzz} 到 {@code
- * Long}）按参数校验口径 400/2001，不落兜底 5xxx（DEFECT-2）。
+ * Long}）按参数校验口径 400/2001，不落兜底 5xxx（DEFECT-2）；HTTP 方法不支持映射 405/2002（ISSUE-C，不落兜底 5xxx）。
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -49,6 +52,28 @@ public class GlobalExceptionHandler {
         log.warn("参数类型不匹配: {}", detail);
         return ResponseEntity.status(ErrorCode.PARAM_INVALID.getHttpStatus())
                 .body(Result.fail(ErrorCode.PARAM_INVALID, detail));
+    }
+
+    /**
+     * HTTP 方法不支持（ISSUE-C）：如 {@code GET /api/v1/datasource-configs/aggregation/global}（仅注册
+     * PATCH）。此前该异常被下方兜底 {@code Exception} 处理器吞成 500/50000，现按请求级错误映射 405/2002， 并按 RFC 9110 回 {@code
+     * Allow} 头。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Result<Void>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex) {
+        Set<HttpMethod> supported = ex.getSupportedHttpMethods();
+        String allowed =
+                supported == null
+                        ? "?"
+                        : supported.stream()
+                                .map(HttpMethod::name)
+                                .collect(Collectors.joining(", "));
+        String detail = ex.getMethod() + " 不被支持（允许: " + allowed + "）";
+        log.warn("HTTP 方法不支持: {}", detail);
+        return ResponseEntity.status(ErrorCode.METHOD_NOT_SUPPORTED.getHttpStatus())
+                .allow(supported == null ? new HttpMethod[0] : supported.toArray(HttpMethod[]::new))
+                .body(Result.fail(ErrorCode.METHOD_NOT_SUPPORTED, detail));
     }
 
     @ExceptionHandler(Exception.class)

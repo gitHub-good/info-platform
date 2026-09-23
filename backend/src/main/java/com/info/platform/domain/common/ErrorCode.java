@@ -18,6 +18,9 @@ public enum ErrorCode {
 
     PARAM_INVALID(2001, "参数校验失败", 400),
 
+    /** HTTP 方法不支持（如 GET 打 PATCH-only 路径，405；ISSUE-C） */
+    METHOD_NOT_SUPPORTED(2002, "HTTP 方法不支持", 405),
+
     /** 标的不存在（404 语义） */
     SUBJECT_NOT_FOUND(30001, "标的不存在", 404),
     /** 详情全部分区均缺失（仍 200，前端兜底） */

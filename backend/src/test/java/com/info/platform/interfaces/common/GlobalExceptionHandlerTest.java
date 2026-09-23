@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
@@ -14,6 +17,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
  *
  * <p>DEFECT-2 回归（M4）：@RequestParam 类型不匹配（如 cursor=zzz）映射 400/2001 字段级原因——此前被兜底 Exception 处理器 吞成
  * 500/50000。
+ *
+ * <p>ISSUE-C 回归：HttpRequestMethodNotSupportedException（如 GET 打 PATCH-only 路径）映射 405/2002—— 同样此前被兜底
+ * Exception 处理器吞成 500/50000。
  */
 class GlobalExceptionHandlerTest {
 
@@ -92,5 +98,22 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(2001);
         assertThat(response.getBody().getMsg()).contains("cursor").contains("zzz");
+    }
+
+    @Test
+    void handleMethodNotSupported_mapsTo405AndCode2002WithAllowedMethods() {
+        // Arrange：GET 打 PATCH-only 的 /datasource-configs/aggregation/global，ISSUE-C
+        HttpRequestMethodNotSupportedException ex =
+                new HttpRequestMethodNotSupportedException("GET", List.of("PATCH"));
+
+        // Act
+        ResponseEntity<Result<Void>> response = handler.handleMethodNotSupported(ex);
+
+        // Assert：405/2002，msg 带请求方法与允许方法；Allow 头按 RFC 9110 回写
+        assertThat(response.getStatusCode().value()).isEqualTo(405);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(2002);
+        assertThat(response.getBody().getMsg()).contains("GET").contains("PATCH");
+        assertThat(response.getHeaders().getAllow()).containsExactly(HttpMethod.PATCH);
     }
 }
