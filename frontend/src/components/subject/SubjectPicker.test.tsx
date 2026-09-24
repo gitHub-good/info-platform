@@ -149,7 +149,7 @@ describe('SubjectPicker 标的搜索选择器', () => {
     expect(screen.getByTestId('subject-picker-selected')).toHaveTextContent('宁德时代');
   });
 
-  it('三态：搜索中 → 无结果「未找到匹配标的」', async () => {
+  it('三态：搜索中 → 无结果（含查询词提示）', async () => {
     const { fetch } = makeSearchFetch([]); // 无命中
     vi.stubGlobal('fetch', fetch);
     const user = userEvent.setup();
@@ -157,7 +157,7 @@ describe('SubjectPicker 标的搜索选择器', () => {
 
     await user.type(screen.getByTestId('subject-picker-input'), '不存在');
 
-    expect(await screen.findByTestId('subject-picker-empty')).toHaveTextContent('未找到匹配标的');
+    expect(await screen.findByTestId('subject-picker-empty')).toHaveTextContent('未找到');
     expect(screen.queryByTestId('subject-picker-option-1')).toBeNull();
   });
 

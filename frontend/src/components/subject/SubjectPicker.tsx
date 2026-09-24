@@ -71,7 +71,10 @@ export function SubjectPicker({
       });
   }, []);
 
-  // 输入变化 → 防抖搜索；清空输入即收起面板（卸载时清理挂起定时器）
+  // 输入变化 → 防抖搜索；清空输入即收起面板（卸载时清理挂起定时器）。
+  // IME 拼音组合期间不触发查询：组合中的 value 是拼音字母，按其搜索只会得到
+  // 「未找到匹配标的」的误导空态（中文标的匹配不到拼音），组合结束上屏后再查。
+  const composingRef = useRef(false);
   useEffect(() => {
     const keyword = query.trim();
     if (!keyword) {
@@ -79,6 +82,7 @@ export function SubjectPicker({
       setActiveIndex(-1);
       return;
     }
+    if (composingRef.current) return;
     const timer = setTimeout(() => {
       lastQueryRef.current = keyword;
       runSearch(keyword);
@@ -171,6 +175,18 @@ export function SubjectPicker({
         disabled={disabled}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          // 上屏后的最终词由这里兜底触发查询（onChange 在组合结束时未必再触发）
+          const keyword = (e.target as HTMLInputElement).value.trim();
+          if (keyword) {
+            lastQueryRef.current = keyword;
+            runSearch(keyword);
+          }
+        }}
         onKeyDown={handleKeyDown}
         data-testid={`${testId}-input`}
       />
@@ -187,7 +203,7 @@ export function SubjectPicker({
           ) : null}
           {panel.kind === 'empty' ? (
             <li className="px-3 py-2 text-muted-foreground" data-testid={`${testId}-empty`}>
-              未找到匹配标的
+              未找到「{query.trim()}」相关标的，试试代码（如 600519）或名称关键词
             </li>
           ) : null}
           {panel.kind === 'error' ? (
