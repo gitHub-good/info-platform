@@ -171,6 +171,8 @@ policy:
 # enabled/cron（T53）：job.SUBJECT_SYNC 种子来源（ManagedJob 收编；生产默认启用，每日 06:00 开市前完成，
 # 与每日推荐 09:00 同口径服务器本地时区；测试 profile 置 false → 调度零注册隔离）。
 # index-enabled（T54）：CN_INDEX 指数桶开关（fs=m:1+t:1,m:0+t:5 上证+深证系列，Should；失败仅 WARN 不阻塞股票同步）。
+# a-share-source（M7 备选源，ADR-0030）：A 股桶列表源选择——auto（默认）东财失败自动降级新浪整桶重拉 /
+# eastmoney / sina（强制单源，排障用）；港股/指数桶恒东财（新浪无港股节点）。
 subject:
   sync:
     page-size: 100
@@ -182,6 +184,7 @@ subject:
     enabled: true
     cron: "0 0 6 * * ?"
     index-enabled: true
+    a-share-source: auto
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。
