@@ -1,7 +1,9 @@
 package com.info.platform.application.push;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -20,8 +22,10 @@ import com.info.platform.domain.push.PushType;
 import com.info.platform.domain.push.SubscriptionResolver;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -91,7 +95,7 @@ class PushRetryJobTest {
                         subscriptionResolver,
                         channel,
                         FIXED_CLOCK);
-        job = new PushRetryJob(pushService, pushRepository, anomalyRepository);
+        job = new PushRetryJob(pushService, pushRepository, anomalyRepository, 100, 7);
     }
 
     // ---- 两扫描均空：整轮无副作用 ----
@@ -104,7 +108,7 @@ class PushRetryJobTest {
         job.retry();
 
         // Assert：仅各扫一次表，无任何落库/推送/状态翻转
-        verify(pushRepository).findPending();
+        verify(pushRepository).findPending(eq(100), any(Instant.class));
         verify(anomalyRepository).findPending();
         verify(pushRepository, never()).saveIfAbsent(any());
         verify(channel, never()).send(anyLong(), any(), anyLong());
@@ -112,12 +116,40 @@ class PushRetryJobTest {
         verify(anomalyRepository, never()).save(any());
     }
 
+    // ---- P1-1 后端半段（系统体检 20260924）：扫描有界——LIMIT 与保留期截止下发 ----
+
+    @Test
+    void retryPendingRecords_scanBounded_limitAndRetentionCutoffForwarded() {
+        // Arrange：待推空（默认 scan-limit=100 / retention=7 天）
+
+        // Act
+        job.retryPendingRecords();
+
+        // Assert：下发 LIMIT=100；保留期截止 = now - 7d（±10s 容差防执行抖动）
+        ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(pushRepository).findPending(eq(100), cutoffCaptor.capture());
+        assertThat(cutoffCaptor.getValue())
+                .isCloseTo(Instant.now().minus(Duration.ofDays(7)), within(10, ChronoUnit.SECONDS));
+    }
+
+    @Test
+    void constructor_nonPositiveConfig_fallsBackToDefaults() {
+        // Arrange：scan-limit=0 / retention=-1 → 兜底 100 / 7
+        PushRetryJob guarded = new PushRetryJob(pushService, pushRepository, anomalyRepository, 0, -1);
+
+        // Act
+        guarded.retryPendingRecords();
+
+        // Assert
+        verify(pushRepository).findPending(eq(PushRetryJob.DEFAULT_SCAN_LIMIT), any(Instant.class));
+    }
+
     // ---- 待推补推：在线 → 补推成功 status=1 ----
 
     @Test
     void retryPendingRecords_onlineUser_pushesAndFlipsToSuccess() {
         // Arrange：1 条待推记录，用户当前在线，send 成功
-        when(pushRepository.findPending())
+        when(pushRepository.findPending(anyInt(), any(Instant.class)))
                 .thenReturn(List.of(buildPendingRecord(PUSH_RECORD_ID, USER_ID, SUBJECT_ID, "42")));
         when(channel.isOnline(USER_ID)).thenReturn(true);
         when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
@@ -142,7 +174,7 @@ class PushRetryJobTest {
     @Test
     void retryPendingRecords_offlineUser_skipsLeavesPending() {
         // Arrange：用户仍离线
-        when(pushRepository.findPending())
+        when(pushRepository.findPending(anyInt(), any(Instant.class)))
                 .thenReturn(List.of(buildPendingRecord(PUSH_RECORD_ID, USER_ID, SUBJECT_ID, "42")));
         when(channel.isOnline(USER_ID)).thenReturn(false);
 
@@ -159,7 +191,7 @@ class PushRetryJobTest {
     @Test
     void retryPendingRecords_sendFailsRetriesOnceStillFails_marksFailed() {
         // Arrange：在线但两次 send 均失败
-        when(pushRepository.findPending())
+        when(pushRepository.findPending(anyInt(), any(Instant.class)))
                 .thenReturn(List.of(buildPendingRecord(PUSH_RECORD_ID, USER_ID, SUBJECT_ID, "42")));
         when(channel.isOnline(USER_ID)).thenReturn(true);
         when(channel.send(eq(USER_ID), any(), eq(PUSH_RECORD_ID))).thenReturn(false);
@@ -208,7 +240,7 @@ class PushRetryJobTest {
         when(subscriptionResolver.resolveAnomalyTargets(SUBJECT_ID)).thenReturn(Set.of(USER_ID));
         // isOnline 第一次（Scan B 的 pushAnomalyToOne）离线；第二次（Scan A 的 retryPending）在线
         when(channel.isOnline(USER_ID)).thenReturn(false).thenReturn(true);
-        when(pushRepository.findPending())
+        when(pushRepository.findPending(anyInt(), any(Instant.class)))
                 .thenReturn(List.of(buildPendingRecord(PUSH_RECORD_ID, USER_ID, SUBJECT_ID, "42")));
         when(channel.send(eq(USER_ID), any(), eq(PUSH_RECORD_ID))).thenReturn(true);
 
@@ -233,7 +265,7 @@ class PushRetryJobTest {
         // saveIfAbsent 返回 empty：记录已存在，Scan B 跳过推送（防重）
         when(pushRepository.saveIfAbsent(any(PushRecord.class))).thenReturn(Optional.empty());
         // Scan A 拾取已存在的待推记录补推
-        when(pushRepository.findPending())
+        when(pushRepository.findPending(anyInt(), any(Instant.class)))
                 .thenReturn(List.of(buildPendingRecord(PUSH_RECORD_ID, USER_ID, SUBJECT_ID, "42")));
         when(channel.isOnline(USER_ID)).thenReturn(true);
         when(channel.send(eq(USER_ID), any(), eq(PUSH_RECORD_ID))).thenReturn(true);
@@ -256,7 +288,7 @@ class PushRetryJobTest {
     @Test
     void retryPendingRecords_firstRecordThrows_doesNotBlockSecond() {
         // Arrange：2 条待推，第一条 send 抛异常；第二条正常
-        when(pushRepository.findPending())
+        when(pushRepository.findPending(anyInt(), any(Instant.class)))
                 .thenReturn(
                         List.of(
                                 buildPendingRecord(PUSH_RECORD_ID, USER_ID, SUBJECT_ID, "42"),

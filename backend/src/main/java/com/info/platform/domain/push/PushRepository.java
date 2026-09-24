@@ -1,5 +1,6 @@
 package com.info.platform.domain.push;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,9 +45,16 @@ public interface PushRepository {
     List<PushRecord> findPendingByUser(long userId);
 
     /**
-     * 全量待推记录（status=0/PENDING），按 id 升序，供 T15 补推 job 跨用户扫描补推。
+     * 待推记录（status=0/PENDING），按 id 升序，供 T15 补推 job 跨用户扫描补推。
      *
      * <p>与 {@link #findPendingByUser} 区别：本方法不限 user，扫表全部 status=0 记录；补推 job 据在线状态决定补推/跳过。
+     *
+     * <p><b>扫描有界（系统体检 20260924 P1-1 后端半段）</b>：{@code LIMIT limit} 防无界全量拉取；{@code created_at >=
+     * createdSince} 过期截止——超期 PENDING 直接跳过不再扫（前端未接 SSE 期间积压的待推无消费者，超保留期即放弃补推）， 防 30s
+     * 轮询永久全量扫描失控表。
+     *
+     * @param limit 单轮扫描上限（id 升序取前 N，先来先补推）
+     * @param createdSince 创建时间下限（早于此的 PENDING 不再入选，通常 now - 保留期）
      */
-    List<PushRecord> findPending();
+    List<PushRecord> findPending(int limit, Instant createdSince);
 }

@@ -112,6 +112,10 @@ push:
   retry:
     enabled: true
     interval-millis: 30000
+    # P1-1 后端半段（系统体检 20260924）：待推扫描有界化——scan-limit 单轮上限（防无界全量拉取）；
+    # pending-retention-days 保留期（超期 PENDING 跳过不再扫，前端未接 SSE 期间的积压止血；SSE 前端接入后可调大）。
+    scan-limit: 100
+    pending-retention-days: 7
 
 # 每日推荐排序（T23，§4.1.6 + §4.3 流程 2 + Spike-2 §11.5）：briefType=4 盘前预热 + 按需触发。
 # schedule.enabled=false（默认）时 @Scheduled 预热 Job 与 @EnableScheduling 均不装配（测试关，对齐 04 规范）；

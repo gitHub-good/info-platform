@@ -6,12 +6,14 @@ import com.info.platform.domain.push.PushRecord;
 import com.info.platform.domain.push.PushRepository;
 import com.info.platform.domain.push.PushStatus;
 import com.info.platform.domain.push.PushType;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 class PushRepositoryImplTest {
 
     @Autowired private PushRepository pushRepository;
+
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private static final long USER_ID = 1L;
     private static final long SUBJECT_ID = 600519L;
@@ -173,8 +177,8 @@ class PushRepositoryImplTest {
         done.markPushed(NOW);
         pushRepository.update(done);
 
-        // Act
-        List<PushRecord> pending = pushRepository.findPending();
+        // Act：limit 充裕 + createdSince=Epoch（不设过期，推送成功路径语义不变）
+        List<PushRecord> pending = pushRepository.findPending(100, Instant.EPOCH);
 
         // Assert：跨用户全量 status=0，按 id 升序（user1 在前）
         assertThat(pending).hasSize(2);
@@ -216,5 +220,49 @@ class PushRepositoryImplTest {
         List<PushRecord> reloaded = pushRepository.findByUserIdCursor(USER_ID, null, null, 20);
         assertThat(reloaded.get(0).getStatus()).isEqualTo(PushStatus.FAILED);
         assertThat(reloaded.get(0).getRetryCount()).isEqualTo(1);
+    }
+
+    // ==================== P0-3 同根治理（系统体检 20260924 P1-1 后端半段）：无界扫描 + PENDING 永久积压 ====================
+
+    @Test
+    void findPending_excludesPendingOlderThanRetention() {
+        // Arrange：2 条待推——其一 created_at 回拨到 8 天前（超 7 天保留期）
+        PushRecord fresh =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "60", PushType.ANOMALY))
+                        .orElseThrow();
+        PushRecord stale =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "61", PushType.ANOMALY))
+                        .orElseThrow();
+        jdbcTemplate.update(
+                "UPDATE push_record SET created_at = ? WHERE id = ?",
+                NOW.minus(Duration.ofDays(8)).toString(),
+                stale.getId());
+
+        // Act：保留期截止 = now - 7d
+        List<PushRecord> pending =
+                pushRepository.findPending(100, NOW.minus(Duration.ofDays(7)));
+
+        // Assert：超期 PENDING 不再被补推 Job 扫中（前端未接 SSE 期间的存量积压止血）；新鲜待推仍入选
+        assertThat(pending).extracting(PushRecord::getId).containsExactly(fresh.getId());
+    }
+
+    @Test
+    void findPending_appliesScanLimit_oldestFirst() {
+        // Arrange：3 条待推（id 升序 = 时间升序）
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "70", PushType.ANOMALY));
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "71", PushType.ANOMALY));
+        PushRecord newest =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "72", PushType.ANOMALY))
+                        .orElseThrow();
+
+        // Act：LIMIT 2
+        List<PushRecord> pending = pushRepository.findPending(2, Instant.EPOCH);
+
+        // Assert：按 id 升序取前 2 条（先来先补推），第 3 条留下轮——防无界全量拉取
+        assertThat(pending).hasSize(2);
+        assertThat(pending).allMatch(r -> r.getId() < newest.getId());
     }
 }

@@ -130,13 +130,17 @@ public class PushRepositoryImpl implements PushRepository {
     }
 
     @Override
-    public List<PushRecord> findPending() {
-        // 全量 status=0 记录，按 id 升序（与 findPendingByUser 同索引前缀 status，无 user 过滤）
+    public List<PushRecord> findPending(int limit, Instant createdSince) {
+        // status=0 记录按 id 升序（与 findPendingByUser 同索引前缀 status，无 user 过滤）；
+        // LIMIT 防无界全量拉取 + created_at >= 截止过滤超期 PENDING（系统体检 20260924 P1-1 后端半段：
+        // 前端未接 SSE 期间积压无消费者，超保留期直接跳过，防 30s 轮询永久全量扫描）
         List<PushRecordPO> pos =
                 pushMapper.selectList(
                         new LambdaQueryWrapper<PushRecordPO>()
                                 .eq(PushRecordPO::getStatus, PushStatus.PENDING.code())
-                                .orderByAsc(PushRecordPO::getId));
+                                .ge(PushRecordPO::getCreatedAt, createdSince.toString())
+                                .orderByAsc(PushRecordPO::getId)
+                                .last("LIMIT " + limit));
         return toEntities(pos);
     }
 
