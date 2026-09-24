@@ -6,9 +6,9 @@ import java.util.List;
  * 标的池同步的全量列表源端口（T50，应用层定义、基础设施层实现——依赖倒置，先例 {@code DataSourceConfigFacade}）。
  *
  * <p>当前实现：{@code infrastructure.aggregation.RoutingSubjectListSource}（@Primary 路由，ADR-0030）——A 股桶按
- * {@code subject.sync.a-share-source} 在东财 {@code EastMoneyListClient}（ADR-0027 主选）与新浪 {@code
- * SinaSubjectListClient}（M7 备选源）间路由/自动降级，港股/指数桶恒东财。引擎只依赖本端口，增删备选源只动 infrastructure 一层，{@code
- * SubjectSyncService} 零改动。
+ * 运行时键 {@code subject.sync.aShareSource}（ADR-0032 热化）在东财 {@code EastMoneyListClient}（ADR-0027
+ * 主选）与新浪 {@code SinaSubjectListClient}（M7 备选源）间路由/自动降级，港股/指数桶恒东财。引擎只依赖本端口，增删备选源只动 infrastructure
+ * 一层，{@code SubjectSyncService} 零改动。
  */
 public interface SubjectListSource {
 

@@ -70,7 +70,8 @@ import org.springframework.web.client.RestClient;
  * {@code null} 让 Jsoup 按 meta 自动检测为 utf-8（meta 缺失时默认 utf-8）。<b>此为 gov.cn 实测必要处理，文档/JSON 源无此问题</b>。
  *
  * <p><b>最近 N 条</b>：列表页固定展示约 9 条最近政策（最新一版国务院/国办文件），「更多」走 {@code /zhengce/zuixin/}。 当前取列表页约 9 条已覆盖 V2
- * 种子（白酒/银行/互联网）行业关联；需更多条数时改配 {@code adapter.gov.policy-url} 指向 {@code zuixin/} 页。
+ * 种子（白酒/银行/互联网）行业关联；需更多条数时改配 {@code datasource.POLICY.params.policyUrl} 指向 {@code zuixin/}
+ * 页（运行时键，页面可改，ADR-0032）。
  *
  * <p>软限频/防封：gov.cn 无 token、按 IP 软限，实测裸 curl 带浏览器 UA 即 200，仍带 {@code User-Agent} + {@code
  * Referer}（{@code https://www.gov.cn/}）保险。超时不在本客户端设——由 {@link
