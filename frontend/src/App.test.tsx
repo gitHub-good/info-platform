@@ -94,6 +94,29 @@ function promptTemplatesList() {
   };
 }
 
+/** 标的详情页最小视图（#/subjects/:code 导航用：真实接口路径，全分区缺失兜底态）。 */
+function subjectDetailView() {
+  return {
+    subject: { subjectCode: 'SZ000001', name: '平安银行', market: 'A_SHARE', type: 1, industry: '银行' },
+    quote: null,
+    finance: null,
+    valuation: null,
+    announcements: null,
+    news: null,
+    policies: null,
+    events: null,
+    sourceStatus: {
+      quote: 'missing',
+      finance: 'missing',
+      valuation: 'missing',
+      announce: 'missing',
+      news: 'missing',
+      policy: 'missing',
+      event: 'missing',
+    },
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
@@ -166,6 +189,24 @@ function makeFetch() {
     }
     if (path.includes('/subscriptions')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
+    }
+    if (path.includes('/subjects/by-code/')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: {
+          id: 2,
+          subjectCode: 'SZ000001',
+          name: '平安银行',
+          market: 'A_SHARE',
+          type: 1,
+          industry: '银行',
+        },
+        traceId: 't',
+      });
+    }
+    if (path.includes('/detail')) {
+      return mockResponse(200, { code: 0, msg: 'ok', data: subjectDetailView(), traceId: 't' });
     }
     return mockResponse(200, { code: 0, msg: 'ok', data: null, traceId: 't' });
   });
@@ -253,7 +294,16 @@ describe('App 路由与登录守卫（T38）', () => {
   });
 
   it('#/subjects/:code 路由参数化：记录最近浏览标的，无参入口回退最近浏览', async () => {
-    renderLoggedIn('#/subjects/SZ000001');
+    const fetchMock = renderLoggedIn('#/subjects/SZ000001');
+
+    // P0-1：详情页经真实接口路径渲染（by-code 解析 + 数字主键聚合详情）
+    expect(await screen.findByTestId('subject-detail')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('/subjects/by-code/SZ000001')),
+    ).toBe(true);
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/subjects/2/detail'))).toBe(
+      true,
+    );
 
     // SubjectDetail 挂载即记录路由参数标的（最近浏览，供侧栏无参入口回退）
     await waitFor(() => expect(localStorage.getItem('last_viewed_subject')).toBe('SZ000001'));
