@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Pagination } from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -11,8 +12,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ApiError } from '@/api/http';
-import { listJobLogs } from '@/api/jobLog';
-import type { JobExecutionStatus, JobLogView } from '@/types/jobLog';
+import { listJobLogsPaged } from '@/api/jobLog';
+import type { JobExecutionStatus, JobLogPagedView, JobLogView } from '@/types/jobLog';
+
+/** 每页条数默认值（选项 10/20/50 由 Pagination 提供）。 */
+const DEFAULT_PAGE_SIZE = 20;
 
 /** 非 ApiError 兜底文案。 */
 function messageOf(err: unknown, fallback: string): string {
@@ -48,6 +52,41 @@ function formatDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+/** 滚回表格顶部（翻页/条数/筛选成功后，UI 设计 §7.1-6）；环境不支持时跳过。 */
+function scrollToListTop(el: HTMLElement | null): void {
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ block: 'start' });
+  }
+}
+
+interface JobQuery {
+  jobName: string;
+  status: JobExecutionStatus | null;
+  page: number;
+  size: number;
+}
+
+/**
+ * 单次页码查询 + 空页防御回退（UI 设计 §5.3）：
+ * 响应 items 空且 total>0 且 page>1 → 页界漂移，以 ceil(total/size) 静默重发一次。
+ */
+async function fetchJobLogs(
+  q: JobQuery,
+  signal: AbortSignal,
+): Promise<{ data: JobLogPagedView; page: number }> {
+  const call = (page: number) =>
+    listJobLogsPaged(q.jobName, q.status, page, q.size, signal);
+  let data = await call(q.page);
+  if (data.items.length === 0 && data.total > 0 && q.page > 1) {
+    const last = Math.ceil(data.total / q.size);
+    if (last >= 1 && last < q.page) {
+      data = await call(last);
+      return { data, page: last };
+    }
+  }
+  return { data, page: q.page };
+}
+
 interface JobStatusBadgeProps {
   status: JobExecutionStatus;
 }
@@ -61,6 +100,43 @@ function JobStatusBadge({ status }: JobStatusBadgeProps) {
     <Badge variant="ghost" className={className} data-testid={`job-status-${status}`}>
       {label}
     </Badge>
+  );
+}
+
+interface StatusFilterProps {
+  value: JobExecutionStatus | null;
+  onChange: (status: JobExecutionStatus | null) => void;
+  disabled?: boolean;
+}
+
+/**
+ * 状态分段 4 档（UI 设计 D6）：全部 / 成功 / 失败 / 执行中。
+ * 等值过滤 SUCCESS / FAILED / STARTED，「全部」不发 status 参数；
+ * 复用 WindowSwitcher 按钮组先例（default 高亮 / outline 未选）。
+ */
+function StatusFilter({ value, onChange, disabled }: StatusFilterProps) {
+  const options: { value: JobExecutionStatus | null; label: string }[] = [
+    { value: null, label: '全部' },
+    ...(['SUCCESS', 'FAILED', 'STARTED'] as const).map((s) => ({
+      value: s,
+      label: STATUS_META[s].label,
+    })),
+  ];
+  return (
+    <div className="flex items-center gap-1" data-testid="job-status-filter">
+      {options.map(({ value: v, label }) => (
+        <Button
+          key={label}
+          variant={v === value ? 'default' : 'outline'}
+          size="sm"
+          disabled={disabled}
+          onClick={() => onChange(v)}
+          data-testid={`job-status-filter-${v ?? 'all'}`}
+        >
+          {label}
+        </Button>
+      ))}
+    </div>
   );
 }
 
@@ -94,92 +170,198 @@ function JobNameFilter({ jobNames, value, onChange, disabled }: JobNameFilterPro
   );
 }
 
+interface JobLogEmptyProps {
+  hasFilter: boolean;
+  onClear: () => void;
+}
+
+/** 空态（UI 设计 §4.3）：有筛选区分性文案 + 清除筛选 CTA；无筛选维持现状文案。 */
+function JobLogEmpty({ hasFilter, onClear }: JobLogEmptyProps) {
+  if (!hasFilter) {
+    return (
+      <div
+        className="py-10 text-center text-sm text-muted-foreground"
+        data-testid="job-log-empty"
+      >
+        暂无 Job 执行记录
+      </div>
+    );
+  }
+  return (
+    <div
+      className="flex flex-col items-center gap-2 py-10 text-center"
+      data-testid="job-log-empty"
+    >
+      <p className="text-sm text-foreground">未找到匹配的 Job 执行记录</p>
+      <p className="text-xs text-muted-foreground">可调整 Job 或状态筛选后重试</p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onClear}
+        data-testid="job-log-clear-filters"
+      >
+        清除筛选
+      </Button>
+    </div>
+  );
+}
+
 interface JobLogProps {
   /** URL 参数初始过滤（#/job-logs?jobName=xxx，T38 预留、T41 任务中心「历史」跳转用）。 */
   initialJobName?: string;
 }
 
 /**
- * Job 执行日志页（T33；T38 支持初始过滤）。
- * - 列表：GET /job-logs?jobName=&cursor=（游标分页，每页 20）。
- * - 状态徽章：SUCCESS 绿 / FAILED 红 / STARTED 黄。
- * - 过滤：jobName 下拉（选项来自已加载日志的 jobName 去重）→ 重新拉首页；
- *   挂载时可用 initialJobName 预过滤（URL 参数初始化，改动仅初始取参）。
- * - 分页：nextCursor 存在时「加载更多」追加下一页；翻页失败保留既有条目，按钮变重试入口。
+ * Job 执行日志页（M9 T65 页码分页化，UI 设计 §4 + §5 联动语义）。
+ * - 列表：GET /job-logs?jobName&status&page&size（页码分页，默认 20/页）。
+ * - 筛选：jobName 下拉（沿用）+ 状态分段 4 档（全部/成功/失败/执行中）；
+ *   变更 → page=1 骨架重查；组合过滤交集刷新 total。
+ * - URL 预过滤：initialJobName 仅作初始 state（App.tsx key 重挂载消费），不回写不跳转（D9）。
+ * - 联动（§5）：与政策页同款——两类 loading 分离、翻页失败保留重试、空页回退、AbortController 单点。
  * 三态：加载骨架 / 空数据引导 / 错误重试；受保护接口 401 由 http 层统一跳 /login。
  */
 export function JobLog({ initialJobName = '' }: JobLogProps) {
   const [items, setItems] = useState<JobLogView[]>([]);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // pageSize 的稳定读取点：loadFirst 保持引用稳定（避免挂载 effect 重跑）
+  const pageSizeRef = useRef(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+
   const [jobName, setJobName] = useState(initialJobName);
-  // jobName 选项全集缓存：仅在无过滤的首页加载时聚合，过滤后下拉不随结果收缩（体检 P2）
+  const [status, setStatus] = useState<JobExecutionStatus | null>(null);
+  // jobName 选项全集缓存：仅在无过滤的第 1 页响应聚合，过滤态下拉不随结果收缩（§7.1-5）
   const [allJobNames, setAllJobNames] = useState<string[]>([]);
-  const [loadingMore, setLoadingMore] = useState(false);
-  // 翻页失败独立提示：保留既有列表，「加载更多」按钮即重试入口（对齐 Feed 基线）
-  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
-  // 切换 jobName 过滤时取消在途请求，避免旧响应覆盖新结果
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState(false);
+  // 翻页失败：目标页收进重试闭包，显示态不前跳（§5.2）
+  const [pageError, setPageError] = useState<{ page: number; message: string } | null>(
+    null,
+  );
+
+  // 单一中止点：任何新请求发出前 abort 旧的，响应回填前检查 aborted（§5.4）
   const abortRef = useRef<AbortController | null>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
 
-  const loadFirst = useCallback(async (name: string) => {
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    setLoading(true);
-    setError(null);
-    setLoadMoreError(null);
-    try {
-      const data = await listJobLogs(name || null, null, ctrl.signal);
-      if (ctrl.signal.aborted) return;
-      setItems(data.items);
-      setNextCursor(data.nextCursor);
-      // 无过滤（全量）加载时缓存 jobName 全集，供过滤态下拉展示完整选项
-      if (!name) {
-        setAllJobNames((prev) =>
-          Array.from(new Set([...prev, ...data.items.map((i) => i.jobName)])).sort(),
+  /** 骨架通道（首屏/筛选变更 → 新结果集查询，§5.1）。 */
+  const loadFirst = useCallback(
+    async (nextJobName: string, nextStatus: JobExecutionStatus | null) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      setListLoading(true);
+      setListError(null);
+      setPageLoading(false);
+      setPageError(null);
+      setPage(1);
+      try {
+        const { data, page: landed } = await fetchJobLogs(
+          {
+            jobName: nextJobName,
+            status: nextStatus,
+            page: 1,
+            size: pageSizeRef.current,
+          },
+          ctrl.signal,
         );
+        if (ctrl.signal.aborted) return;
+        setItems(data.items);
+        setTotal(data.total);
+        setPage(landed);
+        // 无过滤（无 jobName、无状态）首页响应才聚合 jobName 全集
+        if (!nextJobName && !nextStatus && landed === 1) {
+          setAllJobNames((prev) =>
+            Array.from(new Set([...prev, ...data.items.map((i) => i.jobName)])).sort(),
+          );
+        }
+        scrollToListTop(sectionRef.current);
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setListError(messageOf(err, 'Job 日志加载失败'));
+      } finally {
+        if (!ctrl.signal.aborted) setListLoading(false);
       }
-    } catch (err) {
-      if (ctrl.signal.aborted) return;
-      setError(messageOf(err, 'Job 日志加载失败'));
-    } finally {
-      if (!ctrl.signal.aborted) setLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
+  // 首查：URL 预过滤仅作初始 state（状态=全部、page=1、size=20），一次组合参数
   useEffect(() => {
-    void loadFirst(initialJobName);
+    void loadFirst(initialJobName, null);
     return () => abortRef.current?.abort();
   }, [loadFirst, initialJobName]);
 
-  const handleJobNameChange = (name: string) => {
-    setJobName(name);
-    void loadFirst(name);
+  /** 在途保留通道（同筛选条件下的翻页/条数切换，§5.1）。 */
+  const fetchPage = useCallback(
+    async (target: number, size: number) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      setPageLoading(true);
+      setPageError(null);
+      try {
+        const { data, page: landed } = await fetchJobLogs(
+          { jobName, status, page: target, size },
+          ctrl.signal,
+        );
+        if (ctrl.signal.aborted) return;
+        setItems(data.items);
+        setTotal(data.total);
+        setPage(landed);
+        scrollToListTop(sectionRef.current);
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setPageError({ page: target, message: messageOf(err, '加载失败') });
+      } finally {
+        if (!ctrl.signal.aborted) setPageLoading(false);
+      }
+    },
+    [jobName, status],
+  );
+
+  const handleJobNameChange = (next: string) => {
+    setJobName(next);
+    void loadFirst(next, status);
   };
 
-  // 翻页：追加不清已有条目；失败保留条目并露出错误与重试入口
-  const handleLoadMore = async () => {
-    if (nextCursor == null || loadingMore) return;
-    setLoadingMore(true);
-    setLoadMoreError(null);
-    try {
-      const data = await listJobLogs(jobName || null, nextCursor);
-      setItems((prev) => [...prev, ...data.items]);
-      setNextCursor(data.nextCursor);
-    } catch (err) {
-      setLoadMoreError(messageOf(err, '加载更多失败'));
-    } finally {
-      setLoadingMore(false);
-    }
+  const handleStatusChange = (next: JobExecutionStatus | null) => {
+    setStatus(next);
+    void loadFirst(jobName, next);
   };
 
-  const handleRetry = () => void loadFirst(jobName);
+  const handlePageChange = (target: number) => {
+    if (target === page) return;
+    void fetchPage(target, pageSizeRef.current);
+  };
 
-  // 选项：全量缓存 ∪ 当前已加载日志 jobName（去重排序），过滤后不收缩
-  const jobNames = Array.from(new Set([...allJobNames, ...items.map((i) => i.jobName)])).sort();
-  const hasMore = nextCursor != null;
+  // 条数切换：重置 page=1 再查（PRD 场景 1.3）；同结果集重排 → 保留数据通道（§5.1 注）
+  const handlePageSizeChange = (next: number) => {
+    if (next === pageSizeRef.current) return;
+    pageSizeRef.current = next;
+    setPageSize(next);
+    void fetchPage(1, next);
+  };
+
+  const handleRetryPage = () => {
+    if (pageError) void fetchPage(pageError.page, pageSizeRef.current);
+  };
+
+  // 清除筛选：只改 state 不回写 URL、不加跳转（入口参数仅初始化用，D9）
+  const handleClearFilters = () => {
+    setJobName('');
+    setStatus(null);
+    void loadFirst('', null);
+  };
+
+  const handleRetry = () => void loadFirst(jobName, status);
+
+  // 选项：全量缓存 ∪ 当前页日志 jobName（去重排序），过滤后不收缩
+  const jobNames = Array.from(
+    new Set([...allJobNames, ...items.map((i) => i.jobName)]),
+  ).sort();
+  const hasFilter = jobName !== '' || status !== null;
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="job-log-page">
@@ -187,26 +369,31 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
         <h1 className="text-xl font-medium">Job 执行日志</h1>
       </header>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <JobNameFilter
           jobNames={jobNames}
           value={jobName}
           onChange={handleJobNameChange}
-          disabled={loading}
+          disabled={listLoading}
+        />
+        <StatusFilter
+          value={status}
+          onChange={handleStatusChange}
+          disabled={listLoading}
         />
       </div>
 
-      <section data-testid="job-log-section">
-        {loading ? (
+      <section ref={sectionRef} data-testid="job-log-section" aria-busy={pageLoading || undefined}>
+        {listLoading ? (
           <div className="flex flex-col gap-2" data-testid="job-log-loading">
             {Array.from({ length: 5 }, (_, i) => (
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
-        ) : error ? (
+        ) : listError ? (
           <div className="flex flex-col items-start gap-2" data-testid="job-log-error">
             <p className="text-sm text-destructive" role="alert">
-              {error}
+              {listError}
             </p>
             <Button
               variant="outline"
@@ -218,12 +405,7 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
             </Button>
           </div>
         ) : items.length === 0 ? (
-          <div
-            className="py-10 text-center text-sm text-muted-foreground"
-            data-testid="job-log-empty"
-          >
-            暂无 Job 执行记录
-          </div>
+          <JobLogEmpty hasFilter={hasFilter} onClear={handleClearFilters} />
         ) : (
           <>
             <Table>
@@ -277,29 +459,42 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
                 ))}
               </TableBody>
             </Table>
-            {hasMore ? (
-              <div className="mt-3 flex flex-col items-center gap-2">
-                {loadMoreError ? (
-                  <p
-                    className="text-sm text-destructive"
-                    role="alert"
-                    data-testid="job-log-more-error"
-                  >
-                    {loadMoreError}
-                  </p>
-                ) : null}
+            {pageLoading ? (
+              <p
+                className="mt-2 text-sm text-muted-foreground"
+                aria-live="polite"
+                data-testid="job-log-page-loading"
+              >
+                加载中…
+              </p>
+            ) : null}
+            {pageError ? (
+              <div
+                className="mt-2 flex flex-wrap items-center gap-2"
+                data-testid="job-log-pagination-error"
+              >
+                <p className="text-sm text-destructive" role="alert">
+                  加载第 {pageError.page} 页失败：{pageError.message}
+                </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full"
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                  data-testid="job-log-load-more"
+                  onClick={handleRetryPage}
+                  data-testid="job-log-pagination-retry"
                 >
-                  {loadingMore ? '加载中…' : '加载更多'}
+                  重试
                 </Button>
               </div>
             ) : null}
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              disabled={pageLoading}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+              label="Job 日志分页"
+            />
           </>
         )}
       </section>

@@ -1,6 +1,6 @@
-// Job 执行日志类型（对齐后端 record：JobLogView / JobLogPage）。
+// Job 执行日志类型（对齐后端 record：JobLogView / JobLogPagedView）。
 //
-// GET /api/v1/job-logs?jobName=&cursor= → JobLogPage（游标分页，每页 20）
+// GET /api/v1/job-logs?jobName=&status=&page=&size= → JobLogPagedView（页码分页）
 // 受 JWT 保护（T17），经 http.ts request 自动注入 Bearer、解析 {code,msg,data,traceId}。
 
 /** Job 执行状态（对齐后端 JobExecutionStatus 枚举名）。 */
@@ -22,8 +22,10 @@ export interface JobLogView {
   errorMessage: string | null;
 }
 
-/** Job 执行日志分页视图。nextCursor=null 表示无下一页（首页 cursor=null）。 */
-export interface JobLogPage {
+/** Job 执行日志页码分页视图（M9）。total 为筛选后精确总数。 */
+export interface JobLogPagedView {
   items: JobLogView[];
-  nextCursor: number | null;
+  total: number;
+  page: number;
+  size: number;
 }
