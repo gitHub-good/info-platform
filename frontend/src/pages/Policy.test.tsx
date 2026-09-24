@@ -245,6 +245,55 @@ describe('Policy 政策时事页', () => {
     expect(new URL(calls[1].url, 'http://x').searchParams.get('cursor')).toBe('1');
   });
 
+  it('加载更多失败：保留既有条目，按钮变重试入口，重试成功后追加（不清列表）', async () => {
+    const page1: PolicyListView = {
+      policies: [
+        {
+          id: 1,
+          title: '政策A',
+          source: 's',
+          publishedAt: '2026-09-19',
+          summary: 'a',
+          relatedIndustries: ['新能源'],
+        },
+      ],
+      nextCursor: 1,
+    };
+    const page2: PolicyListView = {
+      policies: [
+        {
+          id: 2,
+          title: '政策B',
+          source: 's',
+          publishedAt: '2026-09-18',
+          summary: 'b',
+          relatedIndustries: ['半导体'],
+        },
+      ],
+      nextCursor: null,
+    };
+    const store = makeStore({ pages: [page1, page2] });
+    vi.stubGlobal('fetch', store.fetch);
+    const user = userEvent.setup();
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-1');
+
+    // 翻页失败一次：既有条目保留 + 错误提示 + 按钮可重试（不被整页错误块替换）
+    store.fetch.mockImplementationOnce(async () => fail(50000));
+    await user.click(screen.getByTestId('policy-load-more'));
+    expect(await screen.findByTestId('policy-more-error')).toHaveTextContent('服务异常');
+    expect(screen.getByTestId('policy-item-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('policy-list-error')).toBeNull();
+    expect(screen.getByTestId('policy-load-more')).toBeInTheDocument();
+
+    // 重试成功：追加下一页，错误清除
+    await user.click(screen.getByTestId('policy-load-more'));
+    expect(await screen.findByTestId('policy-item-2')).toBeInTheDocument();
+    expect(screen.getByTestId('policy-item-1')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('policy-more-error')).toBeNull());
+  });
+
   it('点击条目：拉详情 + 关联自选标的表 + 倾向徽章（利好）', async () => {
     const store = makeStore({ pages: [PAGE_FULL], detail: DETAIL_BULL });
     vi.stubGlobal('fetch', store.fetch);

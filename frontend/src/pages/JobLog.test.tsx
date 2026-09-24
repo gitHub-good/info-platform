@@ -187,6 +187,37 @@ describe('JobLog 执行日志页', () => {
     expect(new URL(calls[1].url, 'http://x').searchParams.get('cursor')).toBe('1');
   });
 
+  it('加载更多失败：保留既有条目，按钮变重试入口，重试成功后追加（不清列表）', async () => {
+    const page1: JobLogPage = {
+      items: [{ ...LOG_SUCCESS, id: 1 }],
+      nextCursor: 1,
+    };
+    const page2: JobLogPage = {
+      items: [{ ...LOG_SUCCESS, id: 2 }],
+      nextCursor: null,
+    };
+    const store = makeStore({ pages: [page1, page2] });
+    vi.stubGlobal('fetch', store.fetch);
+    const user = userEvent.setup();
+    render(<JobLog />);
+
+    await screen.findByTestId('job-log-row-1');
+
+    // 翻页失败一次：既有条目保留 + 错误提示 + 按钮可重试（不被整页错误块替换）
+    store.fetch.mockImplementationOnce(async () => fail(50000));
+    await user.click(screen.getByTestId('job-log-load-more'));
+    expect(await screen.findByTestId('job-log-more-error')).toHaveTextContent('服务异常');
+    expect(screen.getByTestId('job-log-row-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('job-log-error')).toBeNull();
+    expect(screen.getByTestId('job-log-load-more')).toBeInTheDocument();
+
+    // 重试成功：追加下一页，错误清除
+    await user.click(screen.getByTestId('job-log-load-more'));
+    expect(await screen.findByTestId('job-log-row-2')).toBeInTheDocument();
+    expect(screen.getByTestId('job-log-row-1')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('job-log-more-error')).toBeNull());
+  });
+
   it('列表为空：展示空态文案，无加载更多', async () => {
     const store = makeStore({ pages: [{ items: [], nextCursor: null }] });
     vi.stubGlobal('fetch', store.fetch);

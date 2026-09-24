@@ -105,7 +105,7 @@ interface JobLogProps {
  * - 状态徽章：SUCCESS 绿 / FAILED 红 / STARTED 黄。
  * - 过滤：jobName 下拉（选项来自已加载日志的 jobName 去重）→ 重新拉首页；
  *   挂载时可用 initialJobName 预过滤（URL 参数初始化，改动仅初始取参）。
- * - 分页：nextCursor 存在时「加载更多」追加下一页。
+ * - 分页：nextCursor 存在时「加载更多」追加下一页；翻页失败保留既有条目，按钮变重试入口。
  * 三态：加载骨架 / 空数据引导 / 错误重试；受保护接口 401 由 http 层统一跳 /login。
  */
 export function JobLog({ initialJobName = '' }: JobLogProps) {
@@ -115,6 +115,8 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
   const [error, setError] = useState<string | null>(null);
   const [jobName, setJobName] = useState(initialJobName);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 翻页失败独立提示：保留既有列表，「加载更多」按钮即重试入口（对齐 Feed 基线）
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   // 切换 jobName 过滤时取消在途请求，避免旧响应覆盖新结果
   const abortRef = useRef<AbortController | null>(null);
@@ -125,6 +127,7 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
     abortRef.current = ctrl;
     setLoading(true);
     setError(null);
+    setLoadMoreError(null);
     try {
       const data = await listJobLogs(name || null, null, ctrl.signal);
       if (ctrl.signal.aborted) return;
@@ -148,15 +151,17 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
     void loadFirst(name);
   };
 
+  // 翻页：追加不清已有条目；失败保留条目并露出错误与重试入口
   const handleLoadMore = async () => {
     if (nextCursor == null || loadingMore) return;
     setLoadingMore(true);
+    setLoadMoreError(null);
     try {
       const data = await listJobLogs(jobName || null, nextCursor);
       setItems((prev) => [...prev, ...data.items]);
       setNextCursor(data.nextCursor);
     } catch (err) {
-      setError(messageOf(err, '加载更多失败'));
+      setLoadMoreError(messageOf(err, '加载更多失败'));
     } finally {
       setLoadingMore(false);
     }
@@ -265,16 +270,27 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
               </TableBody>
             </Table>
             {hasMore ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3 w-full"
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                data-testid="job-log-load-more"
-              >
-                {loadingMore ? '加载中…' : '加载更多'}
-              </Button>
+              <div className="mt-3 flex flex-col items-center gap-2">
+                {loadMoreError ? (
+                  <p
+                    className="text-sm text-destructive"
+                    role="alert"
+                    data-testid="job-log-more-error"
+                  >
+                    {loadMoreError}
+                  </p>
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  data-testid="job-log-load-more"
+                >
+                  {loadingMore ? '加载中…' : '加载更多'}
+                </Button>
+              </div>
             ) : null}
           </>
         )}

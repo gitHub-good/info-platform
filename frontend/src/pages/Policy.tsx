@@ -24,7 +24,7 @@ function detailErrorMessage(err: unknown): string {
  * 政策时事页（技术方案 §4.1.5 + PRD 故事 4 + T25）。
  * - 列表：GET /policies?days=7&industry=&cursor=（游标分页，每页 20）。
  * - 行业过滤：下拉选行业 → 重置列表带 industry 参数重新拉首页。
- * - 分页：nextCursor 存在时「加载更多」追加下一页。
+ * - 分页：nextCursor 存在时「加载更多」追加下一页；翻页失败保留既有条目，按钮变重试入口。
  * - 详情：点条目 → GET /policies/{id} → 详情 + 关联自选标的 + aiTendency 倾向徽章。
  * 三态：加载骨架 / 空数据引导 / 错误重试；受保护接口 401 由 http 层统一跳 /login。
  */
@@ -40,6 +40,8 @@ export function Policy() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 翻页失败独立提示：保留既有列表，「加载更多」按钮即重试入口（对齐 Feed 基线）
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   // 切换行业过滤时取消在途列表请求，避免旧响应覆盖新结果
   const listAbort = useRef<AbortController | null>(null);
@@ -50,6 +52,7 @@ export function Policy() {
     listAbort.current = ctrl;
     setListLoading(true);
     setListError(null);
+    setLoadMoreError(null);
     try {
       const data = await listPolicies(DEFAULT_POLICY_DAYS, ind || null, null, ctrl.signal);
       if (ctrl.signal.aborted) return;
@@ -77,15 +80,17 @@ export function Policy() {
     void loadFirst(ind);
   };
 
+  // 翻页：追加不清已有条目；失败保留条目并露出错误与重试入口
   const handleLoadMore = async () => {
     if (nextCursor == null || loadingMore) return;
     setLoadingMore(true);
+    setLoadMoreError(null);
     try {
       const data = await listPolicies(DEFAULT_POLICY_DAYS, industry || null, nextCursor);
       setItems((prev) => [...prev, ...data.policies]);
       setNextCursor(data.nextCursor);
     } catch (err) {
-      setListError(messageOf(err, '加载更多失败'));
+      setLoadMoreError(messageOf(err, '加载更多失败'));
     } finally {
       setLoadingMore(false);
     }
@@ -178,16 +183,27 @@ export function Policy() {
                 onSelect={handleSelect}
               />
               {hasMore ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3 w-full"
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                  data-testid="policy-load-more"
-                >
-                  {loadingMore ? '加载中…' : '加载更多'}
-                </Button>
+                <div className="mt-3 flex flex-col items-center gap-2">
+                  {loadMoreError ? (
+                    <p
+                      className="text-sm text-destructive"
+                      role="alert"
+                      data-testid="policy-more-error"
+                    >
+                      {loadMoreError}
+                    </p>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    data-testid="policy-load-more"
+                  >
+                    {loadingMore ? '加载中…' : '加载更多'}
+                  </Button>
+                </div>
               ) : null}
             </>
           )}
