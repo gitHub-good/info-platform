@@ -126,8 +126,10 @@ function LastExecutionCell({ job }: { job: JobView }) {
   );
 }
 
-/** 行内生效提示：LIVE_NEXT_CYCLE → amber「下一调度周期生效」（常驻）；启停热切换 → emerald「已生效」（短暂）。 */
-function ScheduleNote({ note }: { note: 'done' | 'next-cycle' }) {
+/** 行内生效提示：LIVE_NEXT_CYCLE → amber「下一调度周期生效」；RESTART → amber「重启后生效」（均常驻）；LIVE → emerald「已生效」（短暂）。 */
+type ScheduleNoteKind = 'done' | 'next-cycle' | 'restart';
+
+function ScheduleNote({ note }: { note: ScheduleNoteKind }) {
   if (note === 'next-cycle') {
     return (
       <Badge
@@ -136,6 +138,17 @@ function ScheduleNote({ note }: { note: 'done' | 'next-cycle' }) {
         data-testid="task-note-next-cycle"
       >
         下一调度周期生效
+      </Badge>
+    );
+  }
+  if (note === 'restart') {
+    return (
+      <Badge
+        variant="outline"
+        className="bg-amber-500/15 text-amber-400"
+        data-testid="task-note-restart"
+      >
+        重启后生效
       </Badge>
     );
   }
@@ -152,10 +165,9 @@ interface EditDialogProps {
   job: JobView;
   onClose: () => void;
   onSaved: (saved: JobView, changed: string[]) => void;
-  onError: (msg: string) => void;
 }
 
-function ScheduleEditDialog({ job, onClose, onSaved, onError }: EditDialogProps) {
+function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   const isCron = job.scheduleType === 'CRON';
   const showUserIds = job.jobKey === 'DAILY_RECOMMEND';
   const [intervalSeconds, setIntervalSeconds] = useState(
@@ -164,6 +176,8 @@ function ScheduleEditDialog({ job, onClose, onSaved, onError }: EditDialogProps)
   const [cron, setCron] = useState(job.cron ?? '');
   const [userIds, setUserIds] = useState(job.userIds ?? '');
   const [error, setError] = useState<string | null>(null);
+  // 保存失败文案（Dialog 内字段下方展示，保持 Dialog 打开不丢输入）
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const dirty = isCron
@@ -174,6 +188,7 @@ function ScheduleEditDialog({ job, onClose, onSaved, onError }: EditDialogProps)
     const validation = isCron ? cronError(cron) : positiveSecondsError(intervalSeconds);
     const usersValidation = showUserIds ? userIdsError(userIds) : null;
     setError(validation ?? usersValidation);
+    setSaveError(null);
     if (validation || usersValidation || !dirty) {
       return;
     }
@@ -198,10 +213,8 @@ function ScheduleEditDialog({ job, onClose, onSaved, onError }: EditDialogProps)
       onSaved(saved, changed);
       onClose();
     } catch (err) {
-      const msg = messageOf(err, '保存失败，请重试');
-      setError(null); // 字段级错误与后端文案分开展示：后端原因进行内反馈
-      onError(msg);
-      onClose();
+      // 保存失败：Dialog 保持打开、输入保留，错误渲染在字段下方供就地重试
+      setSaveError(messageOf(err, '保存失败，请重试'));
     } finally {
       setSaving(false);
     }
@@ -276,6 +289,15 @@ function ScheduleEditDialog({ job, onClose, onSaved, onError }: EditDialogProps)
           />
         </label>
       ) : null}
+      {saveError ? (
+        <p
+          className="text-sm text-destructive"
+          role="alert"
+          data-testid={`task-edit-error-${job.jobKey}`}
+        >
+          {saveError}
+        </p>
+      ) : null}
     </Dialog>
   );
 }
@@ -284,7 +306,7 @@ function ScheduleEditDialog({ job, onClose, onSaved, onError }: EditDialogProps)
 
 interface TaskRowProps {
   job: JobView;
-  note: 'done' | 'next-cycle' | null;
+  note: ScheduleNoteKind | null;
   rowError: string | null;
   triggering: boolean;
   onToggle: (job: JobView, next: boolean) => void;
@@ -387,7 +409,7 @@ export function TaskCenter() {
   const [jobs, setJobs] = useState<JobView[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, 'done' | 'next-cycle'>>({});
+  const [notes, setNotes] = useState<Record<string, ScheduleNoteKind>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [triggering, setTriggering] = useState<Record<string, boolean>>({});
   const [editJob, setEditJob] = useState<JobView | null>(null);
@@ -459,7 +481,7 @@ export function TaskCenter() {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [refresh]);
 
-  const setNote = (jobKey: string, note: 'done' | 'next-cycle') => {
+  const setNote = (jobKey: string, note: ScheduleNoteKind) => {
     setNotes((prev) => ({ ...prev, [jobKey]: note }));
     if (note === 'done') {
       window.clearTimeout(noteTimers.current[jobKey]);
@@ -486,10 +508,12 @@ export function TaskCenter() {
 
   const applySaved = (saved: JobView, changed: string[]) => {
     setJobs((prev) => prev?.map((job) => (job.jobKey === saved.jobKey ? saved : job)) ?? prev);
-    // 生效方式按接口 effectiveMode 渲染（UI 方案 §4.2/D3）：LIVE_NEXT_CYCLE 常驻明示，LIVE 短暂「已生效」
+    // 生效方式按接口 effectiveMode 渲染（UI 方案 §4.2/D3）：
+    // RESTART 常驻「重启后生效」/ LIVE_NEXT_CYCLE 常驻「下一调度周期生效」/ LIVE 短暂「已生效」
     const modes: Record<string, JobEffectiveMode> = saved.effectiveModes ?? {};
+    const restart = changed.some((field) => modes[field] === 'RESTART');
     const nextCycle = changed.some((field) => modes[field] === 'LIVE_NEXT_CYCLE');
-    setNote(saved.jobKey, nextCycle ? 'next-cycle' : 'done');
+    setNote(saved.jobKey, restart ? 'restart' : nextCycle ? 'next-cycle' : 'done');
     void refresh(true);
   };
 
@@ -596,7 +620,6 @@ export function TaskCenter() {
           job={editJob}
           onClose={() => setEditJob(null)}
           onSaved={applySaved}
-          onError={(msg) => setRowError(editJob.jobKey, msg)}
         />
       ) : null}
 

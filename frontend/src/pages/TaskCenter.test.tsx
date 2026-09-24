@@ -300,6 +300,58 @@ describe('TaskCenter 页面（T41）', () => {
     expect(await screen.findByTestId('task-note-next-cycle')).toBeInTheDocument();
   });
 
+  it('编辑调度保存失败：Dialog 保持打开、错误渲染在字段下方且输入不丢，重试后成功关闭', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-POLICY_FETCH');
+
+    await user.click(screen.getByTestId('task-edit-POLICY_FETCH'));
+    const intervalInput = await screen.findByTestId('task-edit-interval-POLICY_FETCH');
+    await user.clear(intervalInput);
+    await user.type(intervalInput, '7200');
+
+    // 保存失败一次：Dialog 不关、错误在 Dialog 内字段下方、输入保留
+    store.fetchMock.mockImplementationOnce(async () => fail(500, 50000, '服务异常'));
+    await user.click(screen.getByTestId('task-edit-save-POLICY_FETCH'));
+    expect(await screen.findByTestId('task-edit-error-POLICY_FETCH')).toHaveTextContent(
+      '服务异常',
+    );
+    expect(screen.getByTestId('task-edit-interval-POLICY_FETCH')).toHaveValue('7200');
+
+    // 再次保存成功：Dialog 关闭，行内出现生效提示
+    await user.click(screen.getByTestId('task-edit-save-POLICY_FETCH'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('task-edit-interval-POLICY_FETCH')).toBeNull(),
+    );
+    expect(await screen.findByTestId('task-note-next-cycle')).toBeInTheDocument();
+  });
+
+  it('RESTART 生效模式：保存后渲染 amber「重启后生效」徽章（不误显已生效）', async () => {
+    const jobs = fiveJobs().map((job) =>
+      job.jobKey === 'POLICY_FETCH'
+        ? { ...job, effectiveModes: { ...job.effectiveModes, intervalMillis: 'RESTART' as const } }
+        : job,
+    );
+    const store = makeStore({ jobs });
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-POLICY_FETCH');
+
+    await user.click(screen.getByTestId('task-edit-POLICY_FETCH'));
+    const intervalInput = await screen.findByTestId('task-edit-interval-POLICY_FETCH');
+    await user.clear(intervalInput);
+    await user.type(intervalInput, '7200');
+    await user.click(screen.getByTestId('task-edit-save-POLICY_FETCH'));
+
+    // intervalMillis 为 RESTART → 常驻「重启后生效」，不显示「已生效」/「下一调度周期生效」
+    const badge = await screen.findByTestId('task-note-restart');
+    expect(badge).toHaveTextContent('重启后生效');
+    expect(badge.className).toContain('amber');
+    expect(screen.queryByTestId('task-note-done')).toBeNull();
+    expect(screen.queryByTestId('task-note-next-cycle')).toBeNull();
+  });
+
   it('cron 型任务编辑：非法段数前端拦截（对齐后端 6 段 Spring cron）', async () => {
     const store = makeStore();
     renderPage(store);
