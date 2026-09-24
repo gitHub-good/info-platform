@@ -8,7 +8,10 @@ import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,6 +90,22 @@ public class SubjectRepositoryImpl implements SubjectRepository {
     /** 转义 SQLite LIKE 通配符（%/_/\\），配合 {@code ESCAPE '\\'} 按字面匹配（用户输入不构成通配语义）。 */
     private static String escapeLike(String keyword) {
         return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    @Override
+    public List<Subject> findAllById(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<Long> distinct =
+                ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return List.of();
+        }
+        return mapper.selectBatchIds(distinct).stream()
+                .sorted(Comparator.comparing(SubjectPO::getId))
+                .map(SubjectRepositoryImpl::toEntity)
+                .toList();
     }
 
     @Override

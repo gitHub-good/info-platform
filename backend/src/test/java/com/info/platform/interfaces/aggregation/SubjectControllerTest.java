@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.info.platform.application.aggregation.AggregationService;
 import com.info.platform.application.aggregation.SubjectDetail;
+import com.info.platform.application.aggregation.SubjectQuote;
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectCode;
@@ -288,6 +289,80 @@ class SubjectControllerTest {
                 .andExpect(jsonPath("$.code").value(2001));
 
         mockMvc.perform(get("/api/v1/subjects/search").param("q", "茅台").param("limit", "51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    // ---- quotes 批量标的摘要+行情（体检 P1-2 自选清单表格） ----
+
+    @Test
+    void getQuotes_returns200WithSummaryAndQuote() throws Exception {
+        when(aggregationService.getQuotes(List.of(1L)))
+                .thenReturn(
+                        List.of(
+                                new SubjectQuote(
+                                        1L,
+                                        "SH600519",
+                                        "贵州茅台",
+                                        "A_SHARE",
+                                        1,
+                                        "白酒",
+                                        Map.of("price", new BigDecimal("1680.50"), "changePct", new BigDecimal("1.25")))));
+
+        mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].id").value(1))
+                .andExpect(jsonPath("$.data[0].subjectCode").value("SH600519"))
+                .andExpect(jsonPath("$.data[0].name").value("贵州茅台"))
+                .andExpect(jsonPath("$.data[0].quote.price").value(1680.50))
+                .andExpect(jsonPath("$.data[0].quote.changePct").value(1.25));
+    }
+
+    @Test
+    void getQuotes_degradedRow_keepsSummaryWithNullQuote() throws Exception {
+        when(aggregationService.getQuotes(List.of(2L)))
+                .thenReturn(
+                        List.of(new SubjectQuote(2L, "SZ300750", "宁德时代", "A_SHARE", 1, "动力电池", null)));
+
+        mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].subjectCode").value("SZ300750"))
+                .andExpect(jsonPath("$.data[0].quote").doesNotExist());
+    }
+
+    @Test
+    void getQuotes_blankIds_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "  "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void getQuotes_missingIds_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/quotes"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void getQuotes_nonNumericOrNonPositiveId_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "1,abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+
+        mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void getQuotes_tooManyIds_returns400AndCode2001() throws Exception {
+        String ids = java.util.stream.LongStream.rangeClosed(1, 51)
+                .mapToObj(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+
+        mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", ids))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
     }

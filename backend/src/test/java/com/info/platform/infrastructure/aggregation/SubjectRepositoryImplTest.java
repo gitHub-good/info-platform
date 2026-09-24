@@ -121,7 +121,6 @@ class SubjectRepositoryImplTest {
 
     @Test
     void save_updateExistingSubject_incrementsVersion() {
-        // Arrange
         // Arrange（SH600036 招商银行已由 V17 播种，换非冲突代码验证更新乐观锁）
         Subject subject =
                 Subject.builder()
@@ -212,5 +211,36 @@ class SubjectRepositoryImplTest {
         Optional<Subject> catl = subjectRepository.findByCode(SubjectCode.of("SZ300750"));
         assertThat(catl).isPresent();
         assertThat(catl.orElseThrow().getExternalCodes()).containsEntry("eastmoney", "0.300750");
+    }
+
+    // ---- findAllById 批量取数（体检 P1-2 自选清单行情列） ----
+
+    @Test
+    void findAllById_returnsKnownSeeds_sortedByIdSkipsUnknown() {
+        // 茅台(id=1, V2) + 宁德时代(V17)；999999 不存在跳过；乱序入参按 id 升序返回
+        Optional<Subject> catl = subjectRepository.findByCode(SubjectCode.of("SZ300750"));
+        assertThat(catl).isPresent();
+        List<Long> ids =
+                List.of(catl.orElseThrow().getId(), 1L, 999_999L);
+
+        List<Subject> found = subjectRepository.findAllById(ids);
+
+        assertThat(found).hasSize(2);
+        assertThat(found.get(0).getSubjectCode().value()).isEqualTo("SH600519");
+        assertThat(found.get(1).getSubjectCode().value()).isEqualTo("SZ300750");
+    }
+
+    @Test
+    void findAllById_emptyOrAllUnknown_returnsEmptyList() {
+        assertThat(subjectRepository.findAllById(List.of())).isEmpty();
+        assertThat(subjectRepository.findAllById(List.of(999_998L, 999_999L))).isEmpty();
+    }
+
+    @Test
+    void findAllById_deduplicatesRepeatedIds() {
+        List<Subject> found = subjectRepository.findAllById(List.of(1L, 1L, 1L));
+
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).getSubjectCode().value()).isEqualTo("SH600519");
     }
 }

@@ -1,5 +1,6 @@
 package com.info.platform.domain.aggregation;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,13 @@ public interface SubjectRepository {
      * <p>搜索选择器数据源（体检 P1-2，解「只知数字主键」的冷启动死锁）；LIKE 通配符（%/_）由实现层转义按字面匹配。
      */
     List<Subject> searchEnabled(String keyword, int limit);
+
+    /**
+     * 批量按主键取标的（去重、按 id 升序返回，不筛状态）；不存在的主键跳过不抛错。
+     *
+     * <p>自选清单等小批量（≤50）批量取数端口（体检 P1-2/P3 N+1 收口方向）。
+     */
+    List<Subject> findAllById(Collection<Long> ids);
 
     /** 落库：id 为空走 INSERT 并回填主键，非空走 UPDATE（乐观锁由基础设施层处理）。 */
     Subject save(Subject subject);

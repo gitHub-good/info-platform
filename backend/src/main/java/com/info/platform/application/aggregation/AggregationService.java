@@ -8,6 +8,7 @@ import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,6 +38,8 @@ import org.springframework.stereotype.Service;
  *
  * <p>T31 扩展位：按 {@link SourceAdapter#supportedSubjectTypes()} 过滤不适用本类型的源（不调外部源，分区 missing
  * 降级）——新增标的类型只注册 adapter 支持声明，本编排类零改动。
+ *
+ * <p>体检 P1-2 增补：{@link #getQuotes} 批量标的行情（自选清单表格列），复用同一套 adapter/缓存/弹性口径。
  */
 @Service
 public class AggregationService {
@@ -123,9 +126,92 @@ public class AggregationService {
         return assemble(subject, futures);
     }
 
+    /**
+     * 批量取标的行情（体检 P1-2 自选清单表格列）。
+     *
+     * <p>标的摘要恒返回（不存在的主键跳过）；行情经 QUOTE adapter 并行取数（享 SourceCache TTL 与失败负缓存），
+     * 任一标的失败/超时/类型不适用 → 该行 {@code quote=null} 不阻断其他行；总超时同 detail（{@code aggregation.global}）。
+     */
+    public List<SubjectQuote> getQuotes(Collection<Long> subjectIds) {
+        List<Subject> subjects = subjectRepository.findAllById(subjectIds);
+        if (subjects.isEmpty()) {
+            return List.of();
+        }
+        SourceAdapter quoteAdapter = adapters.get(SourceCode.QUOTE);
+        if (quoteAdapter == null) {
+            log.warn("未装配 QUOTE 行情 SourceAdapter，批量行情整体降级为空 size={}", subjects.size());
+            return subjects.stream().map(s -> toQuote(s, null)).toList();
+        }
+
+        Map<Long, CompletableFuture<SourceResult>> futures = new LinkedHashMap<>();
+        for (Subject subject : subjects) {
+            if (!quoteAdapter.supportedSubjectTypes().contains(subject.getSubjectType())) {
+                // 类型不适用：不外调源，该行 quote=null（与 detail 的 missing 降级同语义）
+                continue;
+            }
+            futures.put(
+                    subject.getId(),
+                    CompletableFuture.supplyAsync(() -> quoteAdapter.fetch(subject), executor));
+        }
+        awaitQuotes(futures);
+
+        return subjects.stream()
+                .map(s -> toQuote(s, quoteDataOf(futures.get(s.getId()))))
+                .toList();
+    }
+
+    /** 等待全部行情取数完成；总超时不抛出（未完成行按 null 降级并取消）。 */
+    private void awaitQuotes(Map<Long, CompletableFuture<SourceResult>> futures) {
+        if (futures.isEmpty()) {
+            return;
+        }
+        try {
+            CompletableFuture.allOf(futures.values().toArray(new CompletableFuture[0]))
+                    .get(runtimeSettings.detailTimeoutMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException te) {
+            log.warn("批量行情取数总超时，未完成行降级 size={}", futures.size());
+        } catch (ExecutionException ee) {
+            // 单标的 fetch 异常已在 quoteDataOf 兜底为 null；此处仅兜底 allOf 聚合面
+            log.warn("批量行情取数异常 size={}", futures.size(), ee);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("批量行情取数被中断 size={}", futures.size());
+        }
+    }
+
+    /** 从 future 提取行情分区：OK → data；未完成/异常/非 OK → null（降级）。 */
+    private static Map<String, Object> quoteDataOf(CompletableFuture<SourceResult> future) {
+        if (future == null) {
+            return null;
+        }
+        if (!future.isDone()) {
+            future.cancel(true);
+            return null;
+        }
+        try {
+            SourceResult result = future.get();
+            return result.getStatus() == SourceStatus.OK ? result.getData() : null;
+        } catch (Exception ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return null;
+        }
+    }
+
+    private static SubjectQuote toQuote(Subject subject, Map<String, Object> quote) {
+        return new SubjectQuote(
+                subject.getId(),
+                subject.getSubjectCode().value(),
+                subject.getName(),
+                subject.getMarket().name(),
+                subject.getSubjectType().code(),
+                subject.getIndustry(),
+                quote);
+    }
+
     private SubjectDetail assemble(
-            Subject subject, Map<SourceCode, CompletableFuture<SourceResult>> futures) {
-        Map<String, String> sourceStatus = new LinkedHashMap<>();
+            Subject subject, Map<SourceCode, CompletableFuture<SourceResult>> futures) {        Map<String, String> sourceStatus = new LinkedHashMap<>();
         Map<String, Object> quote = null;
         Map<String, Object> finance = null;
         Map<String, Object> valuation = null;

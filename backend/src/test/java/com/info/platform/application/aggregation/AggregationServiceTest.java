@@ -326,6 +326,130 @@ class AggregationServiceTest {
         assertThat(detail.sourceStatus().get("news")).isEqualTo("ok");
     }
 
+    // ---- getQuotes 批量行情（体检 P1-2 自选清单表格列） ----
+
+    @Test
+    void getQuotes_allOk_returnsSummaryWithQuoteData() {
+        when(subjectRepository.findAllById(List.of(1L, 2L)))
+                .thenReturn(List.of(subject(1L), subject(2L)));
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository,
+                        List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1680.50"))),
+                        syncExecutor,
+                        () -> 2000L);
+
+        List<SubjectQuote> quotes = service.getQuotes(List.of(1L, 2L));
+
+        assertThat(quotes).hasSize(2);
+        assertThat(quotes.get(0).id()).isEqualTo(1L);
+        assertThat(quotes.get(0).subjectCode()).isEqualTo("SH600519");
+        assertThat(quotes.get(0).name()).isEqualTo("贵州茅台");
+        assertThat(quotes.get(0).quote()).containsEntry("price", "1680.50");
+        assertThat(quotes.get(1).quote()).containsEntry("price", "1680.50");
+    }
+
+    @Test
+    void getQuotes_unknownIdsSkipped_emptyListWhenNothingResolved() {
+        when(subjectRepository.findAllById(List.of(999L))).thenReturn(List.of());
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository,
+                        List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1"))),
+                        syncExecutor,
+                        () -> 2000L);
+
+        assertThat(service.getQuotes(List.of(999L))).isEmpty();
+    }
+
+    @Test
+    void getQuotes_singleFailure_degradesToNullWithoutBlockingOthers() {
+        // 标的 1 的行情 MISSING、标的 2 OK：行 1 quote=null、行 2 正常（任一失败不阻断）
+        when(subjectRepository.findAllById(List.of(1L, 2L)))
+                .thenReturn(List.of(subject(1L), subject(2L)));
+        SourceAdapter mixedQuote =
+                new SourceAdapter() {
+                    @Override
+                    public SourceResult fetch(Subject s) {
+                        return s.getId() == 1L
+                                ? SourceResult.missing(SourceCode.QUOTE, s.getId(), "t")
+                                : SourceResult.ok(
+                                        SourceCode.QUOTE,
+                                        s.getId(),
+                                        Map.of("price", "10"),
+                                        "t",
+                                        Instant.now());
+                    }
+
+                    @Override
+                    public SourceCode sourceCode() {
+                        return SourceCode.QUOTE;
+                    }
+                };
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository, List.of(mixedQuote), syncExecutor, () -> 2000L);
+
+        List<SubjectQuote> quotes = service.getQuotes(List.of(1L, 2L));
+
+        assertThat(quotes).hasSize(2);
+        assertThat(quotes.get(0).quote()).isNull();
+        assertThat(quotes.get(0).subjectCode()).isEqualTo("SH600519"); // 摘要仍返回
+        assertThat(quotes.get(1).quote()).containsEntry("price", "10");
+    }
+
+    @Test
+    void getQuotes_quoteAdapterMissing_allRowsDegradeToNull() {
+        when(subjectRepository.findAllById(List.of(1L))).thenReturn(List.of(subject(1L)));
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository,
+                        List.of(okAdapter(SourceCode.FINANCE, Map.of("revenue", "1"))),
+                        syncExecutor,
+                        () -> 2000L);
+
+        List<SubjectQuote> quotes = service.getQuotes(List.of(1L));
+
+        assertThat(quotes).hasSize(1);
+        assertThat(quotes.get(0).quote()).isNull();
+    }
+
+    @Test
+    void getQuotes_unsupportedSubjectType_skipsFetchAndQuotesNull() {
+        // 板块标的 + 仅支持股票的行情源：不外调 fetch，该行 quote=null（摘要仍返回）
+        when(subjectRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(subject(1L, SubjectType.SECTOR)));
+        AtomicInteger fetchCalls = new AtomicInteger();
+        SourceAdapter stockOnlyQuote =
+                new SourceAdapter() {
+                    @Override
+                    public SourceResult fetch(Subject s) {
+                        fetchCalls.incrementAndGet();
+                        return SourceResult.ok(
+                                SourceCode.QUOTE, s.getId(), Map.of("price", "1"), "t", Instant.now());
+                    }
+
+                    @Override
+                    public SourceCode sourceCode() {
+                        return SourceCode.QUOTE;
+                    }
+
+                    @Override
+                    public Set<SubjectType> supportedSubjectTypes() {
+                        return EnumSet.of(SubjectType.STOCK);
+                    }
+                };
+        AggregationService service =
+                new AggregationService(
+                        subjectRepository, List.of(stockOnlyQuote), syncExecutor, () -> 2000L);
+
+        List<SubjectQuote> quotes = service.getQuotes(List.of(1L));
+
+        assertThat(fetchCalls.get()).isZero();
+        assertThat(quotes).hasSize(1);
+        assertThat(quotes.get(0).quote()).isNull();
+    }
+
     private static Subject subject(Long id) {
         return subject(id, SubjectType.STOCK);
     }
