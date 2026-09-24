@@ -223,12 +223,46 @@ describe('Watchlist 管理页', () => {
     expect(await screen.findByTestId('watchlist-add-error')).toHaveTextContent('标的不存在');
   });
 
+  it('删标的需二次确认：先弹确认 Dialog，取消不动、确认才删', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    // 点击移除：先出确认 Dialog，未发 DELETE
+    await user.click(screen.getByTestId('watchlist-remove-item-10'));
+    expect(await screen.findByText('确认移除该标的？')).toBeInTheDocument();
+    expect(screen.getByTestId('watchlist-remove-confirm-ok')).toBeInTheDocument();
+
+    // 取消：Dialog 关闭、标的行不动、无 DELETE 请求
+    await user.click(screen.getByTestId('watchlist-remove-confirm-cancel'));
+    await waitFor(() => expect(screen.queryByText('确认移除该标的？')).toBeNull());
+    expect(screen.getByTestId('watchlist-item-row-10')).toBeInTheDocument();
+    expect(
+      store.fetch.mock.calls.some(
+        (c) => (c[1] as RequestInit).method === 'DELETE' && /\/items\/\d+$/.test(String(c[0])),
+      ),
+    ).toBe(false);
+
+    // 再次移除并确认：DELETE 发出、标的行消失
+    await user.click(screen.getByTestId('watchlist-remove-item-10'));
+    await user.click(screen.getByTestId('watchlist-remove-confirm-ok'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('watchlist-item-row-10')).toBeNull();
+    });
+    expect(
+      store.fetch.mock.calls.some(
+        (c) => (c[1] as RequestInit).method === 'DELETE' && /\/items\/\d+$/.test(String(c[0])),
+      ),
+    ).toBe(true);
+  });
+
   it('删标的成功后详情刷新、标的行消失', async () => {
     const store = makeStore();
     const user = userEvent.setup();
     await renderReady(store);
 
     await user.click(screen.getByTestId('watchlist-remove-item-10'));
+    await user.click(screen.getByTestId('watchlist-remove-confirm-ok'));
 
     await waitFor(() => {
       expect(screen.queryByTestId('watchlist-item-row-10')).toBeNull();
@@ -243,6 +277,7 @@ describe('Watchlist 管理页', () => {
     await renderReady(store);
 
     await user.click(screen.getByTestId('watchlist-remove-item-10'));
+    await user.click(screen.getByTestId('watchlist-remove-confirm-ok'));
 
     expect(await screen.findByTestId('watchlist-action-error')).toHaveTextContent(
       '无权操作该清单',
