@@ -3,6 +3,8 @@ package com.info.platform.interfaces.aggregation;
 import com.info.platform.application.aggregation.AggregationService;
 import com.info.platform.application.aggregation.SubjectDetail;
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SubjectCode;
+import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.Result;
@@ -20,15 +22,34 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>{@code GET /api/v1/subjects/{subjectId}/detail?sections=quote,finance,...} — sections
  * 可选（默认全部分区）； 单源缺失不阻断，返回体含 sourceStatus 标注每分区状态。标的不存在 → 30001（404）；非法 section → 2xxx（400）。
+ *
+ * <p>{@code GET /api/v1/subjects/by-code/{code}}（P0-1）— 内部统一代码 → 数字主键解析，
+ * 供前端路由（#/subjects/SH600519）接入数字主键寻址的聚合详情接口。
  */
 @RestController
 @RequestMapping("/api/v1/subjects")
 public class SubjectController {
 
     private final AggregationService aggregationService;
+    private final SubjectRepository subjectRepository;
 
-    public SubjectController(AggregationService aggregationService) {
+    public SubjectController(
+            AggregationService aggregationService, SubjectRepository subjectRepository) {
         this.aggregationService = aggregationService;
+        this.subjectRepository = subjectRepository;
+    }
+
+    @GetMapping("/by-code/{code}")
+    public Result<SubjectSummaryView> getByCode(@PathVariable String code) {
+        if (code == null || code.isBlank()) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "subjectCode 不能为空");
+        }
+        SubjectSummaryView view =
+                subjectRepository
+                        .findByCode(SubjectCode.of(code))
+                        .map(SubjectSummaryView::from)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.SUBJECT_NOT_FOUND));
+        return Result.ok(view);
     }
 
     @GetMapping("/{subjectId}/detail")

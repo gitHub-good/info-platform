@@ -10,12 +10,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.info.platform.application.aggregation.AggregationService;
 import com.info.platform.application.aggregation.SubjectDetail;
+import com.info.platform.domain.aggregation.Market;
+import com.info.platform.domain.aggregation.Subject;
+import com.info.platform.domain.aggregation.SubjectCode;
+import com.info.platform.domain.aggregation.SubjectRepository;
+import com.info.platform.domain.aggregation.SubjectStatus;
+import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.GlobalExceptionHandler;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,7 +31,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
  * SubjectController 切片测试（T09）：GET detail 200 + sourceStatus 结构 / 200 + 列表分区 / 404 标的不存在 / 400 非法
- * section / 空 sections 默认全部分区。
+ * section / 空 sections 默认全部分区；by-code 代码解析（P0-1）。
  *
  * <p>用 {@link MockMvcBuilders#standaloneSetup} 独立装配 MockMvc（不加载 Spring 上下文，避免 @MapperScan 触发
  * MyBatis mapper bean 初始化），手动注入 Controller + {@link GlobalExceptionHandler} 作为 ControllerAdvice。
@@ -33,11 +41,13 @@ class SubjectControllerTest {
 
     private MockMvc mockMvc;
     private AggregationService aggregationService;
+    private SubjectRepository subjectRepository;
 
     @BeforeEach
     void setUp() {
         aggregationService = mock(AggregationService.class);
-        SubjectController controller = new SubjectController(aggregationService);
+        subjectRepository = mock(SubjectRepository.class);
+        SubjectController controller = new SubjectController(aggregationService, subjectRepository);
         mockMvc =
                 MockMvcBuilders.standaloneSetup(controller)
                         .setControllerAdvice(new GlobalExceptionHandler())
@@ -163,5 +173,57 @@ class SubjectControllerTest {
         mockMvc.perform(get("/api/v1/subjects/1/detail"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
+    }
+
+    // ---- by-code 代码解析（P0-1）：前端路由代码 → 数字主键 ----
+
+    /** 构造已落库标的实体（reconstruct 绕过 Builder 预留类型守卫，模拟仓储回读）。 */
+    private static Subject persistedSubject(Long id, String code) {
+        return Subject.reconstruct(
+                id,
+                SubjectCode.of(code),
+                Market.A_SHARE,
+                SubjectType.STOCK,
+                "贵州茅台",
+                Map.of(),
+                "白酒",
+                SubjectStatus.ENABLED,
+                0,
+                Instant.parse("2026-01-01T00:00:00Z"),
+                Instant.parse("2026-01-01T00:00:00Z"));
+    }
+
+    @Test
+    void getByCode_returns200WithNumericIdAndSummary() throws Exception {
+        when(subjectRepository.findByCode(SubjectCode.of("SH600519")))
+                .thenReturn(Optional.of(persistedSubject(1L, "SH600519")));
+
+        mockMvc.perform(get("/api/v1/subjects/by-code/SH600519"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.subjectCode").value("SH600519"))
+                .andExpect(jsonPath("$.data.name").value("贵州茅台"))
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
+                .andExpect(jsonPath("$.data.type").value(1))
+                .andExpect(jsonPath("$.data.industry").value("白酒"));
+    }
+
+    @Test
+    void getByCode_unknownCode_returns404AndCode30001() throws Exception {
+        when(subjectRepository.findByCode(SubjectCode.of("SH999999"))).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/v1/subjects/by-code/SH999999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30001))
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    @Test
+    void getByCode_blankCode_returns400AndCode2001() throws Exception {
+        // 模板变量传入空白串（等价真实容器 %20 解码后到达控制器）：守卫在领域值对象抛 IllegalArgumentException（→500）之前
+        mockMvc.perform(get("/api/v1/subjects/by-code/{code}", " "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
     }
 }
