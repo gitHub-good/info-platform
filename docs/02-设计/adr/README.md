@@ -43,6 +43,7 @@
 | ADR-0027 | 标的池同步数据源选型：东财 push2 clist 三桶（实测勘定港股 fs=m:116+t:3,t:4）+ 限速对策与备选（REQ-20260924-04 / M7） | 已决 |
 | ADR-0028 | 消失确认存储设计：subject_master 内嵌 missing_streak 列（V18，计数/清零/单向停用 SQL 级表达） | 已决 |
 | ADR-0029 | 标的池同步 T50/T51 实现偏差：列表源端口化 + 写库单元拆分 + 快照更新三列口径与独立清零（REQ-20260924-04 / M7） | 已决 |
+| ADR-0030 | A 股列表源备选与自动切换：新浪 SinaSubjectListClient（仅 A 股桶/bj 跳过/无行业）+ RoutingSubjectListSource auto 降级（REQ-20260924-04 / M7） | 已决 |
 
 ## 🔍 关联调研
 
