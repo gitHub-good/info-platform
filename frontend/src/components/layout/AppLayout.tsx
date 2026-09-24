@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { LogOut, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { logout } from '@/api/auth';
 import { navigate } from '@/lib/navigation';
 import {
@@ -47,7 +48,10 @@ interface SidebarContentProps {
   onNavigate?: () => void;
 }
 
-/** 侧栏主体（分组导航 + 底部固定登出），桌面侧栏与窄屏抽屉共用。 */
+/**
+ * 侧栏主体（分组导航 + 底部通知铃铛与登出），桌面侧栏与窄屏抽屉共用。
+ * 铃铛消费 NotificationProvider（App 登录态挂载）；独立渲染（无 Provider）时为离线空态。
+ */
 function SidebarContent({ currentRoute, onNavigate }: SidebarContentProps) {
   const handleLogout = () => {
     logout();
@@ -78,6 +82,9 @@ function SidebarContent({ currentRoute, onNavigate }: SidebarContentProps) {
           </div>
         ))}
       </nav>
+      <div className="border-t border-sidebar-border px-3 py-1">
+        <NotificationBell />
+      </div>
       <div className="border-t border-sidebar-border px-3 py-2">
         <button
           type="button"

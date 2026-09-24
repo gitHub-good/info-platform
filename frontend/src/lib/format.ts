@@ -41,3 +41,12 @@ export function changeColorClass(changePct: number | null | undefined): string {
   if (changePct == null || changePct === 0) return 'text-foreground';
   return changePct > 0 ? 'text-red-500' : 'text-green-500';
 }
+
+/** ISO 时间 → 'YYYY-MM-DD HH:mm'（本地时区，通知时间等轻量展示）；空/非法回 '--' */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '--';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '--';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

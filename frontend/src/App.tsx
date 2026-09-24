@@ -13,6 +13,7 @@ import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { NotificationProvider } from '@/components/notifications/NotificationProvider';
 import { getToken } from '@/api/http';
 import { navigate, parseSubjectCode, queryOf } from '@/lib/navigation';
 
@@ -108,5 +109,10 @@ export default function App() {
 
   const effectiveRoute = route === '' || route === '/login' ? '/overview' : route;
 
-  return <AppLayout currentRoute={effectiveRoute}>{renderPage(effectiveRoute)}</AppLayout>;
+  // 登录态挂载通知中心（P1-1）：SSE 长连接随 Provider 建立，登出（token 清除）即卸载断开
+  return (
+    <NotificationProvider>
+      <AppLayout currentRoute={effectiveRoute}>{renderPage(effectiveRoute)}</AppLayout>
+    </NotificationProvider>
+  );
 }
