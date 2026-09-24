@@ -51,6 +51,8 @@ function fullView(): DataSourceConfigView {
         mode: 'MOCK',
         timeoutMillis: 2000,
         cacheTtlSeconds: 300,
+        fallbackChain: ['eastmoney', 'cninfo'],
+        availableProviders: ['eastmoney', 'cninfo'],
         params: {
           announceUrl: 'https://np-anotice-stock.eastmoney.com/api/security/ann',
           announcePageSize: 3,
@@ -70,8 +72,8 @@ function fullView(): DataSourceConfigView {
       sourceOf({
         sourceCode: 'FINANCE',
         label: '财务源',
-        fallbackChain: ['eastmoney'],
-        availableProviders: ['eastmoney'],
+        fallbackChain: ['eastmoney', 'sina'],
+        availableProviders: ['eastmoney', 'sina'],
         params: {},
       }),
       sourceOf({ sourceCode: 'VALUATION', label: '估值源', params: {} }),
@@ -338,11 +340,31 @@ describe('DatasourceConfig 页面', () => {
     expect(chain).toHaveTextContent('→');
     expect(chain).toHaveTextContent('腾讯');
 
-    // 单 provider 源（财务源）无备选、无编辑入口；多 provider 源有「编辑降级链」
-    expect(screen.getByTestId('datasource-chain-FINANCE')).toHaveTextContent('暂无备选源');
-    expect(screen.getByTestId('datasource-chain-FINANCE')).toHaveTextContent('东方财富·主源');
-    expect(screen.queryByTestId('datasource-edit-chain-FINANCE')).toBeNull();
+    // 单 provider 源（新闻源）无备选、无编辑入口；多 provider 源有「编辑降级链」
+    expect(screen.getByTestId('datasource-chain-NEWS')).toHaveTextContent('暂无备选源');
+    expect(screen.getByTestId('datasource-chain-NEWS')).toHaveTextContent('新浪·主源');
+    expect(screen.queryByTestId('datasource-edit-chain-NEWS')).toBeNull();
     expect(screen.getByTestId('datasource-edit-chain-QUOTE')).toBeInTheDocument();
+  });
+
+  // —— ADR-0034 T58 页面冒烟：财务/公告备选链 chips ——
+
+  it('财务卡链 chips：东方财富主源 → 新浪备选（ADR-0034 注册表驱动自动出现）', async () => {
+    renderPage(makeStore());
+
+    const chain = await screen.findByTestId('datasource-chain-FINANCE');
+    expect(chain).toHaveTextContent('东方财富·主源');
+    expect(chain).toHaveTextContent('新浪');
+    expect(screen.getByTestId('datasource-edit-chain-FINANCE')).toBeInTheDocument();
+  });
+
+  it('公告卡链 chips：东方财富主源 → 巨潮资讯备选（ADR-0034 T57，一条映射微调）', async () => {
+    renderPage(makeStore());
+
+    const chain = await screen.findByTestId('datasource-chain-ANNOUNCE');
+    expect(chain).toHaveTextContent('东方财富·主源');
+    expect(chain).toHaveTextContent('巨潮资讯');
+    expect(screen.getByTestId('datasource-edit-chain-ANNOUNCE')).toBeInTheDocument();
   });
 
   it('编辑降级链 Dialog：点亮顺序即链序（首个为主源），保存走 PATCH fallbackChain', async () => {
