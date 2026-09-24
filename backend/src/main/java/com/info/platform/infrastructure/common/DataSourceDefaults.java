@@ -131,6 +131,16 @@ public final class DataSourceDefaults {
             case FINANCE -> {
                 params.put("financeUrl", "https://datacenter-web.eastmoney.com/api/data/v1/get");
                 params.put("financeReferer", "https://data.eastmoney.com/");
+                // 新浪 vFD 备选两页 URL 模板（ADR-0034 T55）：占位符 {code}/{year} 运行时替换，沿
+                // announceDetailUrlTemplate 先例
+                params.put(
+                        "financeSinaProfitUrlTemplate",
+                        "https://money.finance.sina.com.cn/corp/go.php/vFD_ProfitStatement"
+                                + "/stockid/{code}/ctrl/{year}/displaytype/4.phtml");
+                params.put(
+                        "financeSinaGuideUrlTemplate",
+                        "https://money.finance.sina.com.cn/corp/go.php/vFD_FinancialGuideLine"
+                                + "/stockid/{code}/ctrl/{year}/displaytype/4.phtml");
             }
             case VALUATION -> {
                 params.put("quoteUrl", "https://push2.eastmoney.com/api/qt/stock/get");

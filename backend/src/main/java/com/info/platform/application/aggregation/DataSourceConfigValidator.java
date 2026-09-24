@@ -47,12 +47,18 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
 
     /**
      * 各源 params 白名单（键空间收口；EVENT 为空 = 不允许任何外呼参数）。 QUOTE/VALUATION 的 {@code backupSource}（ADR-0032
-     * 备选源开关热化）与 ANNOUNCE 的 {@code announceReferer}（原 yml 迁入补齐）为增量键。
+     * 备选源开关热化）、ANNOUNCE 的 {@code announceReferer}（原 yml 迁入补齐）与 FINANCE 的 {@code
+     * financeSina*UrlTemplate}（ADR-0034 新浪备选两页模板）为增量键。
      */
     private static final Map<SourceCode, Set<String>> ALLOWED_PARAMS =
             Map.of(
                     SourceCode.QUOTE, Set.of("quoteUrl", "fields", "backupSource"),
-                    SourceCode.FINANCE, Set.of("financeUrl", "financeReferer"),
+                    SourceCode.FINANCE,
+                            Set.of(
+                                    "financeUrl",
+                                    "financeReferer",
+                                    "financeSinaProfitUrlTemplate",
+                                    "financeSinaGuideUrlTemplate"),
                     SourceCode.VALUATION, Set.of("quoteUrl", "valuationFields", "backupSource"),
                     SourceCode.ANNOUNCE,
                             Set.of(
