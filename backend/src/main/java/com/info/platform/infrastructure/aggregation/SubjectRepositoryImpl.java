@@ -70,6 +70,14 @@ public class SubjectRepositoryImpl implements SubjectRepository {
              WHERE subject_code = ? AND status = 1
             """;
 
+    /** §4.4 SQL ④：阈值停用（T52，status 单向 1→0 的 SQL 级守卫；threshold 参数化）。 */
+    private static final String DEACTIVATE_IF_REACHED_SQL =
+            """
+            UPDATE subject_master
+               SET status = 0, updated_at = ?, version = version + 1
+             WHERE subject_code = ? AND status = 1 AND missing_streak >= ?
+            """;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final SubjectMapper mapper;
@@ -244,6 +252,13 @@ public class SubjectRepositoryImpl implements SubjectRepository {
     public int incrementMissingStreak(String subjectCode) {
         // WHERE status=1：已停用标的不再计数（SQL 级守卫）
         return jdbcTemplate.update(INCREMENT_STREAK_SQL, Instant.now().toString(), subjectCode);
+    }
+
+    @Override
+    public int deactivateIfMissingReached(String subjectCode, int threshold) {
+        // WHERE status=1 AND missing_streak>=threshold：未达阈值/已停用/不存在均零受影响（status 只 1→0）
+        return jdbcTemplate.update(
+                DEACTIVATE_IF_REACHED_SQL, Instant.now().toString(), subjectCode, threshold);
     }
 
     /** external_codes JSON 序列化（对齐 JacksonTypeHandler 存储形态）。 */

@@ -3,6 +3,7 @@ package com.info.platform.application.aggregation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -102,6 +103,75 @@ class SubjectSyncServiceTest {
         verify(writer, never()).writeBucket(any(), anyList());
     }
 
+    // ---- SubjectSyncWriter：T52 阈值停用（§4.3 流程 B 缺失分支） ----
+
+    @Test
+    void writeBucket_missingAtThreshold_deactivates_countsRealFlipsOnly() {
+        SubjectRepository repository = mock(SubjectRepository.class);
+        // 达阈值行（旧 streak 2 → +1 = 3 ≥ 3）与未达行（0 → 1）与已停用缺失行（不参与）
+        Subject atThreshold =
+                reconstruct(
+                        "SH600900",
+                        "长城证券",
+                        "证券",
+                        SubjectStatus.ENABLED,
+                        2,
+                        codes("1.600900", "600900.SH"));
+        Subject belowThreshold =
+                reconstruct(
+                        "SZ002900",
+                        "消费观察",
+                        null,
+                        SubjectStatus.ENABLED,
+                        0,
+                        codes("0.002900", "002900.SZ"));
+        Subject disabledMissing =
+                reconstruct(
+                        "SH601899",
+                        "中远海特",
+                        "交运",
+                        SubjectStatus.DISABLED,
+                        5,
+                        codes("1.601899", "601899.SH"));
+        when(repository.loadBucket(Market.A_SHARE, SubjectType.STOCK))
+                .thenReturn(List.of(atThreshold, belowThreshold, disabledMissing));
+        when(repository.deactivateIfMissingReached("SH600900", 3)).thenReturn(1);
+
+        MarketSyncResult result =
+                new SubjectSyncWriter(repository, 500, 3)
+                        .writeBucket(MarketSyncSpec.A_SHARE_STOCK, List.of());
+
+        // 停用数 = 端口真实翻转行数；未达阈值行不调停用端口；已停用缺失行既不计数也不停用
+        assertThat(result.missing()).isEqualTo(2);
+        assertThat(result.deactivated()).isEqualTo(1);
+        verify(repository).incrementMissingStreak("SH600900");
+        verify(repository).incrementMissingStreak("SZ002900");
+        verify(repository).deactivateIfMissingReached("SH600900", 3);
+        verify(repository, never()).deactivateIfMissingReached(eq("SZ002900"), anyInt());
+        verify(repository, never()).incrementMissingStreak("SH601899");
+        verify(repository, never()).deactivateIfMissingReached(eq("SH601899"), anyInt());
+    }
+
+    @Test
+    void writeBucket_missingAtThreshold_thresholdConfigurable() {
+        SubjectRepository repository = mock(SubjectRepository.class);
+        Subject missing =
+                reconstruct(
+                        "SH600901",
+                        "长江证券",
+                        "证券",
+                        SubjectStatus.ENABLED,
+                        1,
+                        codes("1.600901", "600901.SH"));
+        when(repository.loadBucket(Market.A_SHARE, SubjectType.STOCK)).thenReturn(List.of(missing));
+
+        // 阈值 2：旧 streak 1 → +1 = 2 ≥ 2 即停用（参数化生效）
+        new SubjectSyncWriter(repository, 500, 2)
+                .writeBucket(MarketSyncSpec.A_SHARE_STOCK, List.of());
+
+        verify(repository).deactivateIfMissingReached("SH600901", 2);
+    }
+
     // ---- SubjectSyncWriter：diff 四分支与批量分批（§4.3 流程 B） ----
 
     @Test
@@ -112,7 +182,7 @@ class SubjectSyncServiceTest {
         when(repository.insertIgnoreBatch(anyList())).thenReturn(2).thenReturn(2).thenReturn(1);
 
         MarketSyncResult result =
-                new SubjectSyncWriter(repository, 2)
+                new SubjectSyncWriter(repository, 2, 3)
                         .writeBucket(
                                 MarketSyncSpec.A_SHARE_STOCK,
                                 List.of(
@@ -198,7 +268,7 @@ class SubjectSyncServiceTest {
                                 missingDisabled));
 
         MarketSyncResult result =
-                new SubjectSyncWriter(repository, 500)
+                new SubjectSyncWriter(repository, 500, 3)
                         .writeBucket(
                                 MarketSyncSpec.A_SHARE_STOCK,
                                 List.of(
@@ -252,7 +322,7 @@ class SubjectSyncServiceTest {
         when(repository.loadBucket(Market.A_SHARE, SubjectType.STOCK))
                 .thenReturn(List.of(manualRow));
 
-        new SubjectSyncWriter(repository, 500)
+        new SubjectSyncWriter(repository, 500, 3)
                 .writeBucket(
                         MarketSyncSpec.A_SHARE_STOCK, List.of(snapshot("601988", "中国银行", "银行")));
 

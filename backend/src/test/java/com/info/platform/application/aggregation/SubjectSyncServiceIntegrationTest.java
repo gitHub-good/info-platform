@@ -14,15 +14,21 @@ import com.info.platform.domain.aggregation.SubjectType;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * SubjectSyncService 引擎集成测试（T51）：真实 SQLite 共享内存库（V18 列已建）+ mock 列表源（不真实外呼 push2）。 手工装配 batch-size=2
- * 的 writer 验证批量边界；覆盖 §6 引擎 diff 要点—— 首轮建池（种子行不变 + 新增插入）/ 更新不碰 status（停用标的照常更新名称行业）/ 幂等二轮差异为零 /
- * 缺失计数只推进启用行 / 回归清零 / 市场失败不推进计数且跨市场独立（A 股生效、港股放弃）。
+ * SubjectSyncService 引擎集成测试（T51/T52）：真实 SQLite 共享内存库（V18 列已建）+ mock 列表源（不真实外呼 push2）。 手工装配
+ * batch-size=2 的 writer 验证批量边界；覆盖 §6 引擎 diff 要点—— 首轮建池（种子行不变 + 新增插入）/ 更新不碰 status（停用标的照常更新名称行业）/
+ * 幂等二轮差异为零 / 缺失计数只推进启用行 / 回归清零 / 市场失败不推进计数且跨市场独立（A 股生效、港股放弃）/ T52 缺失达阈值停用（status
+ * 1→0、阈值未达不停、市场失败不假停用、 停用后回归不复活）。
+ *
+ * <p>共享库隔离（T52 起 streak 具备停用副作用，防测试间按执行顺序互相污染）：{@link #resetStockObservationState()} 在每个用例后
+ * 把两个股票桶全部行 的 missing_streak 归零、status 复位 1——任何用例开始时观察态恒为「全 0 全启用」，断言与类执行顺序解耦。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -31,7 +37,20 @@ class SubjectSyncServiceIntegrationTest {
     /** 手工装配的写库批量（防长事务分批的边界用 2 触发：5 只新标的 → 3 批）。 */
     private static final int TEST_BATCH_SIZE = 2;
 
+    /** 手工装配的停用阈值（§4.2 参数表 PRD 默认 3）。 */
+    private static final int TEST_STREAK_THRESHOLD = 3;
+
     @Autowired private SubjectRepository subjectRepository;
+
+    @Autowired private JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void resetStockObservationState() {
+        // 股票桶观察态复位（含本类与同库其他测试类留下的 streak/停用痕迹）；指数桶不经同步测试触碰，无需复位
+        jdbcTemplate.update(
+                "UPDATE subject_master SET missing_streak = 0, status = 1 "
+                        + "WHERE subject_type = 1 AND market IN ('A_SHARE', 'HK')");
+    }
 
     // ---- 首轮：种子对齐 + 新增建池 + 批量分批 ----
 
@@ -189,6 +208,98 @@ class SubjectSyncServiceIntegrationTest {
         assertThat(third.updated()).isZero();
     }
 
+    // ---- T52 消失确认与停用 ----
+
+    @Test
+    void syncAll_streakReachesThreshold_deactivates_atThresholdOnly() {
+        // 目标行：预推 2 轮（threshold-1）→ 本轮缺失第 3 轮 → 旧 streak+1=3 ≥ 3 停用
+        Subject target = newStock("SH603777", "阈值停用验证");
+        subjectRepository.save(target);
+        subjectRepository.incrementMissingStreak("SH603777");
+        subjectRepository.incrementMissingStreak("SH603777");
+        // 对照行：首轮缺失（streak 0→1 < 3）→ 不停用
+        subjectRepository.save(newStock("SH603778", "阈值未达验证"));
+
+        SubjectListSource source = mock(SubjectListSource.class);
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
+        when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+
+        MarketSyncResult aShare = newService(source).syncAll().get(0);
+
+        // 停用计数真实化：仅目标行翻转（其余缺失行 streak 0→1 未达阈值）
+        assertThat(aShare.deactivated()).isEqualTo(1);
+        assertThat(aShare.missing()).isGreaterThanOrEqualTo(2);
+        Subject deactivatedTarget =
+                subjectRepository.findByCode(SubjectCode.of("SH603777")).orElseThrow();
+        assertThat(deactivatedTarget.getStatus()).isEqualTo(SubjectStatus.DISABLED);
+        assertThat(deactivatedTarget.getMissingStreak()).isEqualTo(3);
+        Subject belowThreshold =
+                subjectRepository.findByCode(SubjectCode.of("SH603778")).orElseThrow();
+        assertThat(belowThreshold.getStatus()).isEqualTo(SubjectStatus.ENABLED);
+        assertThat(belowThreshold.getMissingStreak()).isEqualTo(1);
+    }
+
+    @Test
+    void syncAll_marketFails_streakNotAdvanced_noFalseDeactivation() {
+        // 预推到 threshold-1：若市场失败也推进计数，将本轮即假停用——流程 A 失败必须零写入（防假消失）
+        subjectRepository.save(newStock("SH603779", "市场失败不假停用"));
+        subjectRepository.incrementMissingStreak("SH603779");
+        subjectRepository.incrementMissingStreak("SH603779");
+
+        SubjectListSource source = mock(SubjectListSource.class);
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenThrow(new IllegalStateException("clist 第 3 页拉取失败（重试耗尽）"));
+        when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+
+        assertThatThrownBy(() -> newService(source).syncAll())
+                .isInstanceOf(SubjectSyncException.class);
+
+        Subject untouched = subjectRepository.findByCode(SubjectCode.of("SH603779")).orElseThrow();
+        assertThat(untouched.getMissingStreak()).isEqualTo(2);
+        assertThat(untouched.getStatus()).isEqualTo(SubjectStatus.ENABLED);
+    }
+
+    @Test
+    void syncAll_deactivatedSubject_reappears_streakCleared_notRevived() {
+        subjectRepository.save(newStock("SH603780", "停用后回归验证"));
+        SubjectListSource source = mock(SubjectListSource.class);
+        when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+
+        // 连续 3 轮缺失 → 达阈值停用（status 1→0）
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
+        SubjectSyncService service = newService(source);
+        service.syncAll();
+        service.syncAll();
+        service.syncAll();
+        Subject deactivated =
+                subjectRepository.findByCode(SubjectCode.of("SH603780")).orElseThrow();
+        assertThat(deactivated.getStatus()).isEqualTo(SubjectStatus.DISABLED);
+
+        // 回归：重新出现 → 名称照常更新、streak 清零（方案 §4.4 SQL ② 不筛 status——streak 为机制列，重新出现即断连续），
+        // 但 status 不复活（ADR-0028 红线：更新不碰 status、单向 1→0）
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenReturn(
+                        List.of(
+                                snapshot("600519", "贵州茅台", "白酒"),
+                                snapshot("603780", "停用后回归新名", null)));
+        service.syncAll();
+        Subject reappeared = subjectRepository.findByCode(SubjectCode.of("SH603780")).orElseThrow();
+        assertThat(reappeared.getStatus()).as("停用标的不因回归复活").isEqualTo(SubjectStatus.DISABLED);
+        assertThat(reappeared.getName()).isEqualTo("停用后回归新名");
+        assertThat(reappeared.getMissingStreak()).isZero();
+
+        // 再消失：已停用不再计数（collectMissing 跳过 status=0 行）
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
+        service.syncAll();
+        Subject stillDisabled =
+                subjectRepository.findByCode(SubjectCode.of("SH603780")).orElseThrow();
+        assertThat(stillDisabled.getStatus()).isEqualTo(SubjectStatus.DISABLED);
+        assertThat(stillDisabled.getMissingStreak()).isZero();
+    }
+
     // ---- 市场级原子 + 跨市场独立（§4.5） ----
 
     @Test
@@ -214,13 +325,30 @@ class SubjectSyncServiceIntegrationTest {
 
     private SubjectSyncService newService(SubjectListSource source) {
         return new SubjectSyncService(
-                source, new SubjectSyncWriter(subjectRepository, TEST_BATCH_SIZE));
+                source,
+                new SubjectSyncWriter(subjectRepository, TEST_BATCH_SIZE, TEST_STREAK_THRESHOLD));
     }
 
     private int streakOf(String code) {
         Optional<Subject> found = subjectRepository.findByCode(SubjectCode.of(code));
         assertThat(found).as("标的应存在: " + code).isPresent();
         return found.orElseThrow().getMissingStreak();
+    }
+
+    /** 手工落库的启用沪市股票（T52 用例的观察对象）。 */
+    private static Subject newStock(String code, String name) {
+        return Subject.builder()
+                .subjectCode(SubjectCode.of(code))
+                .market(Market.A_SHARE)
+                .subjectType(SubjectType.STOCK)
+                .name(name)
+                .externalCodes(
+                        Map.of(
+                                "eastmoney",
+                                "1." + code.substring(2),
+                                "tushare",
+                                code.substring(2) + ".SH"))
+                .build();
     }
 
     /** V2 港股种子（腾讯控股）对齐快照：成功轮内 unchanged，避免污染 HK00700 状态。 */

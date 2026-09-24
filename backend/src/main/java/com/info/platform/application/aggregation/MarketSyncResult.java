@@ -10,8 +10,8 @@ package com.info.platform.application.aggregation;
  * @param inserted 新增行数（INSERT OR IGNORE 实际插入，幂等重跑为 0）
  * @param updated 更新行数（名称/行业/取数键任一变化；不碰 status / missing_streak）
  * @param unchanged 不变行数（出现且无任何变化，零写入）
- * @param missing 缺失确认数（启用标的不在本轮全量结果 → missing_streak+1；本批只计数上报，停用动作 T52）
- * @param deactivated 停用数（缺失达阈值被停用；本批恒 0，T52 接阈值停用后生效）
+ * @param missing 缺失确认数（启用标的不在本轮全量结果 → missing_streak+1；已停用不计数）
+ * @param deactivated 停用数（缺失计数达阈值被停用的行，T52：SQL 守卫 status 只 1→0）
  * @param total 本轮源全量行数（与源 total 校验一致）
  * @param elapsedMillis 该桶写库阶段耗时（拉取在事务外，由服务层另行留痕）
  */

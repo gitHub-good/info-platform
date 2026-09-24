@@ -11,20 +11,35 @@ import com.info.platform.domain.aggregation.SubjectType;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * SubjectRepository 同步端口集成测试（T51，技术方案增补 §4.4 关键 SQL ①②③⑤）：SQLite 共享内存库 + Flyway V18 建列后 直连断言——
- * 批量幂等新增计数 / 桶基线双条件圈定 / 快照更新不碰 status 与 missing_streak / 回归清零零写入 / 缺失计数仅启用标的 / V18 存量行默认 0。
+ * SubjectRepository 同步端口集成测试（T51/T52，技术方案增补 §4.4 关键 SQL ①②③④⑤）：SQLite 共享内存库 + Flyway V18 建列后 直连断言——
+ * 批量幂等新增计数 / 桶基线双条件圈定 / 快照更新不碰 status 与 missing_streak / 回归清零零写入 / 缺失计数仅启用标的 / T52 阈值停用 SQL
+ * 守卫（status 只 1→0）/ V18 存量行默认 0。
+ *
+ * <p>共享库隔离：{@link #resetStockObservationState()} 每用例后复位股票桶观察态（streak 全 0 / status 全 1），与 {@code
+ * SubjectSyncServiceIntegrationTest} 同口径——两类互相留下的痕迹不随类执行顺序影响断言。
  */
 @SpringBootTest
 @ActiveProfiles("test")
 class SubjectRepositorySyncPortTest {
 
     @Autowired private SubjectRepository subjectRepository;
+
+    @Autowired private JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void resetStockObservationState() {
+        jdbcTemplate.update(
+                "UPDATE subject_master SET missing_streak = 0, status = 1 "
+                        + "WHERE subject_type = 1 AND market IN ('A_SHARE', 'HK')");
+    }
 
     // ---- SQL ① insertIgnoreBatch ----
 
@@ -201,6 +216,59 @@ class SubjectRepositorySyncPortTest {
 
         // 不存在的代码：0
         assertThat(subjectRepository.incrementMissingStreak("SH999998")).isZero();
+    }
+
+    // ---- SQL ④ deactivateIfMissingReached（T52 阈值停用守卫） ----
+
+    @Test
+    void deactivateIfMissingReached_belowThreshold_noEffect() {
+        subjectRepository.save(newSubject("SH600997", "阈值未达"));
+        subjectRepository.incrementMissingStreak("SH600997"); // streak=1 < 3
+
+        assertThat(subjectRepository.deactivateIfMissingReached("SH600997", 3)).isZero();
+        assertThat(
+                        subjectRepository
+                                .findByCode(SubjectCode.of("SH600997"))
+                                .orElseThrow()
+                                .getStatus())
+                .isEqualTo(SubjectStatus.ENABLED);
+        assertThat(subjectRepository.deactivateIfMissingReached("SH999997", 3)).isZero();
+    }
+
+    @Test
+    void deactivateIfMissingReached_atThreshold_flipsStatusOnceOnly() {
+        subjectRepository.save(newSubject("SH600996", "阈值达标"));
+        for (int i = 0; i < 3; i++) {
+            subjectRepository.incrementMissingStreak("SH600996");
+        }
+
+        // 达阈值：status 1→0（单向），streak 保留观察值 3，受影响 1 行
+        assertThat(subjectRepository.deactivateIfMissingReached("SH600996", 3)).isEqualTo(1);
+        Subject deactivated =
+                subjectRepository.findByCode(SubjectCode.of("SH600996")).orElseThrow();
+        assertThat(deactivated.getStatus()).isEqualTo(SubjectStatus.DISABLED);
+        assertThat(deactivated.getMissingStreak()).isEqualTo(3);
+
+        // 已停用行重调：WHERE status=1 守卫 → 0（不重复计数、不复活方向翻转）
+        assertThat(subjectRepository.deactivateIfMissingReached("SH600996", 3)).isZero();
+    }
+
+    @Test
+    void deactivateIfMissingReached_disabledRowWithHighStreak_guarded() {
+        // 防御路径：历史数据/旁路写入可能造出「已停用且 streak≥阈值」的行——SQL 守卫必须拒绝（status 只 1→0）
+        subjectRepository.save(newSubject("SH600995", "停用高计数守卫"));
+        for (int i = 0; i < 3; i++) {
+            subjectRepository.incrementMissingStreak("SH600995");
+        }
+        jdbcTemplate.update("UPDATE subject_master SET status = 0 WHERE subject_code = 'SH600995'");
+
+        assertThat(subjectRepository.deactivateIfMissingReached("SH600995", 3)).isZero();
+        assertThat(
+                        subjectRepository
+                                .findByCode(SubjectCode.of("SH600995"))
+                                .orElseThrow()
+                                .getStatus())
+                .isEqualTo(SubjectStatus.DISABLED);
     }
 
     // ---- helpers ----

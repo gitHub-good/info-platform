@@ -163,16 +163,18 @@ policy:
     max-attempts: 3
     retry-backoff-hours: 2
 
-# 标的池定时同步（T50/T51，技术方案增补 §4.2 参数表；Job 收编与 cron 种子在 T53）。
+# 标的池定时同步（T50~T54，技术方案增补 §4.2 参数表）。
 # 页间隔 600ms：实测 300~400ms 连续约 28 次触发 push2 IP 级封禁，86 页/轮取保守值（ADR-0027）；
 # page-size 100 为服务端强制上限（实测 pz>100 仍只回 100 行）；max-pages 单桶防御上限（A股 56 页，3.5× 裕量）；
 # batch-size 单市场事务内 INSERT OR IGNORE 分批行数（防 SQLite 长事务）。
+# missing-streak-threshold（T52）：消失确认轮数阈值，达阈值停用 status 1→0（PRD 默认 3，Should 可配）。
 subject:
   sync:
     page-size: 100
     page-interval-millis: 600
     max-pages: 200
     batch-size: 500
+    missing-streak-threshold: 3
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

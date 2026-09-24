@@ -76,4 +76,12 @@ public interface SubjectRepository {
      * @return 受影响行数（0 = 已停用/不存在）
      */
     int incrementMissingStreak(String subjectCode);
+
+    /**
+     * 阈值停用（T52，技术方案增补 §4.4 SQL ④）：连续缺失计数达 {@code threshold} 时置 status=0—— SQL 级单向守卫 {@code WHERE
+     * subject_code=? AND status=1 AND missing_streak>=?}（status 只 1→0，永不复活）。
+     *
+     * @return 受影响行数（1 = 本轮真实翻转停用；0 = 未达阈值 / 已停用 / 不存在）
+     */
+    int deactivateIfMissingReached(String subjectCode, int threshold);
 }

@@ -25,21 +25,29 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>diff 四分支（§4.3）：新增 {@code INSERT OR IGNORE} 分批（默认批 500 防 SQLite 长事务）； 出现行仅名称/行业/取数键变化时
  * UPDATE（<b>不碰 status / missing_streak</b>，REQ 红线）；出现且 streak&gt;0 → 回归清零； 缺失启用标的
- * missing_streak+1（已停用不再计数）。 <b>本批停用动作不接</b>（T52：达阈值 {@code status=0} 单向守卫，挂点见 {@link
- * #collectMissing} 注释）。
+ * missing_streak+1（已停用不再计数），<b>旧 streak+1 达阈值（默认 3 可配）→ 停用 status=0 单向守卫</b>（T52，{@code
+ * SubjectRepository#deactivateIfMissingReached}）。
  */
 @Service
 public class SubjectSyncWriter {
 
     private static final Logger log = LoggerFactory.getLogger(SubjectSyncWriter.class);
 
+    /** 停用阈值的代码缺省（§4.2 参数表：PRD 默认 3；yml 缺失/非法回落此值）。 */
+    private static final int DEFAULT_STREAK_THRESHOLD = 3;
+
     private final SubjectRepository repository;
     private final int batchSize;
+    private final int missingStreakThreshold;
 
     public SubjectSyncWriter(
-            SubjectRepository repository, @Value("${subject.sync.batch-size:500}") int batchSize) {
+            SubjectRepository repository,
+            @Value("${subject.sync.batch-size:500}") int batchSize,
+            @Value("${subject.sync.missing-streak-threshold:3}") int missingStreakThreshold) {
         this.repository = repository;
         this.batchSize = batchSize <= 0 ? 500 : batchSize;
+        this.missingStreakThreshold =
+                missingStreakThreshold <= 0 ? DEFAULT_STREAK_THRESHOLD : missingStreakThreshold;
     }
 
     /** 单市场 diff + 写库（事务内）；耗时为写库阶段口径（拉取在事务外，由服务层另行留痕）。 */
@@ -65,21 +73,23 @@ public class SubjectSyncWriter {
             }
         }
         int inserted = insertInBatches(bucket, toInsert);
-        int missing = collectMissing(bucket, dbByCode, externalCodes);
+        MissingOutcome outcome = collectMissing(bucket, dbByCode, externalCodes);
         log.info(
-                "标的池同步写库完成 {}: 新增 {} 更新 {} 不变 {} 缺失确认 {}（停用动作 T52 接入）",
+                "标的池同步写库完成 {}: 新增 {} 更新 {} 不变 {} 缺失确认 {} 停用 {}（阈值 {}）",
                 bucket,
                 inserted,
                 updated,
                 unchanged,
-                missing);
+                outcome.missing(),
+                outcome.deactivated(),
+                missingStreakThreshold);
         return new MarketSyncResult(
                 bucket,
                 inserted,
                 updated,
                 unchanged,
-                missing,
-                0,
+                outcome.missing(),
+                outcome.deactivated(),
                 external.size(),
                 System.currentTimeMillis() - startMillis);
     }
@@ -151,22 +161,34 @@ public class SubjectSyncWriter {
     }
 
     /**
-     * 缺失确认：启用标的不在本轮全量结果 → missing_streak+1（已停用不计数）。
-     *
-     * <p><b>T52 挂点</b>：此处按「旧 streak + 1 ≥ 阈值」补调 {@code repository.deactivateIfMissingReached(code,
-     * threshold)}（端口与 SQL 守卫 {@code WHERE status=1 AND missing_streak >= ?} 由 T52 落）， 停用数计入返回值
-     * MarketSyncResult.deactivated——本批只计数上报不停用。
+     * 缺失确认（T52）：启用标的不在本轮全量结果 → missing_streak+1（已停用不计数）； 本轮计数后达阈值（旧 streak + 1 ≥ threshold，基线读数即
+     * increment 前值）→ {@link SubjectRepository#deactivateIfMissingReached} 停用（SQL 级 status=1
+     * 单向守卫），真实翻转行计入 deactivated。
      */
-    private int collectMissing(
+    private MissingOutcome collectMissing(
             MarketSyncSpec bucket, Map<String, Subject> dbByCode, Set<String> externalCodes) {
         int missing = 0;
+        int deactivated = 0;
         for (Subject row : dbByCode.values()) {
             if (row.getStatus() == SubjectStatus.ENABLED
                     && !externalCodes.contains(row.getSubjectCode().value())) {
-                repository.incrementMissingStreak(row.getSubjectCode().value());
+                String code = row.getSubjectCode().value();
+                repository.incrementMissingStreak(code);
                 missing++;
+                if (row.getMissingStreak() + 1 >= missingStreakThreshold
+                        && repository.deactivateIfMissingReached(code, missingStreakThreshold)
+                                == 1) {
+                    deactivated++;
+                    log.info(
+                            "标的池同步停用标的 {}（连续缺失 {} 轮达阈值，status 1→0 不复活）",
+                            code,
+                            row.getMissingStreak() + 1);
+                }
             }
         }
-        return missing;
+        return new MissingOutcome(missing, deactivated);
     }
+
+    /** 缺失确认轮产出：缺失计数与其中达阈值被停用的行数。 */
+    private record MissingOutcome(int missing, int deactivated) {}
 }
