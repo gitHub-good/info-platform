@@ -1,5 +1,6 @@
 import {
   Bot,
+  Bookmark,
   Coins,
   Database,
   FileText,
@@ -28,7 +29,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 12 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准）。 */
+/** 4 分组 13 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -47,6 +48,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '分析',
     items: [
       { to: '/ai-brief', label: 'AI 简报', icon: FileText },
+      // 订阅管理（体检 P1-3）：信息流的数据源头，排在信息流之前
+      { to: '/subscriptions', label: '订阅管理', icon: Bookmark },
       { to: '/feed', label: '信息流', icon: Rss },
     ],
   },

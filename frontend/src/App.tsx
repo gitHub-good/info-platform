@@ -9,6 +9,7 @@ import { Policy } from '@/pages/Policy';
 import { PromptTemplates } from '@/pages/PromptTemplates';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { TaskCenter } from '@/pages/TaskCenter';
+import { Subscriptions } from '@/pages/Subscriptions';
 import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
@@ -79,6 +80,10 @@ function renderPage(route: string) {
   }
   if (route.startsWith('/feed')) {
     return <Feed />;
+  }
+  // 订阅管理（体检 P1-3）：信息流的数据源头，个性化闭环起点
+  if (route.startsWith('/subscriptions')) {
+    return <Subscriptions />;
   }
   // 提示词模板（M5 T47）：单路由两视图（列表 ⇄ 编辑器 state 切换，hash 不变，UI 方案 D4）
   if (route.startsWith('/prompt-templates')) {
