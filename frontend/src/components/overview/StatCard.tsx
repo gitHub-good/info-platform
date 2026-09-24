@@ -16,6 +16,8 @@ interface StatCardProps {
   badge?: ReactNode;
   /** 水位进度条（0~100；成本水位卡用）。 */
   progressPercent?: number;
+  /** hint 下附加区块（如异动卡的数据源异常警示条；体检 P1-4）。 */
+  extra?: ReactNode;
   /** 整卡跳转目标 hash 路由（如 '#/cost-report'）；error 态自动失效。 */
   href: string;
   /** 卡级错误文案（非空 = 该卡取数失败，显示错误 + 重试，卡片不可点）。 */
@@ -40,6 +42,7 @@ export function StatCard({
   hint,
   badge,
   progressPercent,
+  extra,
   href,
   error,
   onRetry,
@@ -102,6 +105,7 @@ export function StatCard({
                 {hint}
               </div>
             ) : null}
+            {extra ? <div className="mt-2">{extra}</div> : null}
           </>
         )}
       </CardContent>
