@@ -129,8 +129,8 @@ public class AggregationService {
     /**
      * 批量取标的行情（体检 P1-2 自选清单表格列）。
      *
-     * <p>标的摘要恒返回（不存在的主键跳过）；行情经 QUOTE adapter 并行取数（享 SourceCache TTL 与失败负缓存），
-     * 任一标的失败/超时/类型不适用 → 该行 {@code quote=null} 不阻断其他行；总超时同 detail（{@code aggregation.global}）。
+     * <p>标的摘要恒返回（不存在的主键跳过）；行情经 QUOTE adapter 并行取数（享 SourceCache TTL 与失败负缓存）， 任一标的失败/超时/类型不适用 → 该行
+     * {@code quote=null} 不阻断其他行；总超时同 detail（{@code aggregation.global}）。
      */
     public List<SubjectQuote> getQuotes(Collection<Long> subjectIds) {
         List<Subject> subjects = subjectRepository.findAllById(subjectIds);
@@ -155,9 +155,7 @@ public class AggregationService {
         }
         awaitQuotes(futures);
 
-        return subjects.stream()
-                .map(s -> toQuote(s, quoteDataOf(futures.get(s.getId()))))
-                .toList();
+        return subjects.stream().map(s -> toQuote(s, quoteDataOf(futures.get(s.getId())))).toList();
     }
 
     /** 等待全部行情取数完成；总超时不抛出（未完成行按 null 降级并取消）。 */
@@ -211,7 +209,8 @@ public class AggregationService {
     }
 
     private SubjectDetail assemble(
-            Subject subject, Map<SourceCode, CompletableFuture<SourceResult>> futures) {        Map<String, String> sourceStatus = new LinkedHashMap<>();
+            Subject subject, Map<SourceCode, CompletableFuture<SourceResult>> futures) {
+        Map<String, String> sourceStatus = new LinkedHashMap<>();
         Map<String, Object> quote = null;
         Map<String, Object> finance = null;
         Map<String, Object> valuation = null;

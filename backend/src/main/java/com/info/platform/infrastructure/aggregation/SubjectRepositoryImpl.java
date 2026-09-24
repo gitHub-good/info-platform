@@ -81,7 +81,9 @@ public class SubjectRepositoryImpl implements SubjectRepository {
                                                                 "subject_code LIKE {0} ESCAPE '\\'",
                                                                 pattern)
                                                         .or()
-                                                        .apply("name LIKE {0} ESCAPE '\\'", pattern))
+                                                        .apply(
+                                                                "name LIKE {0} ESCAPE '\\'",
+                                                                pattern))
                                 .orderByAsc(SubjectPO::getId)
                                 .last("LIMIT " + Math.max(1, limit)));
         return pos.stream().map(SubjectRepositoryImpl::toEntity).toList();
@@ -97,8 +99,7 @@ public class SubjectRepositoryImpl implements SubjectRepository {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        List<Long> distinct =
-                ids.stream().filter(Objects::nonNull).distinct().toList();
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
         if (distinct.isEmpty()) {
             return List.of();
         }

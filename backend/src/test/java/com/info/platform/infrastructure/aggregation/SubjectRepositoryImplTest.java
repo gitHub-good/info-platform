@@ -220,8 +220,7 @@ class SubjectRepositoryImplTest {
         // 茅台(id=1, V2) + 宁德时代(V17)；999999 不存在跳过；乱序入参按 id 升序返回
         Optional<Subject> catl = subjectRepository.findByCode(SubjectCode.of("SZ300750"));
         assertThat(catl).isPresent();
-        List<Long> ids =
-                List.of(catl.orElseThrow().getId(), 1L, 999_999L);
+        List<Long> ids = List.of(catl.orElseThrow().getId(), 1L, 999_999L);
 
         List<Subject> found = subjectRepository.findAllById(ids);
 

@@ -426,7 +426,11 @@ class AggregationServiceTest {
                     public SourceResult fetch(Subject s) {
                         fetchCalls.incrementAndGet();
                         return SourceResult.ok(
-                                SourceCode.QUOTE, s.getId(), Map.of("price", "1"), "t", Instant.now());
+                                SourceCode.QUOTE,
+                                s.getId(),
+                                Map.of("price", "1"),
+                                "t",
+                                Instant.now());
                     }
 
                     @Override

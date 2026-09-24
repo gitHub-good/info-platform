@@ -307,7 +307,11 @@ class SubjectControllerTest {
                                         "A_SHARE",
                                         1,
                                         "白酒",
-                                        Map.of("price", new BigDecimal("1680.50"), "changePct", new BigDecimal("1.25")))));
+                                        Map.of(
+                                                "price",
+                                                new BigDecimal("1680.50"),
+                                                "changePct",
+                                                new BigDecimal("1.25")))));
 
         mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "1"))
                 .andExpect(status().isOk())
@@ -323,7 +327,9 @@ class SubjectControllerTest {
     void getQuotes_degradedRow_keepsSummaryWithNullQuote() throws Exception {
         when(aggregationService.getQuotes(List.of(2L)))
                 .thenReturn(
-                        List.of(new SubjectQuote(2L, "SZ300750", "宁德时代", "A_SHARE", 1, "动力电池", null)));
+                        List.of(
+                                new SubjectQuote(
+                                        2L, "SZ300750", "宁德时代", "A_SHARE", 1, "动力电池", null)));
 
         mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", "2"))
                 .andExpect(status().isOk())
@@ -358,9 +364,10 @@ class SubjectControllerTest {
 
     @Test
     void getQuotes_tooManyIds_returns400AndCode2001() throws Exception {
-        String ids = java.util.stream.LongStream.rangeClosed(1, 51)
-                .mapToObj(String::valueOf)
-                .collect(java.util.stream.Collectors.joining(","));
+        String ids =
+                java.util.stream.LongStream.rangeClosed(1, 51)
+                        .mapToObj(String::valueOf)
+                        .collect(java.util.stream.Collectors.joining(","));
 
         mockMvc.perform(get("/api/v1/subjects/quotes").param("ids", ids))
                 .andExpect(status().isBadRequest())

@@ -32,8 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>{@code GET /api/v1/subjects/search?q=xxx&limit=20}（体检 P1-2）— 按代码/名称模糊搜索启用标的，
  * 供前端搜索选择器替代手输数字主键；q 空白或 limit 越界 → 2xxx（400）。
  *
- * <p>{@code GET /api/v1/subjects/quotes?ids=1,2,3}（体检 P1-2）— 批量标的摘要+行情（自选清单表格），
- * 任一标的行情失败置 null 不阻断；ids 空白/非法/超上限 → 2xxx（400）。
+ * <p>{@code GET /api/v1/subjects/quotes?ids=1,2,3}（体检 P1-2）— 批量标的摘要+行情（自选清单表格）， 任一标的行情失败置 null
+ * 不阻断；ids 空白/非法/超上限 → 2xxx（400）。
  */
 @RestController
 @RequestMapping("/api/v1/subjects")
@@ -78,8 +78,7 @@ public class SubjectController {
         if (q == null || q.isBlank()) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "q 不能为空");
         }
-        int effectiveLimit =
-                limit == null ? DEFAULT_SEARCH_LIMIT : limit; // 缺省 20，与契约示例一致
+        int effectiveLimit = limit == null ? DEFAULT_SEARCH_LIMIT : limit; // 缺省 20，与契约示例一致
         if (effectiveLimit < 1 || effectiveLimit > MAX_SEARCH_LIMIT) {
             throw new BusinessException(
                     ErrorCode.PARAM_INVALID, "limit 须在 1~" + MAX_SEARCH_LIMIT + " 之间");
@@ -123,8 +122,7 @@ public class SubjectController {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "ids 不能为空");
         }
         if (parsed.size() > MAX_QUOTES_IDS) {
-            throw new BusinessException(
-                    ErrorCode.PARAM_INVALID, "ids 数量超过上限 " + MAX_QUOTES_IDS);
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "ids 数量超过上限 " + MAX_QUOTES_IDS);
         }
         return List.copyOf(parsed);
     }
