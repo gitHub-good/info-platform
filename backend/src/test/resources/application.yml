@@ -49,6 +49,13 @@ policy:
   tendency:
     enabled: false
 
+# 标的池同步 job 在测试环境关闭：种子 job.SUBJECT_SYNC enabled=false → 调度中心零注册（@Scheduled 等价隔离），
+# 同步逻辑改由单测/集成测试直接调 SubjectSyncService 验证（mock 列表源，不真实外呼 push2）；
+# cron/threshold 等其余参数继承主 application.yml（种子形态断言用）。
+subject:
+  sync:
+    enabled: false
+
 logging:
   level:
     org.springframework: WARN

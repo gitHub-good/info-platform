@@ -1,6 +1,7 @@
 package com.info.platform.application.aggregation;
 
 import java.util.List;
+import java.util.StringJoiner;
 
 /**
  * 标的池同步部分失败汇总异常（T51，技术方案增补 §4.5）。
@@ -16,9 +17,24 @@ public class SubjectSyncException extends RuntimeException {
     private final List<String> failures;
 
     public SubjectSyncException(List<MarketSyncResult> results, List<String> failures) {
-        super("标的池同步部分失败: " + String.join("; ", failures));
+        super(buildMessage(results, failures));
         this.results = List.copyOf(results);
         this.failures = List.copyOf(failures);
+    }
+
+    /**
+     * §4.5 errorMessage 样例格式：{@code 标的池同步部分失败: A_SHARE_STOCK SUCCESS (inserted=...); HK_STOCK
+     * FAILED (...)}——已成功市场计数在前、失败市场摘要在后，一条文本完整承载「留痕注明失败市场与计数」（PRD 故事 5 场景 2）。
+     */
+    private static String buildMessage(List<MarketSyncResult> results, List<String> failures) {
+        StringJoiner joiner = new StringJoiner("; ");
+        for (MarketSyncResult result : results) {
+            joiner.add(result.bucket() + " SUCCESS " + result.counts());
+        }
+        for (String failure : failures) {
+            joiner.add(failure);
+        }
+        return "标的池同步部分失败: " + joiner;
     }
 
     /** 已成功市场的计数（失败市场不在其中，见 {@link #getFailures()}）。 */

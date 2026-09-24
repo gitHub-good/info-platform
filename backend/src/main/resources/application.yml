@@ -168,6 +168,8 @@ policy:
 # page-size 100 为服务端强制上限（实测 pz>100 仍只回 100 行）；max-pages 单桶防御上限（A股 56 页，3.5× 裕量）；
 # batch-size 单市场事务内 INSERT OR IGNORE 分批行数（防 SQLite 长事务）。
 # missing-streak-threshold（T52）：消失确认轮数阈值，达阈值停用 status 1→0（PRD 默认 3，Should 可配）。
+# enabled/cron（T53）：job.SUBJECT_SYNC 种子来源（ManagedJob 收编；生产默认启用，每日 06:00 开市前完成，
+# 与每日推荐 09:00 同口径服务器本地时区；测试 profile 置 false → 调度零注册隔离）。
 subject:
   sync:
     page-size: 100
@@ -175,6 +177,8 @@ subject:
     max-pages: 200
     batch-size: 500
     missing-streak-threshold: 3
+    enabled: true
+    cron: "0 0 6 * * ?"
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

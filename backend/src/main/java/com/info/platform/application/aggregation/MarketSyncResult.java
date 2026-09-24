@@ -27,8 +27,15 @@ public record MarketSyncResult(
 
     /** 单行摘要（INFO 日志 / errorMessage 统一口径，对齐 §4.5 样例格式）。 */
     public String summary() {
-        return bucket
-                + " (inserted="
+        return bucket + " " + counts();
+    }
+
+    /**
+     * 纯计数段（{@code (inserted=...,updated=...)}）—— 供 {@link SubjectSyncException} 拼接 {@code 桶名
+     * SUCCESS (计数)} 形态（§4.5 errorMessage 样例：成功市场计数与失败原因一条文本完整承载）。
+     */
+    public String counts() {
+        return "(inserted="
                 + inserted
                 + ",updated="
                 + updated

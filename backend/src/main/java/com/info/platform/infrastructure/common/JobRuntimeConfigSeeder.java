@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * 任务域种子（{@code job.*} 5 键，T34）。
+ * 任务域种子（{@code job.*} 6 键，T34；T53 增 {@code job.SUBJECT_SYNC}）。
  *
  * <p>键值对照方案 §4.1「任务键与既有 Job 对照表」：jobKey/jobName 对齐既有 yml 开关与 {@code job_execution_log.job_name}。
  * 种子值取当前 yml（测试 profile 各开关为 false → 种子 enabled=false → T37 调度中心零注册，隔离语义等价平移）。消费与 校验器随 T37 落地。
@@ -60,6 +60,12 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${recommendation.schedule.user-ids:}")
     private String dailyRecommendUserIds;
 
+    @Value("${subject.sync.enabled:true}")
+    private boolean subjectSyncEnabled;
+
+    @Value("${subject.sync.cron:0 0 6 * * ?}")
+    private String subjectSyncCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -99,6 +105,15 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
         seeds.add(
                 new RuntimeConfigSeed(
                         "job.DAILY_RECOMMEND", write(daily), "每日推荐盘前预热调度（DailyRecommendationJob）"));
+        Map<String, Object> subjectSync = new LinkedHashMap<>();
+        subjectSync.put("enabled", subjectSyncEnabled);
+        subjectSync.put("scheduleType", CRON);
+        subjectSync.put("cron", subjectSyncCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.SUBJECT_SYNC",
+                        write(subjectSync),
+                        "标的池同步调度（SubjectSyncJob，每日全量拉取 A 股/港股/指数保鲜标的池，M7 技术方案增补 §4.6）"));
         return seeds;
     }
 
