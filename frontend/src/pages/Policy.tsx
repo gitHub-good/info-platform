@@ -34,6 +34,8 @@ export function Policy() {
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [industry, setIndustry] = useState('');
+  // 行业选项全集缓存：仅在无过滤的首页加载时聚合，过滤后下拉不随结果收缩（体检 P2）
+  const [allIndustries, setAllIndustries] = useState<string[]>([]);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<PolicyDetailView | null>(null);
@@ -58,6 +60,14 @@ export function Policy() {
       if (ctrl.signal.aborted) return;
       setItems(data.policies);
       setNextCursor(data.nextCursor);
+      // 无过滤（全量）加载时缓存行业全集，供过滤态下拉展示完整选项
+      if (!ind) {
+        setAllIndustries((prev) =>
+          Array.from(
+            new Set([...prev, ...data.policies.flatMap((p) => p.relatedIndustries)]),
+          ).sort(),
+        );
+      }
     } catch (err) {
       if (ctrl.signal.aborted) return;
       setListError(messageOf(err, '政策列表加载失败'));
@@ -121,9 +131,9 @@ export function Policy() {
     if (selectedId != null) void handleSelect(selectedId);
   };
 
-  // 行业选项：从已加载政策 relatedIndustries 去重排序
+  // 行业选项：全量缓存 ∪ 当前已加载条目（去重排序），过滤后不收缩
   const industries = Array.from(
-    new Set(items.flatMap((p) => p.relatedIndustries)),
+    new Set([...allIndustries, ...items.flatMap((p) => p.relatedIndustries)]),
   ).sort();
 
   const hasMore = nextCursor != null;

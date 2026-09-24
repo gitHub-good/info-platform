@@ -114,6 +114,8 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [jobName, setJobName] = useState(initialJobName);
+  // jobName 选项全集缓存：仅在无过滤的首页加载时聚合，过滤后下拉不随结果收缩（体检 P2）
+  const [allJobNames, setAllJobNames] = useState<string[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   // 翻页失败独立提示：保留既有列表，「加载更多」按钮即重试入口（对齐 Feed 基线）
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
@@ -133,6 +135,12 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
       if (ctrl.signal.aborted) return;
       setItems(data.items);
       setNextCursor(data.nextCursor);
+      // 无过滤（全量）加载时缓存 jobName 全集，供过滤态下拉展示完整选项
+      if (!name) {
+        setAllJobNames((prev) =>
+          Array.from(new Set([...prev, ...data.items.map((i) => i.jobName)])).sort(),
+        );
+      }
     } catch (err) {
       if (ctrl.signal.aborted) return;
       setError(messageOf(err, 'Job 日志加载失败'));
@@ -169,8 +177,8 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
 
   const handleRetry = () => void loadFirst(jobName);
 
-  // 选项来自已加载日志的 jobName 去重排序
-  const jobNames = Array.from(new Set(items.map((i) => i.jobName))).sort();
+  // 选项：全量缓存 ∪ 当前已加载日志 jobName（去重排序），过滤后不收缩
+  const jobNames = Array.from(new Set([...allJobNames, ...items.map((i) => i.jobName)])).sort();
   const hasMore = nextCursor != null;
 
   return (

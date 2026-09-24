@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JobLog } from '@/pages/JobLog';
@@ -216,6 +216,32 @@ describe('JobLog 执行日志页', () => {
     expect(await screen.findByTestId('job-log-row-2')).toBeInTheDocument();
     expect(screen.getByTestId('job-log-row-1')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByTestId('job-log-more-error')).toBeNull());
+  });
+
+  it('jobName 下拉缓存全量集：选中某 Job 过滤后下拉仍含全部 Job 名', async () => {
+    const pageAll: JobLogPage = {
+      items: [LOG_SUCCESS, LOG_FAILED],
+      nextCursor: null,
+    };
+    const pageFiltered: JobLogPage = {
+      items: [{ ...LOG_SUCCESS, id: 13 }],
+      nextCursor: null,
+    };
+    const store = makeStore({ pages: [pageAll, pageFiltered] });
+    vi.stubGlobal('fetch', store.fetch);
+    const user = userEvent.setup();
+    render(<JobLog />);
+
+    await screen.findByTestId('job-log-row-10');
+
+    // 选中「PolicyFetchJob」：过滤结果只剩该 Job，但下拉选项仍含「AnomalyDetectionJob」
+    await user.selectOptions(screen.getByTestId('job-name-filter'), 'PolicyFetchJob');
+    await screen.findByTestId('job-log-row-13');
+    const select = screen.getByTestId('job-name-filter');
+    expect(within(select).getByRole('option', { name: 'PolicyFetchJob' })).toBeInTheDocument();
+    expect(
+      within(select).getByRole('option', { name: 'AnomalyDetectionJob' }),
+    ).toBeInTheDocument();
   });
 
   it('列表为空：展示空态文案，无加载更多', async () => {

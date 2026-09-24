@@ -294,6 +294,56 @@ describe('Policy 政策时事页', () => {
     await waitFor(() => expect(screen.queryByTestId('policy-more-error')).toBeNull());
   });
 
+  it('行业下拉缓存全量集：选中某行业过滤后下拉仍含全部行业', async () => {
+    const pageAll: PolicyListView = {
+      policies: [
+        {
+          id: 1,
+          title: '政策A',
+          source: 's',
+          publishedAt: '2026-09-19',
+          summary: 'a',
+          relatedIndustries: ['新能源', '半导体'],
+        },
+        {
+          id: 2,
+          title: '政策B',
+          source: 's',
+          publishedAt: '2026-09-18',
+          summary: 'b',
+          relatedIndustries: ['半导体'],
+        },
+      ],
+      nextCursor: null,
+    };
+    const pageFiltered: PolicyListView = {
+      policies: [
+        {
+          id: 3,
+          title: '政策C',
+          source: 's',
+          publishedAt: '2026-09-17',
+          summary: 'c',
+          relatedIndustries: ['新能源'],
+        },
+      ],
+      nextCursor: null,
+    };
+    const store = makeStore({ pages: [pageAll, pageFiltered] });
+    vi.stubGlobal('fetch', store.fetch);
+    const user = userEvent.setup();
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-1');
+
+    // 选中「新能源」：过滤结果只剩新能源条目，但下拉选项仍含「半导体」
+    await user.selectOptions(screen.getByTestId('policy-industry-filter'), '新能源');
+    await screen.findByTestId('policy-item-3');
+    const select = screen.getByTestId('policy-industry-filter');
+    expect(within(select).getByRole('option', { name: '新能源' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: '半导体' })).toBeInTheDocument();
+  });
+
   it('点击条目：拉详情 + 关联自选标的表 + 倾向徽章（利好）', async () => {
     const store = makeStore({ pages: [PAGE_FULL], detail: DETAIL_BULL });
     vi.stubGlobal('fetch', store.fetch);
