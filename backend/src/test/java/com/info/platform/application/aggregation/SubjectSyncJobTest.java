@@ -1,7 +1,7 @@
 package com.info.platform.application.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -78,12 +78,7 @@ class SubjectSyncJobTest {
                                         "HK_STOCK FAILED (clist 第 12 页拉取失败（重试耗尽）bucket=HK_STOCK)")));
         SubjectSyncJob job = new SubjectSyncJob(service);
 
-        // 部分失败轮：异常携带成功计数与失败摘要上抛（errorMessage 一条文本承载，§4.5 样例格式）
-        assertThatThrownBy(job::run)
-                .isInstanceOf(SubjectSyncException.class)
-                .hasMessageContaining("标的池同步部分失败")
-                .hasMessageContaining("A_SHARE_STOCK SUCCESS (inserted=5561")
-                .hasMessageContaining("HK_STOCK FAILED")
-                .hasMessageContaining("第 12 页");
+        // 部分成功轮（A 股成功港股失败）：不上抛（Job 状态 SUCCESS），失败市场 WARN 留痕下轮重试
+        assertThatCode(job::run).doesNotThrowAnyException();
     }
 }

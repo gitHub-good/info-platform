@@ -17,9 +17,9 @@ import org.springframework.stereotype.Component;
  * enabled=false} → 调度零注册，隔离语义等价平移。
  *
  * <p>留痕双通道（§3.3 方案 A）：成功轮计数走应用 INFO 日志（{@link #run()} 末尾单行摘要，processed = 新增 + 更新）； 部分失败轮由 {@link
- * SubjectSyncService#syncAll} 抛 {@link SubjectSyncException}（携带各桶计数与失败摘要）→ 本类<b>不吞异常</b>，
- * JobExecutor 落 job_execution_log.error_message（Job 日志页可见，§4.5 格式）。 防重入（手动 + 定时并发）由 JobExecutor CAS
- * 守卫拦截，本类无需自防。
+ * SubjectSyncService#syncAll} 抛 {@link SubjectSyncException}（携带各桶计数与失败摘要）。失败语义分级：<b>全部股票桶失败</b> →
+ * 异常上抛（Job 状态 FAILED，errorMessage 留痕 Job 日志页）；<b>部分成功</b>（至少一个股票桶成功，跨市场独立语义下成功侧数据已生效）→ 不上抛，WARN
+ * 日志记录失败市场（下轮自动重试）——避免「A 股已建池但任务标红失败」误导。 防重入（手动 + 定时并发）由 JobExecutor CAS 守卫拦截，本类无需自防。
  */
 @Component
 public class SubjectSyncJob implements ManagedJob {
@@ -52,10 +52,22 @@ public class SubjectSyncJob implements ManagedJob {
         return ScheduleType.CRON;
     }
 
-    /** 定时与手动触发共用入口：委托同步引擎；任一股票桶失败时异常直抛（errorMessage 留痕通道）。 */
+    /** 定时与手动触发共用入口：委托同步引擎。全部股票桶失败时异常直抛（FAILED）；部分成功时不上抛（成功侧数据已生效， 失败市场下轮自动重试，WARN 留痕），避免整轮标红误导。 */
     @Override
     public void run() {
-        List<MarketSyncResult> results = subjectSyncService.syncAll();
+        List<MarketSyncResult> results;
+        try {
+            results = subjectSyncService.syncAll();
+        } catch (SubjectSyncException e) {
+            if (e.getResults().isEmpty()) {
+                throw e;
+            }
+            log.warn(
+                    "标的池同步部分成功: {} | 失败市场（下轮自动重试）: {}",
+                    joinSummaries(e.getResults()),
+                    String.join("; ", e.getFailures()));
+            return;
+        }
         log.info(
                 "标的池同步完成（Job 留痕摘要）: {} | processed={}（新增 {} + 更新 {}），停用 {}，源总行数 {}",
                 joinSummaries(results),
