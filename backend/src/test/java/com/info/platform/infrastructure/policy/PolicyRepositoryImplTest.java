@@ -12,6 +12,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
  * PolicyRepositoryImpl 集成测试（T24）：SQLite 共享内存库 + Flyway V10 建表后，测 saveAll 往返（JSON 行业数组
  * JacksonTypeHandler）、existsBySourceUrl 去重、findRecent 游标分页（newest-first id DESC）/ 行业过滤（JSON LIKE） /
  * 时间窗过滤。@SpringBootTest 启动完整上下文（含 Flyway 迁移）；@Transactional 每用例结束回滚隔离（同 AnomalyRepositoryImplTest）。
+ *
+ * <p>P0-3 回归（系统体检 20260924）：V16 尝试留痕列 + findRecentUnjudged 重试上限/退避过滤 + recordTendencyAttempt
+ * 留痕——失败条目试满上限后不再被 Job 扫中（止血无限重试烧 LLM 预算）。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -26,6 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 class PolicyRepositoryImplTest {
 
     @Autowired private PolicyRepository repository;
+
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private static PolicyItem newItem(
             String title, String date, String url, List<String> industries) {
@@ -145,8 +151,8 @@ class PolicyRepositoryImplTest {
                                 newItem("政策C", todayMinus(1), "https://gov/u3", List.of("互联网"))));
         repository.updateAiTendency(saved.get(0).getId(), AiTendency.BULLISH);
 
-        // Act
-        List<PolicyItem> pending = repository.findRecentUnjudged(7, 20);
+        // Act（上限 3 / 截止 now：未留痕条目天然入选）
+        List<PolicyItem> pending = repository.findRecentUnjudged(7, 20, 3, Instant.now());
 
         // Assert：仅返 ai_tendency=0 的政策B、C（newest-first id DESC）；已判的政策A排除
         assertThat(pending).hasSize(2);
@@ -162,7 +168,7 @@ class PolicyRepositoryImplTest {
         repository.saveAll(List.of(newItem("旧政策", todayMinus(8), "https://gov/old-u", List.of())));
 
         // Act + Assert
-        assertThat(repository.findRecentUnjudged(7, 20)).isEmpty();
+        assertThat(repository.findRecentUnjudged(7, 20, 3, Instant.now())).isEmpty();
     }
 
     @Test
@@ -235,5 +241,142 @@ class PolicyRepositoryImplTest {
         assertThat(latest).hasSize(2);
         assertThat(latest.get(0).getTitle()).isEqualTo("政策三");
         assertThat(latest.get(1).getTitle()).isEqualTo("政策二");
+    }
+
+    // ==================== P0-3（系统体检 20260924）：尝试留痕 + 重试上限/退避 ====================
+
+    @Test
+    void v16_tendencyAttemptColumns_existWithDefaults() {
+        // Arrange：落库一条新政策（不触碰留痕列）
+        Long id =
+                repository
+                        .saveAll(List.of(newItem("政策V16", todayMinus(1), "https://gov/v16", List.of())))
+                        .get(0)
+                        .getId();
+
+        // Act + Assert：V16 迁移后两列存在且取默认值（attempts=0、last_attempt_at=NULL）——
+        // 迁移缺失时本用例以「no such column」红（P0-3 修前红证据）
+        Integer attempts =
+                jdbcTemplate.queryForObject(
+                        "SELECT tendency_attempts FROM policy_item WHERE id = ?",
+                        Integer.class,
+                        id);
+        String lastAttemptAt =
+                jdbcTemplate.queryForObject(
+                        "SELECT tendency_last_attempt_at FROM policy_item WHERE id = ?",
+                        String.class,
+                        id);
+        assertThat(attempts).isZero();
+        assertThat(lastAttemptAt).isNull();
+    }
+
+    @Test
+    void recordTendencyAttempt_incrementsCounterAndTimestamps() {
+        // Arrange
+        Long id =
+                repository
+                        .saveAll(List.of(newItem("政策R", todayMinus(1), "https://gov/r", List.of())))
+                        .get(0)
+                        .getId();
+
+        // Act：两次失败判断各留痕一次
+        int first = repository.recordTendencyAttempt(id);
+        int second = repository.recordTendencyAttempt(id);
+
+        // Assert：原子自增到 2；last_attempt_at 回填 ISO-8601 文本且随最新一次刷新
+        assertThat(first).isEqualTo(1);
+        assertThat(second).isEqualTo(1);
+        Integer attempts =
+                jdbcTemplate.queryForObject(
+                        "SELECT tendency_attempts FROM policy_item WHERE id = ?",
+                        Integer.class,
+                        id);
+        String lastAttemptAt =
+                jdbcTemplate.queryForObject(
+                        "SELECT tendency_last_attempt_at FROM policy_item WHERE id = ?",
+                        String.class,
+                        id);
+        assertThat(attempts).isEqualTo(2);
+        assertThat(lastAttemptAt).isNotBlank();
+        assertThat(Instant.parse(lastAttemptAt))
+                .isAfterOrEqualTo(Instant.now().minusSeconds(60));
+    }
+
+    @Test
+    void recordTendencyAttempt_nullOrUnknownId_zeroRows() {
+        // Arrange + Act + Assert：null 防御返 0；不存在 id 返 0（条目已删，调用方记日志即可）
+        assertThat(repository.recordTendencyAttempt(null)).isZero();
+        assertThat(repository.recordTendencyAttempt(999999L)).isZero();
+    }
+
+    @Test
+    void findRecentUnjudged_excludesItemsAtAttemptCap_p03() {
+        // Arrange：3 条未判政策，政策A 失败留痕 3 次（达上限），B 留痕 2 次，C 未留痕
+        List<PolicyItem> saved =
+                repository.saveAll(
+                        List.of(
+                                newItem("政策A", todayMinus(1), "https://gov/cap-a", List.of()),
+                                newItem("政策B", todayMinus(1), "https://gov/cap-b", List.of()),
+                                newItem("政策C", todayMinus(1), "https://gov/cap-c", List.of())));
+        for (int i = 0; i < 3; i++) {
+            repository.recordTendencyAttempt(saved.get(0).getId());
+        }
+        for (int i = 0; i < 2; i++) {
+            repository.recordTendencyAttempt(saved.get(1).getId());
+        }
+
+        // Act：上限 3、退避截止 now（所有留痕条目均已超窗，仅考验上限过滤）
+        List<PolicyItem> pending = repository.findRecentUnjudged(7, 20, 3, Instant.now());
+
+        // Assert：达上限的政策A 停扫（保持 UNJUDGED 不再消耗 LLM 预算）；未达上限的 B、C 仍入选
+        assertThat(pending)
+                .extracting(PolicyItem::getId)
+                .containsExactly(saved.get(2).getId(), saved.get(1).getId());
+    }
+
+    @Test
+    void findRecentUnjudged_backoffWindow_recentAttemptExcluded_oldAttemptIncluded_p03() {
+        // Arrange：政策X 上次尝试在 30min 前（退避窗 2h 内）、政策Y 上次尝试在 3h 前、政策Z 从未尝试
+        List<PolicyItem> saved =
+                repository.saveAll(
+                        List.of(
+                                newItem("政策X", todayMinus(1), "https://gov/bw-x", List.of()),
+                                newItem("政策Y", todayMinus(1), "https://gov/bw-y", List.of()),
+                                newItem("政策Z", todayMinus(1), "https://gov/bw-z", List.of())));
+        Instant now = Instant.now();
+        jdbcTemplate.update(
+                "UPDATE policy_item SET tendency_attempts = 1, tendency_last_attempt_at = ? WHERE id = ?",
+                now.minusSeconds(1800).toString(),
+                saved.get(0).getId());
+        jdbcTemplate.update(
+                "UPDATE policy_item SET tendency_attempts = 1, tendency_last_attempt_at = ? WHERE id = ?",
+                now.minusSeconds(3 * 3600).toString(),
+                saved.get(1).getId());
+
+        // Act：退避截止 = now - 2h
+        List<PolicyItem> pending = repository.findRecentUnjudged(7, 20, 3, now.minusSeconds(2 * 3600));
+
+        // Assert：窗内的政策X 不重试；超窗的政策Y 与从未尝试的政策Z 入选
+        assertThat(pending)
+                .extracting(PolicyItem::getId)
+                .containsExactly(saved.get(2).getId(), saved.get(1).getId());
+    }
+
+    @Test
+    void findRecentUnjudged_successPathUnaffected_attemptColumnsIgnoredOnceJudged_p03() {
+        // Arrange：留痕满上限的条目随后判断成功——已判条目本就出扫，留痕列不影响成功路径
+        Long id =
+                repository
+                        .saveAll(List.of(newItem("政策S", todayMinus(1), "https://gov/s", List.of())))
+                        .get(0)
+                        .getId();
+        for (int i = 0; i < 3; i++) {
+            repository.recordTendencyAttempt(id);
+        }
+        repository.updateAiTendency(id, AiTendency.NEUTRAL);
+
+        // Act + Assert：倾向落库成功，扫描不返回（ai_tendency≠0 主过滤）
+        assertThat(repository.findById(id).orElseThrow().getAiTendency()).isEqualTo(AiTendency.NEUTRAL);
+        assertThat(repository.findRecentUnjudged(7, 20, 3, Instant.now())).isEmpty();
     }
 }

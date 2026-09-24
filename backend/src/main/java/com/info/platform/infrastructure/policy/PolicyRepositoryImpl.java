@@ -124,16 +124,44 @@ public class PolicyRepositoryImpl implements PolicyRepository {
     }
 
     @Override
-    public List<PolicyItem> findRecentUnjudged(int days, int limit) {
+    public List<PolicyItem> findRecentUnjudged(
+            int days, int limit, int maxAttempts, Instant attemptedAtOrBefore) {
         int safeDays = days <= 0 ? DEFAULT_DAYS : Math.min(days, MAX_DAYS);
         String since = LocalDate.now(ZoneOffset.UTC).minusDays(safeDays).toString();
         LambdaQueryWrapper<PolicyItemPO> w =
                 new LambdaQueryWrapper<PolicyItemPO>()
                         .ge(PolicyItemPO::getPublishedAt, since)
                         .eq(PolicyItemPO::getAiTendency, AiTendency.UNJUDGED.code())
+                        // P0-3 重试治理：试满上限的失败条目停扫（保持 UNJUDGED，不再消耗 LLM 预算）
+                        .lt(PolicyItemPO::getTendencyAttempts, maxAttempts)
+                        // 退避窗：从未尝试（NULL）或距上次尝试已超窗（ISO-8601 文本字典序即时间序）
+                        .and(
+                                q ->
+                                        q.isNull(PolicyItemPO::getTendencyLastAttemptAt)
+                                                .or()
+                                                .le(
+                                                        PolicyItemPO::getTendencyLastAttemptAt,
+                                                        attemptedAtOrBefore.toString()))
                         .orderByDesc(PolicyItemPO::getId)
                         .last("LIMIT " + limit);
         return mapper.selectList(w).stream().map(PolicyRepositoryImpl::toEntity).toList();
+    }
+
+    @Override
+    @Transactional
+    public int recordTendencyAttempt(Long id) {
+        if (id == null) {
+            return 0;
+        }
+        String now = Instant.now().toString();
+        // setSql 原子自增（读改写竞态下不丢计数）；同时刷新 last_attempt_at 供退避过滤
+        return mapper.update(
+                null,
+                new LambdaUpdateWrapper<PolicyItemPO>()
+                        .eq(PolicyItemPO::getId, id)
+                        .setSql("tendency_attempts = tendency_attempts + 1")
+                        .set(PolicyItemPO::getTendencyLastAttemptAt, now)
+                        .set(PolicyItemPO::getUpdatedAt, now));
     }
 
     @Override

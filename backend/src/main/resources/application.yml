@@ -139,11 +139,16 @@ policy:
   # tendency.enabled=false 时 Job 与 @EnableScheduling 均不装配（测试关，@Scheduled 不触发，对齐 04 规范）；
   # 生产置 true，独立调度开关（不与 fetch 耦合）。interval 默认 30min（介于抓取 1h 之间，新入库条目下一轮即判）。
   # days 扫描时间窗（默认 7）；batch-size 单轮处理上限（控 LLM 成本，系统任务 userId=0 成本守卫跳过）。
+  # max-attempts / retry-backoff-hours（P0-3 止血，系统体检 20260924）：判断失败留痕尝试次数，
+  # 试满上限（默认 3 次）的条目保持未判不再扫；距上次尝试不足退避窗（默认 2h）不重试——
+  # 防失败条目被 30min 轮询无限重试烧 LLM 预算（实测每条失败政策 ≈ 168 次真实调用/周）。
   tendency:
     enabled: true
     interval-millis: 1800000
     days: 7
     batch-size: 20
+    max-attempts: 3
+    retry-backoff-hours: 2
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

@@ -11,7 +11,8 @@ import java.util.List;
  * policy_item 表的持久化对象（PO）。
  *
  * <p>对齐 V10
- * 迁移：id/title/source/published_at/summary/related_industries/ai_tendency/source_url/created_at/updated_at。
+ * 迁移：id/title/source/published_at/summary/related_industries/ai_tendency/source_url/created_at/updated_at；V16
+ * 增补尝试留痕列 tendency_attempts/tendency_last_attempt_at（P0-3 重试上限与退避过滤键，重试治理元数据不进领域实体）。
  * 按 §4.2 DDL 无 version 列（追加型政策流，无并发 UPDATE 竞争，同 anomaly_event），故不标 {@code @Version}。
  *
  * <p>{@code related_industries}（JSON 数组）经 {@link JacksonTypeHandler} 自动序列化/反序列化； {@code
@@ -43,6 +44,14 @@ public class PolicyItemPO {
 
     @TableField("ai_tendency")
     private Integer aiTendency;
+
+    /** V16（P0-3）：判断尝试次数（NOT NULL DEFAULT 0，重试上限过滤键）。 */
+    @TableField("tendency_attempts")
+    private Integer tendencyAttempts;
+
+    /** V16（P0-3）：上次尝试时间（ISO-8601 整秒文本，NULL=从未尝试，退避窗过滤键）。 */
+    @TableField("tendency_last_attempt_at")
+    private String tendencyLastAttemptAt;
 
     @TableField("source_url")
     private String sourceUrl;
@@ -107,6 +116,22 @@ public class PolicyItemPO {
 
     public void setAiTendency(Integer aiTendency) {
         this.aiTendency = aiTendency;
+    }
+
+    public Integer getTendencyAttempts() {
+        return tendencyAttempts;
+    }
+
+    public void setTendencyAttempts(Integer tendencyAttempts) {
+        this.tendencyAttempts = tendencyAttempts;
+    }
+
+    public String getTendencyLastAttemptAt() {
+        return tendencyLastAttemptAt;
+    }
+
+    public void setTendencyLastAttemptAt(String tendencyLastAttemptAt) {
+        this.tendencyLastAttemptAt = tendencyLastAttemptAt;
     }
 
     public String getSourceUrl() {

@@ -5,6 +5,8 @@ import com.info.platform.application.jobrun.ScheduleType;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +18,11 @@ import org.springframework.stereotype.Component;
  *
  * <p>扫近期 {@code ai_tendency=0} 的政策条目 → 逐条调 {@link PolicyTendencyService#judgeTendency} 填 {@code
  * ai_tendency}。批量倾向判断走后台调度而非 GET /policies/{id} 按需触发——避 GET 阻塞 LLM 3~8s（对齐 §5 性能：详情页首屏 ≤2s）。
+ *
+ * <p><b>重试治理（P0-3，系统体检 20260924 止血）</b>：判断未成功（返 UNJUDGED 或未预期异常）即 {@link
+ * PolicyRepository#recordTendencyAttempt} 留痕一次尝试；扫描经 {@code findRecentUnjudged} 过滤「尝试次数 &lt;
+ * {@code policy.tendency.max-attempts}（默认 3）」且「距上次尝试 ≥ {@code policy.tendency.retry-backoff-hours}
+ * （默认 2h）」——失败条目试满上限后保持 UNJUDGED 不再扫（对外 API 语义不变），不再被 30min 轮询无限重试烧 LLM 预算。
  *
  * <p>调度（T37 集中化，ADR-0017）：去 @Scheduled/条件注解后无条件装配，由 JobScheduler 按 {@code job.POLICY_TENDENCY}
  * 运行时配置注册（FIXED_DELAY，种子间隔默认 30min，页面可调可停用）；测试 profile 种子 {@code enabled=false} →
@@ -29,20 +36,32 @@ public class PolicyTendencyJob implements ManagedJob {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyTendencyJob.class);
 
+    /** 重试上限兜底默认（max-attempts 配置非正时取此值）。 */
+    static final int DEFAULT_MAX_ATTEMPTS = 3;
+
+    /** 退避窗兜底默认（小时，retry-backoff-hours 配置为负时取此值）。 */
+    static final int DEFAULT_BACKOFF_HOURS = 2;
+
     private final PolicyTendencyService service;
     private final PolicyRepository repository;
     private final int daysWindow;
     private final int batchSize;
+    private final int maxAttempts;
+    private final int retryBackoffHours;
 
     public PolicyTendencyJob(
             PolicyTendencyService service,
             PolicyRepository repository,
             @Value("${policy.tendency.days:7}") int days,
-            @Value("${policy.tendency.batch-size:20}") int batchSize) {
+            @Value("${policy.tendency.batch-size:20}") int batchSize,
+            @Value("${policy.tendency.max-attempts:3}") int maxAttempts,
+            @Value("${policy.tendency.retry-backoff-hours:2}") int retryBackoffHours) {
         this.service = service;
         this.repository = repository;
         this.daysWindow = days;
         this.batchSize = batchSize <= 0 ? 20 : batchSize;
+        this.maxAttempts = maxAttempts <= 0 ? DEFAULT_MAX_ATTEMPTS : maxAttempts;
+        this.retryBackoffHours = retryBackoffHours < 0 ? DEFAULT_BACKOFF_HOURS : retryBackoffHours;
     }
 
     @Override
@@ -73,7 +92,10 @@ public class PolicyTendencyJob implements ManagedJob {
 
     /** 批量判断轮询（FIXED_DELAY 默认 30min）。 */
     public void judgePending() {
-        List<PolicyItem> pending = repository.findRecentUnjudged(daysWindow, batchSize);
+        // P0-3 退避窗：只取「从未尝试或上次尝试已超窗」的条目（now - backoff 为入选截止时刻）
+        Instant attemptedAtOrBefore = Instant.now().minus(Duration.ofHours(retryBackoffHours));
+        List<PolicyItem> pending =
+                repository.findRecentUnjudged(daysWindow, batchSize, maxAttempts, attemptedAtOrBefore);
         if (pending.isEmpty()) {
             log.debug("政策倾向批量判断：无待判条目，跳过本轮");
             return;
@@ -84,10 +106,14 @@ public class PolicyTendencyJob implements ManagedJob {
                 AiTendency tendency = service.judgeTendency(item);
                 if (tendency != AiTendency.UNJUDGED) {
                     filled++;
+                } else {
+                    // P0-3：本轮发起过判断但未成功——留痕一次尝试（上限/退避过滤的计数源）
+                    repository.recordTendencyAttempt(item.getId());
                 }
             } catch (Exception e) {
-                // judgeTendency 已吞 LLM/业务异常；此处兜底未预期异常，单条不阻断其余
+                // judgeTendency 已吞 LLM/业务异常；此处兜底未预期异常，单条不阻断其余（同样留痕尝试）
                 log.warn("政策倾向判断未预期异常 policyId={}: {}", item.getId(), e.toString());
+                repository.recordTendencyAttempt(item.getId());
             }
         }
         log.info("政策倾向批量判断完成 扫描待判 {} 条，成功填倾向 {} 条", pending.size(), filled);

@@ -35,15 +35,33 @@ public interface PolicyRepository {
     List<PolicyItem> findRecent(int days, String industry, Long cursor, int limit);
 
     /**
-     * 查询近期 {@code ai_tendency=0}（未判）的政策条目（T28 政策倾向批量 Job 扫描用）。
+     * 查询近期 {@code ai_tendency=0}（未判）且未达重试上限/退避窗外的政策条目（T28 政策倾向批量 Job 扫描用）。
      *
-     * <p>newest-first（id DESC），days 天内，{@code WHERE ai_tendency = 0 LIMIT limit}。区别于 {@link
-     * #findRecent} （含已判）：Job 只处理未判条目，避免已判条目占满 LIMIT 窗口导致漏扫（个人量级数据小，但显式过滤更稳）。
+     * <p>newest-first（id DESC），days 天内，{@code WHERE ai_tendency = 0 AND tendency_attempts &lt;
+     * maxAttempts AND (tendency_last_attempt_at IS NULL OR tendency_last_attempt_at &lt;=
+     * attemptedAtOrBefore) LIMIT limit}。区别于 {@link #findRecent}（含已判）：Job 只处理未判条目，避免已判条目占满
+     * LIMIT 窗口导致漏扫（个人量级数据小，但显式过滤更稳）。
+     *
+     * <p><b>重试治理（P0-3，系统体检 20260924）</b>：尝试痕迹由 {@link #recordTendencyAttempt} 留痕；试满上限的条目保持
+     * UNJUDGED 但不再被扫中（对外 API 语义不变），防止失败条目被 30min 轮询无限重试烧 LLM 预算。
      *
      * @param days 时间窗（天）；&lt;=0 取默认 7，&gt;90 截 90
      * @param limit 单轮扫描上限
+     * @param maxAttempts 尝试次数上限（attempts &lt; maxAttempts 才入选；&lt;=0 由调用方兜底，此处不设默认）
+     * @param attemptedAtOrBefore 退避窗截止：仅取「从未尝试（last_attempt_at IS NULL）或上次尝试时间不晚于该时刻」的条目
      */
-    List<PolicyItem> findRecentUnjudged(int days, int limit);
+    List<PolicyItem> findRecentUnjudged(int days, int limit, int maxAttempts, Instant attemptedAtOrBefore);
+
+    /**
+     * 记录一次失败的倾向判断尝试（P0-3 尝试留痕）：原子自增 {@code tendency_attempts} 并刷新 {@code
+     * tendency_last_attempt_at}（供 {@link #findRecentUnjudged} 重试上限/退避过滤）。
+     *
+     * <p>成功路径不走本方法——{@link #updateAiTendency} 填倾向后条目天然出扫（ai_tendency≠0）。
+     *
+     * @param id 政策条目 id；null 返回 0（防御）
+     * @return 影响行数（0=条目不存在，调用方记日志即可）
+     */
+    int recordTendencyAttempt(Long id);
 
     /**
      * 更新政策条目倾向（T28 填 {@code ai_tendency}，1利好/2利空/3中性）。
