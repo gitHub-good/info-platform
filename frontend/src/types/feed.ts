@@ -27,6 +27,11 @@ export interface FeedItemView {
 export interface FeedPage {
   items: FeedItemView[];
   nextCursor: number | null;
+  /**
+   * 每日推荐未就绪（当日简报未触发或在途，ADR-0025 P1-5a 增量字段）。
+   * 未就绪时 items 照常返回、仅缺 type=recommendation 条目；概览推荐卡只读判读用。
+   */
+  recommendationPending: boolean;
 }
 
 /** 订阅条目（SubscriptionView；仅取 status 判断「有无活跃订阅」区分两种空态）。 */

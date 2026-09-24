@@ -107,7 +107,7 @@ function FeedItemCard({ item }: FeedItemCardProps) {
  * - 分页（D7）：触底哨兵 IntersectionObserver 自动加载 + 「加载更多」按钮兜底
  *   （IO 不可用或翻页失败时显示，键盘可达）；翻页失败不清已有条目、可重试；
  *   nextCursor 为空停止哨兵并显示「已加载全部」。
- * - 空态：无活跃订阅→引导空态（CTA 去自选清单）；有订阅无命中→muted 文案（无 CTA）。
+ * - 空态：无活跃订阅→引导空态（CTA 去订阅管理，体检 P1-3 修正指向）；有订阅无命中→muted 文案（无 CTA）。
  * - 三态：首屏 4 卡骨架 / 空态 / 首屏错误重试；401 由 http 层统一跳登录。
  */
 export function Feed() {
@@ -225,11 +225,11 @@ export function Feed() {
               还没有订阅内容会出现在这里。订阅你的主题 / 标的 / 事件类型后，命中的公告、新闻与政策会汇总到本页。
             </p>
             <a
-              href="#/watchlists"
+              href="#/subscriptions"
               data-testid="feed-empty-cta"
               className={cn('mt-1', buttonVariants({ size: 'sm' }))}
             >
-              去自选清单
+              去订阅管理
             </a>
           </div>
         ) : (

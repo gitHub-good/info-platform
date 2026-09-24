@@ -100,10 +100,10 @@ function makeStore(opts: StoreOpts = {}) {
     const path = String(url);
     if (path.includes('/subscriptions')) {
       if (opts.subscriptions === 'FAIL') return fail();
-      return ok({ items: opts.subscriptions ?? [], nextCursor: null });
+      return ok({ items: opts.subscriptions ?? [], nextCursor: null, recommendationPending: false });
     }
     if (/\/feed\/personal(\?.*)?$/.test(path)) {
-      const pages = opts.pages ?? [{ items: [], nextCursor: null }];
+      const pages = opts.pages ?? [{ items: [], nextCursor: null, recommendationPending: false }];
       const idx = Math.min(feedCalls, pages.length - 1);
       feedCalls += 1;
       return ok(pages[idx]);
@@ -129,7 +129,7 @@ afterEach(() => {
 describe('Feed 个人信息流页（T43）', () => {
   it('主路径：渲染四类型条目（类型徽章配色/元信息/命中原因 chip），关键词高亮为 <mark>', async () => {
     const store = makeStore({
-      pages: [{ items: fourTypeItems(), nextCursor: null }],
+      pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
       subscriptions: [SUB_ACTIVE],
     });
     vi.stubGlobal('fetch', store.fetchMock);
@@ -165,6 +165,7 @@ describe('Feed 个人信息流页（T43）', () => {
             itemOf({ id: 3, type: 'news', title: 'AI 芯片板块走强', keywords: [], matchReason: null }),
           ],
           nextCursor: null,
+          recommendationPending: false,
         },
       ],
       subscriptions: [SUB_ACTIVE],
@@ -186,7 +187,7 @@ describe('Feed 个人信息流页（T43）', () => {
 
   it('原文外链：target=_blank 且 rel 含 noopener/noreferrer；无 url 条目（推荐）不渲染链接', async () => {
     const store = makeStore({
-      pages: [{ items: fourTypeItems(), nextCursor: null }],
+      pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
       subscriptions: [SUB_ACTIVE],
     });
     vi.stubGlobal('fetch', store.fetchMock);
@@ -201,22 +202,23 @@ describe('Feed 个人信息流页（T43）', () => {
     expect(screen.queryByTestId('feed-item-link-4')).toBeNull();
   });
 
-  it('空态·无订阅：引导空态 + CTA 去自选清单（不出现「无命中」文案）', async () => {
-    const store = makeStore({ pages: [{ items: [], nextCursor: null }], subscriptions: [] });
+  it('空态·无订阅：引导空态 + CTA 去订阅管理（体检 P1-3 修正指向，不出现「无命中」文案）', async () => {
+    const store = makeStore({ pages: [{ items: [], nextCursor: null, recommendationPending: false }], subscriptions: [] });
     vi.stubGlobal('fetch', store.fetchMock);
     render(<Feed />);
 
     expect(await screen.findByTestId('feed-empty-no-subs')).toBeInTheDocument();
     expect(screen.getByTestId('feed-empty-no-subs')).toHaveTextContent('还没有订阅内容会出现在这里');
     const cta = screen.getByTestId('feed-empty-cta');
-    expect(cta).toHaveAttribute('href', '#/watchlists');
+    expect(cta).toHaveAttribute('href', '#/subscriptions');
+    expect(cta).toHaveTextContent('去订阅管理');
     expect(screen.queryByTestId('feed-empty-no-hits')).toBeNull();
   });
 
   it('空态·有订阅无命中：muted 文案无 CTA；已退订（status=0）不算活跃订阅', async () => {
     const unsubscribed: SubscriptionSummary = { ...SUB_ACTIVE, status: 0 };
     const store = makeStore({
-      pages: [{ items: [], nextCursor: null }],
+      pages: [{ items: [], nextCursor: null, recommendationPending: false }],
       subscriptions: [unsubscribed],
     });
     vi.stubGlobal('fetch', store.fetchMock);
@@ -227,7 +229,7 @@ describe('Feed 个人信息流页（T43）', () => {
 
   it('空态·订阅查询失败降级：不阻断信息流，按「无命中」文案（不误导引导）', async () => {
     const store = makeStore({
-      pages: [{ items: [], nextCursor: null }],
+      pages: [{ items: [], nextCursor: null, recommendationPending: false }],
       subscriptions: 'FAIL',
     });
     vi.stubGlobal('fetch', store.fetchMock);
@@ -244,12 +246,12 @@ describe('Feed 个人信息流页（T43）', () => {
     const fetchMock = vi.fn(async (url: string) => {
       const path = String(url);
       if (path.includes('/subscriptions')) {
-        return ok({ items: [SUB_ACTIVE], nextCursor: null });
+        return ok({ items: [SUB_ACTIVE], nextCursor: null, recommendationPending: false });
       }
       feedCalls += 1;
       return feedCalls === 1
         ? fail() // 首屏失败一次
-        : ok({ items: [itemOf()], nextCursor: null } as FeedPage);
+        : ok({ items: [itemOf()], nextCursor: null, recommendationPending: false } as FeedPage);
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<Feed />);
@@ -266,10 +268,11 @@ describe('Feed 个人信息流页（T43）', () => {
 
   it('分页·按钮兜底（IO 不可用）：显示「加载更多」，点击带 cursor 追加下一页', async () => {
     expect(typeof IntersectionObserver).toBe('undefined'); // jsdom 无 IO，走按钮兜底
-    const page1: FeedPage = { items: [itemOf({ id: 1 })], nextCursor: 1 };
+    const page1: FeedPage = { items: [itemOf({ id: 1 })], nextCursor: 1, recommendationPending: false };
     const page2: FeedPage = {
       items: [itemOf({ id: 2, title: '第二条政策' })],
       nextCursor: null,
+      recommendationPending: false,
     };
     const store = makeStore({ pages: [page1, page2], subscriptions: [SUB_ACTIVE] });
     vi.stubGlobal('fetch', store.fetchMock);
@@ -296,13 +299,13 @@ describe('Feed 个人信息流页（T43）', () => {
     const fetchMock = vi.fn(async (url: string) => {
       const path = String(url);
       if (path.includes('/subscriptions')) {
-        return ok({ items: [SUB_ACTIVE], nextCursor: null });
+        return ok({ items: [SUB_ACTIVE], nextCursor: null, recommendationPending: false });
       }
       const call = feedCalls;
       feedCalls += 1;
-      if (call === 0) return ok({ items: [itemOf({ id: 1 })], nextCursor: 1 } as FeedPage);
+      if (call === 0) return ok({ items: [itemOf({ id: 1 })], nextCursor: 1, recommendationPending: false } as FeedPage);
       if (call === 1) return fail(); // 翻页失败一次
-      return ok({ items: [itemOf({ id: 2, title: '第二条政策' })], nextCursor: null } as FeedPage);
+      return ok({ items: [itemOf({ id: 2, title: '第二条政策' })], nextCursor: null, recommendationPending: false } as FeedPage);
     });
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
@@ -354,10 +357,11 @@ describe('Feed 个人信息流页（T43）', () => {
     }
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
-    const page1: FeedPage = { items: [itemOf({ id: 1 })], nextCursor: 1 };
+    const page1: FeedPage = { items: [itemOf({ id: 1 })], nextCursor: 1, recommendationPending: false };
     const page2: FeedPage = {
       items: [itemOf({ id: 2, title: '第二条政策' })],
       nextCursor: null,
+      recommendationPending: false,
     };
     const store = makeStore({ pages: [page1, page2], subscriptions: [SUB_ACTIVE] });
     vi.stubGlobal('fetch', store.fetchMock);
