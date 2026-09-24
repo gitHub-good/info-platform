@@ -6,6 +6,7 @@ import com.info.platform.domain.push.PushRepository;
 import com.info.platform.domain.push.PushStatus;
 import com.info.platform.domain.push.PushType;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * {@link #findByUserIdCursor} 走 {@code WHERE user_id=? AND id > cursor ORDER BY id ASC LIMIT
  * n}（防深分页 §4.4），命中 {@code idx_push_user_status(user_id, status)} 的前缀 user_id； {@link
- * #findPendingByUser} 取 status=0 待推记录供 SSE 重连补拉。
+ * #findLatestByUser} 一次取该用户最近 N 条（P1-1 通知面板兜底）； {@link #findPendingByUser} 取 status=0 待推记录供 SSE
+ * 重连补拉（带保留期过滤，超期积压不再补）。
  */
 @Repository
 public class PushRepositoryImpl implements PushRepository {
@@ -119,12 +121,32 @@ public class PushRepositoryImpl implements PushRepository {
     }
 
     @Override
-    public List<PushRecord> findPendingByUser(long userId) {
+    public List<PushRecord> findLatestByUser(long userId, PushType type, int limit) {
+        // id 降序取尾部（最新）LIMIT n，再反转为升序返回（面板按时间正序展示）
+        List<PushRecordPO> pos =
+                pushMapper.selectList(
+                        new LambdaQueryWrapper<PushRecordPO>()
+                                .eq(PushRecordPO::getUserId, userId)
+                                .eq(
+                                        type != null,
+                                        PushRecordPO::getPushType,
+                                        type == null ? null : type.code())
+                                .orderByDesc(PushRecordPO::getId)
+                                .last("LIMIT " + limit));
+        List<PushRecord> entities = new ArrayList<>(toEntities(pos));
+        Collections.reverse(entities);
+        return entities;
+    }
+
+    @Override
+    public List<PushRecord> findPendingByUser(long userId, Instant createdSince) {
+        // 保留期过滤（P1-1 批 1 遗留项）：超期 PENDING 不再补拉（对齐 findPending 的 pending-retention-days 语义）
         List<PushRecordPO> pos =
                 pushMapper.selectList(
                         new LambdaQueryWrapper<PushRecordPO>()
                                 .eq(PushRecordPO::getUserId, userId)
                                 .eq(PushRecordPO::getStatus, PushStatus.PENDING.code())
+                                .ge(PushRecordPO::getCreatedAt, createdSince.toString())
                                 .orderByAsc(PushRecordPO::getId));
         return toEntities(pos);
     }

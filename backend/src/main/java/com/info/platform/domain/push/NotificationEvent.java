@@ -9,6 +9,7 @@ package com.info.platform.domain.push;
  * <ul>
  *   <li>{@code type} —— SSE {@code event:} 字段名（如 {@code anomaly}），对齐 §4.1.3
  *   <li>{@code subjectId} —— 关联标的（可空，异动/事件推送必填）
+ *   <li>{@code subjectCode} —— 标的内部统一代码（可空，P1-1 前端通知中心增量：客户端按代码跳标的详情）
  *   <li>{@code refId} —— 关联事件/简报 id（异动=anomaly_event.id，供客户端回查）
  *   <li>{@code content} —— 人读摘要（异动推送=anomaly_event.detail）
  * </ul>
@@ -19,7 +20,8 @@ package com.info.platform.domain.push;
  *
  * <p>跨域协作：本类型在 push 域内闭环（构造、消费均在 push 应用层/基础设施层），不跨域 import。
  */
-public record NotificationEvent(String type, Long subjectId, String refId, String content) {
+public record NotificationEvent(
+        String type, Long subjectId, String subjectCode, String refId, String content) {
 
     public NotificationEvent {
         if (type == null || type.isBlank()) {
@@ -30,9 +32,9 @@ public record NotificationEvent(String type, Long subjectId, String refId, Strin
         }
     }
 
-    /** 便捷构造：据 {@link PushType} 取事件名。 */
+    /** 便捷构造：据 {@link PushType} 取事件名（subjectCode 可空）。 */
     public static NotificationEvent of(
-            PushType pushType, Long subjectId, String refId, String content) {
-        return new NotificationEvent(pushType.eventName(), subjectId, refId, content);
+            PushType pushType, Long subjectId, String subjectCode, String refId, String content) {
+        return new NotificationEvent(pushType.eventName(), subjectId, subjectCode, refId, content);
     }
 }

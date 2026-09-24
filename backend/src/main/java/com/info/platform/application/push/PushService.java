@@ -1,5 +1,6 @@
 package com.info.platform.application.push;
 
+import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.push.AnomalyDetectedEvent;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
@@ -9,11 +10,16 @@ import com.info.platform.domain.push.PushRepository;
 import com.info.platform.domain.push.PushType;
 import com.info.platform.domain.push.SubscriptionResolver;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -47,6 +53,9 @@ public class PushService {
     /** history 游标分页单页条数（§4.4 游标分页，LIMIT 20）。 */
     static final int HISTORY_PAGE_SIZE = 20;
 
+    /** PENDING 待推保留期兜底默认（配置非正时取此值，对齐 PushRetryJob 同名配置语义）。 */
+    static final int DEFAULT_PENDING_RETENTION_DAYS = 7;
+
     /** 异动推送的兜底文案（anomaly_record.detail 为空时用）。 */
     private static final String DEFAULT_ANOMALY_CONTENT = "异动触发";
 
@@ -54,19 +63,26 @@ public class PushService {
     private final AnomalyRepository anomalyRepository;
     private final SubscriptionResolver subscriptionResolver;
     private final NotificationChannel channel;
+    private final SubjectRepository subjectRepository;
     private final Clock clock;
+    private final int pendingRetentionDays;
 
     public PushService(
             PushRepository pushRepository,
             AnomalyRepository anomalyRepository,
             SubscriptionResolver subscriptionResolver,
             NotificationChannel channel,
-            Clock clock) {
+            SubjectRepository subjectRepository,
+            Clock clock,
+            @Value("${push.retry.pending-retention-days:7}") int pendingRetentionDays) {
         this.pushRepository = pushRepository;
         this.anomalyRepository = anomalyRepository;
         this.subscriptionResolver = subscriptionResolver;
         this.channel = channel;
+        this.subjectRepository = subjectRepository;
         this.clock = clock;
+        this.pendingRetentionDays =
+                pendingRetentionDays < 0 ? DEFAULT_PENDING_RETENTION_DAYS : pendingRetentionDays;
     }
 
     /**
@@ -177,7 +193,12 @@ public class PushService {
             return;
         }
         NotificationEvent payload =
-                NotificationEvent.of(PushType.ANOMALY, subjectId, refId, content);
+                NotificationEvent.of(
+                        PushType.ANOMALY,
+                        subjectId,
+                        resolveSubjectCode(subjectId, null),
+                        refId,
+                        content);
         deliver(saved, userId, payload);
     }
 
@@ -224,7 +245,7 @@ public class PushService {
             return;
         }
         NotificationEvent payload =
-                NotificationEvent.of(
+                buildEvent(
                         record.getPushType(),
                         record.getSubjectId().orElse(null),
                         record.getRefId().orElse(null),
@@ -244,9 +265,10 @@ public class PushService {
         return emitter;
     }
 
-    /** 重连补拉：取该用户待推记录（status=0），按 Last-Event-ID 之后补发并翻转 status=1。 */
+    /** 重连补拉：取该用户待推记录（status=0，保留期内），按 Last-Event-ID 之后补发并翻转 status=1。 */
     private void flushPending(long userId, Long lastEventId) {
-        List<PushRecord> pending = pushRepository.findPendingByUser(userId);
+        Instant createdSince = clock.instant().minus(Duration.ofDays(pendingRetentionDays));
+        List<PushRecord> pending = pushRepository.findPendingByUser(userId, createdSince);
         if (pending.isEmpty()) {
             return;
         }
@@ -257,7 +279,7 @@ public class PushService {
                 continue;
             }
             NotificationEvent payload =
-                    NotificationEvent.of(
+                    buildEvent(
                             pr.getPushType(),
                             pr.getSubjectId().orElse(null),
                             pr.getRefId().orElse(null),
@@ -277,10 +299,63 @@ public class PushService {
     public NotificationHistory history(long userId, Long cursor, PushType type) {
         List<PushRecord> records =
                 pushRepository.findByUserIdCursor(userId, cursor, type, HISTORY_PAGE_SIZE);
-        List<NotificationView> items = records.stream().map(NotificationView::from).toList();
+        List<NotificationView> items = projectViews(records);
         Long nextCursor =
                 items.size() == HISTORY_PAGE_SIZE ? items.get(items.size() - 1).id() : null;
         return new NotificationHistory(items, nextCursor);
+    }
+
+    /**
+     * 最近 N 条 history（P1-1 前端通知面板兜底，单次拉取无游标）。
+     *
+     * <p>返回按 id 升序的最近 {@code limit} 条；{@code nextCursor} 恒 null（单次语义，不续页）。
+     */
+    public NotificationHistory latestHistory(long userId, int limit, PushType type) {
+        List<PushRecord> records = pushRepository.findLatestByUser(userId, type, limit);
+        return new NotificationHistory(projectViews(records), null);
+    }
+
+    /** 批量投影 PushRecord → NotificationView（subjectCode 按页回查，同页同标的不重复查）。 */
+    private List<NotificationView> projectViews(List<PushRecord> records) {
+        Map<Long, String> codeCache = new HashMap<>();
+        return records.stream()
+                .map(
+                        r ->
+                                NotificationView.from(
+                                        r,
+                                        resolveSubjectCode(
+                                                r.getSubjectId().orElse(null), codeCache)))
+                .toList();
+    }
+
+    /** 构造推送载荷（回查标的代码，P1-1 前端按 subjectCode 跳标的详情）。 */
+    private NotificationEvent buildEvent(
+            PushType type, Long subjectId, String refId, String content) {
+        return NotificationEvent.of(
+                type, subjectId, resolveSubjectCode(subjectId, null), refId, content);
+    }
+
+    /** subjectId → 内部统一代码；标的不存在/无 subjectId 返回 null（不阻断推送）。 */
+    private String resolveSubjectCode(Long subjectId, Map<Long, String> codeCache) {
+        if (subjectId == null) {
+            return null;
+        }
+        if (codeCache != null && codeCache.containsKey(subjectId)) {
+            return codeCache.get(subjectId);
+        }
+        String code =
+                subjectRepository
+                        .findById(subjectId)
+                        .map(s -> s.getSubjectCode().value())
+                        .orElse(null);
+        if (code == null) {
+            // 标的已删等边缘：仍推送（content 可读），仅不可跳转
+            log.debug("推送回查标的不存在 subjectId={}", subjectId);
+        }
+        if (codeCache != null) {
+            codeCache.put(subjectId, code);
+        }
+        return code;
     }
 
     /** 据 AnomalyDetectedEvent 定位 anomaly_record：同 subjectId 下按 (type, triggerTime) 唯一匹配。 */

@@ -17,6 +17,7 @@ import java.util.Optional;
  * <h2>history 与重连补拉</h2>
  *
  * {@link #findByUserIdCursor} 游标分页供 history 接口（{@code WHERE id > cursor LIMIT n}，防深分页 §4.4）； {@link
+ * #findLatestByUser} 取该用户最近 N 条（id 降序取前 N 再反转为升序），供前端通知面板「最近记录」兜底拉取（P1-1）； {@link
  * #findPendingByUser} 取离线用户待推记录（status=0），供 SSE 重连时按 Last-Event-ID 补拉； {@link #findPending}
  * 取全量待推记录（status=0），供 T15 补推 job 跨用户扫描补推。
  */
@@ -41,8 +42,27 @@ public interface PushRepository {
      */
     List<PushRecord> findByUserIdCursor(long userId, Long cursor, PushType type, int limit);
 
-    /** 离线用户待推记录（status=0/PENDING），按 id 升序，供 SSE 重连补拉。 */
-    List<PushRecord> findPendingByUser(long userId);
+    /**
+     * 最近 N 条记录（P1-1 前端通知面板兜底）：按 {@code user_id} 取 id 最大的 {@code limit} 条，返回按 id 升序。
+     *
+     * <p>与 {@link #findByUserIdCursor} 的区别：游标分页从头（最旧）向后翻页，无法一步取到最近记录；本方法一次取尾部（最新）
+     * 供「面板打开补全近期记录」单次拉取。
+     *
+     * @param type 推送类型过滤，null 表示不限类型
+     * @param limit 返回条数上限（接口层约束，如 20）
+     */
+    List<PushRecord> findLatestByUser(long userId, PushType type, int limit);
+
+    /**
+     * 离线用户待推记录（status=0/PENDING），按 id 升序，供 SSE 重连补拉。
+     *
+     * <p><b>保留期过滤（系统体检 20260924 P1-1 批 1 遗留项）</b>：对齐 {@link #findPending} 的 {@code
+     * push.retry.pending-retention-days} 语义——{@code created_at < createdSince} 的超期 PENDING
+     * 不再补推（前端长期未上线期间 的存量积压止血），防 SSE 重连时一次性补拉全量积压。
+     *
+     * @param createdSince 创建时间下限（通常 now - 保留期）
+     */
+    List<PushRecord> findPendingByUser(long userId, Instant createdSince);
 
     /**
      * 待推记录（status=0/PENDING），按 id 升序，供 T15 补推 job 跨用户扫描补推。

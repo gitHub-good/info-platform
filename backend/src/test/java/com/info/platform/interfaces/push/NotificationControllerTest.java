@@ -1,5 +1,8 @@
 package com.info.platform.interfaces.push;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -63,6 +66,7 @@ class NotificationControllerTest {
                                         10L,
                                         "anomaly",
                                         600519L,
+                                        "SH600519",
                                         "42",
                                         "涨幅5%",
                                         1,
@@ -78,9 +82,44 @@ class NotificationControllerTest {
                 .andExpect(jsonPath("$.data.items[0].id").value(10))
                 .andExpect(jsonPath("$.data.items[0].type").value("anomaly"))
                 .andExpect(jsonPath("$.data.items[0].subjectId").value(600519))
+                .andExpect(jsonPath("$.data.items[0].subjectCode").value("SH600519"))
                 .andExpect(jsonPath("$.data.items[0].refId").value("42"))
                 .andExpect(jsonPath("$.data.items[0].content").value("涨幅5%"))
                 .andExpect(jsonPath("$.data.nextCursor").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void history_withLatest_delegatesLatestHistory() throws Exception {
+        // P1-1：?latest=N 单次最近记录拉取（通知面板兜底），nextCursor 恒 null
+        NotificationHistory history =
+                new NotificationHistory(
+                        List.of(
+                                new NotificationView(
+                                        11L,
+                                        "anomaly",
+                                        600519L,
+                                        "SH600519",
+                                        "42",
+                                        "涨幅5%",
+                                        1,
+                                        Instant.parse("2026-09-21T02:00:05Z"),
+                                        Instant.parse("2026-09-21T02:00:00Z"))),
+                        null);
+        when(pushService.latestHistory(eq(1L), eq(20), eq(null))).thenReturn(history);
+
+        mockMvc.perform(get("/api/v1/notifications").param("latest", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].id").value(11))
+                .andExpect(jsonPath("$.data.nextCursor").value(org.hamcrest.Matchers.nullValue()));
+        verify(pushService).latestHistory(1L, 20, null);
+    }
+
+    @Test
+    void history_latestOutOfRange_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/notifications").param("latest", "500"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        verify(pushService, org.mockito.Mockito.never()).latestHistory(anyLong(), anyInt(), any());
     }
 
     @Test

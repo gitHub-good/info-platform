@@ -3,6 +3,8 @@ package com.info.platform.interfaces.common;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -163,6 +165,80 @@ class JwtAuthFilterTest {
         assertThat(res.getStatus()).isEqualTo(401);
         assertThat(bodyCode(res)).isEqualTo(1003);
         assertThat(UserContext.get()).isNull();
+    }
+
+    @Test
+    void sseStream_queryToken_authenticatesAndForwards() throws Exception {
+        // P1-1 通知中心：EventSource 无法带 Authorization 头 → /notifications/stream 接受 access_token 查询参数
+        MockHttpServletRequest req =
+                new MockHttpServletRequest("GET", "/api/v1/notifications/stream");
+        req.setQueryString("access_token=valid.jwt");
+        req.setParameter("access_token", "valid.jwt");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        when(tokenService.verify(eq("valid.jwt")))
+                .thenReturn(new TokenClaims(7L, "alice", TokenType.ACCESS));
+        UserContext.Principal[] captured = {null};
+        FilterChain chain = (r, s) -> captured[0] = UserContext.get();
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(captured[0]).isNotNull(); // 鉴权通过进入下游
+        assertThat(captured[0].userId()).isEqualTo(7L);
+        assertThat(res.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void sseStream_queryTokenInvalid_returns401AndCode1003() throws Exception {
+        MockHttpServletRequest req =
+                new MockHttpServletRequest("GET", "/api/v1/notifications/stream");
+        req.setParameter("access_token", "expired.jwt");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        when(tokenService.verify(eq("expired.jwt")))
+                .thenThrow(new BusinessException(ErrorCode.TOKEN_INVALID, "令牌已过期"));
+        boolean[] forwarded = {false};
+        FilterChain chain = (r, s) -> forwarded[0] = true;
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(forwarded[0]).isFalse();
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(bodyCode(res)).isEqualTo(1003);
+    }
+
+    @Test
+    void nonStreamPath_queryTokenOnly_stillRejected() throws Exception {
+        // query token 仅限 SSE 握手端点：其余端点无头 → 401（token 不进访问日志的暴露面不扩大）
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/notifications");
+        req.setParameter("access_token", "valid.jwt");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        boolean[] forwarded = {false};
+        FilterChain chain = (r, s) -> forwarded[0] = true;
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(forwarded[0]).isFalse();
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(bodyCode(res)).isEqualTo(1003);
+    }
+
+    @Test
+    void sseStream_headerTakesPrecedenceOverQueryToken() throws Exception {
+        // 头优先：头与 query 同传时验头（query 是回退不是旁路）
+        MockHttpServletRequest req =
+                new MockHttpServletRequest("GET", "/api/v1/notifications/stream");
+        req.addHeader("Authorization", "Bearer header.jwt");
+        req.setParameter("access_token", "query.jwt");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        when(tokenService.verify(eq("header.jwt")))
+                .thenReturn(new TokenClaims(7L, "alice", TokenType.ACCESS));
+        boolean[] forwarded = {false};
+        FilterChain chain = (r, s) -> forwarded[0] = true;
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(forwarded[0]).isTrue();
+        verify(tokenService).verify(eq("header.jwt"));
+        verify(tokenService, never()).verify(eq("query.jwt"));
     }
 
     @SuppressWarnings("unchecked")

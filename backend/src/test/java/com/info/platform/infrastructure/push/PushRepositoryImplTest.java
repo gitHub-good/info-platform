@@ -152,14 +152,66 @@ class PushRepositoryImplTest {
         pushRepository.saveIfAbsent(newRecord(USER_ID, "41", PushType.ANOMALY));
         pushRepository.saveIfAbsent(newRecord(USER_ID, "42", PushType.ANOMALY));
 
-        // Act
-        List<PushRecord> pending = pushRepository.findPendingByUser(USER_ID);
+        // Act：保留期截止 = Epoch（不设过期）
+        List<PushRecord> pending = pushRepository.findPendingByUser(USER_ID, Instant.EPOCH);
 
         // Assert：仅 status=0，按 id 升序
         assertThat(pending).hasSize(2);
         assertThat(pending).allMatch(r -> r.getStatus() == PushStatus.PENDING);
         assertThat(pending.get(0).getRefId()).contains("41");
         assertThat(pending.get(1).getRefId()).contains("42");
+    }
+
+    @Test
+    void findPendingByUser_excludesPendingOlderThanRetention() {
+        // P1-1 批 1 遗留项：SSE 重连补拉对齐 pending-retention-days 语义——超期 PENDING 不再补推
+        PushRecord fresh =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "60", PushType.ANOMALY))
+                        .orElseThrow();
+        PushRecord stale =
+                pushRepository
+                        .saveIfAbsent(newRecord(USER_ID, "61", PushType.ANOMALY))
+                        .orElseThrow();
+        jdbcTemplate.update(
+                "UPDATE push_record SET created_at = ? WHERE id = ?",
+                NOW.minus(Duration.ofDays(8)).toString(),
+                stale.getId());
+
+        // Act：保留期 7 天
+        List<PushRecord> pending =
+                pushRepository.findPendingByUser(USER_ID, NOW.minus(Duration.ofDays(7)));
+
+        // Assert：仅保留期内的新鲜待推入选
+        assertThat(pending).extracting(PushRecord::getId).containsExactly(fresh.getId());
+    }
+
+    @Test
+    void findLatestByUser_returnsNewestNLimitedOrderedAsc() {
+        // P1-1：通知面板兜底——一次取最近 N 条（id 最大者），返回升序
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "41", PushType.ANOMALY));
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "42", PushType.ANOMALY));
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "43", PushType.ANOMALY));
+        pushRepository.saveIfAbsent(newRecord(2L, "99", PushType.ANOMALY)); // 他用户记录不入选
+
+        // Act：取最近 2 条
+        List<PushRecord> latest = pushRepository.findLatestByUser(USER_ID, null, 2);
+
+        // Assert：本用户 id 最大的 2 条（43、42），升序返回
+        assertThat(latest).hasSize(2);
+        assertThat(latest.get(0).getRefId()).contains("42");
+        assertThat(latest.get(1).getRefId()).contains("43");
+    }
+
+    @Test
+    void findLatestByUser_withTypeFilter_filters() {
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "41", PushType.ANOMALY));
+        pushRepository.saveIfAbsent(newRecord(USER_ID, "42", PushType.POLICY));
+
+        List<PushRecord> latest = pushRepository.findLatestByUser(USER_ID, PushType.POLICY, 20);
+
+        assertThat(latest).hasSize(1);
+        assertThat(latest.get(0).getPushType()).isEqualTo(PushType.POLICY);
     }
 
     @Test
@@ -203,7 +255,7 @@ class PushRepositoryImplTest {
         assertThat(reloaded.get(0).getPushedAt()).contains(NOW);
         assertThat(reloaded.get(0).getRetryCount()).isZero();
         // markPushed 后不再是 pending
-        assertThat(pushRepository.findPendingByUser(USER_ID)).isEmpty();
+        assertThat(pushRepository.findPendingByUser(USER_ID, Instant.EPOCH)).isEmpty();
     }
 
     @Test

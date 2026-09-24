@@ -25,6 +25,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <p>从 {@code Authorization: Bearer <token>} 解析并校验 access 令牌（签名/有效期合法且 {@code
  * tokenType=ACCESS}），校验通过则把 {@link UserContext.Principal}（含 userId）写入 ThreadLocal，供 T11 watchlist
  * 行级权限取数。 白名单（登录/换发/actuator）直接放行；令牌缺失/无效/过期/非 access 类型（refresh 令牌，P0-2）→ 401 + 1003（统一 Result 体）。
+ *
+ * <p>SSE 握手例外（P1-1 通知中心）：浏览器 {@code EventSource} 无法自定义请求头，{@code /api/v1/notifications/stream} 额外接受
+ * {@code access_token} 查询参数（对齐技术方案 §4.1「SSE 长连接 token 走 query 或 header」）；请求头优先，其余端点仍仅认 Bearer
+ * 头——查询参数会进访问日志，收窄到该端点 minimize 暴露面。
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -52,7 +56,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String token = extractBearer(request);
-        if (token == null) {
+        if (token == null && isSseStream(path)) {
+            // EventSource 无法带 Authorization 头：SSE 握手期回退 query token（仅此端点）
+            token = request.getParameter("access_token");
+        }
+        if (token == null || token.isBlank()) {
             reject(response, ErrorCode.TOKEN_INVALID, "未提供认证令牌");
             return;
         }
@@ -92,6 +100,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         return path.startsWith("/api/v1/auth/login")
                 || path.startsWith("/api/v1/auth/refresh")
                 || path.startsWith("/actuator");
+    }
+
+    /** SSE 长连接端点（唯一接受 query token 的路径）。 */
+    private static boolean isSseStream(String path) {
+        return path.startsWith("/api/v1/notifications/stream");
     }
 
     /** 以统一 Result 体回写 401（traceId 已由 TraceIdFilter 写入 MDC）。 */

@@ -10,6 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.info.platform.domain.aggregation.Subject;
+import com.info.platform.domain.aggregation.SubjectCode;
+import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.push.AnomalyDetectedEvent;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
@@ -22,6 +25,7 @@ import com.info.platform.domain.push.PushType;
 import com.info.platform.domain.push.SubscriptionResolver;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -57,6 +61,7 @@ class PushServiceTest {
     @Mock private AnomalyRepository anomalyRepository;
     @Mock private SubscriptionResolver subscriptionResolver;
     @Mock private NotificationChannel channel;
+    @Mock private SubjectRepository subjectRepository;
 
     private PushService service;
     private AnomalyDetectedEvent event;
@@ -70,7 +75,9 @@ class PushServiceTest {
                         anomalyRepository,
                         subscriptionResolver,
                         channel,
-                        FIXED_CLOCK);
+                        subjectRepository,
+                        FIXED_CLOCK,
+                        7);
         event =
                 new AnomalyDetectedEvent(
                         SUBJECT_ID,
@@ -92,6 +99,9 @@ class PushServiceTest {
                         Instant.parse("2026-09-21T02:00:00Z"));
         // 默认：能定位到 anomaly_record（同 subjectId + type + triggerTime 唯一匹配）
         when(anomalyRepository.findBySubjectId(SUBJECT_ID)).thenReturn(List.of(anomaly));
+        // 默认：subjectId 可回查到标的代码（P1-1 subjectCode 增量）
+        when(subjectRepository.findById(SUBJECT_ID))
+                .thenReturn(Optional.of(subjectFixture(SUBJECT_ID, "SH600519")));
         // 默认：saveIfAbsent 成功落库并回填 id
         when(pushRepository.saveIfAbsent(any(PushRecord.class)))
                 .thenAnswer(
@@ -329,22 +339,8 @@ class PushServiceTest {
         // Arrange：用户重连，有 1 条待推记录
         SseEmitter emitter = new SseEmitter();
         when(channel.open(USER_ID)).thenReturn(emitter);
-        PushRecord pending =
-                PushRecord.reconstruct(
-                        50L,
-                        USER_ID,
-                        SUBJECT_ID,
-                        PushType.ANOMALY,
-                        String.valueOf(ANOMALY_ID),
-                        "content",
-                        USER_ID + ":1:" + ANOMALY_ID,
-                        PushStatus.PENDING,
-                        null,
-                        0,
-                        0L,
-                        null,
-                        null);
-        when(pushRepository.findPendingByUser(USER_ID)).thenReturn(List.of(pending));
+        when(pushRepository.findPendingByUser(eq(USER_ID), any(Instant.class)))
+                .thenReturn(List.of(pendingRecord(50L)));
         when(channel.send(eq(USER_ID), any(), eq(50L))).thenReturn(true);
 
         // Act
@@ -363,22 +359,8 @@ class PushServiceTest {
         // Arrange：待推记录 id=50，客户端已见 lastEventId=50 → 跳过补拉
         SseEmitter emitter = new SseEmitter();
         when(channel.open(USER_ID)).thenReturn(emitter);
-        PushRecord pending =
-                PushRecord.reconstruct(
-                        50L,
-                        USER_ID,
-                        SUBJECT_ID,
-                        PushType.ANOMALY,
-                        String.valueOf(ANOMALY_ID),
-                        "content",
-                        USER_ID + ":1:" + ANOMALY_ID,
-                        PushStatus.PENDING,
-                        null,
-                        0,
-                        0L,
-                        null,
-                        null);
-        when(pushRepository.findPendingByUser(USER_ID)).thenReturn(List.of(pending));
+        when(pushRepository.findPendingByUser(eq(USER_ID), any(Instant.class)))
+                .thenReturn(List.of(pendingRecord(50L)));
 
         // Act
         service.openStream(USER_ID, 50L);
@@ -386,6 +368,24 @@ class PushServiceTest {
         // Assert：id <= lastEventId 跳过，不发送、不 update（留待推）
         verify(channel, never()).send(eq(USER_ID), any(), anyLong());
         verify(pushRepository, never()).update(any());
+    }
+
+    @Test
+    void openStream_flushPending_appliesPendingRetentionFilter() {
+        // P1-1 批 1 遗留项：SSE 补拉下发保留期截止（超期 PENDING 由仓储过滤，服务层负责传对截止值）
+        SseEmitter emitter = new SseEmitter();
+        when(channel.open(USER_ID)).thenReturn(emitter);
+        when(pushRepository.findPendingByUser(eq(USER_ID), any(Instant.class)))
+                .thenReturn(List.of());
+
+        // Act
+        service.openStream(USER_ID, null);
+
+        // Assert：createdSince = 固定时钟 - 7 天（对齐 push.retry.pending-retention-days 语义）
+        ArgumentCaptor<Instant> sinceCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(pushRepository).findPendingByUser(eq(USER_ID), sinceCaptor.capture());
+        assertThat(sinceCaptor.getValue())
+                .isEqualTo(FIXED_CLOCK.instant().minus(Duration.ofDays(7)));
     }
 
     // ---- history：游标分页 ----
@@ -427,6 +427,134 @@ class PushServiceTest {
         // Assert
         assertThat(history.items()).hasSize(PushService.HISTORY_PAGE_SIZE);
         assertThat(history.nextCursor()).isEqualTo((long) PushService.HISTORY_PAGE_SIZE);
+    }
+
+    // ---- P1-1（系统体检 20260924）：subjectCode 增量 + 最近 N 条 history ----
+
+    @Test
+    void handleAnomaly_onlineUser_payloadCarriesSubjectCode() {
+        // Arrange：标的可回查代码
+        when(subscriptionResolver.resolveAnomalyTargets(SUBJECT_ID)).thenReturn(Set.of(USER_ID));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        // Act
+        service.handleAnomaly(event);
+
+        // Assert：SSE 载荷带内部统一代码（前端按 code 跳标的详情）
+        ArgumentCaptor<NotificationEvent> payloadCaptor =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payloadCaptor.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payloadCaptor.getValue().subjectCode()).isEqualTo("SH600519");
+    }
+
+    @Test
+    void handleAnomaly_subjectMissing_payloadStillSentWithNullCode() {
+        // Arrange：标的已删（回查空）→ 仍推送，subjectCode=null（不阻断）
+        when(subscriptionResolver.resolveAnomalyTargets(999L)).thenReturn(Set.of(USER_ID));
+        when(anomalyRepository.findBySubjectId(999L))
+                .thenReturn(
+                        List.of(
+                                AnomalyRecord.reconstruct(
+                                        ANOMALY_ID,
+                                        999L,
+                                        AnomalyType.PRICE_CHANGE,
+                                        new BigDecimal("5.00"),
+                                        new BigDecimal("1680.50"),
+                                        TRIGGER_TIME,
+                                        "detail",
+                                        false,
+                                        TRIGGER_TIME,
+                                        TRIGGER_TIME)));
+        when(subjectRepository.findById(999L)).thenReturn(Optional.empty());
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        // Act
+        service.handleAnomaly(
+                new AnomalyDetectedEvent(
+                        999L,
+                        AnomalyType.PRICE_CHANGE,
+                        new BigDecimal("5.00"),
+                        new BigDecimal("1680.50"),
+                        TRIGGER_TIME));
+
+        // Assert：推送不因回查失败而中断
+        ArgumentCaptor<NotificationEvent> payloadCaptor =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payloadCaptor.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payloadCaptor.getValue().subjectCode()).isNull();
+    }
+
+    @Test
+    void history_itemsCarrySubjectCode() {
+        // Arrange：同页同标的 → 单次回查复用（codeCache）
+        List<PushRecord> records =
+                List.of(
+                        buildHistoryRecord(10L, PushType.ANOMALY, SUBJECT_ID),
+                        buildHistoryRecord(11L, PushType.ANOMALY, SUBJECT_ID));
+        when(pushRepository.findByUserIdCursor(eq(USER_ID), eq(null), eq(null), eq(20)))
+                .thenReturn(records);
+
+        // Act
+        NotificationHistory history = service.history(USER_ID, null, null);
+
+        // Assert：视图带 subjectCode；同页同标的只回查一次
+        assertThat(history.items().get(0).subjectCode()).isEqualTo("SH600519");
+        assertThat(history.items().get(1).subjectCode()).isEqualTo("SH600519");
+        verify(subjectRepository, times(1)).findById(SUBJECT_ID);
+    }
+
+    @Test
+    void latestHistory_returnsItemsWithNullCursor() {
+        // Arrange：最近 2 条（仓储返回升序）
+        when(pushRepository.findLatestByUser(eq(USER_ID), eq(null), eq(20)))
+                .thenReturn(
+                        List.of(
+                                buildHistoryRecord(10L, PushType.ANOMALY, SUBJECT_ID),
+                                buildHistoryRecord(11L, PushType.ANOMALY, SUBJECT_ID)));
+
+        // Act
+        NotificationHistory history = service.latestHistory(USER_ID, 20, null);
+
+        // Assert：单次拉取语义（无续页游标）+ 带代码
+        assertThat(history.items()).hasSize(2);
+        assertThat(history.nextCursor()).isNull();
+        assertThat(history.items().get(1).subjectCode()).isEqualTo("SH600519");
+    }
+
+    private static PushRecord pendingRecord(long id) {
+        return PushRecord.reconstruct(
+                id,
+                USER_ID,
+                SUBJECT_ID,
+                PushType.ANOMALY,
+                String.valueOf(ANOMALY_ID),
+                "content",
+                USER_ID + ":1:" + ANOMALY_ID,
+                PushStatus.PENDING,
+                null,
+                0,
+                0L,
+                null,
+                null);
+    }
+
+    private static Subject subjectFixture(long id, String code) {
+        return Subject.reconstruct(
+                id,
+                SubjectCode.of(code),
+                com.info.platform.domain.aggregation.Market.A_SHARE,
+                com.info.platform.domain.aggregation.SubjectType.STOCK,
+                "贵州茅台",
+                java.util.Map.of(),
+                "白酒",
+                com.info.platform.domain.aggregation.SubjectStatus.ENABLED,
+                0L,
+                null,
+                null);
     }
 
     private static PushRecord buildHistoryRecord(long id, PushType type, Long subjectId) {
