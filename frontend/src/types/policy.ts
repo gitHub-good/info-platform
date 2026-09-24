@@ -1,8 +1,8 @@
-// 政策时事流类型（对齐技术方案 §4.1.5 + 后端 record：
-// PolicyView / PolicyListView / PolicyDetailView / RelatedSubjectView）。
+// 政策时事流类型（对齐技术方案 §4.1.5 + M9 页码分页契约：
+// PolicyView / PolicyPagedView / PolicyDetailView / RelatedSubjectView）。
 //
-// GET /api/v1/policies?days=7&industry=&cursor= → PolicyListView
-// GET /api/v1/policies/{id}                      → PolicyDetailView（含关联自选标的 + aiTendency）
+// GET /api/v1/policies?days=&industry=&keyword=&page=&size= → PolicyPagedView
+// GET /api/v1/policies/{id}                                 → PolicyDetailView（含关联自选标的 + aiTendency）
 
 /** 政策 AI 倾向码（对齐后端 ai_tendency.code：T24 全 0 未判，T28 AI 填 1/2/3）。 */
 export type AiTendencyCode = 0 | 1 | 2 | 3;
@@ -17,10 +17,12 @@ export interface PolicyView {
   relatedIndustries: string[];
 }
 
-/** 政策列表分页视图。nextCursor=null 表示无下一页（首页 cursor=null）。 */
-export interface PolicyListView {
+/** 政策列表页码分页视图（M9）。total 为筛选后精确总数（「共 N 条」与空页回退依据）。 */
+export interface PolicyPagedView {
   policies: PolicyView[];
-  nextCursor: number | null;
+  total: number;
+  page: number;
+  size: number;
 }
 
 /** 政策详情关联自选标的（按 relatedIndustries 匹配当前用户 watchlist）。 */

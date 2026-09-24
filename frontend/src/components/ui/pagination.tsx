@@ -60,7 +60,7 @@ export interface PaginationProps {
   onPageSizeChange: (size: number) => void;
   /** 在途禁用（页面 pageLoading 传入 → 全控件 disabled）。 */
   disabled?: boolean;
-  pageSizeOptions?: number[];
+  pageSizeOptions?: readonly number[];
   /** <nav aria-label> 文案，默认「分页」。 */
   label?: string;
 }
