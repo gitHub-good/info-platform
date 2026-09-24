@@ -345,14 +345,11 @@ class EastMoneyListClientTest {
                                                                             2,
                                                                             row(
                                                                                     "600519", 1,
-                                                                                    "贵州茅台",
-                                                                                    "白酒"),
+                                                                                    "贵州茅台", "白酒"),
                                                                             row(
                                                                                     "600519", 1,
-                                                                                    "贵州茅台",
-                                                                                    "白酒")),
-                                                                    MediaType
-                                                                            .APPLICATION_JSON));
+                                                                                    "贵州茅台", "白酒")),
+                                                                    MediaType.APPLICATION_JSON));
                                             // 去重后累计 1 < total 2 → 翻第 2 页为空 diff → total 校验放弃
                                             server.expect(requestTo(containsString("pn=2")))
                                                     .andRespond(
