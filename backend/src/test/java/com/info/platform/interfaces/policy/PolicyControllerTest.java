@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.info.platform.application.policy.PolicyDetailView;
 import com.info.platform.application.policy.PolicyListView;
+import com.info.platform.application.policy.PolicyPagedView;
 import com.info.platform.application.policy.PolicyService;
 import com.info.platform.application.policy.PolicyView;
 import com.info.platform.application.policy.RelatedSubjectView;
@@ -131,5 +132,104 @@ class PolicyControllerTest {
         mockMvc.perform(get("/api/v1/policies/999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(30040));
+    }
+
+    // ==================== M9 页码模式契约（T60/T62，REQ-20260925-06 方案 §4.1 / ADR-0035）
+    // ====================
+    // 修前红锚点：实现前这些用例必须红（旧控制器忽略 page/size/keyword → 200 游标形态）；实现后转绿。
+
+    @Test
+    void pageMode_pageWithCursor_mutexRejected400() throws Exception {
+        // page 与 cursor 互斥（双模式防呆）→ 400/2001
+        mockMvc.perform(get("/api/v1/policies").param("page", "1").param("cursor", "5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void pageMode_sizeWithoutPage_rejected400() throws Exception {
+        // size 仅页码模式可用，缺 page → 400/2001（msg 注明缺 page）
+        mockMvc.perform(get("/api/v1/policies").param("size", "20"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value(org.hamcrest.Matchers.containsString("page")));
+    }
+
+    @Test
+    void pageMode_sizeOverLimit_rejected400() throws Exception {
+        // size 1~50，超限 400 拒绝不截断（ADR-0035）
+        mockMvc.perform(get("/api/v1/policies").param("page", "1").param("size", "51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void pageMode_pageZero_rejected400() throws Exception {
+        // page ≥ 1，page=0 → 400
+        mockMvc.perform(get("/api/v1/policies").param("page", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void pageMode_returnsTotalAndEchoedPageSize() throws Exception {
+        // Arrange：页码模式走 listPoliciesPaged（days/industry 透传）
+        when(policyService.listPoliciesPaged(7, "白酒", 2, 10))
+                .thenReturn(
+                        new PolicyPagedView(
+                                List.of(
+                                        new PolicyView(
+                                                2L,
+                                                "白酒产业政策",
+                                                "国务院政策",
+                                                "2026-09-21",
+                                                null,
+                                                List.of("白酒"))),
+                                11L,
+                                2,
+                                10));
+
+        // Act + Assert：页码模式响应形态：{policies[], total, page, size}，无 nextCursor（两 record 不混装）
+        mockMvc.perform(
+                        get("/api/v1/policies")
+                                .param("days", "7")
+                                .param("industry", "白酒")
+                                .param("page", "2")
+                                .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.policies[0].title").value("白酒产业政策"))
+                .andExpect(jsonPath("$.data.total").value(11))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void pageMode_defaultPageSize_is20() throws Exception {
+        // Arrange：size 缺省 20（PageQuery.DEFAULT_SIZE），不传 size 也能 stub 命中
+        when(policyService.listPoliciesPaged(7, null, 1, 20))
+                .thenReturn(new PolicyPagedView(List.of(), 0L, 1, 20));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/policies").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.page").value(1));
+    }
+
+    @Test
+    void pageMode_outOfRangePage_returns200EmptyListWithEcho() throws Exception {
+        // Arrange：越界页（total=8、page=99）→ 200 + 空列表 + 如实回显（ADR-0035 裁决）
+        when(policyService.listPoliciesPaged(7, null, 99, 20))
+                .thenReturn(new PolicyPagedView(List.of(), 8L, 99, 20));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/policies").param("page", "99"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.policies").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(8))
+                .andExpect(jsonPath("$.data.page").value(99))
+                .andExpect(jsonPath("$.data.size").value(20));
     }
 }

@@ -35,6 +35,25 @@ public interface PolicyRepository {
     List<PolicyItem> findRecent(int days, String industry, Long cursor, int limit);
 
     /**
+     * 页码模式组合过滤分页查询（M9 T60）：{@code ORDER BY id DESC LIMIT size OFFSET (page-1)×size}。
+     *
+     * <p>与游标模式<b>同序同过滤</b>（id 主键全序，单键即确定页序）；越界页（offset 超总数）天然返回空列表（200 + 空列表 +
+     * 如实回显，ADR-0035）。page/size 由接口层 {@code PageQuery} 校验（page≥1、size 1~50），端口不再重复校验。
+     *
+     * @param filter 组合过滤条件（days/industry AND 语义）
+     * @param page 页码（1 起）
+     * @param size 页大小
+     */
+    List<PolicyItem> findPage(PolicyListFilter filter, int page, int size);
+
+    /**
+     * 页码模式组合过滤精确计数（M9 T60）：与 {@link #findPage} 同一 WHERE（审计场景要「共多少条」精确感知，不做近似 total）。
+     *
+     * @param filter 组合过滤条件（与 findPage 同一实例同口径）
+     */
+    long countByFilter(PolicyListFilter filter);
+
+    /**
      * 查询近期 {@code ai_tendency=0}（未判）且未达重试上限/退避窗外的政策条目（T28 政策倾向批量 Job 扫描用）。
      *
      * <p>newest-first（id DESC），days 天内，{@code WHERE ai_tendency = 0 AND tendency_attempts &lt;

@@ -5,6 +5,7 @@ import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.policy.PolicyItem;
+import com.info.platform.domain.policy.PolicyListFilter;
 import com.info.platform.domain.policy.PolicyRepository;
 import com.info.platform.domain.subscription.Watchlist;
 import com.info.platform.domain.subscription.WatchlistItem;
@@ -61,6 +62,36 @@ public class PolicyService {
         List<PolicyView> views = items.stream().map(PolicyService::toView).toList();
         Long nextCursor = items.size() < PAGE_SIZE ? null : items.get(items.size() - 1).getId();
         return new PolicyListView(views, nextCursor);
+    }
+
+    /**
+     * 政策列表（页码模式，M9 T60）：count + findPage 同一 filter → {@link PolicyPagedView}。
+     *
+     * <p>越界页由 offset 语义天然返回空列表（零分支，ADR-0035）；page/size 由接口层 {@code PageQuery} 校验归一。 debug 日志带
+     * page/size/total/耗时（护栏观测数据源，对齐 {@code getPolicy} 先例）。
+     *
+     * @param days 时间窗（天）
+     * @param industry 行业过滤；null/blank 不过滤
+     * @param page 页码（1 起，已校验）
+     * @param size 页大小（1~50，已校验）
+     */
+    public PolicyPagedView listPoliciesPaged(int days, String industry, int page, int size) {
+        long startedAt = System.currentTimeMillis();
+        PolicyListFilter filter = new PolicyListFilter(days, normalize(industry));
+        long total = policyRepository.countByFilter(filter);
+        List<PolicyView> views =
+                policyRepository.findPage(filter, page, size).stream()
+                        .map(PolicyService::toView)
+                        .toList();
+        log.debug(
+                "政策页码列表 days={} industry={} page={} size={} total={} 耗时{}ms",
+                days,
+                industry,
+                page,
+                size,
+                total,
+                System.currentTimeMillis() - startedAt);
+        return new PolicyPagedView(views, total, page, size);
     }
 
     /**

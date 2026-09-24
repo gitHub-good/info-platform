@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
+import com.info.platform.domain.policy.PolicyListFilter;
 import com.info.platform.domain.policy.PolicyRepository;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -98,6 +99,38 @@ public class PolicyRepositoryImpl implements PolicyRepository {
         w.orderByDesc(PolicyItemPO::getId).last("LIMIT " + limit);
         List<PolicyItemPO> pos = mapper.selectList(w);
         return pos.stream().map(PolicyRepositoryImpl::toEntity).toList();
+    }
+
+    @Override
+    public List<PolicyItem> findPage(PolicyListFilter filter, int page, int size) {
+        // 页码模式：同序（id DESC）同过滤（baseWrapper 与游标路径一致口径）；LIMIT/OFFSET 从简（ADR-0035 实测毫秒级）
+        LambdaQueryWrapper<PolicyItemPO> w =
+                listFilterWrapper(filter)
+                        .orderByDesc(PolicyItemPO::getId)
+                        .last("LIMIT " + size + " OFFSET " + (page - 1) * size);
+        return mapper.selectList(w).stream().map(PolicyRepositoryImpl::toEntity).toList();
+    }
+
+    @Override
+    public long countByFilter(PolicyListFilter filter) {
+        // 精确 COUNT，同一 WHERE（与 findPage 同一 baseWrapper 组装，口径单点）
+        return mapper.selectCount(listFilterWrapper(filter));
+    }
+
+    /**
+     * 页码模式组合 WHERE 一处组装（days 时间窗 + industry JSON LIKE），{@link #findPage}/{@link #countByFilter}
+     * 两用—— 保证页数据与计数同口径、页码与游标两模式同过滤（§3.5 回归锚点前提）。
+     */
+    private static LambdaQueryWrapper<PolicyItemPO> listFilterWrapper(PolicyListFilter filter) {
+        int safeDays = filter.days() <= 0 ? DEFAULT_DAYS : Math.min(filter.days(), MAX_DAYS);
+        String since = LocalDate.now(ZoneOffset.UTC).minusDays(safeDays).toString();
+        LambdaQueryWrapper<PolicyItemPO> w =
+                new LambdaQueryWrapper<PolicyItemPO>().ge(PolicyItemPO::getPublishedAt, since);
+        if (filter.industry() != null && !filter.industry().isBlank()) {
+            // 同 findRecent：JSON 数组文本按 "industry" 子串 LIKE（引号作 token 边界）
+            w.like(PolicyItemPO::getRelatedIndustries, "\"" + filter.industry() + "\"");
+        }
+        return w;
     }
 
     @Override

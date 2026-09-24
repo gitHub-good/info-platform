@@ -15,6 +15,7 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
+import com.info.platform.domain.policy.PolicyListFilter;
 import com.info.platform.domain.policy.PolicyRepository;
 import com.info.platform.domain.subscription.Watchlist;
 import com.info.platform.domain.subscription.WatchlistItem;
@@ -143,6 +144,56 @@ class PolicyServiceTest {
         PolicyListView view = service.listPolicies(7, null, 30L);
         assertThat(view.policies()).hasSize(1);
         assertThat(view.nextCursor()).isNull();
+    }
+
+    // ==================== M9 T60：页码模式 ====================
+
+    @Test
+    void listPoliciesPaged_countAndPageSameFilter_returnsTotalAndEcho() {
+        // Arrange：同一 filter 走 count + findPage；industry trim 后透传
+        PolicyListFilter filter = new PolicyListFilter(7, "银行");
+        when(policyRepository.countByFilter(filter)).thenReturn(45L);
+        when(policyRepository.findPage(filter, 2, 20))
+                .thenReturn(List.of(policy(44L, "政策44", List.of("银行"))));
+
+        // Act
+        PolicyPagedView view = service.listPoliciesPaged(7, "  银行 ", 2, 20);
+
+        // Assert：total 精确回显、page/size 如实回显、列表字段与游标模式一致
+        assertThat(view.total()).isEqualTo(45L);
+        assertThat(view.page()).isEqualTo(2);
+        assertThat(view.size()).isEqualTo(20);
+        assertThat(view.policies()).hasSize(1);
+        assertThat(view.policies().get(0).title()).isEqualTo("政策44");
+        assertThat(view.policies().get(0).relatedIndustries()).containsExactly("银行");
+    }
+
+    @Test
+    void listPoliciesPaged_outOfRangePage_emptyListWithRealTotal() {
+        // Arrange：越界页（offset 超总数）→ 空列表 + 真实 total（ADR-0035：200 + 空列表 + 如实回显）
+        PolicyListFilter filter = new PolicyListFilter(7, null);
+        when(policyRepository.countByFilter(filter)).thenReturn(8L);
+        when(policyRepository.findPage(filter, 99, 20)).thenReturn(List.of());
+
+        // Act + Assert
+        PolicyPagedView view = service.listPoliciesPaged(7, null, 99, 20);
+        assertThat(view.policies()).isEmpty();
+        assertThat(view.total()).isEqualTo(8L);
+        assertThat(view.page()).isEqualTo(99);
+        assertThat(view.size()).isEqualTo(20);
+    }
+
+    @Test
+    void listPoliciesPaged_daysPassedThroughToFilter() {
+        // Arrange：days 透传 filter（时间窗语义由 repo 层 clamp，service 不改写）
+        PolicyListFilter filter = new PolicyListFilter(30, null);
+        when(policyRepository.countByFilter(filter)).thenReturn(0L);
+        when(policyRepository.findPage(filter, 1, 10)).thenReturn(List.of());
+
+        // Act + Assert
+        PolicyPagedView view = service.listPoliciesPaged(30, null, 1, 10);
+        assertThat(view.total()).isZero();
+        assertThat(view.policies()).isEmpty();
     }
 
     @Test

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
+import com.info.platform.domain.policy.PolicyListFilter;
 import com.info.platform.domain.policy.PolicyRepository;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -385,5 +386,120 @@ class PolicyRepositoryImplTest {
         assertThat(repository.findById(id).orElseThrow().getAiTendency())
                 .isEqualTo(AiTendency.NEUTRAL);
         assertThat(repository.findRecentUnjudged(7, 20, 3, Instant.now())).isEmpty();
+    }
+
+    // ==================== M9 T60：页码模式（findPage/countByFilter，真实 SQLite） ====================
+
+    @Test
+    void findPage_paginatesNewestFirst_andCountMatches() {
+        // Arrange：按插入序落 5 条（id 升序），均近 7 天内
+        for (int i = 1; i <= 5; i++) {
+            repository.saveAll(
+                    List.of(newItem("政策" + i, todayMinus(1), "https://gov/p" + i, List.of())));
+        }
+        PolicyListFilter filter = new PolicyListFilter(7, null);
+
+        // Act + Assert：第 1 页（size=2）newest-first → 政策5、政策4；计数 5
+        List<PolicyItem> page1 = repository.findPage(filter, 1, 2);
+        assertThat(page1).extracting(PolicyItem::getTitle).containsExactly("政策5", "政策4");
+        assertThat(repository.countByFilter(filter)).isEqualTo(5);
+
+        // 第 2 页 → 政策3、政策2；第 3 页 → 政策1（不满页）
+        assertThat(repository.findPage(filter, 2, 2))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("政策3", "政策2");
+        assertThat(repository.findPage(filter, 3, 2))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("政策1");
+    }
+
+    @Test
+    void findPage_outOfRangePage_returnsEmptyList_countUnchanged() {
+        // Arrange：2 条数据，page=99 越界
+        for (int i = 1; i <= 2; i++) {
+            repository.saveAll(
+                    List.of(newItem("政策" + i, todayMinus(1), "https://gov/o" + i, List.of())));
+        }
+        PolicyListFilter filter = new PolicyListFilter(7, null);
+
+        // Act + Assert：offset 语义天然空列表（200 + 空列表 + 如实回显的契约由上层承接）；total 仍为真实值
+        assertThat(repository.findPage(filter, 99, 20)).isEmpty();
+        assertThat(repository.countByFilter(filter)).isEqualTo(2);
+    }
+
+    @Test
+    void findPage_respectsDaysWindow_andIndustryCombo() {
+        // Arrange：窗内白酒/银行各 1 条 + 窗外白酒 1 条 → 组合过滤计数按 AND 语义
+        repository.saveAll(
+                List.of(
+                        newItem("白酒新政策", todayMinus(1), "https://gov/c1", List.of("白酒")),
+                        newItem("银行新政策", todayMinus(2), "https://gov/c2", List.of("银行")),
+                        newItem("白酒旧政策", todayMinus(30), "https://gov/c3", List.of("白酒"))));
+
+        // Act + Assert：7 天窗 + 白酒 → 仅 1 条；7 天窗全量 → 2 条
+        assertThat(repository.countByFilter(new PolicyListFilter(7, "白酒"))).isEqualTo(1);
+        assertThat(repository.findPage(new PolicyListFilter(7, "白酒"), 1, 20))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("白酒新政策");
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null))).isEqualTo(2);
+    }
+
+    @Test
+    void findPage_daysClamped_zeroToDefault_over90To90() {
+        // Arrange：95 天前 1 条（永不入窗）+ 90 天前 1 条（恰在最大窗边界，>= 含端点）+ 8 天前 1 条
+        repository.saveAll(
+                List.of(
+                        newItem("超窗政策", todayMinus(95), "https://gov/cl1", List.of()),
+                        newItem("边界政策", todayMinus(90), "https://gov/cl2", List.of()),
+                        newItem("窗内政策", todayMinus(8), "https://gov/cl3", List.of())));
+
+        // Act + Assert：days=0 取默认 7（8 天前不可见）；days=30 仅 8 天前可见；
+        // days=200 截 90 → 边界政策（90 天前）恰入窗（>= 含端点）、超窗政策出窗
+        assertThat(repository.countByFilter(new PolicyListFilter(0, null))).isZero();
+        assertThat(repository.countByFilter(new PolicyListFilter(30, null))).isEqualTo(1);
+        assertThat(repository.countByFilter(new PolicyListFilter(200, null))).isEqualTo(2);
+        assertThat(repository.countByFilter(new PolicyListFilter(90, null))).isEqualTo(2);
+    }
+
+    @Test
+    void findPage_firstPageEqualsCursorFirstPage_sameParams_regressionAnchor() {
+        // Arrange：25 条近 7 天政策 → 回归锚点：同参数下页码第 1 页与游标首页内容一致（§3.5 两模式同序同过滤）
+        for (int i = 1; i <= 25; i++) {
+            repository.saveAll(
+                    List.of(
+                            newItem(
+                                    "锚点政策" + i,
+                                    todayMinus(1),
+                                    "https://gov/anchor" + i,
+                                    List.of("白酒"))));
+        }
+
+        // Act
+        List<PolicyItem> pagedFirst = repository.findPage(new PolicyListFilter(7, "白酒"), 1, 20);
+        List<PolicyItem> cursorFirst = repository.findRecent(7, "白酒", null, 20);
+
+        // Assert：逐条 id 一致（newest-first 同序）
+        assertThat(pagedFirst)
+                .extracting(PolicyItem::getId)
+                .containsExactlyElementsOf(cursorFirst.stream().map(PolicyItem::getId).toList());
+    }
+
+    @Test
+    void findPage_deepPage_over100Rows_lastPagePartial() {
+        // Arrange：105 条（5 整页 size=20 + 末页 5 条），验证 LIMIT/OFFSET 深页正确性（ADR-0035 从简实现）
+        List<PolicyItem> batch = new java.util.ArrayList<>(105);
+        for (int i = 1; i <= 105; i++) {
+            batch.add(newItem("深页政策" + i, todayMinus(1), "https://gov/deep" + i, List.of()));
+        }
+        repository.saveAll(batch);
+        PolicyListFilter filter = new PolicyListFilter(7, null);
+
+        // Act + Assert：total=105；第 6 页（末页）恰 5 条且为最旧的 5 条（id 最小）；第 7 页空
+        assertThat(repository.countByFilter(filter)).isEqualTo(105);
+        List<PolicyItem> lastPage = repository.findPage(filter, 6, 20);
+        assertThat(lastPage).hasSize(5);
+        assertThat(lastPage.get(0).getTitle()).isEqualTo("深页政策5");
+        assertThat(lastPage.get(4).getTitle()).isEqualTo("深页政策1");
+        assertThat(repository.findPage(filter, 7, 20)).isEmpty();
     }
 }
