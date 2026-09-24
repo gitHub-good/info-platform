@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.aggregation;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
 import com.info.platform.infrastructure.common.DataSourceDefaults;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -97,7 +98,7 @@ public class EastMoneyFinanceClient {
         Map<String, Object> root =
                 restClient
                         .get()
-                        .uri(url)
+                        .uri(URI.create(url))
                         .accept(MediaType.APPLICATION_JSON)
                         .header("User-Agent", EastMoneyHttpSupport.USER_AGENT)
                         .header("Referer", referer)
