@@ -54,7 +54,7 @@ export function WatchlistDetail({
         className="py-10 text-center text-sm text-muted-foreground"
         data-testid="watchlist-detail-empty"
       >
-        请从左侧选择一个清单查看明细
+        请从上方选择一个清单查看明细
       </div>
     );
   }

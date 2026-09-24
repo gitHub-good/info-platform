@@ -95,7 +95,12 @@ export function StatCard({
               </div>
             ) : null}
             {hint ? (
-              <div className="mt-2 text-xs text-muted-foreground">{hint}</div>
+              <div
+                className="mt-2 line-clamp-1 text-xs text-muted-foreground"
+                title={typeof hint === 'string' ? hint : undefined}
+              >
+                {hint}
+              </div>
             ) : null}
           </>
         )}

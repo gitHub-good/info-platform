@@ -523,7 +523,7 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
                 ) : null}
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>{countParam ? '取数条数' : '取数条数'}</span>
+                <span>取数条数</span>
                 {countParam ? (
                   <>
                     <Input
