@@ -51,6 +51,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 
 /**
  * AIBriefService 单测（T21）：POST 受理（幂等/成本上限/标的校验） + 异步生成编排（CAS/上下文/模板/LLM/解析/幻觉校验/回链/发事件） +
@@ -174,6 +175,40 @@ class AIBriefServiceTest {
         // Assert：直返上次 taskId（2L），不重建、不触发异步
         assertThat(taskId).isEqualTo(2L);
         verify(repository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void createBrief_concurrentUniqueConflict_returnsExistingTaskAsIdempotentHit() {
+        // Arrange（体检 P2 后端条目）：并发双 POST 竞态——败者应用层查重时对手方尚未提交（首查 empty），
+        // INSERT 撞 uq_ai_brief_idempotency（仓储已译 DuplicateKeyException）→ 重查命中既有任务
+        AiBrief winner =
+                AiBrief.reconstruct(
+                        9L,
+                        SUBJECT_ID,
+                        BriefType.STOCK,
+                        "v1.0",
+                        "",
+                        "",
+                        null,
+                        null,
+                        BriefStatus.PENDING,
+                        "key",
+                        0L,
+                        Instant.now(),
+                        Instant.now());
+        when(subjectRepository.findById(SUBJECT_ID)).thenReturn(Optional.of(subject()));
+        when(repository.findByIdempotencyKey(anyString()))
+                .thenReturn(Optional.empty()) // 首查未命中（竞态窗口）
+                .thenReturn(Optional.of(winner)); // 撞 UNIQUE 后重查命中
+        when(repository.save(any()))
+                .thenThrow(new DuplicateKeyException("UNIQUE(idempotency_key) 冲突"));
+
+        // Act：败者请求不 500，按幂等命中拿到赢家同一任务
+        Long taskId = service.createBrief(SUBJECT_ID, BriefType.STOCK);
+
+        // Assert：返回既有 taskId；不为败者重复触发异步生成（赢家已触发，防双生成）
+        assertThat(taskId).isEqualTo(9L);
         verify(eventPublisher, never()).publishEvent(any());
     }
 

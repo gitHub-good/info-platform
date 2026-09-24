@@ -6,9 +6,14 @@ import com.info.platform.domain.ai.AiBriefRepository;
 import com.info.platform.domain.ai.BriefStatus;
 import com.info.platform.domain.ai.BriefType;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,11 +26,23 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>{@link #save}：id 空走 INSERT（回填主键 + version=0 + 时间戳），id 非空走 updateById（乐观锁）； {@link #claim}：CAS
  * bump version（{@code WHERE id=? AND status=0 AND version=?}），成功重选回读返回 bumped 实体。
+ *
+ * <p><b>写路径异常翻译（体检 P2 后端条目，照抄 ADR-0023-2/5 先例）</b>：并发双 POST 败者在应用层查重后 INSERT 撞 {@code
+ * uq_ai_brief_idempotency}，或读写同事务命中 SQLITE_BUSY/LOCKED 码族——均须翻译为语义异常（败者按幂等命中 / 冲突重试），
+ * 而非 UncategorizedSQLException 冒泡 500/50000。
  */
 @Repository
 public class AiBriefRepositoryImpl implements AiBriefRepository {
 
     private static final Logger log = LoggerFactory.getLogger(AiBriefRepositoryImpl.class);
+
+    /**
+     * SQLite 并发写冲突码族标识（对齐 {@code PromptTemplateRepositoryImpl}）：文件库 WAL 为 {@code SQLITE_BUSY} /
+     * {@code SQLITE_BUSY_SNAPSHOT}，共享内存库为 {@code SQLITE_LOCKED} / {@code SQLITE_LOCKED_SHAREDCACHE}——
+     * 均属「败者须回滚重试」的并发冲突。
+     */
+    private static final Pattern SQLITE_CONCURRENCY_CONFLICT =
+            Pattern.compile("SQLITE_(BUSY|LOCKED)", Pattern.CASE_INSENSITIVE);
 
     private final AiBriefMapper mapper;
 
@@ -44,7 +61,19 @@ public class AiBriefRepositoryImpl implements AiBriefRepository {
             if (po.getVersion() == null) {
                 po.setVersion(0);
             }
-            mapper.insert(po);
+            try {
+                mapper.insert(po);
+            } catch (DataAccessException e) {
+                // sqlite-jdbc 不抛 JDBC4 约束子类（Spring 不会自动译成 DuplicateKeyException），
+                // 按 UNIQUE 关键字识别翻译——uq_ai_brief_idempotency 是幂等防重最后防线（体检 P2 条目）
+                if (e.getMessage() != null
+                        && e.getMessage().toUpperCase(Locale.ROOT).contains("UNIQUE")) {
+                    throw new DuplicateKeyException(
+                            "UNIQUE(idempotency_key) 冲突: idempotencyKey=" + po.getIdempotencyKey(),
+                            e);
+                }
+                throw translateConcurrencyConflict(e, "insert idempotencyKey=" + po.getIdempotencyKey());
+            }
             log.info(
                     "新增 AI 简报任务: id={}, subjectId={}, briefType={}, idempotencyKey={}",
                     po.getId(),
@@ -99,6 +128,22 @@ public class AiBriefRepositoryImpl implements AiBriefRepository {
         // 领取成功，重选回读（version 已 bump），供 worker 持有 bumped 实体做终态 updateById
         AiBriefPO po = mapper.selectById(id);
         return Optional.ofNullable(po).map(AiBriefRepositoryImpl::toEntity);
+    }
+
+    /**
+     * SQLite 并发写冲突翻译（对齐 {@code PromptTemplateRepositoryImpl#translateConcurrencyConflict}）：
+     * {@link #SQLITE_CONCURRENCY_CONFLICT} 码族（含 cause 链）→ {@link CannotAcquireLockException}；其他异常原样返回由
+     * 调用方继续抛出（不吞不译）。
+     */
+    private static DataAccessException translateConcurrencyConflict(
+            DataAccessException e, String operation) {
+        for (Throwable current = e; current != null; current = current.getCause()) {
+            String message = current.getMessage();
+            if (message != null && SQLITE_CONCURRENCY_CONFLICT.matcher(message).find()) {
+                throw new CannotAcquireLockException("SQLITE 并发写冲突(" + operation + ")：请回滚后刷新重试", e);
+            }
+        }
+        return e;
     }
 
     private static AiBrief toEntity(AiBriefPO po) {

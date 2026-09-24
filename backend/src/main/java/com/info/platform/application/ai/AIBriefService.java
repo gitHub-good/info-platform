@@ -33,6 +33,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -133,7 +134,14 @@ public class AIBriefService {
                     .findById(subjectId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.SUBJECT_NOT_FOUND));
         }
-        AiBrief brief = repository.save(AiBrief.createNew(subjectId, briefType, idempotencyKey));
+        AiBrief brief;
+        try {
+            brief = repository.save(AiBrief.createNew(subjectId, briefType, idempotencyKey));
+        } catch (DuplicateKeyException e) {
+            // 并发双 POST 败者（体检 P2 后端条目）：应用层查重后、INSERT 前对手方提交同幂等键，
+            // 仓储已译 DuplicateKeyException——重查幂等键按命中处理返回同一任务，不冒泡 500
+            return findExistingByConflict(idempotencyKey, e);
+        }
         log.info(
                 "AI 简报受理: taskId={} subjectId={} briefType={} userId={}",
                 brief.getId(),
@@ -143,6 +151,27 @@ public class AIBriefService {
         // 异步触发（经事件多播器→代理，@Async 生效）
         eventPublisher.publishEvent(new AiBriefGenerationRequestedEvent(brief.getId(), userId));
         return brief.getId();
+    }
+
+    /**
+     * 并发败者按幂等命中处理（体检 P2 后端条目）：INSERT 撞 {@code uq_ai_brief_idempotency} 后重查幂等键。
+     *
+     * <p>重查命中 → 返回既有 taskId（赢家已触发异步生成，不再重复触发）；重查仍空（UNIQUE 冲突但行不可见，理论不达）→
+     * 原样上抛 {@link DuplicateKeyException} 由全局处理器兜底，不吞异常。
+     */
+    private Long findExistingByConflict(String idempotencyKey, DuplicateKeyException cause) {
+        Optional<AiBrief> existing = repository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isEmpty()) {
+            log.error("AI 简报并发冲突后重查幂等键未命中: idempotencyKey={}", idempotencyKey);
+            throw cause;
+        }
+        Long tid = existing.get().getId();
+        log.info(
+                "AI 简报并发幂等命中（败者返回既有任务）: idempotencyKey={} taskId={} status={}",
+                idempotencyKey,
+                tid,
+                existing.get().getStatus());
+        return tid;
     }
 
     /**
