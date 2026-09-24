@@ -1,6 +1,7 @@
 package com.info.platform.infrastructure.common;
 
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProvider;
 import com.info.platform.domain.aggregation.SourceProviders;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,12 +70,12 @@ public final class DataSourceDefaults {
      * 降级链代码兜底（ADR-0033，用户拍板「DB 配置优先、代码固定默认只做兜底」）： DB 无 {@code fallbackChain} 配置时按注册表全链兜底（首元素 =
      * 默认主源，即 auto 语义）。注册表本体见 {@link SourceProviders}（代码事实， 校验/页面/引擎三方共用，防两处定义漂移）。
      */
-    public static List<String> fallbackChain(SourceCode code) {
+    public static List<SourceProvider> fallbackChain(SourceCode code) {
         return SourceProviders.providers(code);
     }
 
     /** A 股列表桶（{@code subject.sync}）降级链代码兜底（ADR-0033）。 */
-    public static List<String> aShareListFallbackChain() {
+    public static List<SourceProvider> aShareListFallbackChain() {
         return SourceProviders.A_SHARE_LIST_PROVIDERS;
     }
 

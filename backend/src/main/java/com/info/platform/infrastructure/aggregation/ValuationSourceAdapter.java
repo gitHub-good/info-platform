@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.FallbackChains;
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProvider;
 import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectType;
@@ -61,7 +62,8 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
     static final String CHAIN_CONFIG_KEY = "datasource.VALUATION.fallbackChain";
 
     /** 该源可用 provider 注册表（代码事实，首元素 = 默认主源）。 */
-    private static final List<String> PROVIDERS = SourceProviders.providers(SourceCode.VALUATION);
+    private static final List<SourceProvider> PROVIDERS =
+            SourceProviders.providers(SourceCode.VALUATION);
 
     /** 业务名（来源标注与日志的链位名词：「东方财富估值」）。 */
     private static final String SOURCE_NOUN = "估值";
@@ -119,11 +121,11 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
     }
 
     /** 按 provider 取数：注册表外 provider 不可达（链已按注册表校验/兜底，防御性快速失败）。 */
-    private Optional<RawFetch> fetchByProvider(Subject subject, String provider, String label)
-            throws Exception {
+    private Optional<RawFetch> fetchByProvider(
+            Subject subject, SourceProvider provider, String label) throws Exception {
         return switch (provider) {
-            case "eastmoney" -> fetchFromEastMoney(subject, label);
-            case "tencent" -> fetchFromTencent(subject, label);
+            case EASTMONEY -> fetchFromEastMoney(subject, label);
+            case TENCENT -> fetchFromTencent(subject, label);
             default -> throw new IllegalArgumentException("估值源未知 provider: " + provider);
         };
     }
@@ -132,11 +134,11 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
      * 当前降级链（ADR-0033 热读）：每次取数读 {@code datasource.VALUATION} 快照现算——DB {@code fallbackChain} 优先，缺省按旧
      * {@code params.backupSource} 折算，再缺回落注册表全链兜底。 配置中心缺失（纯构造单测）回落构造期开关；DB 手改坏值 WARN 后回落全链（读取侧兜底）。
      */
-    List<String> currentChain() {
+    List<SourceProvider> currentChain() {
         if (configCenter == null) {
             return switch (fallbackMode) {
-                case EASTMONEY -> List.of("eastmoney");
-                case TENCENT -> List.of("tencent");
+                case EASTMONEY -> List.of(SourceProvider.EASTMONEY);
+                case TENCENT -> List.of(SourceProvider.TENCENT);
                 case AUTO -> PROVIDERS;
             };
         }

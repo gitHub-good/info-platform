@@ -3,6 +3,7 @@ package com.info.platform.application.aggregation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.info.platform.application.common.ConfigFieldRules;
 import com.info.platform.application.common.RuntimeConfigValidator;
+import com.info.platform.domain.aggregation.SourceProvider;
 import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -58,7 +59,8 @@ public class SubjectSyncConfigValidator implements RuntimeConfigValidator {
         if (chain.isEmpty()) {
             return List.of();
         }
-        List<String> allowed = SourceProviders.A_SHARE_LIST_PROVIDERS;
+        List<String> allowed =
+                SourceProviders.A_SHARE_LIST_PROVIDERS.stream().map(SourceProvider::code).toList();
         Set<String> seen = new HashSet<>();
         List<String> problems = new ArrayList<>();
         for (JsonNode item : chain) {

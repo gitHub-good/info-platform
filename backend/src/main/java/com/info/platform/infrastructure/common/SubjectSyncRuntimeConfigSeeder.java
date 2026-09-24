@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.aggregation.SubjectSyncConfigValidator;
 import com.info.platform.application.common.RuntimeConfigSeed;
 import com.info.platform.application.common.RuntimeConfigSeeder;
+import com.info.platform.domain.aggregation.SourceProvider;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -33,7 +34,9 @@ public class SubjectSyncRuntimeConfigSeeder implements RuntimeConfigSeeder {
         Map<String, Object> doc =
                 Map.of(
                         "fallbackChain",
-                        DataSourceDefaults.aShareListFallbackChain(),
+                        DataSourceDefaults.aShareListFallbackChain().stream()
+                                .map(SourceProvider::code)
+                                .toList(),
                         "aShareSource",
                         DataSourceDefaults.A_SHARE_LIST_SOURCE);
         return List.of(

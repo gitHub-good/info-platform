@@ -6,6 +6,7 @@ import com.info.platform.application.aggregation.SubjectListSource;
 import com.info.platform.application.aggregation.SubjectSnapshot;
 import com.info.platform.application.aggregation.SubjectSyncConfigValidator;
 import com.info.platform.domain.aggregation.FallbackChains;
+import com.info.platform.domain.aggregation.SourceProvider;
 import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.infrastructure.common.ConfigCenter;
 import com.info.platform.infrastructure.common.DataSourceDefaults;
@@ -43,7 +44,7 @@ public class RoutingSubjectListSource implements SubjectListSource {
     private static final Logger log = LoggerFactory.getLogger(RoutingSubjectListSource.class);
 
     /** A 股桶可用 provider 注册表（代码事实，首元素 = 默认主源；港股/指数桶恒东财与此无关）。 */
-    private static final List<String> PROVIDERS = SourceProviders.A_SHARE_LIST_PROVIDERS;
+    private static final List<SourceProvider> PROVIDERS = SourceProviders.A_SHARE_LIST_PROVIDERS;
 
     /** A 股桶源选择模式（{@code subject.sync.aShareSource} 合法取值；ADR-0033 起为兼容口径）。 */
     enum Mode {
@@ -110,10 +111,10 @@ public class RoutingSubjectListSource implements SubjectListSource {
     }
 
     /** 按降级链依次整桶拉取：每级失败 WARN 留痕带 provider 名；全链失败抛末级异常（前级挂 suppressed）。 */
-    private List<SubjectSnapshot> fetchByChain(MarketSyncSpec bucket, List<String> chain) {
+    private List<SubjectSnapshot> fetchByChain(MarketSyncSpec bucket, List<SourceProvider> chain) {
         RuntimeException lastFailure = null;
         for (int index = 0; index < chain.size(); index++) {
-            String provider = chain.get(index);
+            SourceProvider provider = chain.get(index);
             try {
                 return fetchByProvider(bucket, provider);
             } catch (RuntimeException failure) {
@@ -123,7 +124,7 @@ public class RoutingSubjectListSource implements SubjectListSource {
                 lastFailure = failure;
                 log.warn(
                         "A 股桶列表源拉取失败（provider={}，链位 {}/{}）：{} → 按降级链尝试下一备选整桶重拉",
-                        provider,
+                        provider.code(),
                         index + 1,
                         chain.size(),
                         failure.toString());
@@ -136,12 +137,12 @@ public class RoutingSubjectListSource implements SubjectListSource {
         throw lastFailure;
     }
 
-    /** 单 provider 整桶拉取（注册表外 provider 不可达——链已按注册表校验/兜底，防御性快速失败）。 */
-    private List<SubjectSnapshot> fetchByProvider(MarketSyncSpec bucket, String provider) {
+    /** 单 provider 整桶拉取（链已按注册表校验/兜底，枚举穷举无未知分支）。 */
+    private List<SubjectSnapshot> fetchByProvider(MarketSyncSpec bucket, SourceProvider provider) {
         return switch (provider) {
-            case "eastmoney" -> eastMoney.fetchAll(bucket);
-            case "sina" -> sina.fetchAll(bucket);
-            default -> throw new IllegalArgumentException("A 股列表源未知 provider: " + provider);
+            case EASTMONEY -> eastMoney.fetchAll(bucket);
+            case SINA -> sina.fetchAll(bucket);
+            default -> throw new IllegalArgumentException("A 股列表源未接入 provider: " + provider);
         };
     }
 
@@ -149,7 +150,7 @@ public class RoutingSubjectListSource implements SubjectListSource {
      * 当前 A 股桶降级链（ADR-0033 热读）：每次取数读 {@code subject.sync} 快照现算（页面保存即热生效）—— 文档 {@code fallbackChain}
      * 优先，缺省按旧 {@code aShareSource} 折算，再缺回落注册表全链兜底。 键缺失/配置中心缺失回落构造期缺省；坏值 WARN 回落全链（写路径校验兜底）。
      */
-    List<String> currentChain() {
+    List<SourceProvider> currentChain() {
         if (configCenter == null) {
             return legacyChain(fallbackMode);
         }
@@ -184,10 +185,10 @@ public class RoutingSubjectListSource implements SubjectListSource {
     }
 
     /** 构造期开关 → 链（纯构造场景与键缺失回落）。 */
-    private static List<String> legacyChain(Mode mode) {
+    private static List<SourceProvider> legacyChain(Mode mode) {
         return switch (mode) {
-            case EASTMONEY -> List.of("eastmoney");
-            case SINA -> List.of("sina");
+            case EASTMONEY -> List.of(SourceProvider.EASTMONEY);
+            case SINA -> List.of(SourceProvider.SINA);
             case AUTO -> PROVIDERS;
         };
     }

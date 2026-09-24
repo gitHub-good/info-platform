@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.aggregation;
 
+import com.info.platform.domain.aggregation.SourceProvider;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -17,15 +18,8 @@ final class FallbackChainRunner {
     private static final Logger log = LoggerFactory.getLogger(FallbackChainRunner.class);
 
     /** provider 展示名（{@code RawFetch.source} 标注与日志留痕共用；前端另有同名映射）。 */
-    static String providerLabel(String provider) {
-        return switch (provider) {
-            case "eastmoney" -> "东方财富";
-            case "tencent" -> "腾讯";
-            case "sina" -> "新浪";
-            case "gov" -> "政府网";
-            case "local" -> "本地";
-            default -> provider;
-        };
+    static String providerLabel(SourceProvider provider) {
+        return provider.displayName();
     }
 
     /** 单 provider 取数（label 为该链位标注，由 {@link #labelOf} 生成）。 */
@@ -33,15 +27,15 @@ final class FallbackChainRunner {
     interface ProviderFetch {
 
         /** 返回 empty 表示该 provider 当日无数据（→ 尝试下一级 / 全空 MISSING）；抛异常表示该级取数失败。 */
-        Optional<RawFetch> fetch(String provider, String label) throws Exception;
+        Optional<RawFetch> fetch(SourceProvider provider, String label) throws Exception;
     }
 
     /** 按链依次取数（每级 WARN 留痕带 provider 名；语义细则见类 Javadoc）。 */
-    static Optional<RawFetch> fetch(String sourceNoun, List<String> chain, ProviderFetch fetcher)
-            throws Exception {
+    static Optional<RawFetch> fetch(
+            String sourceNoun, List<SourceProvider> chain, ProviderFetch fetcher) throws Exception {
         RuntimeException lastFailure = null;
         for (int index = 0; index < chain.size(); index++) {
-            String provider = chain.get(index);
+            SourceProvider provider = chain.get(index);
             String label = labelOf(sourceNoun, chain, index);
             try {
                 Optional<RawFetch> result = fetcher.fetch(provider, label);
@@ -51,7 +45,7 @@ final class FallbackChainRunner {
                 log.warn(
                         "{}取数空响应（provider={}，链位 {}/{}），按降级链尝试下一备选",
                         providerLabel(provider),
-                        provider,
+                        provider.code(),
                         index + 1,
                         chain.size());
             } catch (RuntimeException failure) {
@@ -62,7 +56,7 @@ final class FallbackChainRunner {
                 log.warn(
                         "{}取数失败（provider={}，链位 {}/{}）：{} → 按降级链尝试下一备选",
                         providerLabel(provider),
-                        provider,
+                        provider.code(),
                         index + 1,
                         chain.size(),
                         failure.toString());
@@ -78,7 +72,7 @@ final class FallbackChainRunner {
      * 链位来源标注：链位 0 = 主源（「{provider}{业务名}」，与旧版 sourceLabel / 腾讯单源标注同文案）； 链位 &gt;0 =
      * 「{主源}→{provider}备选」（与 ADR-0031「→腾讯备选」同款，健康徽章可区分兜底轮）。
      */
-    static String labelOf(String sourceNoun, List<String> chain, int index) {
+    static String labelOf(String sourceNoun, List<SourceProvider> chain, int index) {
         String primary = providerLabel(chain.get(0)) + sourceNoun;
         return index == 0 ? primary : primary + "→" + providerLabel(chain.get(index)) + "备选";
     }

@@ -113,7 +113,7 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
         if (chain.isEmpty()) {
             return List.of();
         }
-        List<String> allowed = SourceProviders.providers(code);
+        List<String> allowed = SourceProviders.providerCodes(code);
         Set<String> seen = new HashSet<>();
         List<String> problems = new ArrayList<>();
         for (JsonNode item : chain) {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigSeed;
 import com.info.platform.application.common.RuntimeConfigSeeder;
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProvider;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,7 +50,11 @@ public class DataSourceRuntimeConfigSeeder implements RuntimeConfigSeeder {
         doc.put("params", DataSourceDefaults.params(code));
         // ADR-0033 降级链：多 provider 源种入默认链（单 provider 源无备选，不种该字段）
         if (DataSourceDefaults.fallbackChain(code).size() > 1) {
-            doc.put("fallbackChain", DataSourceDefaults.fallbackChain(code));
+            doc.put(
+                    "fallbackChain",
+                    DataSourceDefaults.fallbackChain(code).stream()
+                            .map(SourceProvider::code)
+                            .toList());
         }
         return new RuntimeConfigSeed(
                 ConfigCenter.KEY_DATASOURCE_PREFIX + code.name(),

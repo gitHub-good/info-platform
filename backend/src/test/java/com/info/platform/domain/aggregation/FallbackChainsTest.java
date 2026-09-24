@@ -11,67 +11,70 @@ import org.junit.jupiter.api.Test;
  */
 class FallbackChainsTest {
 
-    private static final List<String> REGISTRY = List.of("eastmoney", "tencent");
+    private static final List<SourceProvider> REGISTRY =
+            List.of(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
 
     @Test
     void resolve_explicitChain_winsAsIs() {
         assertThat(FallbackChains.resolve(List.of("tencent", "eastmoney"), "eastmoney", REGISTRY))
-                .containsExactly("tencent", "eastmoney");
+                .containsExactly(SourceProvider.TENCENT, SourceProvider.EASTMONEY);
     }
 
     @Test
     void resolve_explicitEmptyChain_primaryOnly() {
         // 页面清空备选（仅主源）：主源回落注册表首元素（默认主源）
-        assertThat(FallbackChains.resolve(List.of(), null, REGISTRY)).containsExactly("eastmoney");
+        assertThat(FallbackChains.resolve(List.of(), null, REGISTRY))
+                .containsExactly(SourceProvider.EASTMONEY);
     }
 
     @Test
     void resolve_missingChain_legacyAuto_foldsToFullRegistry() {
         assertThat(FallbackChains.resolve(null, "auto", REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_missingChain_legacySingleValue_foldsToSingleElementChain() {
         // 旧强制单源语义：tencent → [tencent]
-        assertThat(FallbackChains.resolve(null, "tencent", REGISTRY)).containsExactly("tencent");
+        assertThat(FallbackChains.resolve(null, "tencent", REGISTRY))
+                .containsExactly(SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_missingChain_blankLegacy_fallsBackToFullRegistry() {
         assertThat(FallbackChains.resolve(null, " ", REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_nothingConfigured_codeDefaultChainFallsBack() {
         // 兜底语义（用户拍板）：DB 无链无旧键 → 代码内置默认链（= 注册表全链）
         assertThat(FallbackChains.resolve(null, null, REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_invalidChainMember_fallsBackToFullRegistry() {
         assertThat(FallbackChains.resolve(List.of("eastmoney", "sina"), null, REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_duplicateMembers_fallsBackToFullRegistry() {
         assertThat(FallbackChains.resolve(List.of("eastmoney", "eastmoney"), null, REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_invalidLegacyValue_fallsBackToFullRegistry() {
         assertThat(FallbackChains.resolve(null, "not-a-mode", REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test
     void resolve_legacyValueCaseInsensitive_auto() {
         assertThat(FallbackChains.resolve(null, "AUTO", REGISTRY))
-                .containsExactly("eastmoney", "tencent");
+                .containsExactly(SourceProvider.EASTMONEY, SourceProvider.TENCENT);
     }
 
     @Test

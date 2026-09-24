@@ -10,6 +10,7 @@ import com.info.platform.domain.aggregation.DataSourceEvent;
 import com.info.platform.domain.aggregation.DataSourceEventRepository;
 import com.info.platform.domain.aggregation.FallbackChains;
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProvider;
 import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceStatus;
@@ -229,9 +230,12 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         // 页面回显与引擎消费同口径，卡片所见即下一次取数所行
         List<String> chain =
                 FallbackChains.resolve(
-                        config.fallbackChain(),
-                        config.paramString("backupSource", null),
-                        SourceProviders.providers(code));
+                                config.fallbackChain(),
+                                config.paramString("backupSource", null),
+                                SourceProviders.providers(code))
+                        .stream()
+                        .map(SourceProvider::code)
+                        .toList();
         return new SourceCardView(
                 code.name(),
                 SOURCE_LABELS.getOrDefault(code, code.name()),
@@ -242,7 +246,7 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
                 config.cacheTtlSeconds(),
                 config.failureCacheTtlSeconds(),
                 chain,
-                SourceProviders.providers(code),
+                SourceProviders.providerCodes(code),
                 params,
                 healthOf(code),
                 entry == null ? null : entry.updatedAt().toString(),
@@ -312,7 +316,10 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         if (SourceProviders.providers(code).size() > 1) {
             doc.set(
                     "fallbackChain",
-                    objectMapper.valueToTree(DataSourceDefaults.fallbackChain(code)));
+                    objectMapper.valueToTree(
+                            DataSourceDefaults.fallbackChain(code).stream()
+                                    .map(SourceProvider::code)
+                                    .toList()));
         }
         return doc;
     }
