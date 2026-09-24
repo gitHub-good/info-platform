@@ -1,7 +1,9 @@
 package com.info.platform.infrastructure.common;
 
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProviders;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -58,9 +60,23 @@ public final class DataSourceDefaults {
 
     /**
      * A 股列表桶源选择缺省（原 yml {@code subject.sync.a-share-source=auto}，ADR-0032 热化）： 种子 {@code
-     * subject.sync.aShareSource} 与 {@code RoutingSubjectListSource} 缺省共用。
+     * subject.sync.aShareSource} 与 {@code RoutingSubjectListSource} 缺省共用。ADR-0033 起为旧键兼容口径—— 写路径统一
+     * {@code fallbackChain}，读取侧缺链时按本键折算。
      */
     public static final String A_SHARE_LIST_SOURCE = "auto";
+
+    /**
+     * 降级链代码兜底（ADR-0033，用户拍板「DB 配置优先、代码固定默认只做兜底」）： DB 无 {@code fallbackChain} 配置时按注册表全链兜底（首元素 =
+     * 默认主源，即 auto 语义）。注册表本体见 {@link SourceProviders}（代码事实， 校验/页面/引擎三方共用，防两处定义漂移）。
+     */
+    public static List<String> fallbackChain(SourceCode code) {
+        return SourceProviders.providers(code);
+    }
+
+    /** A 股列表桶（{@code subject.sync}）降级链代码兜底（ADR-0033）。 */
+    public static List<String> aShareListFallbackChain() {
+        return SourceProviders.A_SHARE_LIST_PROVIDERS;
+    }
 
     private DataSourceDefaults() {}
 

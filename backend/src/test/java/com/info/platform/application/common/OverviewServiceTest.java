@@ -116,6 +116,8 @@ class OverviewServiceTest {
                                                 0,
                                                 5,
                                                 30,
+                                                List.of("eastmoney", "tencent"),
+                                                List.of("eastmoney", "tencent"),
                                                 Map.of(),
                                                 new HealthView("OK", "2026-09-22T02:00:00Z", 0),
                                                 "2026-09-22T01:00:00Z",

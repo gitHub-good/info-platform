@@ -19,8 +19,11 @@ class DataSourceConfigValidatorTest {
     private final DataSourceConfigValidator validator = new DataSourceConfigValidator();
 
     private void assertInvalid(String json, String expectedFragment) {
-        assertThatThrownBy(
-                        () -> validator.validate("datasource.QUOTE", objectMapper.readTree(json)))
+        assertInvalid("datasource.QUOTE", json, expectedFragment);
+    }
+
+    private void assertInvalid(String configKey, String json, String expectedFragment) {
+        assertThatThrownBy(() -> validator.validate(configKey, objectMapper.readTree(json)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         e -> {
@@ -200,5 +203,81 @@ class DataSourceConfigValidatorTest {
                         + "\"cacheTtlSeconds\":300,"
                         + "\"params\":{\"announceReferer\":\"not-a-url\"}}",
                 "announceReferer");
+    }
+
+    // —— ADR-0033 降级链校验 ——
+
+    @Test
+    void fallbackChain_validOrderedProviders_passes_quoteAndValuation() throws Exception {
+        // 非空链：成员 ∈ 注册表且无重复（首元素即主源，顺序自由——可换主源）
+        String json =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"fallbackChain\":[\"tencent\",\"eastmoney\"],"
+                        + "\"params\":{}}";
+        assertThatCode(() -> validator.validate("datasource.QUOTE", objectMapper.readTree(json)))
+                .doesNotThrowAnyException();
+        assertThatCode(
+                        () ->
+                                validator.validate(
+                                        "datasource.VALUATION", objectMapper.readTree(json)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void fallbackChain_emptyArray_passes_primaryOnly() throws Exception {
+        // 空链合法 = 仅主源（页面可清空备选）
+        String json =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"fallbackChain\":[],\"params\":{}}";
+        assertThatCode(() -> validator.validate("datasource.QUOTE", objectMapper.readTree(json)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void fallbackChain_absent_passes_readSideFoldsLegacy() throws Exception {
+        // 字段可缺省（存量行无链——读取侧按旧 backupSource 折算/注册表全链兜底）
+        String json =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"params\":{}}";
+        assertThatCode(() -> validator.validate("datasource.QUOTE", objectMapper.readTree(json)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void fallbackChain_memberNotInRegistry_rejected() {
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"fallbackChain\":[\"eastmoney\",\"sina\"],"
+                        + "\"params\":{}}",
+                "不在源 QUOTE 可用 provider");
+    }
+
+    @Test
+    void fallbackChain_duplicateMember_rejected() {
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,"
+                        + "\"fallbackChain\":[\"eastmoney\",\"eastmoney\"],\"params\":{}}",
+                "重复 provider");
+    }
+
+    @Test
+    void fallbackChain_notAnArray_rejected() {
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"fallbackChain\":\"eastmoney\",\"params\":{}}",
+                "须为字符串数组");
+    }
+
+    @Test
+    void fallbackChain_singleProviderSource_rejectsSecondProvider() {
+        // 单 provider 源注册表仅一项：备选成员自然被拒（页面呈现「暂无备选源」）
+        assertInvalid(
+                "datasource.FINANCE",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":3600,"
+                        + "\"fallbackChain\":[\"eastmoney\",\"tencent\"],"
+                        + "\"params\":{\"financeUrl\":\"https://a.example.com\"}}",
+                "不在源 FINANCE 可用 provider");
     }
 }

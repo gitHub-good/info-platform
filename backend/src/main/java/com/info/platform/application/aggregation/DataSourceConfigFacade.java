@@ -47,7 +47,7 @@ public interface DataSourceConfigFacade {
     /** GET /api/v1/datasource-configs 响应。 */
     record DataSourceConfigView(List<SourceCardView> sources, AggregationView aggregation) {}
 
-    /** 单源卡片（配置 + 健康徽章数据 + 逐字段生效级别）。 */
+    /** 单源卡片（配置 + 健康徽章数据 + 逐字段生效级别；fallbackChain/availableProviders 为 ADR-0033 增量）。 */
     record SourceCardView(
             String sourceCode,
             String label,
@@ -57,6 +57,8 @@ public interface DataSourceConfigFacade {
             int retries,
             long cacheTtlSeconds,
             long failureCacheTtlSeconds,
+            List<String> fallbackChain,
+            List<String> availableProviders,
             Map<String, Object> params,
             HealthView health,
             String updatedAt,
@@ -71,7 +73,8 @@ public interface DataSourceConfigFacade {
 
     /**
      * 单源部分更新（null 字段 = 不修改；params 提供即整体替换）。expectedUpdatedAt 为 ISO-8601 文本（UTC）。
-     * failureCacheTtlSeconds 为 P1-5b 增量（可空 = 不修改；存量文档缺字段时保存由 facade 补种默认）。
+     * failureCacheTtlSeconds 为 P1-5b 增量（可空 = 不修改；存量文档缺字段时保存由 facade 补种默认）。 fallbackChain 为 ADR-0033
+     * 增量（null = 不修改；空清单合法 = 仅主源；提供即写入并顺带淘汰旧 {@code params.backupSource} 键）。
      */
     record DataSourceConfigUpdate(
             Boolean enabled,
@@ -80,6 +83,7 @@ public interface DataSourceConfigFacade {
             Integer retries,
             Long cacheTtlSeconds,
             Long failureCacheTtlSeconds,
+            List<String> fallbackChain,
             Map<String, Object> params,
             String expectedUpdatedAt) {}
 

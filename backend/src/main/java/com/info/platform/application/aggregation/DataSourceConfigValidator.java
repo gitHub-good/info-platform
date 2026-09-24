@@ -5,9 +5,11 @@ import com.info.platform.application.common.ConfigFieldRules;
 import com.info.platform.application.common.ConfigFieldRules.FieldRule;
 import com.info.platform.application.common.RuntimeConfigValidator;
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,8 +20,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>覆盖 {@code datasource.{SOURCE_CODE}} 7 键。字段表：enabled 布尔、mode 枚举（REAL|MOCK）、timeoutMillis 正整数、
  * retries 0~3、cacheTtlSeconds 正整数、failureCacheTtlSeconds 可选正整数（P1-5b 失败负缓存 TTL，
- * 存量行可缺省——缺失不校验、读取回落代码缺省）；params 为各源自由参数（URL http(s) 格式、条数正整数），键空间按源白名单收口（防拼写错静默失效）， EVENT
- * 源读本地表无外呼参数、params 须为空。 校验对象为「当前文档合并请求字段后」的完整文档（部分更新由 facade 先合并再落库）， 故种子始终写入的字段按必填校验。
+ * 存量行可缺省——缺失不校验、读取回落代码缺省）；fallbackChain 可选字符串数组（ADR-0033 降级链：非空时首元素即主源、 成员 ∈ 该源注册表且无重复，空 =
+ * 仅主源）；params 为各源自由参数（URL http(s) 格式、条数正整数），键空间按源白名单收口（防拼写错静默失效）， EVENT 源读本地表无外呼参数、params 须为空。
+ * 校验对象为「当前文档合并请求字段后」的完整文档（部分更新由 facade 先合并再落库）， 故种子始终写入的字段按必填校验。
  */
 @Component
 public class DataSourceConfigValidator implements RuntimeConfigValidator {
@@ -87,12 +90,53 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
         if (code == null) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "未知配置键: " + configKey);
         }
-        // 字段表与 params 问题一次性收集（字段表首错抛出不再短路 params 校验，页面一次标全错误）
+        // 字段表与 params/降级链问题一次性收集（字段表首错抛出不再短路后续校验，页面一次标全错误）
         List<String> problems = new ArrayList<>(enforceCollect(document, RULES));
         problems.addAll(paramsProblems(code, document.get("params")));
+        problems.addAll(chainProblems(code, document.get("fallbackChain")));
         if (!problems.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, String.join("; ", problems));
         }
+    }
+
+    /**
+     * 降级链校验（ADR-0033）：可选字段；存在时须为字符串数组，非空时成员 ∈ 该源注册表 （{@link SourceProviders}）且无重复（空链合法 = 仅主源）。单
+     * provider 源注册表仅一项——链多于一项自然被拒。
+     */
+    private static List<String> chainProblems(SourceCode code, JsonNode chain) {
+        if (chain == null || chain.isNull()) {
+            return List.of();
+        }
+        if (!chain.isArray()) {
+            return List.of("fallbackChain: 须为字符串数组");
+        }
+        if (chain.isEmpty()) {
+            return List.of();
+        }
+        List<String> allowed = SourceProviders.providers(code);
+        Set<String> seen = new HashSet<>();
+        List<String> problems = new ArrayList<>();
+        for (JsonNode item : chain) {
+            if (!item.isTextual()) {
+                problems.add("fallbackChain: 成员须为字符串");
+                continue;
+            }
+            String provider = item.asText();
+            if (!allowed.contains(provider)) {
+                problems.add(
+                        "fallbackChain: '"
+                                + provider
+                                + "' 不在源 "
+                                + code
+                                + " 可用 provider（"
+                                + String.join("|", allowed)
+                                + "）");
+            }
+            if (!seen.add(provider)) {
+                problems.add("fallbackChain: 重复 provider '" + provider + "'");
+            }
+        }
+        return problems;
     }
 
     /** 字段表收集（不抛出，供与 params 问题合并）。 */

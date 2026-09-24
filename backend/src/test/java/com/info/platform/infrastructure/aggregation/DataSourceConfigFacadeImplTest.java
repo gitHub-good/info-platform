@@ -253,7 +253,7 @@ class DataSourceConfigFacadeImplTest {
                 facade.update(
                         SourceCode.QUOTE,
                         new DataSourceConfigFacade.DataSourceConfigUpdate(
-                                null, "MOCK", 3000L, 1, 10L, null, null, NOW.toString()));
+                                null, "MOCK", 3000L, 1, 10L, null, null, null, NOW.toString()));
 
         // 保存即换快照：路由读到的 mode/超时已是新值（下一次取数生效）
         assertThat(saved.mode()).isEqualTo("MOCK");
@@ -280,6 +280,7 @@ class DataSourceConfigFacadeImplTest {
                                                 null,
                                                 null,
                                                 null,
+                                                null,
                                                 Map.of("quoteUrl", "not-a-url"),
                                                 null)))
                 .isInstanceOf(BusinessException.class)
@@ -293,6 +294,122 @@ class DataSourceConfigFacadeImplTest {
                 .isEqualTo("https://push2.eastmoney.com/api/qt/stock/get");
     }
 
+    // ---- ADR-0033 降级链字段（视图折算 + 写路径统一 + 旧键淘汰） ----
+
+    @Test
+    void view_chainAbsent_foldsLegacyBackupSource_andExposesProviders() {
+        // 存量行形状：无 fallbackChain、params.backupSource=tencent → 视图折算单元素链（旧强制单源语义）
+        store(
+                "datasource.QUOTE",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,"
+                        + "\"params\":{\"quoteUrl\":\"https://a.example.com\",\"backupSource\":\"tencent\"}}");
+
+        var card = facade.view().sources().get(0);
+
+        assertThat(card.fallbackChain()).containsExactly("tencent");
+        assertThat(card.availableProviders()).containsExactly("eastmoney", "tencent");
+        assertThat(card.effectiveModes()).containsEntry("fallbackChain", "LIVE");
+    }
+
+    @Test
+    void view_chainAbsentLegacyAuto_foldsToFullDefaultChain() {
+        store(
+                "datasource.QUOTE",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,"
+                        + "\"params\":{\"quoteUrl\":\"https://a.example.com\",\"backupSource\":\"auto\"}}");
+
+        assertThat(facade.view().sources().get(0).fallbackChain())
+                .containsExactly("eastmoney", "tencent");
+    }
+
+    @Test
+    void view_singleProviderSource_chainIsOnlyProvider() {
+        // 单 provider 源：链退化为唯一 provider（页面呈现「暂无备选源」）
+        store(
+                "datasource.FINANCE",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":3600,\"params\":{}}");
+
+        var card = facade.view().sources().get(1);
+
+        assertThat(card.availableProviders()).containsExactly("eastmoney");
+        assertThat(card.fallbackChain()).containsExactly("eastmoney");
+    }
+
+    @Test
+    void update_fallbackChainWritten_legacyBackupSourceSunset() {
+        store(
+                "datasource.QUOTE",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,"
+                        + "\"params\":{\"quoteUrl\":\"https://a.example.com\",\"backupSource\":\"auto\"}}");
+
+        var saved =
+                facade.update(
+                        SourceCode.QUOTE,
+                        new DataSourceConfigFacade.DataSourceConfigUpdate(
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                List.of("tencent", "eastmoney"),
+                                null,
+                                NOW.toString()));
+
+        // 写路径统一 fallbackChain：视图即新链（下一次取数生效），旧 backupSource 键被顺带淘汰
+        assertThat(saved.fallbackChain()).containsExactly("tencent", "eastmoney");
+        assertThat(configCenter.dataSource(SourceCode.QUOTE).fallbackChain())
+                .containsExactly("tencent", "eastmoney");
+        assertThat(configCenter.dataSource(SourceCode.QUOTE).paramString("backupSource", null))
+                .isNull();
+    }
+
+    @Test
+    void update_emptyChainMeansPrimaryOnly_andIsPersisted() {
+        store(
+                "datasource.QUOTE",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"params\":{}}");
+
+        var saved =
+                facade.update(
+                        SourceCode.QUOTE,
+                        new DataSourceConfigFacade.DataSourceConfigUpdate(
+                                null, null, null, null, null, null, List.of(), null, null));
+
+        // 页面清空备选（仅主源）：空链落库，视图折算为默认主源单元素链
+        assertThat(saved.fallbackChain()).containsExactly("eastmoney");
+        assertThat(configCenter.dataSource(SourceCode.QUOTE).fallbackChain()).isEmpty();
+    }
+
+    @Test
+    void update_invalidChainMember_rejectedByValidator() {
+        store("datasource.QUOTE", quoteDoc("REAL"));
+
+        assertThatThrownBy(
+                        () ->
+                                facade.update(
+                                        SourceCode.QUOTE,
+                                        new DataSourceConfigFacade.DataSourceConfigUpdate(
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                List.of("eastmoney", "sina"),
+                                                null,
+                                                null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不在源 QUOTE 可用 provider");
+        // 校验失败原值不变
+        assertThat(configCenter.dataSource(SourceCode.QUOTE).fallbackChain()).isNull();
+    }
+
     // ---- P1-5b 失败负缓存 TTL 字段（体检「FAILED/MISSING 不负缓存」配置面） ----
 
     @Test
@@ -304,7 +421,7 @@ class DataSourceConfigFacadeImplTest {
                 facade.update(
                         SourceCode.QUOTE,
                         new DataSourceConfigFacade.DataSourceConfigUpdate(
-                                null, null, null, null, null, null, null, null));
+                                null, null, null, null, null, null, null, null, null));
 
         assertThat(saved.failureCacheTtlSeconds()).isEqualTo(10);
         assertThat(configCenter.dataSource(SourceCode.QUOTE).failureCacheTtl().toSeconds())
@@ -319,7 +436,7 @@ class DataSourceConfigFacadeImplTest {
                 facade.update(
                         SourceCode.QUOTE,
                         new DataSourceConfigFacade.DataSourceConfigUpdate(
-                                null, null, null, null, null, 45L, null, NOW.toString()));
+                                null, null, null, null, null, 45L, null, null, NOW.toString()));
 
         assertThat(saved.failureCacheTtlSeconds()).isEqualTo(45);
         assertThat(configCenter.dataSource(SourceCode.QUOTE).failureCacheTtl().toSeconds())
@@ -335,7 +452,8 @@ class DataSourceConfigFacadeImplTest {
                                 facade.update(
                                         SourceCode.QUOTE,
                                         new DataSourceConfigFacade.DataSourceConfigUpdate(
-                                                null, null, null, null, null, 0L, null, null)))
+                                                null, null, null, null, null, 0L, null, null,
+                                                null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("failureCacheTtlSeconds");
     }
@@ -350,6 +468,7 @@ class DataSourceConfigFacadeImplTest {
                                         SourceCode.QUOTE,
                                         new DataSourceConfigFacade.DataSourceConfigUpdate(
                                                 false,
+                                                null,
                                                 null,
                                                 null,
                                                 null,

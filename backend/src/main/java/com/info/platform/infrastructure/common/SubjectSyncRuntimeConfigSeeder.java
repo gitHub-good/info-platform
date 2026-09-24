@@ -10,10 +10,12 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * 标的池同步域种子（{@code subject.sync} 单键，ADR-0032）：A 股列表桶备选源开关自 yml {@code subject.sync.a-share-source}
- * 迁入 runtime_config 热化（原 @Value 启动期绑定，改页面保存即生效）。
+ * 标的池同步域种子（{@code subject.sync} 单键，ADR-0032；ADR-0033 增降级链字段）：A 股列表桶备选源自 yml {@code
+ * subject.sync.a-share-source} 迁入 runtime_config 热化后，再升级为降级链模型。
  *
- * <p>种子值取 {@link DataSourceDefaults#A_SHARE_LIST_SOURCE}（"auto"，值不变只换存放地）；键空间与校验见 {@link
+ * <p>种子值：{@code fallbackChain} 取 {@link DataSourceDefaults#aShareListFallbackChain()}（ {@code
+ * ["eastmoney","sina"]}，写路径统一口径）；{@code aShareSource} 取 {@link
+ * DataSourceDefaults#A_SHARE_LIST_SOURCE}（旧键兼容保留，读取侧缺链时折算）。键空间与校验见 {@link
  * SubjectSyncConfigValidator}。 分页参数（page-size/page-interval-millis/max-pages 等）仍走 yml（RESTART
  * 级，未在本批热化范围）。
  */
@@ -28,11 +30,17 @@ public class SubjectSyncRuntimeConfigSeeder implements RuntimeConfigSeeder {
 
     @Override
     public List<RuntimeConfigSeed> seeds() {
+        Map<String, Object> doc =
+                Map.of(
+                        "fallbackChain",
+                        DataSourceDefaults.aShareListFallbackChain(),
+                        "aShareSource",
+                        DataSourceDefaults.A_SHARE_LIST_SOURCE);
         return List.of(
                 new RuntimeConfigSeed(
                         SubjectSyncConfigValidator.KEY,
-                        write(Map.of("aShareSource", DataSourceDefaults.A_SHARE_LIST_SOURCE)),
-                        "标的池同步取数参数（A 股桶列表源选择：auto=东财失败自动降级新浪 / eastmoney / sina 强制单源）"));
+                        write(doc),
+                        "标的池同步取数参数（A 股桶列表源降级链：东财失败自动降级新浪整桶重拉；旧键 aShareSource 兼容保留）"));
     }
 
     private String write(Map<String, Object> doc) {

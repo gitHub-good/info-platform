@@ -56,4 +56,59 @@ class SubjectSyncConfigValidatorTest {
                             assertThat(e.getMessage()).contains("aShareSource");
                         });
     }
+
+    // —— ADR-0033 降级链字段 ——
+
+    @Test
+    void fallbackChain_validProviders_pass() throws Exception {
+        assertThatCode(
+                        () ->
+                                validator.validate(
+                                        "subject.sync",
+                                        objectMapper.readTree(
+                                                "{\"fallbackChain\":[\"eastmoney\",\"sina\"]}")))
+                .doesNotThrowAnyException();
+        // 空链合法 = 仅主源；字段可缺省（存量行兼容）
+        assertThatCode(
+                        () ->
+                                validator.validate(
+                                        "subject.sync",
+                                        objectMapper.readTree("{\"fallbackChain\":[]}")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void fallbackChain_memberNotInListRegistry_rejected() {
+        assertThatThrownBy(
+                        () ->
+                                validator.validate(
+                                        "subject.sync",
+                                        objectMapper.readTree(
+                                                "{\"fallbackChain\":[\"eastmoney\",\"tencent\"]}")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不在 A 股列表源可用 provider");
+    }
+
+    @Test
+    void fallbackChain_duplicateMember_rejected() {
+        assertThatThrownBy(
+                        () ->
+                                validator.validate(
+                                        "subject.sync",
+                                        objectMapper.readTree(
+                                                "{\"fallbackChain\":[\"sina\",\"sina\"]}")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("重复 provider");
+    }
+
+    @Test
+    void fallbackChain_notAnArray_rejected() {
+        assertThatThrownBy(
+                        () ->
+                                validator.validate(
+                                        "subject.sync",
+                                        objectMapper.readTree("{\"fallbackChain\":\"auto\"}")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("须为字符串数组");
+    }
 }

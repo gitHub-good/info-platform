@@ -8,7 +8,9 @@ import com.info.platform.application.common.RuntimeConfigEntry;
 import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.domain.aggregation.DataSourceEvent;
 import com.info.platform.domain.aggregation.DataSourceEventRepository;
+import com.info.platform.domain.aggregation.FallbackChains;
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceStatus;
 import com.info.platform.domain.aggregation.Subject;
@@ -57,6 +59,7 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
                     "retries", EFFECTIVE_LIVE,
                     "cacheTtlSeconds", EFFECTIVE_LIVE,
                     "failureCacheTtlSeconds", EFFECTIVE_LIVE,
+                    "fallbackChain", EFFECTIVE_LIVE,
                     "params", EFFECTIVE_LIVE);
 
     private static final Map<String, String> AGGREGATION_EFFECTIVE_MODES =
@@ -130,8 +133,17 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         if (update.failureCacheTtlSeconds() != null) {
             merged.put("failureCacheTtlSeconds", update.failureCacheTtlSeconds());
         }
+        if (update.fallbackChain() != null) {
+            // ADR-0033 写路径统一 fallbackChain：提供即写入（空清单合法 = 仅主源），并顺带淘汰旧 backupSource 键
+            merged.set("fallbackChain", objectMapper.valueToTree(update.fallbackChain()));
+            stripLegacyBackupSource(merged);
+        }
         if (update.params() != null) {
-            merged.set("params", objectMapper.valueToTree(update.params()));
+            ObjectNode params = (ObjectNode) objectMapper.valueToTree(update.params());
+            if (update.fallbackChain() != null) {
+                params.remove("backupSource");
+            }
+            merged.set("params", params);
         }
         // 存量文档缺 failureCacheTtlSeconds（本批禁迁移）：保存时补种代码缺省，使「种子始终写入」不变量对后续保存成立（ADR-0025）
         if (!merged.has("failureCacheTtlSeconds")) {
@@ -213,6 +225,13 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         // 配置值经快照读取（键缺失时内部回落代码缺省）；entry 仅供 updatedAt 回显
         RuntimeDataSource config = configCenter.dataSource(code);
         Map<String, Object> params = new LinkedHashMap<>(config.params());
+        // ADR-0033 降级链：有效链现算（DB 链优先，缺省按旧 backupSource 折算，再缺回落注册表全链兜底）——
+        // 页面回显与引擎消费同口径，卡片所见即下一次取数所行
+        List<String> chain =
+                FallbackChains.resolve(
+                        config.fallbackChain(),
+                        config.paramString("backupSource", null),
+                        SourceProviders.providers(code));
         return new SourceCardView(
                 code.name(),
                 SOURCE_LABELS.getOrDefault(code, code.name()),
@@ -222,6 +241,8 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
                 config.retries(),
                 config.cacheTtlSeconds(),
                 config.failureCacheTtlSeconds(),
+                chain,
+                SourceProviders.providers(code),
                 params,
                 healthOf(code),
                 entry == null ? null : entry.updatedAt().toString(),
@@ -274,7 +295,7 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         return (ObjectNode) current.deepCopy();
     }
 
-    /** 键缺失时的基线文档（与种子同源：代码缺省 + 全局 mock 开关裁定 mode）。 */
+    /** 键缺失时的基线文档（与种子同源：代码缺省 + 全局 mock 开关裁定 mode；多 provider 源含默认降级链，ADR-0033）。 */
     private ObjectNode defaultDoc(SourceCode code) {
         RuntimeDataSource fallback = code == null ? null : configCenter.dataSource(code);
         if (code == null) {
@@ -288,7 +309,20 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         doc.put("cacheTtlSeconds", fallback.cacheTtlSeconds());
         doc.put("failureCacheTtlSeconds", fallback.failureCacheTtlSeconds());
         doc.set("params", objectMapper.valueToTree(fallback.params()));
+        if (SourceProviders.providers(code).size() > 1) {
+            doc.set(
+                    "fallbackChain",
+                    objectMapper.valueToTree(DataSourceDefaults.fallbackChain(code)));
+        }
         return doc;
+    }
+
+    /** 淘汰旧 {@code params.backupSource} 键（ADR-0033：写路径统一 fallbackChain，旧键仅保留读取兼容）。 */
+    private static void stripLegacyBackupSource(ObjectNode merged) {
+        JsonNode params = merged.get("params");
+        if (params instanceof ObjectNode paramsNode && paramsNode.has("backupSource")) {
+            paramsNode.remove("backupSource");
+        }
     }
 
     private void requireKnownSource(SourceCode sourceCode) {

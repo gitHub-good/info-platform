@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.common;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,6 +22,8 @@ import java.util.Map;
  * @param failureCacheTtlSeconds 失败负缓存 TTL（秒，P1-5b；≤0 视为缺失回落 {@link
  *     DataSourceDefaults#failureCacheTtlSeconds}——存量 runtime_config 行无该字段，读取不阻断）
  * @param params 各源自由参数（URL / 条数 / referer 等，键空间见各 client）
+ * @param fallbackChain 降级链原始值（ADR-0033）：{@code null} = 未配置（按旧 {@code params.backupSource} 折算，
+ *     再缺回落注册表全链）；空清单 = 仅主源；有效解析经 {@code FallbackChains.resolve}（含折算与兜底）
  */
 public record RuntimeDataSource(
         SourceCode sourceCode,
@@ -30,7 +33,8 @@ public record RuntimeDataSource(
         int retries,
         long cacheTtlSeconds,
         long failureCacheTtlSeconds,
-        Map<String, Object> params) {
+        Map<String, Object> params,
+        List<String> fallbackChain) {
 
     /** 运行模式（原全局 yml {@code adapter.mock.enabled} 细化为分源，PRD 场景 3.2）。 */
     public enum Mode {
@@ -38,8 +42,31 @@ public record RuntimeDataSource(
         MOCK
     }
 
+    /** 兼容构造（无降级链字段；T36 既有调用点与测试口径，等价 fallbackChain=null）。 */
+    public RuntimeDataSource(
+            SourceCode sourceCode,
+            boolean enabled,
+            Mode mode,
+            long timeoutMillis,
+            int retries,
+            long cacheTtlSeconds,
+            long failureCacheTtlSeconds,
+            Map<String, Object> params) {
+        this(
+                sourceCode,
+                enabled,
+                mode,
+                timeoutMillis,
+                retries,
+                cacheTtlSeconds,
+                failureCacheTtlSeconds,
+                params,
+                null);
+    }
+
     public RuntimeDataSource {
         params = params == null ? Map.of() : Map.copyOf(params);
+        fallbackChain = fallbackChain == null ? null : List.copyOf(fallbackChain);
         if (failureCacheTtlSeconds <= 0) {
             // 存量文档缺字段（Jackson 原始类型缺省 0）/非法值：回落代码缺省，不阻断读取（对齐键缺失降级精神）
             failureCacheTtlSeconds = DataSourceDefaults.failureCacheTtlSeconds(sourceCode);

@@ -61,10 +61,12 @@ class DataSourceConfigControllerTest {
                 0,
                 5,
                 30,
+                List.of("eastmoney", "tencent"),
+                List.of("eastmoney", "tencent"),
                 Map.of("quoteUrl", "https://push2.eastmoney.com/api/qt/stock/get"),
                 new HealthView("OK", "2026-09-22T02:00:00Z", 1),
                 "2026-09-22T01:00:00Z",
-                Map.of("mode", "LIVE", "params", "LIVE"));
+                Map.of("mode", "LIVE", "params", "LIVE", "fallbackChain", "LIVE"));
     }
 
     @Test
@@ -86,6 +88,10 @@ class DataSourceConfigControllerTest {
                 .andExpect(jsonPath("$.data.sources[0].params.quoteUrl").isNotEmpty())
                 .andExpect(jsonPath("$.data.sources[0].health.lastEventType").value("OK"))
                 .andExpect(jsonPath("$.data.sources[0].health.errors24h").value(1))
+                .andExpect(jsonPath("$.data.sources[0].fallbackChain[0]").value("eastmoney"))
+                .andExpect(jsonPath("$.data.sources[0].fallbackChain[1]").value("tencent"))
+                .andExpect(jsonPath("$.data.sources[0].availableProviders[1]").value("tencent"))
+                .andExpect(jsonPath("$.data.sources[0].effectiveModes.fallbackChain").value("LIVE"))
                 .andExpect(jsonPath("$.data.sources[0].effectiveModes.mode").value("LIVE"))
                 .andExpect(jsonPath("$.data.aggregation.detailTimeoutMillis").value(2000));
     }

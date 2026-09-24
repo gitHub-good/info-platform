@@ -98,6 +98,34 @@ class DataSourceRuntimeConfigSeederTest {
         assertThat(params.path("backupSource").asText()).isEqualTo("auto");
     }
 
+    // —— ADR-0033 降级链种子 ——
+
+    @Test
+    void multiProviderSeeds_carryDefaultFallbackChain() throws Exception {
+        // 多 provider 源（QUOTE/VALUATION）种入默认链（页面/引擎同源缺省）；单 provider 源不种该字段
+        for (SourceCode code : List.of(SourceCode.QUOTE, SourceCode.VALUATION)) {
+            JsonNode chain =
+                    docOf(ConfigCenter.KEY_DATASOURCE_PREFIX + code.name()).path("fallbackChain");
+            assertThat(chain.isArray()).as("datasource.%s.fallbackChain", code).isTrue();
+            assertThat(chain).hasSize(2);
+            assertThat(chain.get(0).asText()).isEqualTo("eastmoney");
+            assertThat(chain.get(1).asText()).isEqualTo("tencent");
+        }
+        assertThat(docOf("datasource.FINANCE").has("fallbackChain")).isFalse();
+        assertThat(docOf("datasource.EVENT").has("fallbackChain")).isFalse();
+    }
+
+    @Test
+    void subjectSyncSeed_carriesAshareListFallbackChain() throws Exception {
+        // A 股列表桶统一升级 fallbackChain（旧键 aShareSource 兼容保留，ADR-0033）
+        RuntimeConfigSeed seed = new SubjectSyncRuntimeConfigSeeder(objectMapper).seeds().get(0);
+        JsonNode doc = objectMapper.readTree(seed.json());
+
+        assertThat(doc.path("fallbackChain").get(0).asText()).isEqualTo("eastmoney");
+        assertThat(doc.path("fallbackChain").get(1).asText()).isEqualTo("sina");
+        assertThat(doc.path("aShareSource").asText()).isEqualTo("auto");
+    }
+
     @Test
     void seeds_paramsMatchDataSourceDefaults_noDrift() throws Exception {
         // 种子 params 与 DataSourceDefaults 单一事实源逐键一致（防两处定义漂移，对齐 ADR-0032）

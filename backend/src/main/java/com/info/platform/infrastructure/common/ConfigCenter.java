@@ -117,7 +117,8 @@ public class ConfigCenter {
                     doc.retries,
                     doc.cacheTtlSeconds,
                     doc.failureCacheTtlSeconds,
-                    doc.params);
+                    doc.params,
+                    doc.fallbackChain);
         } catch (Exception e) {
             log.warn("datasource.{} 文档解析失败，回落代码缺省: {}", code, String.valueOf(e));
             return RuntimeDataSource.fallback(code, defaultMode());
@@ -270,7 +271,10 @@ public class ConfigCenter {
             String apiKeyCipher,
             String apiKeyLast4) {}
 
-    /** datasource.{CODE} 文档的原始形状（T36 键空间；failureCacheTtlSeconds 为 P1-5b 增量，存量行缺省 0 → 视图回落代码缺省）。 */
+    /**
+     * datasource.{CODE} 文档的原始形状（T36 键空间；failureCacheTtlSeconds 为 P1-5b 增量，存量行缺省 0 → 视图回落代码缺省；
+     * fallbackChain 为 ADR-0033 增量，存量行缺省 null → 按 backupSource 折算/注册表全链兜底）。
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record DataSourceDoc(
             boolean enabled,
@@ -279,5 +283,6 @@ public class ConfigCenter {
             int retries,
             long cacheTtlSeconds,
             long failureCacheTtlSeconds,
-            Map<String, Object> params) {}
+            Map<String, Object> params,
+            List<String> fallbackChain) {}
 }
