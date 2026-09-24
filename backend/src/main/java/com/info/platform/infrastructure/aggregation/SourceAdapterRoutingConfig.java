@@ -5,6 +5,7 @@ import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.push.AnomalyRepository;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.SourceCache;
 import java.util.List;
@@ -21,8 +22,9 @@ import org.springframework.context.annotation.Configuration;
  * 每源一个 {@link RoutingSourceAdapter} 作为该源唯一对外 {@link SourceAdapter}——消费方（{@code AggregationService}
  * 等注入 {@code List<SourceAdapter>}）只见 7 个路由 bean，既有代码零改动。
  *
- * <p>yml {@code adapter.mock.enabled} 降级为分源 mode 的种子默认值（true → 各源初始 MOCK， 见 {@code
- * DataSourceRuntimeConfigSeeder}），测试 profile 语义平移。
+ * <p>原 yml {@code adapter.mock.enabled} 降级为分源 mode 的种子默认值（true → 各源初始 MOCK， 见 {@code
+ * DataSourceRuntimeConfigSeeder}，ADR-0032 起缺省取 {@code DataSourceDefaults.DEFAULT_MODE}），测试 profile
+ * 语义平移。
  */
 @Configuration
 public class SourceAdapterRoutingConfig {
@@ -69,19 +71,10 @@ public class SourceAdapterRoutingConfig {
             CircuitBreaker breaker,
             EastMoneyClient client,
             TencentQuoteClient tencentClient,
-            ConfigCenter configCenter,
-            @org.springframework.beans.factory.annotation.Value("${adapter.quote-source:auto}")
-                    String quoteSourceMode) {
+            ConfigCenter configCenter) {
         return new RoutingSourceAdapter(
                 SourceCode.QUOTE,
-                quoteSourceAdapter(
-                        cache,
-                        fieldMapper,
-                        runner,
-                        breaker,
-                        client,
-                        tencentClient,
-                        quoteSourceMode),
+                quoteSourceAdapter(cache, fieldMapper, runner, breaker, client, tencentClient),
                 mockQuoteSourceAdapter(cache, fieldMapper, runner, breaker),
                 configCenter);
     }
@@ -109,19 +102,10 @@ public class SourceAdapterRoutingConfig {
             CircuitBreaker breaker,
             EastMoneyClient client,
             TencentQuoteClient tencentClient,
-            ConfigCenter configCenter,
-            @org.springframework.beans.factory.annotation.Value("${adapter.valuation-source:auto}")
-                    String valuationSourceMode) {
+            ConfigCenter configCenter) {
         return new RoutingSourceAdapter(
                 SourceCode.VALUATION,
-                valuationSourceAdapter(
-                        cache,
-                        fieldMapper,
-                        runner,
-                        breaker,
-                        client,
-                        tencentClient,
-                        valuationSourceMode),
+                valuationSourceAdapter(cache, fieldMapper, runner, breaker, client, tencentClient),
                 mockValuationSourceAdapter(cache, fieldMapper, runner, breaker),
                 configCenter);
     }
@@ -195,11 +179,16 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker,
             EastMoneyClient client,
-            TencentQuoteClient tencentClient,
-            @org.springframework.beans.factory.annotation.Value("${adapter.quote-source:auto}")
-                    String quoteSourceMode) {
+            TencentQuoteClient tencentClient) {
+        // 备选源开关回落缺省取代码内置值（auto）；运行时热读 datasource.QUOTE.params.backupSource（ADR-0032）
         return new QuoteSourceAdapter(
-                cache, fieldMapper, runner, breaker, client, tencentClient, quoteSourceMode);
+                cache,
+                fieldMapper,
+                runner,
+                breaker,
+                client,
+                tencentClient,
+                DataSourceDefaults.paramString(SourceCode.QUOTE, "backupSource"));
     }
 
     @Bean
@@ -237,11 +226,16 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker,
             EastMoneyClient client,
-            TencentQuoteClient tencentClient,
-            @org.springframework.beans.factory.annotation.Value("${adapter.valuation-source:auto}")
-                    String valuationSourceMode) {
+            TencentQuoteClient tencentClient) {
+        // 备选源开关回落缺省取代码内置值（auto）；运行时热读 datasource.VALUATION.params.backupSource（ADR-0032）
         return new ValuationSourceAdapter(
-                cache, fieldMapper, runner, breaker, client, tencentClient, valuationSourceMode);
+                cache,
+                fieldMapper,
+                runner,
+                breaker,
+                client,
+                tencentClient,
+                DataSourceDefaults.paramString(SourceCode.VALUATION, "backupSource"));
     }
 
     @Bean

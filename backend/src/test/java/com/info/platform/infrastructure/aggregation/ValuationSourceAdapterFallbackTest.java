@@ -253,7 +253,7 @@ class ValuationSourceAdapterFallbackTest {
                                         tencent,
                                         "xxx"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("adapter.valuation-source");
+                .hasMessageContaining("datasource.VALUATION.params.backupSource");
     }
 
     // ---- helpers ----

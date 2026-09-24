@@ -352,7 +352,7 @@ class QuoteSourceAdapterFallbackTest {
                                         tencent,
                                         "sina"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("adapter.quote-source");
+                .hasMessageContaining("datasource.QUOTE.params.backupSource");
     }
 
     // ---- helpers ----

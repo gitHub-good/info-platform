@@ -5,7 +5,8 @@ import java.util.Locale;
 /**
  * 行情/估值源选择模式（ADR-0031，对齐 ADR-0030 {@code subject.sync.a-share-source} 先例）。
  *
- * <p>{@code adapter.quote-source} / {@code adapter.valuation-source} 共用：
+ * <p>运行时参数 {@code datasource.{QUOTE,VALUATION}.params.backupSource} 共用（原 yml {@code
+ * adapter.quote-source} / {@code adapter.valuation-source}，ADR-0032 热化）：
  *
  * <ul>
  *   <li><b>auto</b>（默认）：东财失败（HTTP 错误/异常）或空响应（push2 IP 封禁签名）→ WARN → 自动降级腾讯备选源重拉；
@@ -13,7 +14,7 @@ import java.util.Locale;
  *   <li><b>eastmoney / tencent</b>：强制单源（排障用——验证降级逻辑是否为故障源），失败即按既有弹性语义降级
  * </ul>
  *
- * <p>配置笔误启动即失败（fail-fast）；空值容错回落 auto（语义同 {@code @Value} 缺省）。
+ * <p>构造期值非法即抛（fail-fast，装配面防御）；运行时热读的坏值由各 adapter 捕获后 WARN 回落 auto（ADR-0032）； 空值容错回落 auto（语义同缺省）。
  */
 enum BackupSourceMode {
     AUTO,

@@ -20,11 +20,12 @@ import org.slf4j.LoggerFactory;
  * MockQuoteSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36：{@code datasource.QUOTE.mode}
  * 分发，页面可热切换）。
  *
- * <h2>ADR-0031 · 腾讯备选源与自动降级</h2>
+ * <h2>ADR-0031 · 腾讯备选源与自动降级 / ADR-0032 · 开关热化</h2>
  *
  * <p>push2 IP 封禁期间行情全站瘫痪（详情页/自选页/异动检测依赖本源）。本 adapter 组合东财 + 腾讯两个 client （{@code
- * BackupSourceMode}，配置 {@code adapter.quote-source: auto | eastmoney | tencent}，默认 auto，沿 ADR-0030
- * 先例）：
+ * BackupSourceMode}，运行时参数 {@code datasource.QUOTE.params.backupSource: auto | eastmoney |
+ * tencent}，缺省 auto；原 yml {@code adapter.quote-source} 启动期绑定，ADR-0032 起改<b>每次取数用时读快照</b>——页面保存后下一
+ * 次取数即新源，无需重启）：
  *
  * <ul>
  *   <li><b>auto</b>：东财失败（HTTP 错误/异常）<b>或空响应</b>（200 + data:null——封禁实测签名，与「盘外无数据」不可区分，
@@ -56,9 +57,15 @@ public class QuoteSourceAdapter extends AbstractSourceAdapter {
     /** 强制 tencent 单源的来源标注。 */
     static final String TENCENT_ONLY_LABEL = "腾讯行情";
 
+    /** 备选源开关的运行时键（缺省回落值构造期解析用；热读键名见 {@link #currentMode()}）。 */
+    static final String FALLBACK_CONFIG_KEY = "datasource.QUOTE.params.backupSource";
+
     private final EastMoneyClient client;
     private final TencentQuoteClient tencentClient;
-    private final BackupSourceMode mode;
+
+    /** 备选源开关回落值（纯构造单测/配置中心缺失时；生产装配取 {@code DataSourceDefaults} 缺省 auto）。 */
+    private final BackupSourceMode fallbackMode;
+
     private final List<FieldMapping> mapping;
 
     public QuoteSourceAdapter(
@@ -72,7 +79,7 @@ public class QuoteSourceAdapter extends AbstractSourceAdapter {
         super(cache, fieldMapper, runner, breaker);
         this.client = client;
         this.tencentClient = tencentClient;
-        this.mode = BackupSourceMode.parse(mode, "adapter.quote-source");
+        this.fallbackMode = BackupSourceMode.parse(mode, FALLBACK_CONFIG_KEY);
         this.mapping = fieldMapper.loadMapping("field-mapping/eastmoney-quote.json");
     }
 
@@ -93,11 +100,31 @@ public class QuoteSourceAdapter extends AbstractSourceAdapter {
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {
-        return switch (mode) {
+        return switch (currentMode()) {
             case EASTMONEY -> fetchFromEastMoney(subject);
             case TENCENT -> fetchFromTencent(subject, TENCENT_ONLY_LABEL);
             case AUTO -> fetchAuto(subject);
         };
+    }
+
+    /**
+     * 当前备选源开关（ADR-0032 热读）：每次取数读 {@code datasource.QUOTE.params.backupSource} 快照（页面保存即热生效）。
+     * 配置中心缺失（纯构造单测）回落构造期缺省；DB 手改坏值不阻断取数——WARN 后回落 auto（写路径有 oneOf 校验，此处兜底）。
+     */
+    BackupSourceMode currentMode() {
+        if (configCenter == null) {
+            return fallbackMode;
+        }
+        String raw = configCenter.dataSource(sourceCode()).paramString("backupSource", null);
+        if (raw == null || raw.isBlank()) {
+            return fallbackMode;
+        }
+        try {
+            return BackupSourceMode.parse(raw, FALLBACK_CONFIG_KEY);
+        } catch (IllegalArgumentException e) {
+            log.warn("备选源开关取值非法，回落 auto key={} raw='{}'", FALLBACK_CONFIG_KEY, raw);
+            return BackupSourceMode.AUTO;
+        }
     }
 
     /** auto：东财成功直用；东财失败/空响应 → WARN → 腾讯兜底；腾讯也失败按既有语义降级（东财原因挂 suppressed）。 */

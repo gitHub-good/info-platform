@@ -23,12 +23,13 @@ import org.slf4j.LoggerFactory;
  * SourceResult.data}。复用 {@link EastMoneyClient#fetchValuation(String)}（行情/估值同端点不同 fields，省一个客户端类）。
  * 与 {@link MockValuationSourceAdapter} 经 {@link RoutingSourceAdapter} 运行时路由共存（T36 热切换）。
  *
- * <h2>ADR-0031 · 腾讯备选源与自动降级</h2>
+ * <h2>ADR-0031 · 腾讯备选源与自动降级 / ADR-0032 · 开关热化</h2>
  *
- * <p>与 {@link QuoteSourceAdapter} 同模式（配置 {@code adapter.valuation-source: auto | eastmoney |
- * tencent}，默认 auto）： 东财失败或空响应 → WARN → 腾讯按内部标的码重拉，PE/PB 从腾讯字段映射为东财 f 键 （A 股 PE@52/PB@46、港股
- * PE@39/PB@58，核对表见 {@link TencentQuoteClient} Javadoc）——本类字段映射配置零改动。 东财港股 f162 实测返回 '-'（2026-09-24
- * curl 116.00700）——恰好落在可降级路径，腾讯港股位可补齐 PE。
+ * <p>与 {@link QuoteSourceAdapter} 同模式（运行时参数 {@code datasource.VALUATION.params.backupSource: auto |
+ * eastmoney | tencent}，缺省 auto，每次取数用时读快照——原 yml {@code adapter.valuation-source} 启动期绑定， ADR-0032
+ * 热化）： 东财失败或空响应 → WARN → 腾讯按内部标的码重拉，PE/PB 从腾讯字段映射为东财 f 键 （A 股 PE@52/PB@46、港股 PE@39/PB@58，核对表见
+ * {@link TencentQuoteClient} Javadoc）——本类字段映射配置零改动。 东财港股 f162 实测返回 '-'（2026-09-24 curl
+ * 116.00700）——恰好落在可降级路径，腾讯港股位可补齐 PE。
  *
  * <p>弹性（既有语义不变）：超时/重试运行时读 {@code datasource.VALUATION}（种子默认超时 2s 重试 0）。降级默认 MISSING——估值源挂不阻断其他分区。
  *
@@ -52,9 +53,15 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
     /** 强制 tencent 单源的来源标注。 */
     static final String TENCENT_ONLY_LABEL = "腾讯估值";
 
+    /** 备选源开关的运行时键（缺省回落值构造期解析用；热读键名见 {@link #currentMode()}）。 */
+    static final String FALLBACK_CONFIG_KEY = "datasource.VALUATION.params.backupSource";
+
     private final EastMoneyClient client;
     private final TencentQuoteClient tencentClient;
-    private final BackupSourceMode mode;
+
+    /** 备选源开关回落值（纯构造单测/配置中心缺失时；生产装配取 {@code DataSourceDefaults} 缺省 auto）。 */
+    private final BackupSourceMode fallbackMode;
+
     private final List<FieldMapping> mapping;
 
     public ValuationSourceAdapter(
@@ -68,7 +75,7 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
         super(cache, fieldMapper, runner, breaker);
         this.client = client;
         this.tencentClient = tencentClient;
-        this.mode = BackupSourceMode.parse(mode, "adapter.valuation-source");
+        this.fallbackMode = BackupSourceMode.parse(mode, FALLBACK_CONFIG_KEY);
         this.mapping = fieldMapper.loadMapping("field-mapping/eastmoney-valuation.json");
     }
 
@@ -95,11 +102,31 @@ public class ValuationSourceAdapter extends AbstractSourceAdapter {
 
     @Override
     protected Optional<RawFetch> doFetch(Subject subject) throws Exception {
-        return switch (mode) {
+        return switch (currentMode()) {
             case EASTMONEY -> fetchFromEastMoney(subject);
             case TENCENT -> fetchFromTencent(subject, TENCENT_ONLY_LABEL);
             case AUTO -> fetchAuto(subject);
         };
+    }
+
+    /**
+     * 当前备选源开关（ADR-0032 热读）：每次取数读 {@code datasource.VALUATION.params.backupSource} 快照。
+     * 配置中心缺失（纯构造单测）回落构造期缺省；DB 手改坏值 WARN 后回落 auto（写路径有 oneOf 校验，此处兜底）。
+     */
+    BackupSourceMode currentMode() {
+        if (configCenter == null) {
+            return fallbackMode;
+        }
+        String raw = configCenter.dataSource(sourceCode()).paramString("backupSource", null);
+        if (raw == null || raw.isBlank()) {
+            return fallbackMode;
+        }
+        try {
+            return BackupSourceMode.parse(raw, FALLBACK_CONFIG_KEY);
+        } catch (IllegalArgumentException e) {
+            log.warn("备选源开关取值非法，回落 auto key={} raw='{}'", FALLBACK_CONFIG_KEY, raw);
+            return BackupSourceMode.AUTO;
+        }
     }
 
     /** auto：东财成功直用；东财失败/空响应 → WARN → 腾讯兜底；腾讯也失败按既有语义降级（东财原因挂 suppressed）。 */
