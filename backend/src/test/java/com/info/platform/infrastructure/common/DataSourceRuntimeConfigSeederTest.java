@@ -102,7 +102,8 @@ class DataSourceRuntimeConfigSeederTest {
 
     @Test
     void multiProviderSeeds_carryDefaultFallbackChain() throws Exception {
-        // 多 provider 源（QUOTE/VALUATION）种入默认链（页面/引擎同源缺省）；单 provider 源不种该字段
+        // 多 provider 源（QUOTE/VALUATION，及 ADR-0034 起的 FINANCE）种入默认链（页面/引擎同源缺省）；
+        // 单 provider 源不种该字段
         for (SourceCode code : List.of(SourceCode.QUOTE, SourceCode.VALUATION)) {
             JsonNode chain =
                     docOf(ConfigCenter.KEY_DATASOURCE_PREFIX + code.name()).path("fallbackChain");
@@ -111,7 +112,11 @@ class DataSourceRuntimeConfigSeederTest {
             assertThat(chain.get(0).asText()).isEqualTo("eastmoney");
             assertThat(chain.get(1).asText()).isEqualTo("tencent");
         }
-        assertThat(docOf("datasource.FINANCE").has("fallbackChain")).isFalse();
+        // ADR-0034：财务源注册表补新浪备选——种子默认链 [eastmoney, sina]（存量 DB 行缺链时读取侧同链兜底）
+        JsonNode financeChain = docOf("datasource.FINANCE").path("fallbackChain");
+        assertThat(financeChain.isArray()).isTrue();
+        assertThat(financeChain.get(0).asText()).isEqualTo("eastmoney");
+        assertThat(financeChain.get(1).asText()).isEqualTo("sina");
         assertThat(docOf("datasource.EVENT").has("fallbackChain")).isFalse();
     }
 

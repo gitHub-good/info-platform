@@ -326,7 +326,22 @@ class DataSourceConfigFacadeImplTest {
 
     @Test
     void view_singleProviderSource_chainIsOnlyProvider() {
-        // 单 provider 源：链退化为唯一 provider（页面呈现「暂无备选源」）
+        // 单 provider 源（NEWS 仅 sina）：链退化为唯一 provider（页面呈现「暂无备选源」）。
+        // FINANCE 自 ADR-0034 起为多 provider 源（[eastmoney, sina]），不再作本用例样本
+        store(
+                "datasource.NEWS",
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":120,\"params\":{}}");
+
+        var card = facade.view().sources().get(4);
+
+        assertThat(card.availableProviders()).containsExactly("sina");
+        assertThat(card.fallbackChain()).containsExactly("sina");
+    }
+
+    @Test
+    void view_financeRegistryChangedToDualProvider_foldsDefaultChain() {
+        // ADR-0034：财务源注册表补新浪备选后，存量 DB 行无 fallbackChain 自动按默认链 [eastmoney, sina] 生效
         store(
                 "datasource.FINANCE",
                 "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
@@ -334,8 +349,8 @@ class DataSourceConfigFacadeImplTest {
 
         var card = facade.view().sources().get(1);
 
-        assertThat(card.availableProviders()).containsExactly("eastmoney");
-        assertThat(card.fallbackChain()).containsExactly("eastmoney");
+        assertThat(card.availableProviders()).containsExactly("eastmoney", "sina");
+        assertThat(card.fallbackChain()).containsExactly("eastmoney", "sina");
     }
 
     @Test

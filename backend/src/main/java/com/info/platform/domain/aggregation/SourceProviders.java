@@ -19,7 +19,7 @@ public final class SourceProviders {
             Map.of(
                     SourceCode.QUOTE, List.of(SourceProvider.EASTMONEY, SourceProvider.TENCENT),
                     SourceCode.VALUATION, List.of(SourceProvider.EASTMONEY, SourceProvider.TENCENT),
-                    SourceCode.FINANCE, List.of(SourceProvider.EASTMONEY),
+                    SourceCode.FINANCE, List.of(SourceProvider.EASTMONEY, SourceProvider.SINA),
                     SourceCode.ANNOUNCE, List.of(SourceProvider.EASTMONEY),
                     SourceCode.NEWS, List.of(SourceProvider.SINA),
                     SourceCode.POLICY, List.of(SourceProvider.GOV),

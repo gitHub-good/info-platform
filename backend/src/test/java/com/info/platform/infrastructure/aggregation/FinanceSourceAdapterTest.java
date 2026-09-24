@@ -273,7 +273,8 @@ class FinanceSourceAdapterTest {
     // ---- helpers ----
 
     private FinanceSourceAdapter newAdapter() {
-        return new FinanceSourceAdapter(cache, fieldMapper, runner, breaker, mockClient());
+        return new FinanceSourceAdapter(
+                cache, fieldMapper, runner, breaker, mockClient(), mockSinaClient());
     }
 
     /** 构造绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */
@@ -283,7 +284,8 @@ class FinanceSourceAdapterTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         EastMoneyFinanceClient client = new EastMoneyFinanceClient(builder, FINANCE_URL, REFERER);
         FinanceSourceAdapter adapter =
-                new FinanceSourceAdapter(cache, fieldMapper, runner, breaker, client);
+                new FinanceSourceAdapter(
+                        cache, fieldMapper, runner, breaker, client, mockSinaClient());
         responseSetter.accept(server);
         SourceResult result = adapter.fetch(subject);
         server.verify();
@@ -293,6 +295,16 @@ class FinanceSourceAdapterTest {
     /** 客户端用真实 URL/Referer，但不发请求（供不发 HTTP 的早返回场景）。 */
     private EastMoneyFinanceClient mockClient() {
         return new EastMoneyFinanceClient(RestClient.builder(), FINANCE_URL, REFERER);
+    }
+
+    /** 新浪备选客户端同款（东财路径成功的用例不触发备选外呼，ADR-0034 T56 后构造签名含备选 client）。 */
+    private SinaFinanceClient mockSinaClient() {
+        return new SinaFinanceClient(
+                RestClient.builder(),
+                "https://sina.test/vFD_ProfitStatement/stockid/{code}/ctrl/{year}"
+                        + "/displaytype/4.phtml",
+                "https://sina.test/vFD_FinancialGuideLine/stockid/{code}/ctrl/{year}"
+                        + "/displaytype/4.phtml");
     }
 
     private static Subject subjectWithSecid(String secid) {

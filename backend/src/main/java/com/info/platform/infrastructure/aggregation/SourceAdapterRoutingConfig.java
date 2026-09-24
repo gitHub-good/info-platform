@@ -86,10 +86,11 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker,
             EastMoneyFinanceClient client,
+            SinaFinanceClient sinaClient,
             ConfigCenter configCenter) {
         return new RoutingSourceAdapter(
                 SourceCode.FINANCE,
-                financeSourceAdapter(cache, fieldMapper, runner, breaker, client),
+                financeSourceAdapter(cache, fieldMapper, runner, breaker, client, sinaClient),
                 mockFinanceSourceAdapter(cache, fieldMapper, runner, breaker),
                 configCenter);
     }
@@ -206,8 +207,9 @@ public class SourceAdapterRoutingConfig {
             FieldMapper fieldMapper,
             ResilienceRunner runner,
             CircuitBreaker breaker,
-            EastMoneyFinanceClient client) {
-        return new FinanceSourceAdapter(cache, fieldMapper, runner, breaker, client);
+            EastMoneyFinanceClient client,
+            SinaFinanceClient sinaClient) {
+        return new FinanceSourceAdapter(cache, fieldMapper, runner, breaker, client, sinaClient);
     }
 
     @Bean
