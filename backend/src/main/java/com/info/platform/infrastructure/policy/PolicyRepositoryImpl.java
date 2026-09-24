@@ -118,8 +118,8 @@ public class PolicyRepositoryImpl implements PolicyRepository {
     }
 
     /**
-     * 页码模式组合 WHERE 一处组装（days 时间窗 + industry JSON LIKE），{@link #findPage}/{@link #countByFilter}
-     * 两用—— 保证页数据与计数同口径、页码与游标两模式同过滤（§3.5 回归锚点前提）。
+     * 页码模式组合 WHERE 一处组装（days 时间窗 + industry JSON LIKE + keyword 标题/摘要 LIKE）， {@link
+     * #findPage}/{@link #countByFilter} 两用—— 保证页数据与计数同口径、页码与游标两模式同过滤（§3.5 回归锚点前提）。
      */
     private static LambdaQueryWrapper<PolicyItemPO> listFilterWrapper(PolicyListFilter filter) {
         int safeDays = filter.days() <= 0 ? DEFAULT_DAYS : Math.min(filter.days(), MAX_DAYS);
@@ -130,7 +130,26 @@ public class PolicyRepositoryImpl implements PolicyRepository {
             // 同 findRecent：JSON 数组文本按 "industry" 子串 LIKE（引号作 token 边界）
             w.like(PolicyItemPO::getRelatedIndustries, "\"" + filter.industry() + "\"");
         }
+        if (filter.keyword() != null && !filter.keyword().isBlank()) {
+            // 自由文本关键词：MyBatis-Plus like() 不转义通配符，必须手工转义 + {0} 参数绑定 +
+            // ESCAPE '\'（防用户输入 %/_/\ 被当通配符语义，ADR-0035）；title 或 summary 任一命中（OR）
+            String pattern = likePattern(filter.keyword());
+            w.and(
+                    q ->
+                            q.apply("title LIKE {0} ESCAPE '\\'", pattern)
+                                    .or()
+                                    .apply("summary LIKE {0} ESCAPE '\\'", pattern));
+        }
         return w;
+    }
+
+    /**
+     * LIKE 模式串：转义 {@code \ % _} 后包 % 通配（防用户输入通配符误当语义，§4.1）。
+     *
+     * <p>替换顺序必须先 {@code \}（否则后续引入的转义符会被二次转义）；summary 为 NULL 时 SQL {@code NULL LIKE} 天然不命中（正确语义）。
+     */
+    static String likePattern(String raw) {
+        return "%" + raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     @Override

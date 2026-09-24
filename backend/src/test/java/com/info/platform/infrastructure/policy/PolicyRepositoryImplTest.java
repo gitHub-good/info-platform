@@ -43,6 +43,11 @@ class PolicyRepositoryImplTest {
         return LocalDate.now(ZoneOffset.UTC).minusDays(days).toString();
     }
 
+    private static PolicyItem newSummaryItem(
+            String title, String date, String url, String summary, List<String> industries) {
+        return PolicyItem.create(title, "国务院政策", LocalDate.parse(date), summary, industries, url);
+    }
+
     @Test
     void saveAll_andFindById_roundtrip_jsonIndustries() {
         // Arrange + Act：落库一条含多行业标签的政策
@@ -397,7 +402,7 @@ class PolicyRepositoryImplTest {
             repository.saveAll(
                     List.of(newItem("政策" + i, todayMinus(1), "https://gov/p" + i, List.of())));
         }
-        PolicyListFilter filter = new PolicyListFilter(7, null);
+        PolicyListFilter filter = new PolicyListFilter(7, null, null);
 
         // Act + Assert：第 1 页（size=2）newest-first → 政策5、政策4；计数 5
         List<PolicyItem> page1 = repository.findPage(filter, 1, 2);
@@ -420,7 +425,7 @@ class PolicyRepositoryImplTest {
             repository.saveAll(
                     List.of(newItem("政策" + i, todayMinus(1), "https://gov/o" + i, List.of())));
         }
-        PolicyListFilter filter = new PolicyListFilter(7, null);
+        PolicyListFilter filter = new PolicyListFilter(7, null, null);
 
         // Act + Assert：offset 语义天然空列表（200 + 空列表 + 如实回显的契约由上层承接）；total 仍为真实值
         assertThat(repository.findPage(filter, 99, 20)).isEmpty();
@@ -437,11 +442,11 @@ class PolicyRepositoryImplTest {
                         newItem("白酒旧政策", todayMinus(30), "https://gov/c3", List.of("白酒"))));
 
         // Act + Assert：7 天窗 + 白酒 → 仅 1 条；7 天窗全量 → 2 条
-        assertThat(repository.countByFilter(new PolicyListFilter(7, "白酒"))).isEqualTo(1);
-        assertThat(repository.findPage(new PolicyListFilter(7, "白酒"), 1, 20))
+        assertThat(repository.countByFilter(new PolicyListFilter(7, "白酒", null))).isEqualTo(1);
+        assertThat(repository.findPage(new PolicyListFilter(7, "白酒", null), 1, 20))
                 .extracting(PolicyItem::getTitle)
                 .containsExactly("白酒新政策");
-        assertThat(repository.countByFilter(new PolicyListFilter(7, null))).isEqualTo(2);
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, null))).isEqualTo(2);
     }
 
     @Test
@@ -455,10 +460,10 @@ class PolicyRepositoryImplTest {
 
         // Act + Assert：days=0 取默认 7（8 天前不可见）；days=30 仅 8 天前可见；
         // days=200 截 90 → 边界政策（90 天前）恰入窗（>= 含端点）、超窗政策出窗
-        assertThat(repository.countByFilter(new PolicyListFilter(0, null))).isZero();
-        assertThat(repository.countByFilter(new PolicyListFilter(30, null))).isEqualTo(1);
-        assertThat(repository.countByFilter(new PolicyListFilter(200, null))).isEqualTo(2);
-        assertThat(repository.countByFilter(new PolicyListFilter(90, null))).isEqualTo(2);
+        assertThat(repository.countByFilter(new PolicyListFilter(0, null, null))).isZero();
+        assertThat(repository.countByFilter(new PolicyListFilter(30, null, null))).isEqualTo(1);
+        assertThat(repository.countByFilter(new PolicyListFilter(200, null, null))).isEqualTo(2);
+        assertThat(repository.countByFilter(new PolicyListFilter(90, null, null))).isEqualTo(2);
     }
 
     @Test
@@ -475,7 +480,8 @@ class PolicyRepositoryImplTest {
         }
 
         // Act
-        List<PolicyItem> pagedFirst = repository.findPage(new PolicyListFilter(7, "白酒"), 1, 20);
+        List<PolicyItem> pagedFirst =
+                repository.findPage(new PolicyListFilter(7, "白酒", null), 1, 20);
         List<PolicyItem> cursorFirst = repository.findRecent(7, "白酒", null, 20);
 
         // Assert：逐条 id 一致（newest-first 同序）
@@ -492,7 +498,7 @@ class PolicyRepositoryImplTest {
             batch.add(newItem("深页政策" + i, todayMinus(1), "https://gov/deep" + i, List.of()));
         }
         repository.saveAll(batch);
-        PolicyListFilter filter = new PolicyListFilter(7, null);
+        PolicyListFilter filter = new PolicyListFilter(7, null, null);
 
         // Act + Assert：total=105；第 6 页（末页）恰 5 条且为最旧的 5 条（id 最小）；第 7 页空
         assertThat(repository.countByFilter(filter)).isEqualTo(105);
@@ -501,5 +507,115 @@ class PolicyRepositoryImplTest {
         assertThat(lastPage.get(0).getTitle()).isEqualTo("深页政策5");
         assertThat(lastPage.get(4).getTitle()).isEqualTo("深页政策1");
         assertThat(repository.findPage(filter, 7, 20)).isEmpty();
+    }
+
+    // ==================== M9 T62：关键词搜索（LIKE ESCAPE，真实 SQLite） ====================
+
+    @Test
+    void findPage_keyword_matchesTitleOrSummary_nullSummaryNotHit() {
+        // Arrange：标题命中 1 条 + 摘要命中 1 条 + 无关 1 条（summary 为 NULL）
+        repository.saveAll(
+                List.of(
+                        newItem("半导体产业规划", todayMinus(1), "https://gov/k1", List.of()),
+                        newSummaryItem(
+                                "其他产业规划", todayMinus(1), "https://gov/k2", "措施涉及半导体设备", List.of()),
+                        newItem("白酒产业规划", todayMinus(1), "https://gov/k3", List.of())));
+
+        // Act + Assert：title OR summary 任一命中 → 2 条；NULL summary 不命中（SQL 天然语义）
+        PolicyListFilter filter = new PolicyListFilter(7, null, "半导体");
+        assertThat(repository.countByFilter(filter)).isEqualTo(2);
+        assertThat(repository.findPage(filter, 1, 20))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("其他产业规划", "半导体产业规划"); // newest-first（后插入在前）
+    }
+
+    @Test
+    void findPage_keyword_noMatch_returnsEmpty() {
+        repository.saveAll(List.of(newItem("白酒政策", todayMinus(1), "https://gov/k9", List.of())));
+
+        assertThat(repository.findPage(new PolicyListFilter(7, null, "半导体"), 1, 20)).isEmpty();
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "导体半"))).isZero();
+    }
+
+    @Test
+    void findPage_keyword_wildcardLiterals_escapedAsPlainText() {
+        // Arrange：标题/摘要含通配符字面量 % _ \，及「形似通配」的对照行
+        repository.saveAll(
+                List.of(
+                        newItem("增长100%的规划", todayMinus(1), "https://gov/w1", List.of()),
+                        newItem("增长100x的规划", todayMinus(1), "https://gov/w2", List.of()),
+                        newItem("a_b 合作协议", todayMinus(1), "https://gov/w3", List.of()),
+                        newItem("axb 合作协议", todayMinus(1), "https://gov/w4", List.of()),
+                        newSummaryItem(
+                                "路径说明",
+                                todayMinus(1),
+                                "https://gov/w5",
+                                "目录 C:\\data",
+                                List.of())));
+
+        // Act + Assert：keyword 含 % 仅字面命中（对照行 100x 不命中——% 未被当任意串通配）
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "100%"))).isEqualTo(1);
+        assertThat(repository.findPage(new PolicyListFilter(7, null, "100%"), 1, 20))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("增长100%的规划");
+
+        // keyword 含 _ 仅字面命中（axb 不命中——_ 未被当单字通配）
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "a_b"))).isEqualTo(1);
+        assertThat(repository.findPage(new PolicyListFilter(7, null, "a_b"), 1, 20))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("a_b 合作协议");
+
+        // keyword 含 \ 仅字面命中（summary 命中路径）
+        assertThat(repository.findPage(new PolicyListFilter(7, null, "C:\\data"), 1, 20))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("路径说明");
+    }
+
+    @Test
+    void findPage_keyword_asciiCaseInsensitive_chineseExact() {
+        // Arrange：ASCII 大小写混合标题 + 中文标题（SQLite LIKE 口径：ASCII 不区分大小写、非 ASCII 按字节原样，ADR-0035）
+        repository.saveAll(
+                List.of(
+                        newItem("Chip Export Policy", todayMinus(1), "https://gov/c1", List.of()),
+                        newItem("白酒消费税调整", todayMinus(1), "https://gov/c2", List.of())));
+
+        // Act + Assert：英文关键词大小写互命中
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "chip"))).isEqualTo(1);
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "CHIP"))).isEqualTo(1);
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "export policy")))
+                .isEqualTo(1);
+
+        // 中文关键词按字节精确匹配（「白酒消费」子串命中；乱序不命中）
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "白酒消费"))).isEqualTo(1);
+        assertThat(repository.countByFilter(new PolicyListFilter(7, null, "费税白酒"))).isZero();
+    }
+
+    @Test
+    void findPage_daysIndustryKeywordPage_fullCombo_andSemantics() {
+        // Arrange：电子行业内 3 条含「半导体」（1 条 30 天前出 days=7 窗）+ 其他行业 1 条含「半导体」+ 电子行业不含关键词 1 条
+        repository.saveAll(
+                List.of(
+                        newSummaryItem(
+                                "半导体规划一", todayMinus(1), "https://gov/x1", null, List.of("电子")),
+                        newSummaryItem("半导体规划二", todayMinus(2), null, "含半导体摘要", List.of("电子")),
+                        newSummaryItem("半导体旧规划", todayMinus(30), null, null, List.of("电子")),
+                        newSummaryItem("半导体银行指引", todayMinus(1), null, null, List.of("银行")),
+                        newSummaryItem("电子其他政策", todayMinus(1), null, null, List.of("电子"))));
+
+        // Act：days=7 + industry=电子 + keyword=半导体 → 2 条（窗内 + 行业 + 关键词 AND 交集）
+        PolicyListFilter combo = new PolicyListFilter(7, "电子", "半导体");
+        assertThat(repository.countByFilter(combo)).isEqualTo(2);
+
+        // 分页：size=1 第 1 页 newest-first（规划二后插入在前），第 2 页剩 1 条，第 3 页空
+        assertThat(repository.findPage(combo, 1, 1))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("半导体规划二");
+        assertThat(repository.findPage(combo, 2, 1))
+                .extracting(PolicyItem::getTitle)
+                .containsExactly("半导体规划一");
+        assertThat(repository.findPage(combo, 3, 1)).isEmpty();
+
+        // 放宽 days=30 → 3 条（旧规划入窗）
+        assertThat(repository.countByFilter(new PolicyListFilter(30, "电子", "半导体"))).isEqualTo(3);
     }
 }

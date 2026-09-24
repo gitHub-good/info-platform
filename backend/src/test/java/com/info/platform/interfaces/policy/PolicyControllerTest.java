@@ -174,7 +174,7 @@ class PolicyControllerTest {
     @Test
     void pageMode_returnsTotalAndEchoedPageSize() throws Exception {
         // Arrange：页码模式走 listPoliciesPaged（days/industry 透传）
-        when(policyService.listPoliciesPaged(7, "白酒", 2, 10))
+        when(policyService.listPoliciesPaged(7, "白酒", null, 2, 10))
                 .thenReturn(
                         new PolicyPagedView(
                                 List.of(
@@ -208,7 +208,7 @@ class PolicyControllerTest {
     @Test
     void pageMode_defaultPageSize_is20() throws Exception {
         // Arrange：size 缺省 20（PageQuery.DEFAULT_SIZE），不传 size 也能 stub 命中
-        when(policyService.listPoliciesPaged(7, null, 1, 20))
+        when(policyService.listPoliciesPaged(7, null, null, 1, 20))
                 .thenReturn(new PolicyPagedView(List.of(), 0L, 1, 20));
 
         // Act + Assert
@@ -221,7 +221,7 @@ class PolicyControllerTest {
     @Test
     void pageMode_outOfRangePage_returns200EmptyListWithEcho() throws Exception {
         // Arrange：越界页（total=8、page=99）→ 200 + 空列表 + 如实回显（ADR-0035 裁决）
-        when(policyService.listPoliciesPaged(7, null, 99, 20))
+        when(policyService.listPoliciesPaged(7, null, null, 99, 20))
                 .thenReturn(new PolicyPagedView(List.of(), 8L, 99, 20));
 
         // Act + Assert
@@ -231,5 +231,81 @@ class PolicyControllerTest {
                 .andExpect(jsonPath("$.data.total").value(8))
                 .andExpect(jsonPath("$.data.page").value(99))
                 .andExpect(jsonPath("$.data.size").value(20));
+    }
+
+    // ==================== M9 T62：关键词搜索契约（§4.1） ====================
+
+    @Test
+    void keyword_withoutPage_rejected400() throws Exception {
+        // keyword 仅页码模式可用，缺 page → 400/2001
+        mockMvc.perform(get("/api/v1/policies").param("keyword", "半导体"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void keyword_singleChar_withPage_rejected400() throws Exception {
+        // 关键词至少 2 个字符 → 400/2001（防单字全表模糊）
+        mockMvc.perform(get("/api/v1/policies").param("page", "1").param("keyword", "芯"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value(org.hamcrest.Matchers.containsString("2")));
+    }
+
+    @Test
+    void keyword_over64Chars_withPage_rejected400() throws Exception {
+        // 关键词最长 64 字符 → 400/2001
+        mockMvc.perform(get("/api/v1/policies").param("page", "1").param("keyword", "长".repeat(65)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value(org.hamcrest.Matchers.containsString("64")));
+    }
+
+    @Test
+    void keyword_boundary64Chars_passedThroughTrimmed() throws Exception {
+        // Arrange：恰 64 字符合法（边界值），trim 后透传 service
+        String keyword = "半".repeat(64);
+        when(policyService.listPoliciesPaged(7, null, keyword, 1, 20))
+                .thenReturn(new PolicyPagedView(List.of(), 0L, 1, 20));
+
+        // Act + Assert
+        mockMvc.perform(
+                        get("/api/v1/policies")
+                                .param("page", "1")
+                                .param("keyword", " " + keyword + " "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
+    void keyword_blank_withPage_treatedAsAbsent() throws Exception {
+        // Arrange：keyword trim 后空 = 缺席（不过滤），也不触发「缺 page」400
+        when(policyService.listPoliciesPaged(7, null, null, 1, 20))
+                .thenReturn(new PolicyPagedView(List.of(), 3L, 1, 20));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/policies").param("page", "1").param("keyword", "   "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(3));
+    }
+
+    @Test
+    void keyword_withDaysIndustryPage_fullComboPassedThrough() throws Exception {
+        // Arrange：days + industry + keyword + page + size 全组合透传
+        when(policyService.listPoliciesPaged(30, "电子", "半导体", 2, 50))
+                .thenReturn(new PolicyPagedView(List.of(), 12L, 2, 50));
+
+        // Act + Assert
+        mockMvc.perform(
+                        get("/api/v1/policies")
+                                .param("days", "30")
+                                .param("industry", "电子")
+                                .param("keyword", "半导体")
+                                .param("page", "2")
+                                .param("size", "50"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(12))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(50));
     }
 }

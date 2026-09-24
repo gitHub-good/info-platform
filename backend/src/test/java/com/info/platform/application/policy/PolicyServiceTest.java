@@ -150,14 +150,14 @@ class PolicyServiceTest {
 
     @Test
     void listPoliciesPaged_countAndPageSameFilter_returnsTotalAndEcho() {
-        // Arrange：同一 filter 走 count + findPage；industry trim 后透传
-        PolicyListFilter filter = new PolicyListFilter(7, "银行");
+        // Arrange：同一 filter 走 count + findPage；industry trim 后透传、keyword 原样透传
+        PolicyListFilter filter = new PolicyListFilter(7, "银行", null);
         when(policyRepository.countByFilter(filter)).thenReturn(45L);
         when(policyRepository.findPage(filter, 2, 20))
                 .thenReturn(List.of(policy(44L, "政策44", List.of("银行"))));
 
         // Act
-        PolicyPagedView view = service.listPoliciesPaged(7, "  银行 ", 2, 20);
+        PolicyPagedView view = service.listPoliciesPaged(7, "  银行 ", null, 2, 20);
 
         // Assert：total 精确回显、page/size 如实回显、列表字段与游标模式一致
         assertThat(view.total()).isEqualTo(45L);
@@ -169,14 +169,26 @@ class PolicyServiceTest {
     }
 
     @Test
+    void listPoliciesPaged_keywordPassedThroughToFilter() {
+        // Arrange：keyword（已校验长度并 trim）原样进 filter（转义在 repo 层做）
+        PolicyListFilter filter = new PolicyListFilter(7, null, "半导体");
+        when(policyRepository.countByFilter(filter)).thenReturn(3L);
+        when(policyRepository.findPage(filter, 1, 20)).thenReturn(List.of());
+
+        // Act + Assert
+        PolicyPagedView view = service.listPoliciesPaged(7, null, "半导体", 1, 20);
+        assertThat(view.total()).isEqualTo(3L);
+    }
+
+    @Test
     void listPoliciesPaged_outOfRangePage_emptyListWithRealTotal() {
         // Arrange：越界页（offset 超总数）→ 空列表 + 真实 total（ADR-0035：200 + 空列表 + 如实回显）
-        PolicyListFilter filter = new PolicyListFilter(7, null);
+        PolicyListFilter filter = new PolicyListFilter(7, null, null);
         when(policyRepository.countByFilter(filter)).thenReturn(8L);
         when(policyRepository.findPage(filter, 99, 20)).thenReturn(List.of());
 
         // Act + Assert
-        PolicyPagedView view = service.listPoliciesPaged(7, null, 99, 20);
+        PolicyPagedView view = service.listPoliciesPaged(7, null, null, 99, 20);
         assertThat(view.policies()).isEmpty();
         assertThat(view.total()).isEqualTo(8L);
         assertThat(view.page()).isEqualTo(99);
@@ -186,12 +198,12 @@ class PolicyServiceTest {
     @Test
     void listPoliciesPaged_daysPassedThroughToFilter() {
         // Arrange：days 透传 filter（时间窗语义由 repo 层 clamp，service 不改写）
-        PolicyListFilter filter = new PolicyListFilter(30, null);
+        PolicyListFilter filter = new PolicyListFilter(30, null, null);
         when(policyRepository.countByFilter(filter)).thenReturn(0L);
         when(policyRepository.findPage(filter, 1, 10)).thenReturn(List.of());
 
         // Act + Assert
-        PolicyPagedView view = service.listPoliciesPaged(30, null, 1, 10);
+        PolicyPagedView view = service.listPoliciesPaged(30, null, null, 1, 10);
         assertThat(view.total()).isZero();
         assertThat(view.policies()).isEmpty();
     }

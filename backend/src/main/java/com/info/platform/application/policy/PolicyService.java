@@ -65,28 +65,31 @@ public class PolicyService {
     }
 
     /**
-     * 政策列表（页码模式，M9 T60）：count + findPage 同一 filter → {@link PolicyPagedView}。
+     * 政策列表（页码模式，M9 T60/T62）：count + findPage 同一 filter → {@link PolicyPagedView}。
      *
-     * <p>越界页由 offset 语义天然返回空列表（零分支，ADR-0035）；page/size 由接口层 {@code PageQuery} 校验归一。 debug 日志带
-     * page/size/total/耗时（护栏观测数据源，对齐 {@code getPolicy} 先例）。
+     * <p>越界页由 offset 语义天然返回空列表（零分支，ADR-0035）；page/size/keyword 长度由接口层 {@code PageQuery} 与
+     * Controller 校验归一。 debug 日志带 page/size/total/耗时（护栏观测数据源，对齐 {@code getPolicy} 先例）。
      *
      * @param days 时间窗（天）
      * @param industry 行业过滤；null/blank 不过滤
+     * @param keyword 标题/摘要关键词；null 不过滤（已 trim、长度 2~64 已校验）
      * @param page 页码（1 起，已校验）
      * @param size 页大小（1~50，已校验）
      */
-    public PolicyPagedView listPoliciesPaged(int days, String industry, int page, int size) {
+    public PolicyPagedView listPoliciesPaged(
+            int days, String industry, String keyword, int page, int size) {
         long startedAt = System.currentTimeMillis();
-        PolicyListFilter filter = new PolicyListFilter(days, normalize(industry));
+        PolicyListFilter filter = new PolicyListFilter(days, normalize(industry), keyword);
         long total = policyRepository.countByFilter(filter);
         List<PolicyView> views =
                 policyRepository.findPage(filter, page, size).stream()
                         .map(PolicyService::toView)
                         .toList();
         log.debug(
-                "政策页码列表 days={} industry={} page={} size={} total={} 耗时{}ms",
+                "政策页码列表 days={} industry={} keyword={} page={} size={} total={} 耗时{}ms",
                 days,
                 industry,
+                keyword,
                 page,
                 size,
                 total,
