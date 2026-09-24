@@ -321,12 +321,84 @@ class SubjectSyncServiceIntegrationTest {
         assertThat(tencent.getMissingStreak()).isZero();
     }
 
+    // ---- T54 指数桶纳入（Should） ----
+
+    @Test
+    void syncAll_indexBucketEnabled_v17IndexSeedsAligned_noDuplicateInsert() {
+        SubjectListSource source = mock(SubjectListSource.class);
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
+        when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        // 指数桶源快照：4 只 V17 种子按代码对齐；f100 恒 "-" → industry null（§4.3 指数桶差异，行业以源为准）
+        when(source.fetchAll(MarketSyncSpec.CN_INDEX))
+                .thenReturn(
+                        List.of(
+                                indexSnapshot("000001", "上证指数", 1),
+                                indexSnapshot("399001", "深证成指", 0),
+                                indexSnapshot("399006", "创业板指", 0),
+                                indexSnapshot("000300", "沪深300", 1)));
+
+        List<MarketSyncResult> results = newService(source, true).syncAll();
+
+        // 第 3 桶 = CN_INDEX：V17 种子按 subject_code 自然对齐，不重复插入；行业全量对齐源（null）→ updated=4
+        MarketSyncResult index = results.get(2);
+        assertThat(index.bucket()).isEqualTo(MarketSyncSpec.CN_INDEX);
+        assertThat(index.inserted()).isZero();
+        assertThat(index.updated()).isEqualTo(4);
+        assertThat(index.missing()).isZero();
+        assertThat(index.deactivated()).isZero();
+        assertThat(index.total()).isEqualTo(4);
+
+        // 桶规模不变（仍 4 行）+ market=INDEX / subject_type=2 映射核实 + 观察态零痕迹
+        List<Subject> indexRows = subjectRepository.loadBucket(Market.INDEX, SubjectType.INDEX);
+        assertThat(indexRows).hasSize(4);
+        assertThat(indexRows)
+                .allSatisfy(
+                        row -> {
+                            assertThat(row.getMarket()).isEqualTo(Market.INDEX);
+                            assertThat(row.getSubjectType()).isEqualTo(SubjectType.INDEX);
+                            assertThat(row.getStatus()).isEqualTo(SubjectStatus.ENABLED);
+                            assertThat(row.getMissingStreak()).isZero();
+                            assertThat(row.getIndustry()).as("行业以源为准（f100 占位归一 null）").isNull();
+                            assertThat(row.getExternalCodes())
+                                    .containsKey("eastmoney")
+                                    .containsKey("tushare");
+                        });
+
+        // 还原 V17 种子行业（共享内存库不留脏数据）
+        restoreIndexIndustry("SH000001", "上证指数", "综合指数", "1.000001", "000001.SH");
+        restoreIndexIndustry("SZ399001", "深证成指", "综合指数", "0.399001", "399001.SZ");
+        restoreIndexIndustry("SZ399006", "创业板指", "综合指数", "0.399006", "399006.SZ");
+        restoreIndexIndustry("SH000300", "沪深300", "规模指数", "1.000300", "000300.SH");
+    }
+
     // ---- helpers ----
 
     private SubjectSyncService newService(SubjectListSource source) {
+        return newService(source, false);
+    }
+
+    private SubjectSyncService newService(SubjectListSource source, boolean indexEnabled) {
         return new SubjectSyncService(
                 source,
-                new SubjectSyncWriter(subjectRepository, TEST_BATCH_SIZE, TEST_STREAK_THRESHOLD));
+                new SubjectSyncWriter(subjectRepository, TEST_BATCH_SIZE, TEST_STREAK_THRESHOLD),
+                indexEnabled);
+    }
+
+    private void restoreIndexIndustry(
+            String code, String name, String industry, String eastmoney, String tushare) {
+        subjectRepository.updateSnapshot(
+                code, name, industry, Map.of("eastmoney", eastmoney, "tushare", tushare));
+    }
+
+    /** 指数桶快照：f13 显式给定（沪指数 1./深指数 0.，代码首位无法区分市场，§4.2 桶表）。 */
+    private static SubjectSnapshot indexSnapshot(String code, String name, int f13) {
+        return new SubjectSnapshot(
+                MarketSyncSpec.codePrefixOf(f13) + code,
+                name,
+                null,
+                f13 + "." + code,
+                MarketSyncSpec.CN_INDEX);
     }
 
     private int streakOf(String code) {

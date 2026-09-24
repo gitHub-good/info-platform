@@ -26,8 +26,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * SubjectSyncService / SubjectSyncWriter 单测（T51，Mockito 隔离——不触 DB、不触 HTTP）：市场级独立与汇总异常 / 拉取失败零写入 /
- * diff 四分支分类与批量分批（§4.3 流程 A/B、§6 引擎 diff 要点；streak 语义的库级断言在集成测试）。
+ * SubjectSyncService / SubjectSyncWriter 单测（T51/T52/T54，Mockito 隔离——不触 DB、不触 HTTP）：市场级独立与汇总异常 /
+ * 拉取失败零写入 / T52 阈值停用挂点 / T54 指数桶开关与 Should 失败语义 / diff 四分支分类与批量分批（§4.3 流程 A/B、§6 引擎 diff 要点； streak
+ * 语义的库级断言在集成测试）。
  */
 class SubjectSyncServiceTest {
 
@@ -46,7 +47,7 @@ class SubjectSyncServiceTest {
         MarketSyncResult hk = new MarketSyncResult(MarketSyncSpec.HK_STOCK, 1, 0, 0, 0, 0, 1, 5);
         when(writer.writeBucket(any(), anyList())).thenReturn(aShare).thenReturn(hk);
 
-        List<MarketSyncResult> results = new SubjectSyncService(source, writer).syncAll();
+        List<MarketSyncResult> results = new SubjectSyncService(source, writer, false).syncAll();
 
         assertThat(results).containsExactly(aShare, hk);
     }
@@ -63,7 +64,7 @@ class SubjectSyncServiceTest {
                 new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 5561, 0, 0, 0, 0, 5561, 95000);
         when(writer.writeBucket(eq(MarketSyncSpec.A_SHARE_STOCK), anyList())).thenReturn(aShare);
 
-        SubjectSyncService service = new SubjectSyncService(source, writer);
+        SubjectSyncService service = new SubjectSyncService(source, writer, false);
         assertThatThrownBy(service::syncAll)
                 .isInstanceOf(SubjectSyncException.class)
                 .hasMessageContaining("标的池同步部分失败")
@@ -96,11 +97,74 @@ class SubjectSyncServiceTest {
         SubjectSyncWriter writer = mock(SubjectSyncWriter.class);
         when(source.fetchAll(MarketSyncSpec.HK_STOCK))
                 .thenThrow(new IllegalStateException("total 校验失败"));
-        SubjectSyncService service = new SubjectSyncService(source, writer);
+        SubjectSyncService service = new SubjectSyncService(source, writer, false);
 
         assertThatThrownBy(() -> service.syncMarket(MarketSyncSpec.HK_STOCK))
                 .isInstanceOf(IllegalStateException.class);
         verify(writer, never()).writeBucket(any(), anyList());
+    }
+
+    // ---- SubjectSyncService：T54 指数桶开关与 Should 失败语义（§4.3） ----
+
+    @Test
+    void syncedBuckets_indexSwitch_appendsOrOmitsIndexBucket() {
+        SubjectSyncService indexOn =
+                new SubjectSyncService(
+                        mock(SubjectListSource.class), mock(SubjectSyncWriter.class), true);
+        SubjectSyncService indexOff =
+                new SubjectSyncService(
+                        mock(SubjectListSource.class), mock(SubjectSyncWriter.class), false);
+
+        // 开（默认）：A 股 → 港股 → 指数（顺序即执行顺序）；关（Should 可关）：仅两股票桶
+        assertThat(indexOn.syncedBuckets())
+                .containsExactly(
+                        MarketSyncSpec.A_SHARE_STOCK,
+                        MarketSyncSpec.HK_STOCK,
+                        MarketSyncSpec.CN_INDEX);
+        assertThat(indexOff.syncedBuckets())
+                .containsExactly(MarketSyncSpec.A_SHARE_STOCK, MarketSyncSpec.HK_STOCK);
+    }
+
+    @Test
+    void syncAll_indexFails_warnOnly_stockResultsReturned() {
+        SubjectListSource source = mock(SubjectListSource.class);
+        SubjectSyncWriter writer = mock(SubjectSyncWriter.class);
+        when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
+                .thenReturn(List.of(snapshot("600519", "贵州茅台")));
+        when(source.fetchAll(MarketSyncSpec.HK_STOCK))
+                .thenReturn(List.of(snapshot("00700", "腾讯控股")));
+        when(source.fetchAll(MarketSyncSpec.CN_INDEX))
+                .thenThrow(new IllegalStateException("clist total 完整性校验失败 bucket=CN_INDEX"));
+        MarketSyncResult aShare =
+                new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 1, 0, 0, 0, 0, 1, 5);
+        MarketSyncResult hk = new MarketSyncResult(MarketSyncSpec.HK_STOCK, 1, 0, 0, 0, 0, 1, 5);
+        when(writer.writeBucket(any(), anyList())).thenReturn(aShare).thenReturn(hk);
+        SubjectSyncService service = new SubjectSyncService(source, writer, true);
+
+        // Should 语义：指数桶失败仅 WARN——不抛汇总异常，股票结果照常返回
+        List<MarketSyncResult> results = service.syncAll();
+
+        assertThat(results).containsExactly(aShare, hk);
+        verify(writer, never()).writeBucket(eq(MarketSyncSpec.CN_INDEX), anyList());
+    }
+
+    @Test
+    void syncAll_indexSucceeds_includedInResults() {
+        SubjectListSource source = mock(SubjectListSource.class);
+        SubjectSyncWriter writer = mock(SubjectSyncWriter.class);
+        when(source.fetchAll(any())).thenReturn(List.of());
+        MarketSyncResult aShare =
+                new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 0, 0, 0, 0, 0, 0, 1);
+        MarketSyncResult hk = new MarketSyncResult(MarketSyncSpec.HK_STOCK, 0, 0, 0, 0, 0, 0, 1);
+        MarketSyncResult index = new MarketSyncResult(MarketSyncSpec.CN_INDEX, 0, 0, 4, 0, 0, 4, 1);
+        when(writer.writeBucket(any(), anyList()))
+                .thenReturn(aShare)
+                .thenReturn(hk)
+                .thenReturn(index);
+
+        List<MarketSyncResult> results = new SubjectSyncService(source, writer, true).syncAll();
+
+        assertThat(results).containsExactly(aShare, hk, index);
     }
 
     // ---- SubjectSyncWriter：T52 阈值停用（§4.3 流程 B 缺失分支） ----
@@ -391,7 +455,7 @@ class SubjectSyncServiceTest {
     private static SubjectSyncException catchSyncException(
             SubjectListSource source, SubjectSyncWriter writer) {
         try {
-            new SubjectSyncService(source, writer).syncAll();
+            new SubjectSyncService(source, writer, false).syncAll();
             throw new AssertionError("应抛 SubjectSyncException");
         } catch (SubjectSyncException e) {
             return e;
