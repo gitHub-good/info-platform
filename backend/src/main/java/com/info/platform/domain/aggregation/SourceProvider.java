@@ -14,8 +14,10 @@ public enum SourceProvider {
     EASTMONEY("eastmoney", "东方财富"),
     /** 腾讯（行情/估值备选，ADR-0031） */
     TENCENT("tencent", "腾讯"),
-    /** 新浪（新闻主源、A股列表备选，ADR-0030/0031） */
+    /** 新浪（新闻主源、A股列表/财务备选，ADR-0030/0031/0034） */
     SINA("sina", "新浪"),
+    /** 巨潮资讯（公告备选，ADR-0034） */
+    CNINFO("cninfo", "巨潮资讯"),
     /** 政府网（gov.cn 政策源） */
     GOV("gov", "政府网"),
     /** 本地（事件源读本地 anomaly_event 表，ADR-0013） */

@@ -414,7 +414,8 @@ class AnnounceSourceAdapterTest {
     // ---- helpers ----
 
     private AnnounceSourceAdapter newAdapter() {
-        return new AnnounceSourceAdapter(cache, fieldMapper, runner, breaker, mockClient());
+        return new AnnounceSourceAdapter(
+                cache, fieldMapper, runner, breaker, mockClient(), mockCninfoClient());
     }
 
     /** 构造绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */
@@ -426,7 +427,8 @@ class AnnounceSourceAdapterTest {
                 new EastMoneyAnnounceClient(
                         builder, ANNOUNCE_URL, PAGE_SIZE, DETAIL_URL_TEMPLATE, ANNOUNCE_REFERER);
         AnnounceSourceAdapter adapter =
-                new AnnounceSourceAdapter(cache, fieldMapper, runner, breaker, client);
+                new AnnounceSourceAdapter(
+                        cache, fieldMapper, runner, breaker, client, mockCninfoClient());
         responseSetter.accept(server);
         SourceResult result = adapter.fetch(subject);
         server.verify();
@@ -441,6 +443,16 @@ class AnnounceSourceAdapterTest {
                 PAGE_SIZE,
                 DETAIL_URL_TEMPLATE,
                 ANNOUNCE_REFERER);
+    }
+
+    /** 巨潮备选客户端替身（本测试类聚焦东财路径；巨潮路径见 AnnounceSourceAdapterFallbackTest）。 */
+    private static CninfoAnnounceClient mockCninfoClient() {
+        return new CninfoAnnounceClient(
+                RestClient.builder(),
+                "https://cninfo.test/new/hisAnnouncement/query",
+                "https://cninfo.test/new/data/szse_stock.json",
+                "https://static.cninfo.test/",
+                java.time.Duration.ofHours(24));
     }
 
     private static Subject subjectWithSecid(String secid) {

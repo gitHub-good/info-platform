@@ -37,11 +37,12 @@ const FIELD_LABELS: Record<string, string> = {
   params: '外呼参数',
 };
 
-/** provider 展示名（与后端 RawFetch.source 标注/日志同款映射，ADR-0033）。 */
+/** provider 展示名（与后端 RawFetch.source 标注/日志同款映射，ADR-0033；cninfo 为 ADR-0034 T57 需求许可的一条映射微调）。 */
 const PROVIDER_LABELS: Record<string, string> = {
   eastmoney: '东方财富',
   tencent: '腾讯',
   sina: '新浪',
+  cninfo: '巨潮资讯',
   gov: '政府网',
   local: '本地',
 };

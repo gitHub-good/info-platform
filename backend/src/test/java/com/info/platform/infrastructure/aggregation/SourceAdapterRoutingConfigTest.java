@@ -120,6 +120,7 @@ class SourceAdapterRoutingConfigTest {
                             EastMoneyFinanceClient.class,
                             SinaFinanceClient.class,
                             EastMoneyAnnounceClient.class,
+                            CninfoAnnounceClient.class,
                             SinaNewsClient.class,
                             GovPolicyClient.class);
 

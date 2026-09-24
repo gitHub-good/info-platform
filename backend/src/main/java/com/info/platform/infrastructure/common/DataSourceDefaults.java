@@ -118,7 +118,9 @@ public final class DataSourceDefaults {
      *
      * <p>增量键：QUOTE/VALUATION 的 {@code backupSource}（原 yml {@code adapter.quote-source}/{@code
      * adapter.valuation-source} 备选源开关，热化后经 params 用时读取）；ANNOUNCE 的 {@code announceReferer} （原 yml
-     * {@code adapter.eastmoney.announce-referer}——T36 时 client 已每调用读 params 但种子缺该键，本次补齐）。
+     * {@code adapter.eastmoney.announce-referer}——T36 时 client 已每调用读 params 但种子缺该键，本次补齐）； FINANCE 的
+     * {@code financeSina*UrlTemplate} 与 ANNOUNCE 的 {@code cninfo*}（ADR-0034 备选源接入新增，无 yml
+     * 历史，代码内置即初始值）。
      */
     public static Map<String, Object> params(SourceCode code) {
         Map<String, Object> params = new LinkedHashMap<>();
@@ -155,6 +157,11 @@ public final class DataSourceDefaults {
                         "announceDetailUrlTemplate",
                         "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
                 params.put("announceReferer", "https://data.eastmoney.com/");
+                // 巨潮 cninfo 备选三参数（ADR-0034 T57）：查询 POST 端点 / orgId 映射表 / 详情 PDF 直链前缀
+                params.put("cninfoQueryUrl", "https://www.cninfo.com.cn/new/hisAnnouncement/query");
+                params.put(
+                        "cninfoStockListUrl", "https://www.cninfo.com.cn/new/data/szse_stock.json");
+                params.put("cninfoDetailUrlPrefix", "https://static.cninfo.com.cn/");
             }
             case NEWS -> {
                 params.put("newsUrl", "https://feed.mix.sina.com.cn/api/roll/get");

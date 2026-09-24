@@ -86,6 +86,13 @@ class DataSourceRuntimeConfigSeederTest {
         // ADR-0032 补齐：原 yml adapter.eastmoney.announce-referer 迁入 params（T36 时 client 热读但种子缺键）
         assertThat(params.path("announceReferer").asText())
                 .isEqualTo("https://data.eastmoney.com/");
+        // ADR-0034 T57：巨潮备选三参数（查询 POST / orgId 映射表 / 详情直链前缀），与 client 构造期回落同源
+        assertThat(params.path("cninfoQueryUrl").asText())
+                .isEqualTo("https://www.cninfo.com.cn/new/hisAnnouncement/query");
+        assertThat(params.path("cninfoStockListUrl").asText())
+                .isEqualTo("https://www.cninfo.com.cn/new/data/szse_stock.json");
+        assertThat(params.path("cninfoDetailUrlPrefix").asText())
+                .isEqualTo("https://static.cninfo.com.cn/");
     }
 
     @Test
@@ -102,7 +109,7 @@ class DataSourceRuntimeConfigSeederTest {
 
     @Test
     void multiProviderSeeds_carryDefaultFallbackChain() throws Exception {
-        // 多 provider 源（QUOTE/VALUATION，及 ADR-0034 起的 FINANCE）种入默认链（页面/引擎同源缺省）；
+        // 多 provider 源（QUOTE/VALUATION，及 ADR-0034 起的 FINANCE/ANNOUNCE）种入默认链（页面/引擎同源缺省）；
         // 单 provider 源不种该字段
         for (SourceCode code : List.of(SourceCode.QUOTE, SourceCode.VALUATION)) {
             JsonNode chain =
@@ -117,6 +124,11 @@ class DataSourceRuntimeConfigSeederTest {
         assertThat(financeChain.isArray()).isTrue();
         assertThat(financeChain.get(0).asText()).isEqualTo("eastmoney");
         assertThat(financeChain.get(1).asText()).isEqualTo("sina");
+        // ADR-0034 T57：公告源注册表补巨潮备选——种子默认链 [eastmoney, cninfo]
+        JsonNode announceChain = docOf("datasource.ANNOUNCE").path("fallbackChain");
+        assertThat(announceChain.isArray()).isTrue();
+        assertThat(announceChain.get(0).asText()).isEqualTo("eastmoney");
+        assertThat(announceChain.get(1).asText()).isEqualTo("cninfo");
         assertThat(docOf("datasource.EVENT").has("fallbackChain")).isFalse();
     }
 

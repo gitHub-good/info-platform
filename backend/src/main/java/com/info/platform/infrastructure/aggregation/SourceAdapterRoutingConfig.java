@@ -118,10 +118,11 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker,
             EastMoneyAnnounceClient client,
+            CninfoAnnounceClient cninfoClient,
             ConfigCenter configCenter) {
         return new RoutingSourceAdapter(
                 SourceCode.ANNOUNCE,
-                announceSourceAdapter(cache, fieldMapper, runner, breaker, client),
+                announceSourceAdapter(cache, fieldMapper, runner, breaker, client, cninfoClient),
                 mockAnnounceSourceAdapter(cache, fieldMapper, runner, breaker),
                 configCenter);
     }
@@ -255,8 +256,9 @@ public class SourceAdapterRoutingConfig {
             FieldMapper fieldMapper,
             ResilienceRunner runner,
             CircuitBreaker breaker,
-            EastMoneyAnnounceClient client) {
-        return new AnnounceSourceAdapter(cache, fieldMapper, runner, breaker, client);
+            EastMoneyAnnounceClient client,
+            CninfoAnnounceClient cninfoClient) {
+        return new AnnounceSourceAdapter(cache, fieldMapper, runner, breaker, client, cninfoClient);
     }
 
     @Bean
