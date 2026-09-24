@@ -213,6 +213,19 @@ class AIBriefServiceTest {
     }
 
     @Test
+    void createBrief_concurrentUniqueConflict_refetchMiss_rethrows() {
+        // Arrange：撞 UNIQUE 但重查幂等键未命中（理论不达，防御脏数据/事务可见性异常）——不吞，原样上抛兜底
+        when(subjectRepository.findById(SUBJECT_ID)).thenReturn(Optional.of(subject()));
+        when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+        when(repository.save(any()))
+                .thenThrow(new DuplicateKeyException("UNIQUE(idempotency_key) 冲突"));
+
+        // Act + Assert
+        assertThatThrownBy(() -> service.createBrief(SUBJECT_ID, BriefType.STOCK))
+                .isInstanceOf(DuplicateKeyException.class);
+    }
+
+    @Test
     void createBrief_quotaExhausted_throws429() {
         // Arrange：成本上限触发
         doThrow(new BusinessException(ErrorCode.AI_QUOTA_EXHAUSTED, "配额用尽"))
