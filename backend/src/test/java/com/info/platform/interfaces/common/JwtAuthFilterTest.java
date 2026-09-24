@@ -128,6 +128,26 @@ class JwtAuthFilterTest {
     }
 
     @Test
+    void refreshToken_rejectedWith401AndCode1003() throws Exception {
+        // P0-2 回归（系统体检 20260924）：7 天 refresh 令牌不得当 access 令牌调用受保护 API——
+        // verify 通过（签名/有效期合法）但 tokenType=REFRESH，必须拒 401/1003，不放行进下游
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/subjects/1/detail");
+        req.addHeader("Authorization", "Bearer refresh.jwt");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        when(tokenService.verify(eq("refresh.jwt")))
+                .thenReturn(new TokenClaims(7L, "alice", TokenType.REFRESH));
+        boolean[] forwarded = {false};
+        FilterChain chain = (r, s) -> forwarded[0] = true;
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(forwarded[0]).isFalse(); // 被拦截，未进入下游（1h 短期令牌设计不被架空）
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(bodyCode(res)).isEqualTo(1003);
+        assertThat(UserContext.get()).isNull();
+    }
+
+    @Test
     void invalidToken_returns401AndCode1003() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/subjects/1/detail");
         req.addHeader("Authorization", "Bearer expired.or.bad");
