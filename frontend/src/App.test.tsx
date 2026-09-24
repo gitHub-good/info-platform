@@ -19,6 +19,13 @@ function jobLogPage(items: Array<Record<string, unknown>> = []) {
 
 /** 数据源配置页最小视图（#/datasource-config 导航用：总超时条 + 7 源空态健康）。 */
 function datasourceConfigView() {
+  const providersOf = (code: string): string[] => {
+    if (code === 'QUOTE' || code === 'VALUATION') return ['eastmoney', 'tencent'];
+    if (code === 'NEWS') return ['sina'];
+    if (code === 'POLICY') return ['gov'];
+    if (code === 'EVENT') return ['local'];
+    return ['eastmoney'];
+  };
   const sources = ['QUOTE', 'FINANCE', 'VALUATION', 'ANNOUNCE', 'NEWS', 'POLICY', 'EVENT'].map(
     (code) => ({
       sourceCode: code,
@@ -28,6 +35,8 @@ function datasourceConfigView() {
       timeoutMillis: 1500,
       retries: 0,
       cacheTtlSeconds: 5,
+      fallbackChain: providersOf(code),
+      availableProviders: providersOf(code),
       params: {},
       health: { lastEventType: null, lastEventAt: null, errors24h: 0 },
       updatedAt: null,

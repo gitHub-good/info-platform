@@ -28,13 +28,15 @@ function sourceOf(overrides: Partial<DataSourceCardView> = {}): DataSourceCardVi
     timeoutMillis: 1500,
     retries: 0,
     cacheTtlSeconds: 5,
+    fallbackChain: ['eastmoney', 'tencent'],
+    availableProviders: ['eastmoney', 'tencent'],
     params: {
       quoteUrl: 'https://push2.eastmoney.com/api/qt/stock/get',
       fields: 'f43,f57',
     },
     health: { lastEventType: 'OK', lastEventAt: '2026-09-22T02:00:00Z', errors24h: 0 },
     updatedAt: '2026-09-22T01:00:00Z',
-    effectiveModes: {},
+    effectiveModes: { fallbackChain: LIVE },
     ...overrides,
   };
 }
@@ -61,12 +63,32 @@ function fullView(): DataSourceConfigView {
         label: '事件源',
         timeoutMillis: 500,
         mode: 'REAL',
+        fallbackChain: ['local'],
+        availableProviders: ['local'],
         params: {},
       }),
-      sourceOf({ sourceCode: 'FINANCE', label: '财务源', params: {} }),
+      sourceOf({
+        sourceCode: 'FINANCE',
+        label: '财务源',
+        fallbackChain: ['eastmoney'],
+        availableProviders: ['eastmoney'],
+        params: {},
+      }),
       sourceOf({ sourceCode: 'VALUATION', label: '估值源', params: {} }),
-      sourceOf({ sourceCode: 'NEWS', label: '新闻源', params: {} }),
-      sourceOf({ sourceCode: 'POLICY', label: '政策源', params: {} }),
+      sourceOf({
+        sourceCode: 'NEWS',
+        label: '新闻源',
+        fallbackChain: ['sina'],
+        availableProviders: ['sina'],
+        params: {},
+      }),
+      sourceOf({
+        sourceCode: 'POLICY',
+        label: '政策源',
+        fallbackChain: ['gov'],
+        availableProviders: ['gov'],
+        params: {},
+      }),
     ],
     aggregation: {
       detailTimeoutMillis: 2000,
@@ -304,5 +326,140 @@ describe('DatasourceConfig 页面', () => {
     expect(await screen.findByTestId('datasource-count-ANNOUNCE')).toHaveValue('3');
     expect(screen.queryByTestId('datasource-count-QUOTE')).toBeNull();
     expect(screen.queryByTestId('datasource-count-QUOTE-EVENT')).toBeNull();
+  });
+
+  // —— ADR-0033 降级链可视化 ——
+
+  it('降级链区块：多 provider 源按序渲染主源徽章 → 备选链，单 provider 源显示暂无备选源', async () => {
+    renderPage(makeStore());
+
+    const chain = await screen.findByTestId('datasource-chain-QUOTE');
+    expect(chain).toHaveTextContent('东方财富·主源');
+    expect(chain).toHaveTextContent('→');
+    expect(chain).toHaveTextContent('腾讯');
+
+    // 单 provider 源（财务源）无备选、无编辑入口；多 provider 源有「编辑降级链」
+    expect(screen.getByTestId('datasource-chain-FINANCE')).toHaveTextContent('暂无备选源');
+    expect(screen.getByTestId('datasource-chain-FINANCE')).toHaveTextContent('东方财富·主源');
+    expect(screen.queryByTestId('datasource-edit-chain-FINANCE')).toBeNull();
+    expect(screen.getByTestId('datasource-edit-chain-QUOTE')).toBeInTheDocument();
+  });
+
+  it('编辑降级链 Dialog：点亮顺序即链序（首个为主源），保存走 PATCH fallbackChain', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('datasource-card-QUOTE');
+
+    await user.click(screen.getByTestId('datasource-edit-chain-QUOTE'));
+    // 初始点亮 = 当前链 [eastmoney, tencent]；先清空再按新顺序点亮（腾讯主源 → 东财备选）
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-eastmoney'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-tencent'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-tencent'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-eastmoney'));
+
+    expect(screen.getByTestId('datasource-chain-preview-QUOTE')).toHaveTextContent(
+      '腾讯 → 东方财富',
+    );
+    await user.click(screen.getByTestId('datasource-chain-save-QUOTE'));
+
+    await waitFor(() => {
+      const patch = store.fetchMock.mock.calls.find(
+        (call) =>
+          String(call[1]?.method) === 'PATCH' &&
+          String(call[0]).endsWith('/datasource-configs/QUOTE'),
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(String(patch?.[1]?.body)).fallbackChain).toEqual([
+        'tencent',
+        'eastmoney',
+      ]);
+    });
+    // 保存后卡片按响应刷新：腾讯主源徽章在前
+    expect(await screen.findByTestId('datasource-chain-QUOTE')).toHaveTextContent('腾讯·主源');
+  });
+
+  it('清空备选（仅主源）：全部熄灭保存空链，卡片回到主源单链', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('datasource-card-QUOTE');
+
+    await user.click(screen.getByTestId('datasource-edit-chain-QUOTE'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-eastmoney'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-tencent'));
+    expect(screen.getByTestId('datasource-chain-preview-QUOTE')).toHaveTextContent('仅默认主源');
+    await user.click(screen.getByTestId('datasource-chain-save-QUOTE'));
+
+    await waitFor(() => {
+      const patch = store.fetchMock.mock.calls.find(
+        (call) =>
+          String(call[1]?.method) === 'PATCH' &&
+          String(call[0]).endsWith('/datasource-configs/QUOTE'),
+      );
+      expect(JSON.parse(String(patch?.[1]?.body)).fallbackChain).toEqual([]);
+    });
+    // 响应（服务端折算后单元素链）驱动卡片显示「暂无备选源」
+    expect(await screen.findByTestId('datasource-chain-QUOTE')).toHaveTextContent('暂无备选源');
+  });
+
+  it('降级链保存反馈：降级链已更新，下一次取数生效（即时生效枚举）', async () => {
+    renderPage(makeStore());
+    const user = userEvent.setup();
+    await screen.findByTestId('datasource-card-QUOTE');
+
+    await user.click(screen.getByTestId('datasource-edit-chain-QUOTE'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-tencent'));
+    await user.click(screen.getByTestId('datasource-chain-save-QUOTE'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('datasource-feedback-QUOTE')).toHaveTextContent(
+        '降级链已更新，下一次取数生效',
+      ),
+    );
+    expect(screen.getByTestId('datasource-feedback-QUOTE')).toHaveTextContent('即时生效：降级链');
+  });
+
+  it('降级链未改保存不发 PATCH（取消/等价链直关）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('datasource-card-QUOTE');
+
+    await user.click(screen.getByTestId('datasource-edit-chain-QUOTE'));
+    await user.click(screen.getByTestId('datasource-chain-save-QUOTE'));
+
+    const patchCalls = store.fetchMock.mock.calls.filter(
+      (call) => String(call[1]?.method) === 'PATCH',
+    );
+    expect(patchCalls).toHaveLength(0);
+    expect(screen.queryByTestId('datasource-feedback-QUOTE')).toBeNull();
+  });
+
+  it('降级链保存失败仅本卡反馈错误原样展示', async () => {
+    const store = makeStore({ failQuotePatch: true });
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('datasource-card-QUOTE');
+
+    await user.click(screen.getByTestId('datasource-edit-chain-QUOTE'));
+    await user.click(screen.getByTestId('datasource-chain-toggle-QUOTE-tencent'));
+    await user.click(screen.getByTestId('datasource-chain-save-QUOTE'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('datasource-feedback-QUOTE')).toHaveTextContent(
+        'timeoutMillis: 须为正整数',
+      ),
+    );
+  });
+
+  it('估值源链与行情源同款渲染（eastmoney → tencent 备选链）', async () => {
+    renderPage(makeStore());
+
+    expect(await screen.findByTestId('datasource-chain-VALUATION')).toHaveTextContent(
+      '东方财富·主源',
+    );
+    expect(screen.getByTestId('datasource-chain-VALUATION')).toHaveTextContent('腾讯');
+    expect(screen.getByTestId('datasource-edit-chain-VALUATION')).toBeInTheDocument();
   });
 });

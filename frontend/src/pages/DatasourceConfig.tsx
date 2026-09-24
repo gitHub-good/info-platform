@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
 import {
   getDatasourceConfigs,
@@ -33,8 +33,22 @@ const FIELD_LABELS: Record<string, string> = {
   timeoutMillis: '超时',
   retries: '重试',
   cacheTtlSeconds: '缓存 TTL',
+  fallbackChain: '降级链',
   params: '外呼参数',
 };
+
+/** provider 展示名（与后端 RawFetch.source 标注/日志同款映射，ADR-0033）。 */
+const PROVIDER_LABELS: Record<string, string> = {
+  eastmoney: '东方财富',
+  tencent: '腾讯',
+  sina: '新浪',
+  gov: '政府网',
+  local: '本地',
+};
+
+function providerLabelOf(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? provider;
+}
 
 /** 各源 URL 类参数（卡内截断展示 + 「编辑参数」Dialog 编辑）。 */
 const URL_PARAMS: Record<string, Array<{ key: string; label: string }>> = {
@@ -268,7 +282,12 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [state, setState] = useState<SaveFeedbackState>('idle');
-  const [feedback, setFeedback] = useState<{ hot: string[]; restart: string[]; msg: string }>({
+  const [feedback, setFeedback] = useState<{
+    hot: string[];
+    restart: string[];
+    msg: string;
+    label?: string;
+  }>({
     hot: [],
     restart: [],
     msg: '',
@@ -276,6 +295,8 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
   const [modeConfirm, setModeConfirm] = useState<DataSourceMode | null>(null);
   const [paramsOpen, setParamsOpen] = useState(false);
   const [paramErrors, setParamErrors] = useState<Record<string, string>>({});
+  const [chainOpen, setChainOpen] = useState(false);
+  const [chainDraft, setChainDraft] = useState<string[]>([]);
   const [connectivity, setConnectivity] = useState<
     'idle' | 'testing' | (DataSourceConnectivityResult & { ok: boolean })
   >('idle');
@@ -328,7 +349,11 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
     return { body, changed };
   };
 
-  const doSave = async (body: DataSourceConfigUpdate, changed: string[]) => {
+  const doSave = async (
+    body: DataSourceConfigUpdate,
+    changed: string[],
+    successLabel?: string,
+  ) => {
     setState('saving');
     try {
       const saved = await patchDatasourceSource(source.sourceCode, {
@@ -338,7 +363,7 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
       onSaved(saved);
       setForm({});
       const { hot, restart } = splitByEffect(changed, source.effectiveModes);
-      setFeedback({ hot, restart, msg: '' });
+      setFeedback({ hot, restart, msg: '', label: successLabel });
       setState('success');
     } catch (err) {
       // 单卡失败仅本卡反馈（三态规范）：原值保留、其他卡不受影响
@@ -409,6 +434,25 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
     await doSave(body, changed);
   };
 
+  /** 降级链编辑（ADR-0033）：点亮 provider 启用，点击顺序即降级顺序（首个为主源）；全部熄灭 = 仅默认主源。 */
+  const toggleChainDraft = (provider: string) => {
+    setChainDraft((draft) =>
+      draft.includes(provider)
+        ? draft.filter((p) => p !== provider)
+        : [...draft, provider],
+    );
+  };
+
+  const handleSaveChain = async () => {
+    // 有效值未变（含空链 vs 折算主源单链的等价形态）不发包
+    if (chainDraft.join('|') === (source.fallbackChain ?? []).join('|')) {
+      setChainOpen(false);
+      return;
+    }
+    setChainOpen(false);
+    await doSave({ fallbackChain: chainDraft }, ['fallbackChain'], '降级链已更新，下一次取数生效');
+  };
+
   const runConnectivity = async () => {
     setConnectivity('testing');
     try {
@@ -426,6 +470,12 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
   };
 
   const health = healthBadgeOf(source.health);
+  // 降级链区块（ADR-0033）：字段缺失（旧后端形状/滚动发布窗口）按空链容错，不崩卡
+  const fallbackChain = source.fallbackChain ?? [];
+  const availableProviders = source.availableProviders ?? [];
+  const multiProvider = availableProviders.length > 1;
+  const primaryOfChain =
+    fallbackChain[0] ?? availableProviders[0] ?? source.sourceCode.toLowerCase();
 
   return (
     <Card
@@ -464,6 +514,54 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
             当前为 mock 模式，数据非真实
           </p>
         ) : null}
+        {/* 降级策略（ADR-0033）：主源徽章 → 备选链 chips；单 provider 源显示「暂无备选源」 */}
+        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          <span className="text-xs text-muted-foreground">降级策略</span>
+          {fallbackChain.length > 1 ? (
+            <span
+              className="flex flex-wrap items-center gap-1"
+              data-testid={`datasource-chain-${source.sourceCode}`}
+            >
+              {fallbackChain.map((provider, index) => (
+                <Fragment key={provider}>
+                  {index > 0 ? (
+                    <span className="text-muted-foreground" aria-hidden>
+                      →
+                    </span>
+                  ) : null}
+                  <Badge
+                    variant={index === 0 ? 'default' : 'outline'}
+                    data-testid={`datasource-chain-chip-${source.sourceCode}-${provider}`}
+                  >
+                    {index === 0 ? `${providerLabelOf(provider)}·主源` : providerLabelOf(provider)}
+                  </Badge>
+                </Fragment>
+              ))}
+            </span>
+          ) : (
+            <span
+              className="flex items-center gap-1.5"
+              data-testid={`datasource-chain-${source.sourceCode}`}
+            >
+              <Badge variant="outline">{providerLabelOf(primaryOfChain)}·主源</Badge>
+              <span className="text-xs text-muted-foreground">暂无备选源</span>
+            </span>
+          )}
+          {multiProvider ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => {
+                setChainDraft([...(source.fallbackChain ?? [])]);
+                setChainOpen(true);
+              }}
+              data-testid={`datasource-edit-chain-${source.sourceCode}`}
+            >
+              编辑降级链
+            </Button>
+          ) : null}
+        </div>
         {isEvent ? (
           <p className="text-xs text-muted-foreground">读取本地异动表，无外部端点</p>
         ) : (
@@ -600,6 +698,7 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
           hotFields={feedback.hot}
           restartFields={feedback.restart}
           message={feedback.msg}
+          successLabel={feedback.label}
           testId={`datasource-feedback-${source.sourceCode}`}
         />
         <Dialog
@@ -663,6 +762,53 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
             </label>
           ))}
         </Dialog>
+        <Dialog
+          open={chainOpen}
+          title={`${source.label} · 降级链`}
+          description="点亮 provider 启用，点击顺序即降级顺序（首个为主源）；全部熄灭 = 仅默认主源。保存后下一次取数生效。"
+          onClose={() => setChainOpen(false)}
+          footer={
+            <>
+              <Button variant="outline" size="sm" onClick={() => setChainOpen(false)}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleSaveChain()}
+                data-testid={`datasource-chain-save-${source.sourceCode}`}
+              >
+                保存降级链
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              {availableProviders.map((provider) => (
+                <Button
+                  key={provider}
+                  type="button"
+                  size="sm"
+                  variant={chainDraft.includes(provider) ? 'default' : 'outline'}
+                  onClick={() => toggleChainDraft(provider)}
+                  aria-pressed={chainDraft.includes(provider)}
+                  data-testid={`datasource-chain-toggle-${source.sourceCode}-${provider}`}
+                >
+                  {providerLabelOf(provider)}
+                </Button>
+              ))}
+            </div>
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid={`datasource-chain-preview-${source.sourceCode}`}
+            >
+              当前链：
+              {chainDraft.length > 0
+                ? chainDraft.map((p) => providerLabelOf(p)).join(' → ')
+                : `仅默认主源（${providerLabelOf(availableProviders[0] ?? '')}）`}
+            </p>
+          </div>
+        </Dialog>
       </CardContent>
     </Card>
   );
@@ -725,7 +871,7 @@ export function DatasourceConfig() {
       <header className="mb-4">
         <h1 className="text-xl font-medium">数据源配置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          7 源开关 / 运行模式 / 弹性参数与健康状态一页管理
+          7 源开关 / 运行模式 / 降级链 / 弹性参数与健康状态一页管理
         </p>
       </header>
 
