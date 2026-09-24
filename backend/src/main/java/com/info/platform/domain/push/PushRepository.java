@@ -50,8 +50,7 @@ public interface PushRepository {
      * <p>与 {@link #findPendingByUser} 区别：本方法不限 user，扫表全部 status=0 记录；补推 job 据在线状态决定补推/跳过。
      *
      * <p><b>扫描有界（系统体检 20260924 P1-1 后端半段）</b>：{@code LIMIT limit} 防无界全量拉取；{@code created_at >=
-     * createdSince} 过期截止——超期 PENDING 直接跳过不再扫（前端未接 SSE 期间积压的待推无消费者，超保留期即放弃补推）， 防 30s
-     * 轮询永久全量扫描失控表。
+     * createdSince} 过期截止——超期 PENDING 直接跳过不再扫（前端未接 SSE 期间积压的待推无消费者，超保留期即放弃补推）， 防 30s 轮询永久全量扫描失控表。
      *
      * @param limit 单轮扫描上限（id 升序取前 N，先来先补推）
      * @param createdSince 创建时间下限（早于此的 PENDING 不再入选，通常 now - 保留期）

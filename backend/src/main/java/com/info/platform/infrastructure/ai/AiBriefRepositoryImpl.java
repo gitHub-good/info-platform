@@ -28,8 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
  * bump version（{@code WHERE id=? AND status=0 AND version=?}），成功重选回读返回 bumped 实体。
  *
  * <p><b>写路径异常翻译（体检 P2 后端条目，照抄 ADR-0023-2/5 先例）</b>：并发双 POST 败者在应用层查重后 INSERT 撞 {@code
- * uq_ai_brief_idempotency}，或读写同事务命中 SQLITE_BUSY/LOCKED 码族——均须翻译为语义异常（败者按幂等命中 / 冲突重试），
- * 而非 UncategorizedSQLException 冒泡 500/50000。
+ * uq_ai_brief_idempotency}，或读写同事务命中 SQLITE_BUSY/LOCKED 码族——均须翻译为语义异常（败者按幂等命中 / 冲突重试）， 而非
+ * UncategorizedSQLException 冒泡 500/50000。
  */
 @Repository
 public class AiBriefRepositoryImpl implements AiBriefRepository {
@@ -38,8 +38,8 @@ public class AiBriefRepositoryImpl implements AiBriefRepository {
 
     /**
      * SQLite 并发写冲突码族标识（对齐 {@code PromptTemplateRepositoryImpl}）：文件库 WAL 为 {@code SQLITE_BUSY} /
-     * {@code SQLITE_BUSY_SNAPSHOT}，共享内存库为 {@code SQLITE_LOCKED} / {@code SQLITE_LOCKED_SHAREDCACHE}——
-     * 均属「败者须回滚重试」的并发冲突。
+     * {@code SQLITE_BUSY_SNAPSHOT}，共享内存库为 {@code SQLITE_LOCKED} / {@code
+     * SQLITE_LOCKED_SHAREDCACHE}—— 均属「败者须回滚重试」的并发冲突。
      */
     private static final Pattern SQLITE_CONCURRENCY_CONFLICT =
             Pattern.compile("SQLITE_(BUSY|LOCKED)", Pattern.CASE_INSENSITIVE);
@@ -72,7 +72,8 @@ public class AiBriefRepositoryImpl implements AiBriefRepository {
                             "UNIQUE(idempotency_key) 冲突: idempotencyKey=" + po.getIdempotencyKey(),
                             e);
                 }
-                throw translateConcurrencyConflict(e, "insert idempotencyKey=" + po.getIdempotencyKey());
+                throw translateConcurrencyConflict(
+                        e, "insert idempotencyKey=" + po.getIdempotencyKey());
             }
             log.info(
                     "新增 AI 简报任务: id={}, subjectId={}, briefType={}, idempotencyKey={}",
@@ -131,8 +132,8 @@ public class AiBriefRepositoryImpl implements AiBriefRepository {
     }
 
     /**
-     * SQLite 并发写冲突翻译（对齐 {@code PromptTemplateRepositoryImpl#translateConcurrencyConflict}）：
-     * {@link #SQLITE_CONCURRENCY_CONFLICT} 码族（含 cause 链）→ {@link CannotAcquireLockException}；其他异常原样返回由
+     * SQLite 并发写冲突翻译（对齐 {@code PromptTemplateRepositoryImpl#translateConcurrencyConflict}）： {@link
+     * #SQLITE_CONCURRENCY_CONFLICT} 码族（含 cause 链）→ {@link CannotAcquireLockException}；其他异常原样返回由
      * 调用方继续抛出（不吞不译）。
      */
     private static DataAccessException translateConcurrencyConflict(

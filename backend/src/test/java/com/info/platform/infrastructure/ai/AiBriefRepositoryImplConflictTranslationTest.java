@@ -24,8 +24,8 @@ import org.springframework.jdbc.UncategorizedSQLException;
  * ai_brief 并发创建败者的写冲突翻译——UNIQUE(idempotency_key) → {@link DuplicateKeyException}（供应用层按幂等命中处理），
  * SQLITE_BUSY/LOCKED 码族 → {@link CannotAcquireLockException}（并发写冲突），非冲突码不吞不译原样冒泡。
  *
- * <p>外层包装按 MyBatis-Plus + SQLite 实证取 {@link UncategorizedSQLException}（sqlite-jdbc 不抛 JDBC4 子类，Spring
- * 无 SQLite 错误码表，落 uncategorized）；cause 消息携带 sqlite 码族标识——与生产报文同构。
+ * <p>外层包装按 MyBatis-Plus + SQLite 实证取 {@link UncategorizedSQLException}（sqlite-jdbc 不抛 JDBC4
+ * 子类，Spring 无 SQLite 错误码表，落 uncategorized）；cause 消息携带 sqlite 码族标识——与生产报文同构。
  */
 class AiBriefRepositoryImplConflictTranslationTest {
 
@@ -56,7 +56,10 @@ class AiBriefRepositoryImplConflictTranslationTest {
                                 "[SQLITE_CONSTRAINT] UNIQUE constraint failed: ai_brief.idempotency_key"));
 
         // Act + Assert：译 DuplicateKeyException（幂等命中语义），消息带幂等键上下文
-        assertThatThrownBy(() -> repository.save(AiBrief.createNew(100L, BriefType.STOCK, "100:1:20260922")))
+        assertThatThrownBy(
+                        () ->
+                                repository.save(
+                                        AiBrief.createNew(100L, BriefType.STOCK, "100:1:20260922")))
                 .isInstanceOf(DuplicateKeyException.class)
                 .hasMessageContaining("100:1:20260922");
     }
@@ -68,7 +71,10 @@ class AiBriefRepositoryImplConflictTranslationTest {
                 .thenThrow(sqliteConflict("[SQLITE_BUSY_SNAPSHOT] The database file is locked"));
 
         // Act + Assert
-        assertThatThrownBy(() -> repository.save(AiBrief.createNew(101L, BriefType.STOCK, "101:1:20260922")))
+        assertThatThrownBy(
+                        () ->
+                                repository.save(
+                                        AiBrief.createNew(101L, BriefType.STOCK, "101:1:20260922")))
                 .isInstanceOf(CannotAcquireLockException.class);
     }
 
@@ -81,7 +87,10 @@ class AiBriefRepositoryImplConflictTranslationTest {
                                 "[SQLITE_LOCKED_SHAREDCACHE] database table is locked: ai_brief"));
 
         // Act + Assert
-        assertThatThrownBy(() -> repository.save(AiBrief.createNew(102L, BriefType.STOCK, "102:1:20260922")))
+        assertThatThrownBy(
+                        () ->
+                                repository.save(
+                                        AiBrief.createNew(102L, BriefType.STOCK, "102:1:20260922")))
                 .isInstanceOf(CannotAcquireLockException.class);
     }
 
@@ -92,7 +101,10 @@ class AiBriefRepositoryImplConflictTranslationTest {
         when(mapper.insert(any(AiBriefPO.class))).thenThrow(raw);
 
         // Act + Assert：同一实例原样抛出（不吞不换型）
-        assertThatThrownBy(() -> repository.save(AiBrief.createNew(103L, BriefType.STOCK, "103:1:20260922")))
+        assertThatThrownBy(
+                        () ->
+                                repository.save(
+                                        AiBrief.createNew(103L, BriefType.STOCK, "103:1:20260922")))
                 .isSameAs(raw);
         assertThat(raw).isNotInstanceOf(CannotAcquireLockException.class);
         assertThat(raw).isNotInstanceOf(DuplicateKeyException.class);

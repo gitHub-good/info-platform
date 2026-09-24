@@ -150,12 +150,12 @@ class PolicyTendencyJobTest {
         ArgumentCaptor<Integer> attemptsCaptor = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(repository)
-                .findRecentUnjudged(anyInt(), anyInt(), attemptsCaptor.capture(), cutoffCaptor.capture());
+                .findRecentUnjudged(
+                        anyInt(), anyInt(), attemptsCaptor.capture(), cutoffCaptor.capture());
         assertThat(attemptsCaptor.getValue()).isEqualTo(3);
         assertThat(cutoffCaptor.getValue())
                 .isCloseTo(
-                        Instant.now().minus(Duration.ofHours(2)),
-                        within(10, ChronoUnit.SECONDS));
+                        Instant.now().minus(Duration.ofHours(2)), within(10, ChronoUnit.SECONDS));
     }
 
     @Test
@@ -172,9 +172,9 @@ class PolicyTendencyJobTest {
         ArgumentCaptor<Integer> attemptsCaptor = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(repository)
-                .findRecentUnjudged(anyInt(), anyInt(), attemptsCaptor.capture(), cutoffCaptor.capture());
-        assertThat(attemptsCaptor.getValue())
-                .isEqualTo(PolicyTendencyJob.DEFAULT_MAX_ATTEMPTS);
+                .findRecentUnjudged(
+                        anyInt(), anyInt(), attemptsCaptor.capture(), cutoffCaptor.capture());
+        assertThat(attemptsCaptor.getValue()).isEqualTo(PolicyTendencyJob.DEFAULT_MAX_ATTEMPTS);
         assertThat(cutoffCaptor.getValue())
                 .isCloseTo(
                         Instant.now()

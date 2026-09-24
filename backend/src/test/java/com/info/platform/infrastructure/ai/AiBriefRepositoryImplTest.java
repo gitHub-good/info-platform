@@ -157,7 +157,9 @@ class AiBriefRepositoryImplTest {
         // Act + Assert：败者 INSERT 撞 uq_ai_brief_idempotency → 须译 DuplicateKeyException
         // 供应用层按幂等命中处理，而非 UncategorizedSQLException 冒泡 500/50000（体检 P2 后端条目）
         assertThatThrownBy(
-                        () -> repository.save(AiBrief.createNew(200L, BriefType.STOCK, "200:1:20260922")))
+                        () ->
+                                repository.save(
+                                        AiBrief.createNew(200L, BriefType.STOCK, "200:1:20260922")))
                 .isInstanceOf(DuplicateKeyException.class);
     }
 }

@@ -135,7 +135,8 @@ class PushRetryJobTest {
     @Test
     void constructor_nonPositiveConfig_fallsBackToDefaults() {
         // Arrange：scan-limit=0 / retention=-1 → 兜底 100 / 7
-        PushRetryJob guarded = new PushRetryJob(pushService, pushRepository, anomalyRepository, 0, -1);
+        PushRetryJob guarded =
+                new PushRetryJob(pushService, pushRepository, anomalyRepository, 0, -1);
 
         // Act
         guarded.retryPendingRecords();

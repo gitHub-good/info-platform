@@ -250,7 +250,13 @@ class PolicyRepositoryImplTest {
         // Arrange：落库一条新政策（不触碰留痕列）
         Long id =
                 repository
-                        .saveAll(List.of(newItem("政策V16", todayMinus(1), "https://gov/v16", List.of())))
+                        .saveAll(
+                                List.of(
+                                        newItem(
+                                                "政策V16",
+                                                todayMinus(1),
+                                                "https://gov/v16",
+                                                List.of())))
                         .get(0)
                         .getId();
 
@@ -298,8 +304,7 @@ class PolicyRepositoryImplTest {
                         id);
         assertThat(attempts).isEqualTo(2);
         assertThat(lastAttemptAt).isNotBlank();
-        assertThat(Instant.parse(lastAttemptAt))
-                .isAfterOrEqualTo(Instant.now().minusSeconds(60));
+        assertThat(Instant.parse(lastAttemptAt)).isAfterOrEqualTo(Instant.now().minusSeconds(60));
     }
 
     @Test
@@ -354,7 +359,8 @@ class PolicyRepositoryImplTest {
                 saved.get(1).getId());
 
         // Act：退避截止 = now - 2h
-        List<PolicyItem> pending = repository.findRecentUnjudged(7, 20, 3, now.minusSeconds(2 * 3600));
+        List<PolicyItem> pending =
+                repository.findRecentUnjudged(7, 20, 3, now.minusSeconds(2 * 3600));
 
         // Assert：窗内的政策X 不重试；超窗的政策Y 与从未尝试的政策Z 入选
         assertThat(pending)
@@ -376,7 +382,8 @@ class PolicyRepositoryImplTest {
         repository.updateAiTendency(id, AiTendency.NEUTRAL);
 
         // Act + Assert：倾向落库成功，扫描不返回（ai_tendency≠0 主过滤）
-        assertThat(repository.findById(id).orElseThrow().getAiTendency()).isEqualTo(AiTendency.NEUTRAL);
+        assertThat(repository.findById(id).orElseThrow().getAiTendency())
+                .isEqualTo(AiTendency.NEUTRAL);
         assertThat(repository.findRecentUnjudged(7, 20, 3, Instant.now())).isEmpty();
     }
 }

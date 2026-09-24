@@ -222,7 +222,8 @@ class PushRepositoryImplTest {
         assertThat(reloaded.get(0).getRetryCount()).isEqualTo(1);
     }
 
-    // ==================== P0-3 同根治理（系统体检 20260924 P1-1 后端半段）：无界扫描 + PENDING 永久积压 ====================
+    // ==================== P0-3 同根治理（系统体检 20260924 P1-1 后端半段）：无界扫描 + PENDING 永久积压
+    // ====================
 
     @Test
     void findPending_excludesPendingOlderThanRetention() {
@@ -241,8 +242,7 @@ class PushRepositoryImplTest {
                 stale.getId());
 
         // Act：保留期截止 = now - 7d
-        List<PushRecord> pending =
-                pushRepository.findPending(100, NOW.minus(Duration.ofDays(7)));
+        List<PushRecord> pending = pushRepository.findPending(100, NOW.minus(Duration.ofDays(7)));
 
         // Assert：超期 PENDING 不再被补推 Job 扫中（前端未接 SSE 期间的存量积压止血）；新鲜待推仍入选
         assertThat(pending).extracting(PushRecord::getId).containsExactly(fresh.getId());

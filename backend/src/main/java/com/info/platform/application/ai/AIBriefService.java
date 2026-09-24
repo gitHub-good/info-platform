@@ -33,8 +33,8 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -156,8 +156,8 @@ public class AIBriefService {
     /**
      * 并发败者按幂等命中处理（体检 P2 后端条目）：INSERT 撞 {@code uq_ai_brief_idempotency} 后重查幂等键。
      *
-     * <p>重查命中 → 返回既有 taskId（赢家已触发异步生成，不再重复触发）；重查仍空（UNIQUE 冲突但行不可见，理论不达）→
-     * 原样上抛 {@link DuplicateKeyException} 由全局处理器兜底，不吞异常。
+     * <p>重查命中 → 返回既有 taskId（赢家已触发异步生成，不再重复触发）；重查仍空（UNIQUE 冲突但行不可见，理论不达）→ 原样上抛 {@link
+     * DuplicateKeyException} 由全局处理器兜底，不吞异常。
      */
     private Long findExistingByConflict(String idempotencyKey, DuplicateKeyException cause) {
         Optional<AiBrief> existing = repository.findByIdempotencyKey(idempotencyKey);

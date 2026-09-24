@@ -12,8 +12,8 @@ import java.util.List;
  *
  * <p>对齐 V10
  * 迁移：id/title/source/published_at/summary/related_industries/ai_tendency/source_url/created_at/updated_at；V16
- * 增补尝试留痕列 tendency_attempts/tendency_last_attempt_at（P0-3 重试上限与退避过滤键，重试治理元数据不进领域实体）。
- * 按 §4.2 DDL 无 version 列（追加型政策流，无并发 UPDATE 竞争，同 anomaly_event），故不标 {@code @Version}。
+ * 增补尝试留痕列 tendency_attempts/tendency_last_attempt_at（P0-3 重试上限与退避过滤键，重试治理元数据不进领域实体）。 按 §4.2 DDL 无
+ * version 列（追加型政策流，无并发 UPDATE 竞争，同 anomaly_event），故不标 {@code @Version}。
  *
  * <p>{@code related_industries}（JSON 数组）经 {@link JacksonTypeHandler} 自动序列化/反序列化； {@code
  * autoResultMap=true} 让 TypeHandler 在 SELECT 时生效（同 {@code SubjectPO#externalCodes}）。 {@code

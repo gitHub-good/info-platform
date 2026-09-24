@@ -44,8 +44,8 @@ import org.springframework.stereotype.Component;
  * （FIXED_DELAY，种子间隔默认 30s，页面可调可停用）；测试 profile 种子 {@code enabled=false} → 零注册，隔离语义 等价平移，逻辑由单测直调验证。
  *
  * <p><b>扫描有界（系统体检 20260924 P1-1 后端半段）</b>：待推扫描 {@code push.retry.scan-limit}（默认 100）LIMIT + {@code
- * push.retry.pending-retention-days}（默认 7 天）过期截止——前端未接 SSE 期间积压的 PENDING 无消费者，超保留期直接跳过不再扫，
- * 防 30s 轮询无界全量拉取与 PENDING 永久积压；空转轮（两扫描均空）零日志输出（有数据才 INFO）。
+ * push.retry.pending-retention-days}（默认 7 天）过期截止——前端未接 SSE 期间积压的 PENDING 无消费者，超保留期直接跳过不再扫， 防 30s
+ * 轮询无界全量拉取与 PENDING 永久积压；空转轮（两扫描均空）零日志输出（有数据才 INFO）。
  */
 @Component
 public class PushRetryJob implements ManagedJob {

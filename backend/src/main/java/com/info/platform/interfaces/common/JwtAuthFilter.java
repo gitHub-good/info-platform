@@ -22,9 +22,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * JWT 鉴权过滤器（接口层横切，置于 {@link TraceIdFilter} 之后）。
  *
- * <p>从 {@code Authorization: Bearer <token>} 解析并校验 access 令牌（签名/有效期合法且 {@code tokenType=ACCESS}），校验通过则把
- * {@link UserContext.Principal}（含 userId）写入 ThreadLocal，供 T11 watchlist 行级权限取数。 白名单（登录/换发/actuator）直接放行；令牌缺失/无效/过期/非
- * access 类型（refresh 令牌，P0-2）→ 401 + 1003（统一 Result 体）。
+ * <p>从 {@code Authorization: Bearer <token>} 解析并校验 access 令牌（签名/有效期合法且 {@code
+ * tokenType=ACCESS}），校验通过则把 {@link UserContext.Principal}（含 userId）写入 ThreadLocal，供 T11 watchlist
+ * 行级权限取数。 白名单（登录/换发/actuator）直接放行；令牌缺失/无效/过期/非 access 类型（refresh 令牌，P0-2）→ 401 + 1003（统一 Result 体）。
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -61,8 +61,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             // P0-2（系统体检 20260924）：仅 access 令牌可调受保护 API——refresh 令牌（7 天长效）签名合法
             // 但 tokenType=REFRESH，须拒 401，防短期令牌设计被架空
             if (claims.tokenType() != TokenService.TokenType.ACCESS) {
-                log.warn(
-                        "鉴权失败: 非访问令牌被拒: path={}, tokenType={}", path, claims.tokenType());
+                log.warn("鉴权失败: 非访问令牌被拒: path={}, tokenType={}", path, claims.tokenType());
                 reject(response, ErrorCode.TOKEN_INVALID, "令牌类型不符，须为访问令牌");
                 return;
             }
