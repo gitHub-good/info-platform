@@ -589,6 +589,64 @@ class AIBriefServiceTest {
         assertThat(saved.getStatus()).isEqualTo(BriefStatus.DONE);
     }
 
+    // ==================== findTodayBrief（P1-5a 只读查询） ====================
+
+    @Test
+    void findTodayBrief_completed_returnsViewAndNoSideEffects() {
+        // Arrange：当日任务已 DONE（含 content 供 feed 只读消费）
+        when(repository.findByIdempotencyKey(anyString()))
+                .thenReturn(Optional.of(brief(BriefStatus.DONE, 2L)));
+        when(contentCodec.parse(anyString())).thenReturn(Optional.of(sampleContent));
+
+        // Act
+        Optional<AIBriefView> view = service.findTodayBrief(SUBJECT_ID, BriefType.STOCK);
+
+        // Assert：返回视图（status=1 + content），不受理不触发异步
+        assertThat(view).isPresent();
+        assertThat(view.orElseThrow().status()).isEqualTo(1);
+        assertThat(view.orElseThrow().content()).isEqualTo(sampleContent);
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void findTodayBrief_absent_returnsEmpty() {
+        // Arrange：当日无任务
+        when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+
+        // Act + Assert：空（feed 据此显示占位，不触发受理）
+        assertThat(service.findTodayBrief(SUBJECT_ID, BriefType.STOCK)).isEmpty();
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void findTodayBrief_stalePending_forceFailedSameAsGetBrief() {
+        // Arrange：PENDING 超 30min（懒查超时兜底口径与 getBrief 一致）
+        AiBrief stale =
+                AiBrief.reconstruct(
+                        TASK_ID,
+                        SUBJECT_ID,
+                        BriefType.STOCK,
+                        "",
+                        "",
+                        "",
+                        null,
+                        null,
+                        BriefStatus.PENDING,
+                        "key",
+                        1L,
+                        Instant.now().minus(31, ChronoUnit.MINUTES),
+                        Instant.now().minus(31, ChronoUnit.MINUTES));
+        when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.of(stale));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Act
+        Optional<AIBriefView> view = service.findTodayBrief(SUBJECT_ID, BriefType.STOCK);
+
+        // Assert：强制置 FAILED（feed 据此走规则兜底而非永久等待占位）
+        assertThat(view).isPresent();
+        assertThat(view.orElseThrow().status()).isEqualTo(2);
+    }
+
     // ==================== getBrief（查询） ====================
 
     @Test
