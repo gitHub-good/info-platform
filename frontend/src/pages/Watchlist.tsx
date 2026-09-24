@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddItemDialog } from '@/components/watchlist/AddItemDialog';
@@ -209,8 +210,21 @@ export function Watchlist() {
           ))}
         </div>
       ) : listError ? (
-        <div className="py-10 text-center text-sm text-destructive" data-testid="watchlist-list-error">
-          {listError}
+        <div
+          className="flex flex-col items-center gap-2 py-10"
+          data-testid="watchlist-list-error"
+        >
+          <p className="text-sm text-destructive" role="alert">
+            {listError}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void reloadList()}
+            data-testid="watchlist-list-retry"
+          >
+            重试
+          </Button>
         </div>
       ) : watchlists.length === 0 ? (
         <div className="py-10 text-center text-sm text-muted-foreground" data-testid="watchlist-list-empty">

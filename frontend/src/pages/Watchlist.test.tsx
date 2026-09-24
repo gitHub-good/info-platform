@@ -286,6 +286,26 @@ describe('Watchlist 管理页', () => {
     expect(screen.getByTestId('watchlist-item-row-10')).toBeInTheDocument();
   });
 
+  it('清单列表失败：展示错误与重试，重试后恢复', async () => {
+    const store = makeStore();
+    // 首次清单列表请求失败（mount 即 GET /watchlists）
+    store.fetch.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ code: 50000, msg: '服务异常', data: null, traceId: 't' }),
+    }));
+    const user = userEvent.setup();
+    vi.stubGlobal('fetch', store.fetch);
+    render(<Watchlist />);
+
+    expect(await screen.findByTestId('watchlist-list-error')).toHaveTextContent('服务异常');
+
+    // 重试：列表恢复正常
+    await user.click(screen.getByTestId('watchlist-list-retry'));
+    expect(await screen.findByTestId('watchlist-card-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('watchlist-list-error')).toBeNull();
+  });
+
   it('改阈值成功后详情刷新为新阈值', async () => {
     const store = makeStore();
     const user = userEvent.setup();
