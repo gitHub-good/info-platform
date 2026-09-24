@@ -116,6 +116,7 @@ class SourceAdapterRoutingConfigTest {
                             SourceAdapterInfrastructureConfig.class,
                             SourceAdapterRoutingConfig.class,
                             EastMoneyClient.class,
+                            TencentQuoteClient.class,
                             EastMoneyFinanceClient.class,
                             EastMoneyAnnounceClient.class,
                             SinaNewsClient.class,

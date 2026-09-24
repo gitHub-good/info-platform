@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -117,9 +118,20 @@ public class EastMoneyClient {
         if (data instanceof Map<?, ?> map && !map.isEmpty()) {
             @SuppressWarnings("unchecked")
             Map<String, Object> dataNode = (Map<String, Object>) data;
-            return Optional.of(dataNode);
+            return Optional.of(stripDashValues(dataNode));
         }
         return Optional.empty();
+    }
+
+    /**
+     * 归一 "-" 值为字段缺失（ADR-0031 发现修复）：东财以 {@code "-"} 表示无值（2026-09-24 实测港股估值 f162='-'）， 直传会使 {@code
+     * FieldMapper#toDecimal} 抛 {@code FieldMappingException}——估值/行情整分区异常而非按字段缺失降级。 剔除后走映射白名单「源字段缺失
+     * → 目标字段不产出」的既有语义（如港股估值仅产出 pb、缺 peTtm）。
+     */
+    private static Map<String, Object> stripDashValues(Map<String, Object> dataNode) {
+        Map<String, Object> normalized = new LinkedHashMap<>(dataNode);
+        normalized.values().removeIf(value -> "-".equals(value));
+        return normalized;
     }
 
     private String buildUrl(String quoteUrl, String secid, String fields) {

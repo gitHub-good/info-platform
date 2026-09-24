@@ -236,7 +236,20 @@ class QuoteSourceAdapterTest {
     // ---- helpers ----
 
     private QuoteSourceAdapter newAdapter() {
-        return new QuoteSourceAdapter(cache, fieldMapper, runner, breaker, mockClient());
+        // eastmoney 强制单源 = 旧版语义（本测试类断言东财行为；auto 降级见 QuoteSourceAdapterFallbackTest）
+        return new QuoteSourceAdapter(
+                cache,
+                fieldMapper,
+                runner,
+                breaker,
+                mockClient(),
+                unusedTencentClient(),
+                "eastmoney");
+    }
+
+    /** 永不被调用的腾讯客户端占位（eastmoney 模式下零外呼，纯构造无请求）。 */
+    private static TencentQuoteClient unusedTencentClient() {
+        return new TencentQuoteClient(RestClient.builder(), "https://qt.gtimg.cn/q=");
     }
 
     /** 构造一个绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */
@@ -246,7 +259,14 @@ class QuoteSourceAdapterTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         EastMoneyClient client = new EastMoneyClient(builder, QUOTE_URL, FIELDS, "f57,f162,f167");
         QuoteSourceAdapter adapter =
-                new QuoteSourceAdapter(cache, fieldMapper, runner, breaker, client);
+                new QuoteSourceAdapter(
+                        cache,
+                        fieldMapper,
+                        runner,
+                        breaker,
+                        client,
+                        unusedTencentClient(),
+                        "eastmoney");
         responseSetter.accept(server);
         SourceResult result = adapter.fetch(subject);
         server.verify();

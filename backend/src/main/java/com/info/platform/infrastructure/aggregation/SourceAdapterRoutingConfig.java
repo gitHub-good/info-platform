@@ -68,10 +68,20 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker,
             EastMoneyClient client,
-            ConfigCenter configCenter) {
+            TencentQuoteClient tencentClient,
+            ConfigCenter configCenter,
+            @org.springframework.beans.factory.annotation.Value("${adapter.quote-source:auto}")
+                    String quoteSourceMode) {
         return new RoutingSourceAdapter(
                 SourceCode.QUOTE,
-                quoteSourceAdapter(cache, fieldMapper, runner, breaker, client),
+                quoteSourceAdapter(
+                        cache,
+                        fieldMapper,
+                        runner,
+                        breaker,
+                        client,
+                        tencentClient,
+                        quoteSourceMode),
                 mockQuoteSourceAdapter(cache, fieldMapper, runner, breaker),
                 configCenter);
     }
@@ -98,10 +108,20 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker,
             EastMoneyClient client,
-            ConfigCenter configCenter) {
+            TencentQuoteClient tencentClient,
+            ConfigCenter configCenter,
+            @org.springframework.beans.factory.annotation.Value("${adapter.valuation-source:auto}")
+                    String valuationSourceMode) {
         return new RoutingSourceAdapter(
                 SourceCode.VALUATION,
-                valuationSourceAdapter(cache, fieldMapper, runner, breaker, client),
+                valuationSourceAdapter(
+                        cache,
+                        fieldMapper,
+                        runner,
+                        breaker,
+                        client,
+                        tencentClient,
+                        valuationSourceMode),
                 mockValuationSourceAdapter(cache, fieldMapper, runner, breaker),
                 configCenter);
     }
@@ -174,8 +194,12 @@ public class SourceAdapterRoutingConfig {
             FieldMapper fieldMapper,
             ResilienceRunner runner,
             CircuitBreaker breaker,
-            EastMoneyClient client) {
-        return new QuoteSourceAdapter(cache, fieldMapper, runner, breaker, client);
+            EastMoneyClient client,
+            TencentQuoteClient tencentClient,
+            @org.springframework.beans.factory.annotation.Value("${adapter.quote-source:auto}")
+                    String quoteSourceMode) {
+        return new QuoteSourceAdapter(
+                cache, fieldMapper, runner, breaker, client, tencentClient, quoteSourceMode);
     }
 
     @Bean
@@ -212,8 +236,12 @@ public class SourceAdapterRoutingConfig {
             FieldMapper fieldMapper,
             ResilienceRunner runner,
             CircuitBreaker breaker,
-            EastMoneyClient client) {
-        return new ValuationSourceAdapter(cache, fieldMapper, runner, breaker, client);
+            EastMoneyClient client,
+            TencentQuoteClient tencentClient,
+            @org.springframework.beans.factory.annotation.Value("${adapter.valuation-source:auto}")
+                    String valuationSourceMode) {
+        return new ValuationSourceAdapter(
+                cache, fieldMapper, runner, breaker, client, tencentClient, valuationSourceMode);
     }
 
     @Bean

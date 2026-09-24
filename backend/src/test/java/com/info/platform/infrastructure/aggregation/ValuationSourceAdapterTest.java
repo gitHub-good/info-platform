@@ -211,7 +211,20 @@ class ValuationSourceAdapterTest {
     // ---- helpers ----
 
     private ValuationSourceAdapter newAdapter() {
-        return new ValuationSourceAdapter(cache, fieldMapper, runner, breaker, mockClient());
+        // eastmoney 强制单源 = 旧版语义（本测试类断言东财行为；auto 降级见 ValuationSourceAdapterFallbackTest）
+        return new ValuationSourceAdapter(
+                cache,
+                fieldMapper,
+                runner,
+                breaker,
+                mockClient(),
+                unusedTencentClient(),
+                "eastmoney");
+    }
+
+    /** 永不被调用的腾讯客户端占位（eastmoney 模式下零外呼，纯构造无请求）。 */
+    private static TencentQuoteClient unusedTencentClient() {
+        return new TencentQuoteClient(RestClient.builder(), "https://qt.gtimg.cn/q=");
     }
 
     /** 构造绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */
@@ -222,7 +235,14 @@ class ValuationSourceAdapterTest {
         EastMoneyClient client =
                 new EastMoneyClient(builder, QUOTE_URL, QUOTE_FIELDS, VALUATION_FIELDS);
         ValuationSourceAdapter adapter =
-                new ValuationSourceAdapter(cache, fieldMapper, runner, breaker, client);
+                new ValuationSourceAdapter(
+                        cache,
+                        fieldMapper,
+                        runner,
+                        breaker,
+                        client,
+                        unusedTencentClient(),
+                        "eastmoney");
         responseSetter.accept(server);
         SourceResult result = adapter.fetch(subject);
         server.verify();

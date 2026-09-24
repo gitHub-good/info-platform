@@ -77,6 +77,14 @@ adapter:
     announce-detail-url-template: https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf
     # 全量列表源（T50 标的池定时同步）：push2 clist 分页拉取（ADR-0027 主选源）
     list-url: https://push2.eastmoney.com/api/qt/clist/get
+  # 腾讯行情源（ADR-0031）：qt.gtimg.cn/q= 行情/估值备选——GBK 响应、支持批量（≤50/请求），
+  # 无 UA/WAF 要求；auto 模式下东财 push2 失败/空响应（IP 封禁签名）自动降级此端点重拉
+  tencent:
+    quote-url: https://qt.gtimg.cn/q=
+  # 行情/估值源选择（ADR-0031）：auto（默认）东财失败或空响应自动降级腾讯备选源重拉 /
+  # eastmoney / tencent 强制单源（排障用——验证降级逻辑是否为故障源）；配置笔误启动 fail-fast
+  quote-source: auto
+  valuation-source: auto
   # 新浪新闻源（T06）：feed.mix.sina.com.cn 滚动新闻全市场流（不支持个股过滤，靠关键词匹配）
   # lid=2510 财经滚动分类（2026-09-21 curl 实测可用；1685~1689 已失效 code:11）；需 UA+Referer 防封 403
   sina:
