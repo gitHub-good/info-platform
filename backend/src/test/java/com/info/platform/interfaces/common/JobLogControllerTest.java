@@ -10,8 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.info.platform.application.common.JobLogPage;
+import com.info.platform.application.common.JobLogPagedView;
 import com.info.platform.application.common.JobLogQueryService;
 import com.info.platform.application.common.JobLogView;
+import com.info.platform.domain.common.JobExecutionStatus;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,8 +22,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * JobLogController 切片测试（T33）：standalone MockMvc + mock {@link JobLogQueryService}，验证 GET 列表/过滤/分页的
- * HTTP/JSON 编排与参数透传。JWT 鉴权由 {@code JwtAuthFilter} 在生产侧处理（独立测试覆盖），本切片不涉及。
+ * JobLogController 切片测试（T33 + M9 T61 页码模式）：standalone MockMvc + mock {@link JobLogQueryService}，验证
+ * GET 列表/过滤/分页（游标与页码双模式）的 HTTP/JSON 编排与参数透传。JWT 鉴权由 {@code JwtAuthFilter} 在生产侧处理（独立测试覆盖），本切片不涉及。
  */
 class JobLogControllerTest {
 
@@ -145,5 +147,136 @@ class JobLogControllerTest {
                 .andExpect(jsonPath("$.data.items[1].status").value("FAILED"))
                 .andExpect(jsonPath("$.data.items[2].status").value("STARTED"))
                 .andExpect(jsonPath("$.data.items[2].durationMillis").doesNotExist());
+    }
+
+    // ==================== M9 页码模式契约（T61，REQ-20260925-06 方案 §4.2 / ADR-0035） ====================
+    // 修前红锚点：实现前这些用例必须红（旧控制器忽略 page/size/status → 200 游标形态）；实现后转绿。
+
+    @Test
+    void pageMode_pageWithCursor_mutexRejected400() throws Exception {
+        // page 与 cursor 互斥（双模式防呆）→ 400/2001
+        mockMvc.perform(get("/api/v1/job-logs").param("page", "1").param("cursor", "5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void pageMode_statusWithoutPage_rejected400() throws Exception {
+        // status 仅页码模式可用，缺 page → 400/2001（msg 注明缺 page）
+        mockMvc.perform(get("/api/v1/job-logs").param("status", "FAILED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value(org.hamcrest.Matchers.containsString("page")));
+    }
+
+    @Test
+    void pageMode_sizeOverLimit_rejected400() throws Exception {
+        // size 1~50，超限 400 拒绝不截断（ADR-0035）
+        mockMvc.perform(get("/api/v1/job-logs").param("page", "1").param("size", "51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void pageMode_unknownStatus_rejected400() throws Exception {
+        // 非法 status 值 → 400/2001，msg「未知 status: xxx」（显式转 BusinessException）
+        mockMvc.perform(get("/api/v1/job-logs").param("page", "1").param("status", "BOGUS"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value(org.hamcrest.Matchers.containsString("BOGUS")));
+    }
+
+    @Test
+    void pageMode_returnsTotalAndEchoedPageSize() throws Exception {
+        // Arrange：页码模式 + status 筛选走 listPaged（jobName/status 透传）
+        when(service.listPaged(isNull(), eq(JobExecutionStatus.FAILED), eq(2), eq(10)))
+                .thenReturn(
+                        new JobLogPagedView(
+                                List.of(view(30L, "PolicyFetchJob", "FAILED", 2000L, "boom")),
+                                7L,
+                                2,
+                                10));
+
+        // Act + Assert：页码模式响应形态：{items[], total, page, size}，无 nextCursor（两 record 不混装）
+        mockMvc.perform(
+                        get("/api/v1/job-logs")
+                                .param("status", "FAILED")
+                                .param("page", "2")
+                                .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items[0].id").value(30))
+                .andExpect(jsonPath("$.data.items[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.data.items[0].errorMessage").value("boom"))
+                .andExpect(jsonPath("$.data.total").value(7))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void pageMode_jobNameAndStatusCombo_passesBothFilters() throws Exception {
+        // Arrange：jobName + status 组合（AND 语义）透传 service
+        when(service.listPaged(eq("PolicyFetchJob"), eq(JobExecutionStatus.STARTED), eq(1), eq(20)))
+                .thenReturn(new JobLogPagedView(List.of(), 0L, 1, 20));
+
+        // Act + Assert
+        mockMvc.perform(
+                        get("/api/v1/job-logs")
+                                .param("jobName", "PolicyFetchJob")
+                                .param("status", "STARTED")
+                                .param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(0));
+        verify(service).listPaged("PolicyFetchJob", JobExecutionStatus.STARTED, 1, 20);
+    }
+
+    @Test
+    void pageMode_blankStatus_treatedAsNoFilter() throws Exception {
+        // Arrange：status= （blank）= 不过滤，且不触发「缺 page」400（blank 视为缺席）
+        when(service.listPaged(isNull(), isNull(), eq(1), eq(20)))
+                .thenReturn(new JobLogPagedView(List.of(), 5L, 1, 20));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/job-logs").param("status", " ").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(5));
+        verify(service).listPaged(null, null, 1, 20);
+    }
+
+    @Test
+    void pageMode_outOfRangePage_returns200EmptyListWithEcho() throws Exception {
+        // Arrange：越界页（total=7、page=99）→ 200 + 空列表 + 如实回显（ADR-0035 裁决）
+        when(service.listPaged(isNull(), isNull(), eq(99), eq(20)))
+                .thenReturn(new JobLogPagedView(List.of(), 7L, 99, 20));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/job-logs").param("page", "99"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(7))
+                .andExpect(jsonPath("$.data.page").value(99))
+                .andExpect(jsonPath("$.data.size").value(20));
+    }
+
+    @Test
+    void pageMode_cursorModeUntouched_whenOnlyCursorParamsPresent() throws Exception {
+        // Arrange：page/size/status 均缺席 → 纯游标路径（既有行为，字节级不动回归）
+        when(service.list(eq("PushRetryJob"), eq(10L)))
+                .thenReturn(
+                        new JobLogPage(
+                                List.of(view(9L, "PushRetryJob", "SUCCESS", 10L, null)), null));
+
+        // Act + Assert：仍返回游标形态（items + nextCursor 缺席即 null）
+        mockMvc.perform(
+                        get("/api/v1/job-logs")
+                                .param("jobName", "PushRetryJob")
+                                .param("cursor", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].id").value(9))
+                .andExpect(jsonPath("$.data.total").doesNotExist())
+                .andExpect(jsonPath("$.data.page").doesNotExist());
+        verify(service).list("PushRetryJob", 10L);
     }
 }

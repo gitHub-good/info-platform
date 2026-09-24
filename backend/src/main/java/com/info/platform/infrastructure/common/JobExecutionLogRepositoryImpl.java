@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.info.platform.domain.common.JobExecutionLog;
 import com.info.platform.domain.common.JobExecutionLogRepository;
 import com.info.platform.domain.common.JobExecutionStatus;
+import com.info.platform.domain.common.JobLogFilter;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -62,6 +63,42 @@ public class JobExecutionLogRepositoryImpl implements JobExecutionLogRepository 
                         .orderByDesc(JobExecutionLogPO::getId)
                         .last("LIMIT " + limit);
         return toEntities(mapper.selectList(wrapper));
+    }
+
+    @Override
+    public List<JobExecutionLog> byFilterPage(JobLogFilter filter, int page, int size) {
+        // 页码模式：同序（id DESC）同过滤；LIMIT/OFFSET 从简（ADR-0035 实测 12k 行毫秒级）
+        LambdaQueryWrapper<JobExecutionLogPO> wrapper =
+                filterWrapper(filter)
+                        .orderByDesc(JobExecutionLogPO::getId)
+                        .last("LIMIT " + size + " OFFSET " + (page - 1) * size);
+        return toEntities(mapper.selectList(wrapper));
+    }
+
+    @Override
+    public long countByFilter(JobLogFilter filter) {
+        // 精确 COUNT，同一 WHERE（与 byFilterPage 同一 filterWrapper 组装，口径单点）
+        return mapper.selectCount(filterWrapper(filter));
+    }
+
+    /**
+     * 页码模式组合 WHERE 一处组装（jobName 等值 + status 等值持久化名），{@link #byFilterPage}/{@link #countByFilter}
+     * 两用——保证页数据与计数同口径。status 不建索引（3 值低基数，全扫毫秒级，ADR-0035）。
+     *
+     * <p>status 用显式 if 而非条件式 {@code eq(condition, column, value)}：Java 实参急切求值， {@code
+     * persistentName()} 在 status=null 时先于条件判断 NPE。
+     */
+    private static LambdaQueryWrapper<JobExecutionLogPO> filterWrapper(JobLogFilter filter) {
+        LambdaQueryWrapper<JobExecutionLogPO> wrapper =
+                new LambdaQueryWrapper<JobExecutionLogPO>()
+                        .eq(
+                                filter.jobName() != null && !filter.jobName().isBlank(),
+                                JobExecutionLogPO::getJobName,
+                                filter.jobName());
+        if (filter.status() != null) {
+            wrapper.eq(JobExecutionLogPO::getStatus, filter.status().persistentName());
+        }
+        return wrapper;
     }
 
     @Override

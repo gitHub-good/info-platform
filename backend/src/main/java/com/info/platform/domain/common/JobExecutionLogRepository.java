@@ -40,6 +40,25 @@ public interface JobExecutionLogRepository {
     List<JobExecutionLog> byJobNameCursor(String jobName, Long cursor, int limit);
 
     /**
+     * 页码模式组合过滤分页（M9 T61）：{@code ORDER BY id DESC LIMIT size OFFSET (page-1)×size}。
+     *
+     * <p>与游标模式<b>同序同过滤</b>（id 主键全序）；越界页天然空列表（200 + 空列表 + 如实回显，ADR-0035）。 page/size 由接口层 {@code
+     * PageQuery} 校验（page≥1、size 1~50），端口不再重复校验。
+     *
+     * @param filter 组合过滤条件（jobName + status AND 语义）
+     * @param page 页码（1 起）
+     * @param size 页大小
+     */
+    List<JobExecutionLog> byFilterPage(JobLogFilter filter, int page, int size);
+
+    /**
+     * 页码模式组合过滤精确计数（M9 T61）：与 {@link #byFilterPage} 同一 WHERE（审计场景要精确 total，不做近似）。
+     *
+     * @param filter 组合过滤条件（与 byFilterPage 同一实例同口径）
+     */
+    long countByFilter(JobLogFilter filter);
+
+    /**
      * 最近 N 条（不限 Job，newest-first），供默认概览/单测。
      *
      * @param limit 条数
