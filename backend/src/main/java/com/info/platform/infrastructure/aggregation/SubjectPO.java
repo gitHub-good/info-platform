@@ -41,6 +41,10 @@ public class SubjectPO {
     @TableField("status")
     private Integer status;
 
+    /** 外部消失连续缺失计数（V18 列 / ADR-0028；同步引擎机制列）。 */
+    @TableField("missing_streak")
+    private Integer missingStreak;
+
     @TableField("created_at")
     private String createdAt;
 
@@ -113,6 +117,14 @@ public class SubjectPO {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Integer getMissingStreak() {
+        return missingStreak;
+    }
+
+    public void setMissingStreak(Integer missingStreak) {
+        this.missingStreak = missingStreak;
     }
 
     public String getCreatedAt() {

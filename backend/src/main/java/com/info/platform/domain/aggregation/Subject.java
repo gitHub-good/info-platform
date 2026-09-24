@@ -20,6 +20,14 @@ public class Subject {
     private Map<String, String> externalCodes;
     private String industry;
     private SubjectStatus status;
+
+    /**
+     * 外部消失连续缺失计数（T51，V18 列 / ADR-0028）：该标的在所属市场桶的连续「本轮拉取成功但未出现」轮数。
+     *
+     * <p>机制列（与 status/version 同口径）：Builder 构建的新标的恒为 0；只有同步引擎经仓储端口推进/清零， 业务代码不读写。
+     */
+    private int missingStreak;
+
     private long version;
     private Instant createdAt;
     private Instant updatedAt;
@@ -44,6 +52,39 @@ public class Subject {
             long version,
             Instant createdAt,
             Instant updatedAt) {
+        return reconstruct(
+                id,
+                subjectCode,
+                market,
+                subjectType,
+                name,
+                externalCodes,
+                industry,
+                status,
+                version,
+                createdAt,
+                updatedAt,
+                0);
+    }
+
+    /**
+     * 从持久化数据重建实体（带 missing_streak，T51 V18 列回填）。
+     *
+     * <p>既有 11 参重载委托本方法并落 0（存量调用方零改动）；同步引擎读桶基线时用本重载取真实计数。
+     */
+    public static Subject reconstruct(
+            Long id,
+            SubjectCode subjectCode,
+            Market market,
+            SubjectType subjectType,
+            String name,
+            Map<String, String> externalCodes,
+            String industry,
+            SubjectStatus status,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            int missingStreak) {
         Subject s = new Subject();
         s.id = id;
         s.subjectCode = subjectCode;
@@ -56,6 +97,7 @@ public class Subject {
         s.version = version;
         s.createdAt = createdAt;
         s.updatedAt = updatedAt;
+        s.missingStreak = missingStreak;
         return s;
     }
 
@@ -89,6 +131,11 @@ public class Subject {
 
     public SubjectStatus getStatus() {
         return status;
+    }
+
+    /** 外部消失连续缺失计数（V18 列，ADR-0028；仅同步引擎消费，见字段注释）。 */
+    public int getMissingStreak() {
+        return missingStreak;
     }
 
     public long getVersion() {

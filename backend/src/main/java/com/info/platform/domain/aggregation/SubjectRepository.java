@@ -2,6 +2,7 @@ package com.info.platform.domain.aggregation;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -40,4 +41,39 @@ public interface SubjectRepository {
 
     /** 落库：id 为空走 INSERT 并回填主键，非空走 UPDATE（乐观锁由基础设施层处理）。 */
     Subject save(Subject subject);
+
+    // ---- 标的池定时同步端口（T51，技术方案增补 §4.4；纯增量，既有方法与乐观锁语义不动） ----
+
+    /**
+     * 按市场 + 类型加载同步 diff 基线（该桶现存全量行，<b>不筛状态</b>——停用行也要比对名称/行业与「已停用不再计数」判定）。
+     *
+     * <p>diff 集合按双条件圈定：指数桶与股票桶互不触碰，板块/基金/债券（若有手工行）天然不在同步范围（范围外永不触碰）。
+     */
+    List<Subject> loadBucket(Market market, SubjectType subjectType);
+
+    /**
+     * 批量幂等新增（{@code INSERT OR IGNORE}，V17 先例；UNIQUE 兜底）：已存在同 subject_code 的行静默跳过。
+     *
+     * @return 实际插入行数（忽略行不计）
+     */
+    int insertIgnoreBatch(List<Subject> subjects);
+
+    /**
+     * 同步快照更新：仅写 name / industry / external_codes（<b>不碰 status / missing_streak</b>，REQ 红线「更新不碰
+     * status」），updated_at 刷新、version+1。
+     *
+     * @return 受影响行数（0 = 代码不存在）
+     */
+    int updateSnapshot(
+            String subjectCode, String name, String industry, Map<String, String> externalCodes);
+
+    /** 回归清零：出现行的 missing_streak 归零（{@code WHERE missing_streak > 0}，无事可做时零写入）。 */
+    int clearMissingStreak(String subjectCode);
+
+    /**
+     * 缺失确认：连续缺失计数 +1（{@code WHERE status = 1} SQL 级守卫——已停用标的不再计数）。
+     *
+     * @return 受影响行数（0 = 已停用/不存在）
+     */
+    int incrementMissingStreak(String subjectCode);
 }
