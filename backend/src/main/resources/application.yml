@@ -174,7 +174,8 @@ policy:
 subject:
   sync:
     page-size: 100
-    page-interval-millis: 600
+    # 页间隔加大到 1.5s：东财 WAF 对密集请求 IP 封禁（实测 ~30 次密集触发），一轮 86 页需更保守
+    page-interval-millis: 1500
     max-pages: 200
     batch-size: 500
     missing-streak-threshold: 3
