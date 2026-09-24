@@ -75,6 +75,8 @@ adapter:
     announce-page-size: 3
     # 公告详情 PDF 直链模板（art_code 占位由 adapter 替换；H2_ 前缀已 A 股实测确认）
     announce-detail-url-template: https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf
+    # 全量列表源（T50 标的池定时同步）：push2 clist 分页拉取（ADR-0027 主选源）
+    list-url: https://push2.eastmoney.com/api/qt/clist/get
   # 新浪新闻源（T06）：feed.mix.sina.com.cn 滚动新闻全市场流（不支持个股过滤，靠关键词匹配）
   # lid=2510 财经滚动分类（2026-09-21 curl 实测可用；1685~1689 已失效 code:11）；需 UA+Referer 防封 403
   sina:
@@ -160,6 +162,17 @@ policy:
     batch-size: 20
     max-attempts: 3
     retry-backoff-hours: 2
+
+# 标的池定时同步（T50/T51，技术方案增补 §4.2 参数表；Job 收编与 cron 种子在 T53）。
+# 页间隔 600ms：实测 300~400ms 连续约 28 次触发 push2 IP 级封禁，86 页/轮取保守值（ADR-0027）；
+# page-size 100 为服务端强制上限（实测 pz>100 仍只回 100 行）；max-pages 单桶防御上限（A股 56 页，3.5× 裕量）；
+# batch-size 单市场事务内 INSERT OR IGNORE 分批行数（防 SQLite 长事务）。
+subject:
+  sync:
+    page-size: 100
+    page-interval-millis: 600
+    max-pages: 200
+    batch-size: 500
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

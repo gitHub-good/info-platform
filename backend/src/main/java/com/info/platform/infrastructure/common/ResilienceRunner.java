@@ -46,6 +46,16 @@ public class ResilienceRunner {
      */
     public <T> T run(CheckedSupplier<T> action, ResilienceSpec spec, SourceCode code)
             throws ResilienceException {
+        return run(action, spec, String.valueOf(code));
+    }
+
+    /**
+     * 以字符串源标签执行（T50 东财 clist 列表源等<b>非既有 {@link SourceCode} 枚举</b>的调用方用）。
+     *
+     * <p>clist 为列表源而非七类数据源之一，强接入 SourceCode 枚举属过度（技术方案增补 §5 可观测裁定）； 标签仅作日志上下文，语义与枚举重载一致。
+     */
+    public <T> T run(CheckedSupplier<T> action, ResilienceSpec spec, String sourceLabel)
+            throws ResilienceException {
         int attempt = 0;
         int maxAttempts = spec.maxRetries() + 1;
         ResilienceException.FailureKind lastKind = ResilienceException.FailureKind.ERROR;
@@ -59,7 +69,7 @@ public class ResilienceRunner {
                 lastKind = ResilienceException.FailureKind.TIMEOUT;
                 log.warn(
                         "数据源取数超时 sourceCode={} attempt={}/{} timeoutMs={}",
-                        code,
+                        sourceLabel,
                         attempt,
                         maxAttempts,
                         spec.timeout().toMillis());
@@ -67,26 +77,27 @@ public class ResilienceRunner {
                 lastKind = ResilienceException.FailureKind.ERROR;
                 log.warn(
                         "数据源取数异常 sourceCode={} attempt={}/{} cause={}",
-                        code,
+                        sourceLabel,
                         attempt,
                         maxAttempts,
                         String.valueOf(ee.getCause()));
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 throw new ResilienceException(
-                        "interrupted sourceCode=" + code,
+                        "interrupted sourceCode=" + sourceLabel,
                         ie,
                         ResilienceException.FailureKind.INTERRUPTED);
             }
             if (attempt >= maxAttempts) {
                 // 重试耗尽：按最后一次失败种类抛出，供 T16 data_source_event 区分 TIMEOUT / ERROR
-                throw new ResilienceException("exhausted sourceCode=" + code, null, lastKind);
+                throw new ResilienceException(
+                        "exhausted sourceCode=" + sourceLabel, null, lastKind);
             }
-            backoff(attempt, spec, code);
+            backoff(attempt, spec, sourceLabel);
         }
     }
 
-    private void backoff(int attempt, ResilienceSpec spec, SourceCode code)
+    private void backoff(int attempt, ResilienceSpec spec, String sourceLabel)
             throws ResilienceException {
         if (spec.backoffBase().isZero()) {
             return;
@@ -98,7 +109,7 @@ public class ResilienceRunner {
             Thread.sleep(exponential + jitter);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ResilienceException("backoff-interrupted sourceCode=" + code, e);
+            throw new ResilienceException("backoff-interrupted sourceCode=" + sourceLabel, e);
         }
     }
 }
