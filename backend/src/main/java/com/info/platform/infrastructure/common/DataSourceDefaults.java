@@ -52,6 +52,17 @@ public final class DataSourceDefaults {
         };
     }
 
+    /**
+     * 失败负缓存 TTL（秒，P1-5b/P2 体检条目）：FAILED/超时降级/MISSING 结果入短 TTL 负缓存， 防故障源每请求吃满全额超时预算（实测 push2 被封环境
+     * 24h 异常 1950 次）。 行情源取 10s（对齐其 5s 高频 OK TTL），其余源 30s——窗口内命中负缓存快速返回降级态，过期即重试真实源（恢复感知 ≤30s）。
+     */
+    public static long failureCacheTtlSeconds(SourceCode code) {
+        return switch (code) {
+            case QUOTE -> 10;
+            case FINANCE, VALUATION, ANNOUNCE, NEWS, POLICY, EVENT -> 30;
+        };
+    }
+
     /** 各源自由参数缺省（与 application.yml 同值；EVENT 本地表无外呼参数）。 */
     public static Map<String, Object> params(SourceCode code) {
         Map<String, Object> params = new LinkedHashMap<>();

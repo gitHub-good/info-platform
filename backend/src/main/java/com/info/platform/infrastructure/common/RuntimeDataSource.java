@@ -18,6 +18,8 @@ import java.util.Map;
  * @param timeoutMillis 单次调用弹性超时（毫秒）
  * @param retries 额外重试次数（0 = 不重试）
  * @param cacheTtlSeconds 本源缓存 TTL（秒，新缓存条目生效）
+ * @param failureCacheTtlSeconds 失败负缓存 TTL（秒，P1-5b；≤0 视为缺失回落 {@link
+ *     DataSourceDefaults#failureCacheTtlSeconds}——存量 runtime_config 行无该字段，读取不阻断）
  * @param params 各源自由参数（URL / 条数 / referer 等，键空间见各 client）
  */
 public record RuntimeDataSource(
@@ -27,6 +29,7 @@ public record RuntimeDataSource(
         long timeoutMillis,
         int retries,
         long cacheTtlSeconds,
+        long failureCacheTtlSeconds,
         Map<String, Object> params) {
 
     /** 运行模式（原全局 yml {@code adapter.mock.enabled} 细化为分源，PRD 场景 3.2）。 */
@@ -37,6 +40,10 @@ public record RuntimeDataSource(
 
     public RuntimeDataSource {
         params = params == null ? Map.of() : Map.copyOf(params);
+        if (failureCacheTtlSeconds <= 0) {
+            // 存量文档缺字段（Jackson 原始类型缺省 0）/非法值：回落代码缺省，不阻断读取（对齐键缺失降级精神）
+            failureCacheTtlSeconds = DataSourceDefaults.failureCacheTtlSeconds(sourceCode);
+        }
     }
 
     public Duration timeout() {
@@ -45,6 +52,11 @@ public record RuntimeDataSource(
 
     public Duration cacheTtl() {
         return Duration.ofSeconds(cacheTtlSeconds);
+    }
+
+    /** 失败负缓存 TTL（P1-5b：FAILED/MISSING 短 TTL 分档）。 */
+    public Duration failureCacheTtl() {
+        return Duration.ofSeconds(failureCacheTtlSeconds);
     }
 
     /** 字符串参数（URL / fields 等），缺失回落 fallback。 */
@@ -78,6 +90,7 @@ public record RuntimeDataSource(
                 DataSourceDefaults.timeoutMillis(code),
                 DataSourceDefaults.RETRIES_NONE,
                 DataSourceDefaults.cacheTtlSeconds(code),
+                DataSourceDefaults.failureCacheTtlSeconds(code),
                 DataSourceDefaults.params(code));
     }
 }

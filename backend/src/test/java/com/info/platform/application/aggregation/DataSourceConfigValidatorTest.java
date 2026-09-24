@@ -134,6 +134,20 @@ class DataSourceConfigValidatorTest {
     }
 
     @Test
+    void failureCacheTtl_optionalButValidatedWhenPresent() throws Exception {
+        // P1-5b：可选字段——存量文档缺省通过（读取回落代码缺省），提供非法值拒绝
+        String absent =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"params\":{}}";
+        assertThatCode(() -> validator.validate("datasource.QUOTE", objectMapper.readTree(absent)))
+                .doesNotThrowAnyException();
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,\"failureCacheTtlSeconds\":0,\"params\":{}}",
+                "failureCacheTtlSeconds");
+    }
+
+    @Test
     void missingRequiredField_rejected() {
         assertInvalid("{\"mode\":\"REAL\",\"timeoutMillis\":1000}", "enabled");
     }

@@ -84,7 +84,13 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
         this.circuitBreaker = circuitBreaker;
     }
 
-    /** 模板方法：缓存命中直返，否则走 {@link #fetchFresh} 全链路并写缓存。 final 锁定编排，子类只扩展 doFetch/映射/弹性。 */
+    /**
+     * 模板方法：缓存命中直返，否则走 {@link #fetchFresh} 全链路并写缓存。 final 锁定编排，子类只扩展 doFetch/映射/弹性。
+     *
+     * <p>P1-5b 失败负缓存：{@link SourceCache#put} 按结果状态分档 TTL——FAILED/MISSING 以短 TTL 负缓存，命中负缓存的请求
+     * <b>快速返回降级态</b>（不再吃满超时预算），记 DEBUG（不刷 {@code data_source_event}，避免写放大； 事件留痕由首次真实降级路径经 60s
+     * 节流记录）。final 锁定编排，子类只扩展 doFetch/映射/弹性。
+     */
     @Override
     public final SourceResult fetch(Subject subject) {
         SourceCode code = sourceCode();
@@ -92,13 +98,18 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
 
         SourceResult cached = cache.getIfPresent(code, subjectId);
         if (cached != null) {
+            if (cached.getStatus() != SourceStatus.OK) {
+                log.debug(
+                        "命中数据源负缓存（快速降级） sourceCode={} subjectId={} status={}",
+                        code,
+                        subjectId,
+                        cached.getStatus());
+            }
             return cached;
         }
 
         SourceResult result = fetchFresh(subject);
-        if (result.getStatus() == SourceStatus.OK) {
-            cache.put(code, subjectId, result);
-        }
+        cache.put(code, subjectId, result);
         return result;
     }
 
@@ -195,9 +206,10 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
     protected abstract String sourceLabel();
 
     /**
-     * 旁路记录一条 {@code data_source_event}（T16）。
+     * 旁路记录一条失败类 {@code data_source_event}（T16；P1-5b 起经 {@code recordFailureIfDue} 60s/源节流， 对齐 OK
+     * 心跳口径——防故障源高频降级时每请求一行的事件写放大，体检实测 24h 异常 1950 次）。
      *
-     * <p>零侵入契约：recorder 为空（纯构造单测场景）静默跳过； 记录自身异常不外抛（try-catch 记 ERROR 日志）——不影响 {@code onDegraded}
+     * <p>零侵入契约：recorder 为空（纯构造单测场景）静默跳过； 记录自身异常不外抛（try-catch 记 ERROR 日志）——不影响 {@link #onDegraded}
      * 返回值与主流程。recorder 内部亦已 catch 兜底，此处为 defense-in-depth 双保险。
      */
     private void recordEvent(
@@ -207,7 +219,7 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
             return;
         }
         try {
-            recorder.record(code, type, subjectId, detail);
+            recorder.recordFailureIfDue(code, type, subjectId, detail);
         } catch (Exception e) {
             log.error(
                     "记录数据源事件失败 sourceCode={} type={} subjectId={} detail={}",

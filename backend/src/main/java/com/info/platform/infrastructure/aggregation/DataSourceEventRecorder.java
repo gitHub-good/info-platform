@@ -43,6 +43,9 @@ public class DataSourceEventRecorder {
     /** 每源最近一次 OK 心跳落库时刻（epoch millis）。 */
     private final Map<SourceCode, Long> lastOkAt = new ConcurrentHashMap<>();
 
+    /** 每源最近一次失败事件（MISSING/TIMEOUT/ERROR/LIMITED）落库时刻（epoch millis，P1-5b 节流）。 */
+    private final Map<SourceCode, Long> lastFailureAt = new ConcurrentHashMap<>();
+
     public DataSourceEventRecorder(DataSourceEventRepository repository, Clock clock) {
         this.repository = repository;
         this.clock = clock;
@@ -97,6 +100,41 @@ public class DataSourceEventRecorder {
     private boolean okDue(SourceCode sourceCode) {
         boolean[] due = {false};
         lastOkAt.compute(
+                sourceCode,
+                (code, last) -> {
+                    long now = clock.millis();
+                    if (last != null && now - last < OK_THROTTLE_MILLIS) {
+                        return last;
+                    }
+                    due[0] = true;
+                    return now;
+                });
+        return due[0];
+    }
+
+    /**
+     * 失败事件（MISSING/TIMEOUT/ERROR/LIMITED）：60s/源节流（P1-5b，对齐 {@link #recordOkIfDue} 心跳口径）。
+     *
+     * <p>体检实测故障源 24h 异常事件 1950 次（≈ N×8640 行/天）——负缓存把真实取数压到每 TTL 窗口一次后， 本节流再把多标的/
+     * 多请求的失败留痕收敛为每源每分钟至多一条（健康徽章「最近事件 + 24h 计数」口径不受影响）。永不抛异常（同 {@link #record}）。
+     *
+     * @param sourceCode 数据源标识
+     * @param eventType 失败类事件类型（调用方为降级路径，OK 心跳走 {@link #recordOkIfDue}）
+     * @param subjectId 触发本次失败的标的（展示用）
+     * @param detail 人读详情（超时原因/异常摘要等）
+     */
+    public void recordFailureIfDue(
+            SourceCode sourceCode, DataSourceEventType eventType, Long subjectId, String detail) {
+        if (!failureDue(sourceCode)) {
+            return;
+        }
+        record(sourceCode, eventType, subjectId, detail);
+    }
+
+    /** 失败节流判定并占位（同 {@link #okDue} 的 compute 原子读改；OK 与失败两窗独立计时）。 */
+    private boolean failureDue(SourceCode sourceCode) {
+        boolean[] due = {false};
+        lastFailureAt.compute(
                 sourceCode,
                 (code, last) -> {
                     long now = clock.millis();

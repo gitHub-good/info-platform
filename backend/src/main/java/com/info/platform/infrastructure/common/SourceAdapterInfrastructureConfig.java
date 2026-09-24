@@ -17,10 +17,15 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class SourceAdapterInfrastructureConfig {
 
-    /** 数据源缓存（T36 TTL 热化）：每条目写入时从 {@code datasource.{CODE}.cacheTtlSeconds} 解析（LIVE 级）， 容量启动期固化。 */
+    /**
+     * 数据源缓存（T36 TTL 热化 + P1-5b 失败负缓存）：每条目写入时从 {@code datasource.{CODE}.cacheTtlSeconds} / {@code
+     * failureCacheTtlSeconds} 解析（LIVE 级），容量启动期固化。
+     */
     @Bean
     public SourceCache sourceCache(ConfigCenter configCenter) {
-        return new SourceCache(code -> configCenter.dataSource(code).cacheTtl());
+        return new SourceCache(
+                code -> configCenter.dataSource(code).cacheTtl(),
+                code -> configCenter.dataSource(code).failureCacheTtl());
     }
 
     @Bean

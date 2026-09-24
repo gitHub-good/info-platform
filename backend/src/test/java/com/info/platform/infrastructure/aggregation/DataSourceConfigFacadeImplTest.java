@@ -253,7 +253,7 @@ class DataSourceConfigFacadeImplTest {
                 facade.update(
                         SourceCode.QUOTE,
                         new DataSourceConfigFacade.DataSourceConfigUpdate(
-                                null, "MOCK", 3000L, 1, 10L, null, NOW.toString()));
+                                null, "MOCK", 3000L, 1, 10L, null, null, NOW.toString()));
 
         // 保存即换快照：路由读到的 mode/超时已是新值（下一次取数生效）
         assertThat(saved.mode()).isEqualTo("MOCK");
@@ -279,6 +279,7 @@ class DataSourceConfigFacadeImplTest {
                                                 null,
                                                 null,
                                                 null,
+                                                null,
                                                 Map.of("quoteUrl", "not-a-url"),
                                                 null)))
                 .isInstanceOf(BusinessException.class)
@@ -292,6 +293,53 @@ class DataSourceConfigFacadeImplTest {
                 .isEqualTo("https://push2.eastmoney.com/api/qt/stock/get");
     }
 
+    // ---- P1-5b 失败负缓存 TTL 字段（体检「FAILED/MISSING 不负缓存」配置面） ----
+
+    @Test
+    void update_legacyDocWithoutFailureTtl_backfillsDefaultAndVisible() {
+        // 存量 runtime_config 行无 failureCacheTtlSeconds（本批禁迁移）：保存补种代码缺省（QUOTE=10s），卡片视图可见
+        store("datasource.QUOTE", quoteDoc("REAL"));
+
+        var saved =
+                facade.update(
+                        SourceCode.QUOTE,
+                        new DataSourceConfigFacade.DataSourceConfigUpdate(
+                                null, null, null, null, null, null, null, null));
+
+        assertThat(saved.failureCacheTtlSeconds()).isEqualTo(10);
+        assertThat(configCenter.dataSource(SourceCode.QUOTE).failureCacheTtl().toSeconds())
+                .isEqualTo(10);
+    }
+
+    @Test
+    void update_failureTtlProvided_savedAndHotEffective() {
+        store("datasource.QUOTE", quoteDoc("REAL"));
+
+        var saved =
+                facade.update(
+                        SourceCode.QUOTE,
+                        new DataSourceConfigFacade.DataSourceConfigUpdate(
+                                null, null, null, null, null, 45L, null, NOW.toString()));
+
+        assertThat(saved.failureCacheTtlSeconds()).isEqualTo(45);
+        assertThat(configCenter.dataSource(SourceCode.QUOTE).failureCacheTtl().toSeconds())
+                .isEqualTo(45);
+    }
+
+    @Test
+    void update_failureTtlNotPositive_validationRejects() {
+        store("datasource.QUOTE", quoteDoc("REAL"));
+
+        assertThatThrownBy(
+                        () ->
+                                facade.update(
+                                        SourceCode.QUOTE,
+                                        new DataSourceConfigFacade.DataSourceConfigUpdate(
+                                                null, null, null, null, null, 0L, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("failureCacheTtlSeconds");
+    }
+
     @Test
     void update_expectedUpdatedAtMismatch_throws30065() {
         store("datasource.QUOTE", quoteDoc("REAL"));
@@ -302,6 +350,7 @@ class DataSourceConfigFacadeImplTest {
                                         SourceCode.QUOTE,
                                         new DataSourceConfigFacade.DataSourceConfigUpdate(
                                                 false,
+                                                null,
                                                 null,
                                                 null,
                                                 null,

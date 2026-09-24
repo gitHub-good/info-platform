@@ -155,4 +155,51 @@ class DataSourceEventRecorderTest {
         // Assert：QUOTE 跨窗口两条 + POLICY 一条
         verify(repository, times(3)).save(any(DataSourceEvent.class));
     }
+
+    // ---- P1-5b 失败事件 60s/源节流（对齐 OK 心跳，防体检实测 24h 异常 1950 次的写放大） ----
+
+    @Test
+    void recordFailureIfDue_firstFailure_persists() {
+        // Arrange
+        DataSourceEventRepository repository = mock(DataSourceEventRepository.class);
+        DataSourceEventRecorder recorder = recorder(repository, T0);
+
+        // Act
+        recorder.recordFailureIfDue(SourceCode.QUOTE, DataSourceEventType.TIMEOUT, 1L, "timeout");
+
+        // Assert：窗口内首条失败落库
+        ArgumentCaptor<DataSourceEvent> captor = ArgumentCaptor.forClass(DataSourceEvent.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo(DataSourceEventType.TIMEOUT);
+    }
+
+    @Test
+    void recordFailureIfDue_withinThrottleWindow_skipped_acrossSubjectsAndTypes() {
+        // Arrange：30s 内同源多标的、多失败类型（超时/缺失）——窗口内只落首条
+        DataSourceEventRepository repository = mock(DataSourceEventRepository.class);
+        DataSourceEventRecorder recorder =
+                recorder(repository, T0, T0.plus(Duration.ofSeconds(30)));
+
+        // Act
+        recorder.recordFailureIfDue(SourceCode.QUOTE, DataSourceEventType.TIMEOUT, 1L, "t1");
+        recorder.recordFailureIfDue(SourceCode.QUOTE, DataSourceEventType.MISSING, 2L, "no-data");
+        recorder.recordFailureIfDue(SourceCode.QUOTE, DataSourceEventType.ERROR, 3L, "boom");
+
+        // Assert：仅首条落库（同源节流）
+        verify(repository, times(1)).save(any(DataSourceEvent.class));
+    }
+
+    @Test
+    void recordFailureIfDue_failureAndOkWindowsIndependent() {
+        // Arrange：失败与 OK 两窗独立计时——失败落库后紧接着的成功心跳仍落库（互不挤占）
+        DataSourceEventRepository repository = mock(DataSourceEventRepository.class);
+        DataSourceEventRecorder recorder = recorder(repository, T0, T0.plus(Duration.ofSeconds(1)));
+
+        // Act
+        recorder.recordFailureIfDue(SourceCode.QUOTE, DataSourceEventType.ERROR, 1L, "boom");
+        recorder.recordOkIfDue(SourceCode.QUOTE, 1L);
+
+        // Assert：各一条
+        verify(repository, times(2)).save(any(DataSourceEvent.class));
+    }
 }

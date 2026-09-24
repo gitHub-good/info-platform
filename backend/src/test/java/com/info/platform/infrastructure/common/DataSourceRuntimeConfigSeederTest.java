@@ -80,6 +80,7 @@ class DataSourceRuntimeConfigSeederTest {
         assertThat(doc.path("timeoutMillis").asLong()).isEqualTo(1500); // QuoteSourceAdapter 原 1.5s
         assertThat(doc.path("retries").asInt()).isZero(); // 原 noRetry
         assertThat(doc.path("cacheTtlSeconds").asLong()).isEqualTo(5); // SourceCache.specFor 原 5s
+        assertThat(doc.path("failureCacheTtlSeconds").asLong()).isEqualTo(10); // P1-5b 负缓存缺省：行情 10s
         assertThat(doc.path("params").path("quoteUrl").asText())
                 .isEqualTo("https://quote.example.com/get");
         assertThat(doc.path("params").path("fields").asText()).isEqualTo("f43,f57");
@@ -98,6 +99,7 @@ class DataSourceRuntimeConfigSeederTest {
 
         assertThat(doc.path("timeoutMillis").asLong()).isEqualTo(500); // EventSourceAdapter 原 500ms
         assertThat(doc.path("cacheTtlSeconds").asLong()).isEqualTo(30);
+        assertThat(doc.path("failureCacheTtlSeconds").asLong()).isEqualTo(30); // P1-5b 其余源 30s
         assertThat(doc.path("params")).isEmpty();
     }
 

@@ -16,6 +16,7 @@ import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import com.info.platform.infrastructure.common.RuntimeDataSource;
 import java.time.Clock;
 import java.time.Duration;
@@ -55,6 +56,7 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
                     "timeoutMillis", EFFECTIVE_LIVE,
                     "retries", EFFECTIVE_LIVE,
                     "cacheTtlSeconds", EFFECTIVE_LIVE,
+                    "failureCacheTtlSeconds", EFFECTIVE_LIVE,
                     "params", EFFECTIVE_LIVE);
 
     private static final Map<String, String> AGGREGATION_EFFECTIVE_MODES =
@@ -125,8 +127,17 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         if (update.cacheTtlSeconds() != null) {
             merged.put("cacheTtlSeconds", update.cacheTtlSeconds());
         }
+        if (update.failureCacheTtlSeconds() != null) {
+            merged.put("failureCacheTtlSeconds", update.failureCacheTtlSeconds());
+        }
         if (update.params() != null) {
             merged.set("params", objectMapper.valueToTree(update.params()));
+        }
+        // 存量文档缺 failureCacheTtlSeconds（本批禁迁移）：保存时补种代码缺省，使「种子始终写入」不变量对后续保存成立（ADR-0025）
+        if (!merged.has("failureCacheTtlSeconds")) {
+            merged.put(
+                    "failureCacheTtlSeconds",
+                    DataSourceDefaults.failureCacheTtlSeconds(sourceCode));
         }
         RuntimeConfigEntry saved =
                 configService.write(
@@ -210,6 +221,7 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
                 config.timeoutMillis(),
                 config.retries(),
                 config.cacheTtlSeconds(),
+                config.failureCacheTtlSeconds(),
                 params,
                 healthOf(code),
                 entry == null ? null : entry.updatedAt().toString(),
@@ -274,6 +286,7 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
         doc.put("timeoutMillis", fallback.timeoutMillis());
         doc.put("retries", fallback.retries());
         doc.put("cacheTtlSeconds", fallback.cacheTtlSeconds());
+        doc.put("failureCacheTtlSeconds", fallback.failureCacheTtlSeconds());
         doc.set("params", objectMapper.valueToTree(fallback.params()));
         return doc;
     }

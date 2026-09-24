@@ -119,6 +119,7 @@ public class ConfigCenter {
                     doc.timeoutMillis,
                     doc.retries,
                     doc.cacheTtlSeconds,
+                    doc.failureCacheTtlSeconds,
                     doc.params);
         } catch (Exception e) {
             log.warn("datasource.{} 文档解析失败，回落代码缺省: {}", code, String.valueOf(e));
@@ -272,7 +273,7 @@ public class ConfigCenter {
             String apiKeyCipher,
             String apiKeyLast4) {}
 
-    /** datasource.{CODE} 文档的原始形状（T36 键空间）。 */
+    /** datasource.{CODE} 文档的原始形状（T36 键空间；failureCacheTtlSeconds 为 P1-5b 增量，存量行缺省 0 → 视图回落代码缺省）。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record DataSourceDoc(
             boolean enabled,
@@ -280,5 +281,6 @@ public class ConfigCenter {
             long timeoutMillis,
             int retries,
             long cacheTtlSeconds,
+            long failureCacheTtlSeconds,
             Map<String, Object> params) {}
 }

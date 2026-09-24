@@ -99,6 +99,33 @@ class AbstractSourceAdapterTest {
     }
 
     @Test
+    void fetch_failureCached_secondCallHitsNegativeCacheWithoutRefetch() throws Exception {
+        // P1-5b 回归（修前红：FAILED/MISSING 不缓存 → 每次都重新走全链路吃满超时预算）：
+        // 首次超时降级入短 TTL 负缓存，TTL 内后续请求快速返回同一降级结果、不再调 doFetch
+        try (ExecutorService exec = virtualExecutor()) {
+            FakeSourceAdapter adapter =
+                    fakeAdapter(
+                            exec,
+                            SourceCode.QUOTE,
+                            ResilienceSpec.noRetry(Duration.ofMillis(50)),
+                            s -> {
+                                Thread.sleep(300);
+                                return Optional.of(
+                                        new RawFetch(Map.of("price", "1"), "fake", Instant.now()));
+                            },
+                            new NoopCircuitBreaker(),
+                            null);
+
+            SourceResult first = adapter.fetch(subject(1L));
+            SourceResult second = adapter.fetch(subject(1L));
+
+            assertThat(first.getStatus()).isEqualTo(SourceStatus.MISSING);
+            assertThat(adapter.callCount.get()).as("负缓存命中后不再调 doFetch").isEqualTo(1);
+            assertThat(second).isSameAs(first);
+        }
+    }
+
+    @Test
     void fetch_doFetchTimeout_returnsMissing() throws Exception {
         try (ExecutorService exec = virtualExecutor()) {
             FakeSourceAdapter adapter =
@@ -237,7 +264,7 @@ class AbstractSourceAdapterTest {
 
             assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
             verify(recorder)
-                    .record(
+                    .recordFailureIfDue(
                             eq(SourceCode.POLICY),
                             eq(DataSourceEventType.MISSING),
                             eq(1L),
@@ -267,7 +294,7 @@ class AbstractSourceAdapterTest {
 
             assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
             verify(recorder)
-                    .record(
+                    .recordFailureIfDue(
                             eq(SourceCode.QUOTE),
                             eq(DataSourceEventType.TIMEOUT),
                             eq(1L),
@@ -295,7 +322,7 @@ class AbstractSourceAdapterTest {
 
             assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
             verify(recorder)
-                    .record(
+                    .recordFailureIfDue(
                             eq(SourceCode.FINANCE),
                             eq(DataSourceEventType.ERROR),
                             eq(1L),
@@ -324,7 +351,7 @@ class AbstractSourceAdapterTest {
 
             assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
             verify(recorder)
-                    .record(
+                    .recordFailureIfDue(
                             eq(SourceCode.QUOTE),
                             eq(DataSourceEventType.LIMITED),
                             eq(1L),
@@ -338,7 +365,7 @@ class AbstractSourceAdapterTest {
         DataSourceEventRecorder recorder = mock(DataSourceEventRecorder.class);
         doThrow(new RuntimeException("recorder down"))
                 .when(recorder)
-                .record(any(), any(), any(), any());
+                .recordFailureIfDue(any(), any(), any(), any());
         try (ExecutorService exec = virtualExecutor()) {
             FakeSourceAdapter adapter =
                     fakeAdapter(

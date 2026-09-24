@@ -56,6 +56,7 @@ public interface DataSourceConfigFacade {
             long timeoutMillis,
             int retries,
             long cacheTtlSeconds,
+            long failureCacheTtlSeconds,
             Map<String, Object> params,
             HealthView health,
             String updatedAt,
@@ -68,13 +69,17 @@ public interface DataSourceConfigFacade {
     record AggregationView(
             long detailTimeoutMillis, String updatedAt, Map<String, String> effectiveModes) {}
 
-    /** 单源部分更新（null 字段 = 不修改；params 提供即整体替换）。expectedUpdatedAt 为 ISO-8601 文本（UTC）。 */
+    /**
+     * 单源部分更新（null 字段 = 不修改；params 提供即整体替换）。expectedUpdatedAt 为 ISO-8601 文本（UTC）。
+     * failureCacheTtlSeconds 为 P1-5b 增量（可空 = 不修改；存量文档缺字段时保存由 facade 补种默认）。
+     */
     record DataSourceConfigUpdate(
             Boolean enabled,
             String mode,
             Long timeoutMillis,
             Integer retries,
             Long cacheTtlSeconds,
+            Long failureCacheTtlSeconds,
             Map<String, Object> params,
             String expectedUpdatedAt) {}
 

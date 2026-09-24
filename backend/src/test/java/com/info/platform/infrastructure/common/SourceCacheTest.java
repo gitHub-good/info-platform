@@ -13,9 +13,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 /**
- * SourceCache 单测（T02）：OK 缓存命中、MISSING/FAILED 不缓存、按 sourceCode 分区。
+ * SourceCache 单测（T02 + P1-5b 负缓存）：OK 缓存命中、FAILED/MISSING 短 TTL 负缓存、按 sourceCode 分区。
  *
- * <p>验证 Caffeine 红线（maximumSize+expireAfterWrite）经配置生效的行为面——非命中结果不入缓存，避免长 TTL 源误锁恢复。
+ * <p>验证 Caffeine 红线（maximumSize+expireAfterWrite）经配置生效的行为面——P1-5b 起非 OK 结果以<b>短 TTL</b> 入缓存
+ * （防故障源每请求吃满全额超时预算），过期即恢复真实取数，不受长 TTL 源误锁。
  *
  * <p><b>DEFECT-1 过期回归（M4）</b>：fake ticker 注入不真实等待，验证「读后过 TTL 须重新取数」——曾因 {@code expireAfterRead} 返回
  * {@code Long.MIN_VALUE}（Caffeine 3.1.8 实测语义=条目永不过期，非注释假设的「不变」） 导致被读过的条目永驻， 切源（场景 3.2）与 TTL
@@ -36,28 +37,103 @@ class SourceCacheTest {
     }
 
     @Test
-    void putMissingResult_isNotCached() {
-        SourceResult missing = SourceResult.missing(SourceCode.QUOTE, 1L, "src");
-
-        cache.put(SourceCode.QUOTE, 1L, missing);
-
-        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
-    }
-
-    @Test
-    void putFailedResult_isNotCached() {
-        SourceResult failed = SourceResult.failed(SourceCode.QUOTE, 1L, "src");
-
-        cache.put(SourceCode.QUOTE, 1L, failed);
-
-        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
-    }
-
-    @Test
     void putNullResult_isIgnored() {
         cache.put(SourceCode.QUOTE, 1L, null);
 
         assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
+    }
+
+    // —— P1-5b/P2 负缓存回归（体检「FAILED/MISSING 不负缓存」，修前红→修后绿） ——
+
+    @Test
+    void putFailedResult_cachedWithShortTtl_thenExpires() {
+        // 修前红：FAILED 不缓存 → getIfPresent 为 null；修后：短 TTL 负缓存命中，过 TTL 过期恢复取数
+        FakeTicker ticker = new FakeTicker();
+        SourceCache cache = cacheWithTtl5s(ticker);
+        SourceResult failed = SourceResult.failed(SourceCode.QUOTE, 1L, "src");
+
+        cache.put(SourceCode.QUOTE, 1L, failed);
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isSameAs(failed);
+
+        ticker.advance(Duration.ofSeconds(31));
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
+    }
+
+    @Test
+    void putMissingResult_cachedWithShortTtl_thenExpires() {
+        // 修前红：MISSING 不缓存；修后：短 TTL 负缓存（当日无数据语义），过 TTL 过期
+        FakeTicker ticker = new FakeTicker();
+        SourceCache cache = cacheWithTtl5s(ticker);
+        SourceResult missing = SourceResult.missing(SourceCode.QUOTE, 1L, "src");
+
+        cache.put(SourceCode.QUOTE, 1L, missing);
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isSameAs(missing);
+
+        ticker.advance(Duration.ofSeconds(31));
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
+    }
+
+    @Test
+    void failedEntryShorterThanOk_negativeTtlBoundedByFailureBudget() {
+        // OK TTL 3600s 的长 TTL 源：FAILED 负缓存不得按 OK TTL 锁一小时——过 31s（失败预算上限）即过期
+        FakeTicker ticker = new FakeTicker();
+        SourceCache cache =
+                new SourceCache(
+                        code -> Duration.ofSeconds(3600), code -> Duration.ofSeconds(30), ticker);
+        SourceResult failed = SourceResult.failed(SourceCode.FINANCE, 1L, "src");
+
+        cache.put(SourceCode.FINANCE, 1L, failed);
+        assertThat(cache.getIfPresent(SourceCode.FINANCE, 1L)).isSameAs(failed);
+
+        ticker.advance(Duration.ofSeconds(31));
+        assertThat(cache.getIfPresent(SourceCode.FINANCE, 1L))
+                .as("失败负缓存须按短 TTL 过期，不得继承 OK 长 TTL")
+                .isNull();
+    }
+
+    @Test
+    void sourceRecovers_afterNegativeTtlExpiry_okEntryCachedWithNormalTtl() {
+        // 源恢复：负缓存过期后 OK 结果正常入缓存（正常 TTL，读不延长）
+        FakeTicker ticker = new FakeTicker();
+        SourceCache cache = cacheWithTtl5s(ticker);
+        cache.put(SourceCode.QUOTE, 1L, SourceResult.failed(SourceCode.QUOTE, 1L, "src"));
+
+        ticker.advance(Duration.ofSeconds(31)); // 负缓存过期
+        SourceResult ok =
+                SourceResult.ok(SourceCode.QUOTE, 1L, Map.of("price", 1), "src", Instant.now());
+        cache.put(SourceCode.QUOTE, 1L, ok);
+
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isSameAs(ok);
+        ticker.advance(Duration.ofSeconds(4));
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isSameAs(ok);
+        ticker.advance(Duration.ofSeconds(2));
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
+    }
+
+    @Test
+    void failureTtlSupplier_readAtPutTime_hotEffectiveForNewEntries() {
+        // 配置键热生效（datasource.{CODE}.failureCacheTtlSeconds，LIVE 级）：页面改值后新写入的负缓存条目按新值
+        java.util.Map<SourceCode, Long> runtimeFailureTtl = new java.util.HashMap<>();
+        runtimeFailureTtl.put(SourceCode.QUOTE, 10L);
+        FakeTicker ticker = new FakeTicker();
+        SourceCache cache =
+                new SourceCache(
+                        code -> Duration.ofSeconds(3600),
+                        code -> Duration.ofSeconds(runtimeFailureTtl.getOrDefault(code, 30L)),
+                        ticker);
+
+        // 条目 1：按 10s 失败 TTL 写入
+        cache.put(SourceCode.QUOTE, 1L, SourceResult.failed(SourceCode.QUOTE, 1L, "src"));
+        // 页面把 QUOTE 的 failureCacheTtlSeconds 从 10s 改为 60s（保存即换快照），再写一条新负缓存
+        runtimeFailureTtl.put(SourceCode.QUOTE, 60L);
+        cache.put(SourceCode.QUOTE, 2L, SourceResult.missing(SourceCode.QUOTE, 2L, "src"));
+
+        // 条目 1 按写入时点旧值（10s）到期；条目 2 按新值（60s）仍在
+        ticker.advance(Duration.ofSeconds(11));
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 1L)).isNull();
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 2L)).isNotNull();
+        ticker.advance(Duration.ofSeconds(50));
+        assertThat(cache.getIfPresent(SourceCode.QUOTE, 2L)).isNull();
     }
 
     @Test
@@ -161,7 +237,8 @@ class SourceCacheTest {
     }
 
     private static SourceCache cacheWithTtl5s(Ticker ticker) {
-        return new SourceCache(code -> Duration.ofSeconds(5), ticker);
+        return new SourceCache(
+                code -> Duration.ofSeconds(5), code -> Duration.ofSeconds(30), ticker);
     }
 
     @Test

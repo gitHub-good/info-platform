@@ -99,11 +99,12 @@ public class DataSourceRuntimeConfigSeeder implements RuntimeConfigSeeder {
         doc.put("timeoutMillis", DataSourceDefaults.timeoutMillis(code));
         doc.put("retries", DataSourceDefaults.RETRIES_NONE);
         doc.put("cacheTtlSeconds", DataSourceDefaults.cacheTtlSeconds(code));
+        doc.put("failureCacheTtlSeconds", DataSourceDefaults.failureCacheTtlSeconds(code));
         doc.put("params", paramsOf(code));
         return new RuntimeConfigSeed(
                 ConfigCenter.KEY_DATASOURCE_PREFIX + code.name(),
                 write(doc),
-                "数据源 " + code.name() + "（开关/模式/超时/重试/缓存 TTL/外呼参数）");
+                "数据源 " + code.name() + "（开关/模式/超时/重试/缓存 TTL/失败负缓存 TTL/外呼参数）");
     }
 
     private Map<String, Object> paramsOf(SourceCode code) {

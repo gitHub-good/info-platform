@@ -60,6 +60,7 @@ class DataSourceConfigControllerTest {
                 1500,
                 0,
                 5,
+                30,
                 Map.of("quoteUrl", "https://push2.eastmoney.com/api/qt/stock/get"),
                 new HealthView("OK", "2026-09-22T02:00:00Z", 1),
                 "2026-09-22T01:00:00Z",

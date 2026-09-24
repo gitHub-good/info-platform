@@ -104,11 +104,27 @@ class AggregationRuntimeSettingsImplTest {
         // 附带覆盖 RuntimeDataSource 访问器分支（paramInt 数字/字符串/非法/缺失 + duration 换算 + null params 收敛）
         RuntimeDataSource view =
                 new RuntimeDataSource(
-                        SourceCode.ANNOUNCE, true, RuntimeDataSource.Mode.REAL, 2000, 1, 300, null);
+                        SourceCode.ANNOUNCE,
+                        true,
+                        RuntimeDataSource.Mode.REAL,
+                        2000,
+                        1,
+                        300,
+                        30,
+                        null);
         assertThat(view.params()).isEmpty();
         assertThat(view.timeout().toMillis()).isEqualTo(2000);
         assertThat(view.cacheTtl().toSeconds()).isEqualTo(300);
+        assertThat(view.failureCacheTtl().toSeconds()).isEqualTo(30);
         assertThat(view.paramInt("announcePageSize", 3)).isEqualTo(3);
+        // ≤0（存量文档缺字段 Jackson 缺省 0）→ 回落代码缺省
+        RuntimeDataSource legacy =
+                new RuntimeDataSource(
+                        SourceCode.QUOTE, true, RuntimeDataSource.Mode.REAL, 1500, 0, 5, 0, null);
+        assertThat(legacy.failureCacheTtl().toSeconds())
+                .isEqualTo(
+                        com.info.platform.infrastructure.common.DataSourceDefaults
+                                .failureCacheTtlSeconds(SourceCode.QUOTE));
 
         RuntimeDataSource rich =
                 new RuntimeDataSource(
@@ -118,6 +134,7 @@ class AggregationRuntimeSettingsImplTest {
                         1000,
                         0,
                         60,
+                        30,
                         Map.of("newsPageSize", 20, "newsLid", "2510", "bad", "x"));
         assertThat(rich.paramInt("newsPageSize", 5)).isEqualTo(20);
         assertThat(rich.paramInt("newsLid", 5)).isEqualTo(2510);

@@ -23,8 +23,11 @@ import java.util.function.Function;
  * 级，页面保存后<b>新缓存条目</b>即按新值；存量条目按写入时点值到期，不回溯；读不延长）。 供应函数异常回落 {@link
  * DataSourceDefaults#cacheTtlSeconds}；无供应构造（纯构造单测）同。容量 maximumSize 建缓存时固化（保持启动期，RESTART 级）。
  *
- * <p>仅缓存 status={@link SourceStatus#OK} 的结果：MISSING/FAILED 不缓存，避免长 TTL 源（如财务 1h）把"暂无数据"误锁一整小时。
- * 穿透防护（负缓存空值 + 短 TTL）留待后续与 {@code data_source_event} 一并评估。
+ * <p><b>失败负缓存（P1-5b/P2，体检条目「FAILED/MISSING 不负缓存」）</b>：FAILED/超时降级结果与 MISSING（源当日无数据）同样入缓存， 但走<b>独立短
+ * TTL</b>（写入/更新时经 {@code failureTtlSupplier} 从 {@code datasource.{CODE}.failureCacheTtlSeconds}
+ * 解析，缺省 {@link DataSourceDefaults#failureCacheTtlSeconds}：行情 10s / 其余 30s）——故障源窗口内命中负缓存快速返回降级态
+ * （不再每请求吃满全额超时预算），TTL 过期即重试真实源（恢复感知 ≤30s，不受长 TTL 源如财务 1h 误锁）。条目按值状态分档：同 key FAILED→OK 覆写后按 OK TTL
+ * 生效。
  */
 public class SourceCache {
 
@@ -32,16 +35,31 @@ public class SourceCache {
 
     /** 无供应构造：TTL 固定为代码缺省（纯构造单测/降级用）。 */
     public SourceCache() {
-        this(code -> Duration.ofSeconds(DataSourceDefaults.cacheTtlSeconds(code)));
+        this(
+                code -> Duration.ofSeconds(DataSourceDefaults.cacheTtlSeconds(code)),
+                code -> Duration.ofSeconds(DataSourceDefaults.failureCacheTtlSeconds(code)));
     }
 
     /** 运行时 TTL 供应构造：每条目写入时解析当前配置（LIVE 级热生效），时钟走系统缺省。 */
     public SourceCache(Function<SourceCode, Duration> ttlSupplier) {
-        this(ttlSupplier, Ticker.systemTicker());
+        this(
+                ttlSupplier,
+                code -> Duration.ofSeconds(DataSourceDefaults.failureCacheTtlSeconds(code)),
+                Ticker.systemTicker());
     }
 
-    /** 同 {@link #SourceCache(Function)}，可注入时钟——过期回归用例的 fake ticker（DEFECT-1，同包可见）。 */
-    SourceCache(Function<SourceCode, Duration> ttlSupplier, Ticker ticker) {
+    /** 运行时 TTL 供应构造（OK + 失败负缓存双供应，P1-5b），时钟走系统缺省。 */
+    public SourceCache(
+            Function<SourceCode, Duration> ttlSupplier,
+            Function<SourceCode, Duration> failureTtlSupplier) {
+        this(ttlSupplier, failureTtlSupplier, Ticker.systemTicker());
+    }
+
+    /** 同 {@link #SourceCache(Function, Function)}，可注入时钟——过期回归用例的 fake ticker（DEFECT-1，同包可见）。 */
+    SourceCache(
+            Function<SourceCode, Duration> ttlSupplier,
+            Function<SourceCode, Duration> failureTtlSupplier,
+            Ticker ticker) {
         Map<SourceCode, Cache<Long, SourceResult>> map = new EnumMap<>(SourceCode.class);
         for (SourceCode code : SourceCode.values()) {
             map.put(
@@ -49,7 +67,7 @@ public class SourceCache {
                     Caffeine.newBuilder()
                             .maximumSize(maxSizeFor(code))
                             .ticker(ticker)
-                            .expireAfter(new SourceExpiry(code, ttlSupplier))
+                            .expireAfter(new SourceExpiry(code, ttlSupplier, failureTtlSupplier))
                             .build());
         }
         this.caches = Map.copyOf(map);
@@ -60,10 +78,10 @@ public class SourceCache {
         return cache == null ? null : cache.getIfPresent(subjectId);
     }
 
-    /** 仅缓存 OK 结果；MISSING/FAILED 跳过。 */
+    /** 写缓存：OK 按本源 TTL；FAILED/MISSING 按短 TTL 负缓存（P1-5b，同 key 覆写时按新值状态重算 TTL）。null 结果忽略。 */
     public void put(SourceCode code, Long subjectId, SourceResult result) {
         Cache<Long, SourceResult> cache = caches.get(code);
-        if (cache != null && result != null && result.getStatus() == SourceStatus.OK) {
+        if (cache != null && result != null) {
             cache.put(subjectId, result);
         }
     }
@@ -78,7 +96,7 @@ public class SourceCache {
     }
 
     /**
-     * 每条目 TTL：写入/更新按当前配置解析，读不延长。
+     * 每条目 TTL：写入/更新按当前配置解析（按值状态分档——OK 走本源 TTL，FAILED/MISSING 走失败短 TTL），读不延长。
      *
      * <p>「读不延长」= {@link #expireAfterRead} 返回剩余时长 {@code currentDuration}（DEFECT-1：Caffeine 3.1.8
      * 中返回 {@code Long.MIN_VALUE} 并非「不变」，而是使条目永不过期——被读过的条目永驻，切源与 TTL 热改对存量条目失效）。
@@ -86,21 +104,26 @@ public class SourceCache {
     private static final class SourceExpiry implements Expiry<Long, SourceResult> {
         private final SourceCode code;
         private final Function<SourceCode, Duration> ttlSupplier;
+        private final Function<SourceCode, Duration> failureTtlSupplier;
 
-        private SourceExpiry(SourceCode code, Function<SourceCode, Duration> ttlSupplier) {
+        private SourceExpiry(
+                SourceCode code,
+                Function<SourceCode, Duration> ttlSupplier,
+                Function<SourceCode, Duration> failureTtlSupplier) {
             this.code = code;
             this.ttlSupplier = ttlSupplier;
+            this.failureTtlSupplier = failureTtlSupplier;
         }
 
         @Override
         public long expireAfterCreate(Long key, SourceResult value, long currentTime) {
-            return resolveTtl().toNanos();
+            return resolveTtl(value).toNanos();
         }
 
         @Override
         public long expireAfterUpdate(
                 Long key, SourceResult value, long currentTime, long currentDuration) {
-            return resolveTtl().toNanos();
+            return resolveTtl(value).toNanos();
         }
 
         @Override
@@ -109,14 +132,21 @@ public class SourceCache {
             return currentDuration;
         }
 
-        private Duration resolveTtl() {
+        /** 按值状态分档解析：OK → 本源 TTL；FAILED/MISSING → 失败短 TTL（负缓存，P1-5b）。 */
+        private Duration resolveTtl(SourceResult value) {
+            boolean negative = value.getStatus() != SourceStatus.OK;
+            Function<SourceCode, Duration> supplier = negative ? failureTtlSupplier : ttlSupplier;
+            long fallbackSeconds =
+                    negative
+                            ? DataSourceDefaults.failureCacheTtlSeconds(code)
+                            : DataSourceDefaults.cacheTtlSeconds(code);
             try {
-                Duration ttl = ttlSupplier.apply(code);
+                Duration ttl = supplier.apply(code);
                 return ttl == null || ttl.isNegative() || ttl.isZero()
-                        ? Duration.ofSeconds(DataSourceDefaults.cacheTtlSeconds(code))
+                        ? Duration.ofSeconds(fallbackSeconds)
                         : ttl;
             } catch (Exception e) {
-                return Duration.ofSeconds(DataSourceDefaults.cacheTtlSeconds(code));
+                return Duration.ofSeconds(fallbackSeconds);
             }
         }
     }
