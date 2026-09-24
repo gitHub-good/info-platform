@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useSubjectDetail } from '@/hooks/useSubjectDetail';
 import { trackReadingOnce } from '@/api/readingEvent';
+import { ApiError } from '@/api/http';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +14,7 @@ import { PolicySection } from '@/components/subject/PolicySection';
 import { QuoteSection } from '@/components/subject/QuoteSection';
 import { ValuationSection } from '@/components/subject/ValuationSection';
 import { navigate, rememberSubject } from '@/lib/navigation';
-import type { Subject, SubjectDetailData, SubjectMarket } from '@/types/subject-detail';
+import type { Subject, SubjectMarket } from '@/types/subject-detail';
 
 const MARKET_LABEL: Record<SubjectMarket, string> = {
   A_SHARE: 'A 股',
@@ -22,14 +23,30 @@ const MARKET_LABEL: Record<SubjectMarket, string> = {
   SECTOR: '板块',
 };
 
+/** 后端错误码：标的不存在（SUBJECT_NOT_FOUND） */
+const CODE_SUBJECT_NOT_FOUND = 30001;
+/** 后端错误码：服务端/网络异常（含 request() 网络失败兜底） */
+const CODE_SERVICE_ERROR = 50000;
+
 interface SubjectDetailProps {
   /** 标的代码（内部统一代码，如 SH600519） */
   subjectId?: string;
-  /** 测试 / 预渲染注入；不传则走 useSubjectDetail（当前 mock，联调日切真实接口） */
-  data?: SubjectDetailData;
 }
 
-function SubjectHeader({ subject }: { subject: Subject }) {
+/** 错误 → 用户可读文案（P0-1 顺带项：不直出技术串 error.message） */
+function friendlyErrorMessage(error: Error, subjectCode: string): string {
+  if (error instanceof ApiError) {
+    if (error.code === CODE_SUBJECT_NOT_FOUND) {
+      return `未找到代码为 ${subjectCode} 的标的，请确认代码是否正确`;
+    }
+    if (error.code === CODE_SERVICE_ERROR) {
+      return '网络异常或服务暂不可用，请稍后重试';
+    }
+  }
+  return '详情加载失败，请稍后重试';
+}
+
+function SubjectHeader({ subject, subjectId }: { subject: Subject; subjectId: number | null }) {
   return (
     <Card data-testid="subject-header">
       <CardHeader>
@@ -40,7 +57,10 @@ function SubjectHeader({ subject }: { subject: Subject }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => navigate('/ai-brief')}
+              // 带数字主键预填 AiBrief（P1 顺带项）；未解析到时退化为无参入口
+              onClick={() =>
+                navigate(subjectId != null ? `/ai-brief?subjectId=${subjectId}` : '/ai-brief')
+              }
               data-testid="subject-goto-ai-brief"
             >
               AI 简报
@@ -72,13 +92,13 @@ function LoadingSkeleton() {
 }
 
 /**
- * 标的详情聚合页（技术方案 §2 Container 清单 / T10）。
+ * 标的详情聚合页（技术方案 §2 Container 清单 / T10；P0-1 真实化直连接口）。
  * 一个视图内按分区展示行情 / 财务 / 估值 / 公告 / 新闻 / 政策 / 事件监控，
  * 每分区按 sourceStatus 三态降级（ok / missing / failed / timeout），
  * 单源缺失不阻断其他分区；每条信息标注数据来源与时间戳。
  */
-export function SubjectDetail({ subjectId = 'SH600519', data: injected }: SubjectDetailProps) {
-  const { data, loading, error } = useSubjectDetail(subjectId, injected);
+export function SubjectDetail({ subjectId = 'SH600519' }: SubjectDetailProps) {
+  const { data, subjectId: resolvedId, loading, error, retry } = useSubjectDetail(subjectId);
 
   // T38 路由参数化：记录最近浏览标的（侧栏「标的详情」入口指向，无历史落默认标的）
   useEffect(() => {
@@ -100,8 +120,14 @@ export function SubjectDetail({ subjectId = 'SH600519', data: injected }: Subjec
   }
   if (error) {
     return (
-      <div className="py-10 text-center text-sm text-destructive" data-testid="subject-error">
-        加载失败：{error.message}
+      <div
+        className="flex flex-col items-center gap-3 py-10 text-center text-sm text-destructive"
+        data-testid="subject-error"
+      >
+        <span>{friendlyErrorMessage(error, subjectId)}</span>
+        <Button variant="outline" size="sm" onClick={retry} data-testid="subject-retry">
+          重试
+        </Button>
       </div>
     );
   }
@@ -116,7 +142,7 @@ export function SubjectDetail({ subjectId = 'SH600519', data: injected }: Subjec
   const status = data.sourceStatus;
   return (
     <div className="flex flex-col gap-4" data-testid="subject-detail">
-      <SubjectHeader subject={data.subject} />
+      <SubjectHeader subject={data.subject} subjectId={resolvedId} />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         <QuoteSection data={data.quote} status={status.quote} />
         <FinanceSection data={data.finance} status={status.finance} />

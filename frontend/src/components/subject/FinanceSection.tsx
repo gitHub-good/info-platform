@@ -16,7 +16,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** 财务分区：营收 / 净利 / 毛利率 / ROE / 报告期 */
+/** 财务分区：营收 / 净利 / 毛利率 / ROE / 报告期（真实源键 grossProfitMargin/reportDate 与 mock 键互为兜底） */
 export function FinanceSection({ data, status }: FinanceSectionProps) {
   return (
     <SectionCard title="财务" status={status} source={data?.source} updatedAt={data?.updatedAt}>
@@ -24,9 +24,9 @@ export function FinanceSection({ data, status }: FinanceSectionProps) {
         <div className="grid grid-cols-2 gap-3" data-testid="finance-metrics">
           <Metric label="营业收入" value={formatMoney(data.revenue)} />
           <Metric label="净利润" value={formatMoney(data.netProfit)} />
-          <Metric label="毛利率" value={formatPct(data.grossMargin)} />
+          <Metric label="毛利率" value={formatPct(data.grossMargin ?? data.grossProfitMargin)} />
           <Metric label="ROE" value={formatPct(data.roe)} />
-          <Metric label="报告期" value={data.reportPeriod ?? '--'} />
+          <Metric label="报告期" value={data.reportPeriod ?? data.reportDate ?? '--'} />
         </div>
       ) : null}
     </SectionCard>

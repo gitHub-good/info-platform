@@ -1,68 +1,44 @@
-import type { ApiResponse, SectionCode, SubjectDetailData } from '@/types/subject-detail';
-import { subjectDetailMock } from '@/mocks/subject-detail-mock';
+// 标的详情数据适配层（P0-1 真实化）。
+// - 统一走 http.ts request()：自动注入 Bearer、解析 { code, msg, data }、401 跳登录。
+// - 前端不再自带 mock 数据；「mock 能力」由后端 datasource mode=MOCK 提供（配置页可切），
+//   输出结构与真实结构一致，本层无需分支。
+
+import { request } from '@/api/http';
+import type { SectionCode, SubjectDetailData } from '@/types/subject-detail';
+
+/** 标的摘要（GET /subjects/by-code/{code} 响应 data）：数字主键 + 头部展示字段。 */
+export interface SubjectSummary {
+  /** 数字主键（聚合详情接口寻址用） */
+  id: number;
+  /** 内部统一代码，如 SH600519 */
+  subjectCode: string;
+  name: string;
+  market: string;
+  type: number;
+  industry?: string | null;
+}
 
 /**
- * 数据适配层开关。
- * - mock.enabled = true（当前阶段）：返回本地 mock，供前端搭骨架。
- * - 联调日把 mock.enabled 改 false，自动走真实聚合接口；组件层无需改动。
- *
- * 真实接口受 JWT 保护（T17），需 Bearer token；login / refresh / actuator 在白名单内。
+ * 内部统一代码 → 数字主键解析（P0-1）。
+ * GET /api/v1/subjects/by-code/{code}；标的不存在 → ApiError(30001, 404)。
  */
-export const adapter = {
-  baseUrl: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
-  mock: {
-    enabled: true,
-  },
-};
-
-const ALL_SECTIONS: SectionCode[] = [
-  'quote',
-  'finance',
-  'valuation',
-  'announce',
-  'news',
-  'policy',
-  'event',
-];
-
-/** 读取登录后写入 localStorage 的 access_token（T17 颁发） */
-function getAccessToken(): string | null {
-  try {
-    return localStorage.getItem('access_token');
-  } catch {
-    // localStorage 不可用（如 SSR / 隐私模式）时按未登录处理
-    return null;
-  }
+export function fetchSubjectByCode(code: string, signal?: AbortSignal): Promise<SubjectSummary> {
+  return request<SubjectSummary>(`/subjects/by-code/${encodeURIComponent(code)}`, { signal });
 }
 
 /**
  * 拉取标的详情聚合数据。
- * §4.1.1 GET /api/v1/subjects/{subjectId}/detail?sections=quote,finance,...
+ * GET /api/v1/subjects/{subjectId}/detail?sections=quote,finance,...
  * 单源缺失不阻断，后端在 sourceStatus 中标注每分区状态。
+ *
+ * @param subjectId 数字主键（先经 fetchSubjectByCode 解析）
+ * @param sections 分区清单；缺省请求全部分区（后端默认）
  */
-export async function fetchSubjectDetail(
-  subjectId: string,
-  sections: SectionCode[] = ALL_SECTIONS,
+export function fetchSubjectDetail(
+  subjectId: number,
+  sections?: SectionCode[],
   signal?: AbortSignal,
 ): Promise<SubjectDetailData> {
-  if (adapter.mock.enabled) {
-    // mock：模拟一次网络往返，便于联调前验证 loading / 三态
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    return subjectDetailMock;
-  }
-
-  const url = `${adapter.baseUrl}/subjects/${encodeURIComponent(subjectId)}/detail?sections=${sections.join(',')}`;
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const token = getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const res = await fetch(url, { headers, signal });
-  if (!res.ok) {
-    throw new Error(`聚合接口请求失败：HTTP ${res.status}`);
-  }
-  const body = (await res.json()) as ApiResponse<SubjectDetailData>;
-  if (body.code !== 0) {
-    throw new Error(`聚合接口返回错误：code=${body.code} msg=${body.msg}`);
-  }
-  return body.data;
+  const query = sections?.length ? `?sections=${sections.join(',')}` : '';
+  return request<SubjectDetailData>(`/subjects/${subjectId}/detail${query}`, { signal });
 }

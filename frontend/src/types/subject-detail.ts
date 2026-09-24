@@ -60,20 +60,26 @@ export interface Finance {
   revenue?: number;
   /** 净利润（元） */
   netProfit?: number;
-  /** 毛利率（%） */
+  /** 毛利率（%）——mock 源键 */
   grossMargin?: number;
+  /** 毛利率（%）——真实源键（eastmoney XSMLL 映射），展示时与 grossMargin 互为兜底 */
+  grossProfitMargin?: number;
   /** 净资产收益率 ROE（%） */
   roe?: number;
-  /** 报告期，如 2026 年中报 */
+  /** 报告期，如 2026 年中报（mock 源键） */
   reportPeriod?: string;
+  /** 报告日期（ISO，真实源键 REPORT_DATE 映射），展示时与 reportPeriod 互为兜底 */
+  reportDate?: string;
   source?: string;
   updatedAt?: string;
 }
 
 /** 估值分区 */
 export interface Valuation {
-  /** 市盈率 */
+  /** 市盈率（mock 源键） */
   pe?: number;
+  /** 市盈率 TTM（真实源键，eastmoney f162 映射），展示时与 pe 互为兜底 */
+  peTtm?: number;
   /** 市净率 */
   pb?: number;
   source?: string;
