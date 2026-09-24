@@ -24,6 +24,8 @@ const MSG_BY_CODE: Record<number, string> = {
 interface StoreOpts {
   /** 强制删标的返回该错误码（模拟越权 30012）。 */
   deleteItemCode?: number;
+  /** 强制 GET /subjects/quotes 返回 500（行情加载失败，表格应显示「—」回退）。 */
+  quotesFail?: boolean;
 }
 
 function cloneWl(w: WatchlistView): WatchlistView {
@@ -36,6 +38,11 @@ const SUBJECT_POOL = [
   { id: 200, subjectCode: 'SH600036', name: '招商银行', market: 'A_SHARE', type: 1, industry: '银行' },
   { id: 999, subjectCode: 'SH999999', name: '不存在的标的', market: 'A_SHARE', type: 1, industry: '测试' },
 ];
+
+const QUOTE_BY_ID: Record<number, { price: number; changePct: number }> = {
+  100: { price: 128.5, changePct: -1.25 },
+  200: { price: 38.2, changePct: 0.86 },
+};
 
 /** 构造一个状态化 fetch mock：GET 列表/单查/search/quotes、POST 创建/加标的、DELETE/PATCH 清单项。 */
 function makeStore(opts: StoreOpts = {}) {
@@ -73,6 +80,20 @@ function makeStore(opts: StoreOpts = {}) {
         (s) => s.name.includes(q) || s.subjectCode.includes(q.toUpperCase()),
       );
       return ok(matched);
+    }
+    if (method === 'GET' && /\/subjects\/quotes/.test(path)) {
+      if (opts.quotesFail) return fail(50000);
+      const ids = (new URL(path, 'http://localhost').searchParams.get('ids') ?? '')
+        .split(',')
+        .map(Number);
+      return ok(
+        ids
+          .filter((id) => SUBJECT_POOL.some((s) => s.id === id))
+          .map((id) => {
+            const base = SUBJECT_POOL.find((s) => s.id === id)!;
+            return { ...base, quote: QUOTE_BY_ID[id] ?? null };
+          }),
+      );
     }
     if (method === 'GET' && /\/watchlists$/.test(path)) {
       return ok(watchlists.map(cloneWl));
@@ -163,12 +184,49 @@ describe('Watchlist 管理页', () => {
     expect(screen.getByTestId('watchlist-card-2')).toBeInTheDocument();
     expect(screen.getByTestId('watchlist-item-count-1')).toHaveTextContent('1 标的');
     expect(screen.getByTestId('watchlist-item-count-2')).toHaveTextContent('0 标的');
-    // 详情：默认选中 wl1，标的 100 / 阈值 3.00（表格增强在后续提交）
+    // 详情：默认选中 wl1，标的列不再是裸数字 ID——代码+名称+行业徽章（体检 P1-2）
     expect(screen.getByTestId('watchlist-detail-name')).toHaveTextContent('核心持仓');
-    expect(screen.getByTestId('watchlist-item-subjectId-10')).toHaveTextContent('100');
+    // 行情为异步批量拉取：等待最新价就位后再断言其余列
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-item-price-10')).toHaveTextContent('128.50'),
+    );
+    expect(screen.getByTestId('watchlist-item-subject-10')).toHaveTextContent('SZ000858');
+    expect(screen.getByTestId('watchlist-item-subject-10')).toHaveTextContent('五粮液');
+    expect(screen.getByTestId('watchlist-item-subject-10')).toHaveTextContent('白酒');
+    // 行情列：涨跌幅（A 股惯例：跌绿）；阈值不变
+    expect(screen.getByTestId('watchlist-item-changepct-10')).toHaveTextContent('-1.25%');
+    expect(screen.getByTestId('watchlist-item-changepct-10')).toHaveClass('text-green-500');
     expect(screen.getByTestId('watchlist-item-threshold-10')).toHaveTextContent('3.00');
     // 已带 Bearer 受保护请求（此处未登录无 token，仅断言命中 /watchlists）
     expect(String(fetchMock.mock.calls[0][0])).toContain('/watchlists');
+  });
+
+  it('标的行操作：查看详情链接跳 /subjects/:code，AI 简报带参跳转', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    // 查看详情：锚链接直指标的详情路由（行情/摘要到达后渲染）
+    const detailLink = await screen.findByTestId('watchlist-item-detail-10');
+    expect(detailLink).toHaveAttribute('href', '#/subjects/SZ000858');
+
+    // AI 简报：带 subjectId 跳生成页
+    await user.click(screen.getByTestId('watchlist-item-brief-10'));
+    await waitFor(() =>
+      expect(window.location.hash).toBe('#/ai-brief?subjectId=100'),
+    );
+  });
+
+  it('行情加载失败：标的列回退数字主键、行情列显示「—」，不阻断清单', async () => {
+    const store = makeStore({ quotesFail: true });
+    vi.stubGlobal('fetch', store.fetch);
+    render(<Watchlist />);
+
+    await screen.findByTestId('watchlist-item-row-10');
+    expect(screen.getByTestId('watchlist-item-subject-10')).toHaveTextContent('#100');
+    expect(screen.getByTestId('watchlist-item-price-10')).toHaveTextContent('—');
+    expect(screen.getByTestId('watchlist-item-changepct-10')).toHaveTextContent('—');
+    expect(screen.getByTestId('watchlist-item-threshold-10')).toHaveTextContent('3.00');
   });
 
   it('创建清单成功后列表刷新出现新卡片', async () => {
@@ -215,9 +273,10 @@ describe('Watchlist 管理页', () => {
     await user.type(screen.getByTestId('watchlist-add-threshold'), '5');
     await user.click(screen.getByTestId('watchlist-add-submit'));
 
-    // 新标的 200 / 阈值 5.00 出现，清单标的数变 2
-    await screen.findByTestId('watchlist-item-subjectId-11');
-    expect(screen.getByTestId('watchlist-item-subjectId-11')).toHaveTextContent('200');
+    // 新标的代码/名称 + 阈值 5.00 出现，清单标的数变 2（摘要为批量异步拉取，等待就位）
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-item-subject-11')).toHaveTextContent('SH600036'),
+    );
     expect(screen.getByTestId('watchlist-item-threshold-11')).toHaveTextContent('5.00');
     expect(screen.getByTestId('watchlist-item-count-1')).toHaveTextContent('2 标的');
     // 数字 ID 输入框不复存在（体检 P1-2 移除）

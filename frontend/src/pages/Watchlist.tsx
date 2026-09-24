@@ -8,6 +8,7 @@ import { EditThresholdDialog } from '@/components/watchlist/EditThresholdDialog'
 import { WatchlistCard } from '@/components/watchlist/WatchlistCard';
 import { WatchlistDetail } from '@/components/watchlist/WatchlistDetail';
 import { ApiError } from '@/api/http';
+import { fetchSubjectQuotes, type SubjectQuoteRow } from '@/api/subject';
 import {
   addWatchlistItem,
   createWatchlist,
@@ -61,6 +62,30 @@ export function Watchlist() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<WatchlistItemView | null>(null);
+
+  // 标的摘要+行情（体检 P1-2 自选清单增强）：随选中清单刷新批量拉取；失败置 null，表格行情列显示「—」
+  const [subjectRows, setSubjectRows] = useState<Record<number, SubjectQuoteRow> | null>(null);
+  useEffect(() => {
+    const items = selected?.items ?? [];
+    if (items.length === 0) {
+      setSubjectRows(selected ? {} : null);
+      return;
+    }
+    const controller = new AbortController();
+    fetchSubjectQuotes(
+      items.map((i) => i.subjectId),
+      controller.signal,
+    )
+      .then((rows) => {
+        if (controller.signal.aborted) return;
+        setSubjectRows(Object.fromEntries(rows.map((r) => [r.id, r])));
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setSubjectRows(null); // 行情加载失败不阻断清单（标的列回退数字主键、行情列「—」）
+      });
+    return () => controller.abort();
+  }, [selected]);
 
   const reloadList = useCallback(async () => {
     setListLoading(true);
@@ -251,6 +276,7 @@ export function Watchlist() {
         loading={detailLoading}
         submitting={submitting}
         actionError={detailError}
+        subjectRows={subjectRows}
         onOpenAdd={openAdd}
         onOpenEdit={openEdit}
         onRemove={handleRemove}
