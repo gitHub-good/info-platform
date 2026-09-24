@@ -3,6 +3,7 @@ package com.info.platform.interfaces.aggregation;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -223,6 +224,70 @@ class SubjectControllerTest {
     void getByCode_blankCode_returns400AndCode2001() throws Exception {
         // 模板变量传入空白串（等价真实容器 %20 解码后到达控制器）：守卫在领域值对象抛 IllegalArgumentException（→500）之前
         mockMvc.perform(get("/api/v1/subjects/by-code/{code}", " "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    // ---- search 标的搜索（体检 P1-2：搜索选择器数据源） ----
+
+    @Test
+    void search_returnsMatchingSubjectsWithSummaryFields() throws Exception {
+        when(subjectRepository.searchEnabled("茅台", 20))
+                .thenReturn(List.of(persistedSubject(1L, "SH600519")));
+
+        mockMvc.perform(get("/api/v1/subjects/search").param("q", "茅台"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].id").value(1))
+                .andExpect(jsonPath("$.data[0].subjectCode").value("SH600519"))
+                .andExpect(jsonPath("$.data[0].name").value("贵州茅台"))
+                .andExpect(jsonPath("$.data[0].market").value("A_SHARE"))
+                .andExpect(jsonPath("$.data[0].type").value(1))
+                .andExpect(jsonPath("$.data[0].industry").value("白酒"));
+    }
+
+    @Test
+    void search_trimsKeyword_andPassesLimitThrough() throws Exception {
+        when(subjectRepository.searchEnabled("银行", 5)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/subjects/search").param("q", " 银行 ").param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(subjectRepository).searchEnabled("银行", 5);
+    }
+
+    @Test
+    void search_noMatch_returns200WithEmptyList() throws Exception {
+        when(subjectRepository.searchEnabled("xyz不存在的标的", 20)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/subjects/search").param("q", "xyz不存在的标的"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    @Test
+    void search_blankQ_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/search").param("q", "  "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void search_missingQ_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void search_limitOutOfRange_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/search").param("q", "茅台").param("limit", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+
+        mockMvc.perform(get("/api/v1/subjects/search").param("q", "茅台").param("limit", "51"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
     }

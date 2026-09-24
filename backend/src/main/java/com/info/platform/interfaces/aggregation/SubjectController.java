@@ -9,6 +9,7 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.Result;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,10 +26,19 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>{@code GET /api/v1/subjects/by-code/{code}}（P0-1）— 内部统一代码 → 数字主键解析，
  * 供前端路由（#/subjects/SH600519）接入数字主键寻址的聚合详情接口。
+ *
+ * <p>{@code GET /api/v1/subjects/search?q=xxx&limit=20}（体检 P1-2）— 按代码/名称模糊搜索启用标的，
+ * 供前端搜索选择器替代手输数字主键；q 空白或 limit 越界 → 2xxx（400）。
  */
 @RestController
 @RequestMapping("/api/v1/subjects")
 public class SubjectController {
+
+    /** search 默认返回条数。 */
+    static final int DEFAULT_SEARCH_LIMIT = 20;
+
+    /** search 单次返回上限（防一次性拉全表式滥用）。 */
+    static final int MAX_SEARCH_LIMIT = 50;
 
     private final AggregationService aggregationService;
     private final SubjectRepository subjectRepository;
@@ -50,6 +60,27 @@ public class SubjectController {
                         .map(SubjectSummaryView::from)
                         .orElseThrow(() -> new BusinessException(ErrorCode.SUBJECT_NOT_FOUND));
         return Result.ok(view);
+    }
+
+    /** 标的搜索（体检 P1-2）：按 subjectCode/name 模糊匹配启用标的，无结果返回空列表（非错误）。 */
+    @GetMapping("/search")
+    public Result<List<SubjectSummaryView>> search(
+            @RequestParam(name = "q", required = false) String q,
+            @RequestParam(name = "limit", required = false) Integer limit) {
+        if (q == null || q.isBlank()) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "q 不能为空");
+        }
+        int effectiveLimit =
+                limit == null ? DEFAULT_SEARCH_LIMIT : limit; // 缺省 20，与契约示例一致
+        if (effectiveLimit < 1 || effectiveLimit > MAX_SEARCH_LIMIT) {
+            throw new BusinessException(
+                    ErrorCode.PARAM_INVALID, "limit 须在 1~" + MAX_SEARCH_LIMIT + " 之间");
+        }
+        List<SubjectSummaryView> views =
+                subjectRepository.searchEnabled(q.trim(), effectiveLimit).stream()
+                        .map(SubjectSummaryView::from)
+                        .toList();
+        return Result.ok(views);
     }
 
     @GetMapping("/{subjectId}/detail")

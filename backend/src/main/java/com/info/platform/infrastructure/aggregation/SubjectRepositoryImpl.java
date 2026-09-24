@@ -8,6 +8,7 @@ import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,30 @@ public class SubjectRepositoryImpl implements SubjectRepository {
         return mapper.exists(
                 new LambdaQueryWrapper<SubjectPO>()
                         .eq(SubjectPO::getSubjectCode, subjectCode.value()));
+    }
+
+    @Override
+    public List<Subject> searchEnabled(String keyword, int limit) {
+        String pattern = "%" + escapeLike(keyword) + "%";
+        List<SubjectPO> pos =
+                mapper.selectList(
+                        new LambdaQueryWrapper<SubjectPO>()
+                                .eq(SubjectPO::getStatus, SubjectStatus.ENABLED.code())
+                                .and(
+                                        w ->
+                                                w.apply(
+                                                                "subject_code LIKE {0} ESCAPE '\\'",
+                                                                pattern)
+                                                        .or()
+                                                        .apply("name LIKE {0} ESCAPE '\\'", pattern))
+                                .orderByAsc(SubjectPO::getId)
+                                .last("LIMIT " + Math.max(1, limit)));
+        return pos.stream().map(SubjectRepositoryImpl::toEntity).toList();
+    }
+
+    /** 转义 SQLite LIKE 通配符（%/_/\\），配合 {@code ESCAPE '\\'} 按字面匹配（用户输入不构成通配语义）。 */
+    private static String escapeLike(String keyword) {
+        return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     @Override

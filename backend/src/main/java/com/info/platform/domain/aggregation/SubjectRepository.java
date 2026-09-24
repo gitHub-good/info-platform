@@ -1,5 +1,6 @@
 package com.info.platform.domain.aggregation;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -21,6 +22,13 @@ public interface SubjectRepository {
     Optional<Subject> findFirstActive();
 
     boolean existsByCode(SubjectCode subjectCode);
+
+    /**
+     * 按关键字模糊搜索启用标的（subjectCode/name contains，大小写不敏感），按 id 升序返回至多 {@code limit} 条。
+     *
+     * <p>搜索选择器数据源（体检 P1-2，解「只知数字主键」的冷启动死锁）；LIKE 通配符（%/_）由实现层转义按字面匹配。
+     */
+    List<Subject> searchEnabled(String keyword, int limit);
 
     /** 落库：id 为空走 INSERT 并回填主键，非空走 UPDATE（乐观锁由基础设施层处理）。 */
     Subject save(Subject subject);
