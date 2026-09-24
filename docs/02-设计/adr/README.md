@@ -46,6 +46,7 @@
 | ADR-0030 | A 股列表源备选与自动切换：新浪 SinaSubjectListClient（仅 A 股桶/bj 跳过/无行业）+ RoutingSubjectListSource auto 降级（REQ-20260924-04 / M7） | 已决 |
 | ADR-0031 | 行情/估值备选源与自动降级：腾讯 TencentQuoteClient（东财 f 键中间结构）+ adapter 内组合 auto 降级 + 东财 '-' 缺失值修复（M7 封禁补强） | 已决 |
 | ADR-0032 | 数据源配置种子来源改代码内置默认：删 yml `adapter:` 段，DataSourceDefaults 单一事实源 + 备选源开关热化（修订 ADR-0017 种子来源，ADR-0020 同系列） | 已决 |
+| ADR-0033 | 数据源降级链模型：fallbackChain DB 配置优先、代码默认链只兜底 + 页面可视化 + backupSource 旧键兼容折算（修订 ADR-0031/0032 配置口径） | 已决 |
 
 ## 🔍 关联调研
 

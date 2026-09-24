@@ -77,7 +77,7 @@ info-platform/
 
 ## 🔐 环境变量（部署）
 
-> LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）与**数据源参数（端点 URL/字段列表/referer/条数/mock 模式/备选源开关等）均仅页面配置**（runtime_config DB 持久化，首启由代码内置缺省播种，ADR-0020/0032），不走环境变量与 application.yml；API key 环境变量仍为一等来源（页面写入 DB 密文后优先生效，ADR-0018）。备选源开关热生效：行情/估值 `datasource.{QUOTE,VALUATION}.params.backupSource`（auto/eastmoney/tencent）、A 股列表桶 `subject.sync.aShareSource`（auto/eastmoney/sina）——保存后下一次取数即新源，无需重启（ADR-0032）。
+> LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）与**数据源参数（端点 URL/字段列表/referer/条数/mock 模式/降级链等）均仅页面配置**（runtime_config DB 持久化，首启由代码内置缺省播种，ADR-0020/0032），不走环境变量与 application.yml；API key 环境变量仍为一等来源（页面写入 DB 密文后优先生效，ADR-0018）。数据源降级链热生效（ADR-0033）：`datasource.{QUOTE,VALUATION}.fallbackChain`（如 `["eastmoney","tencent"]`，首元素=主源，可换主源/清备选，页面「降级策略」区块可视化编辑）、A 股列表桶 `subject.sync.fallbackChain`（`["eastmoney","sina"]`）——保存后下一次取数即新链，无需重启；DB 无链配置时代码内置默认链兜底，旧 `backupSource`/`aShareSource` 单值键读取兼容折算（写路径统一 fallbackChain，ADR-0031/0032 语义完整保留）。
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
