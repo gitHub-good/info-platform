@@ -12,8 +12,8 @@ export default defineConfig({
     },
   },
   server: {
-    // 本地联调真实后端：/api → http://localhost:8080（后端 adapter.mock.enabled=true，
-    // mock 数据源 + watchlist 真实 CRUD + JWT 鉴权）。前端无需改 CORS。
+    // 本地联调真实后端：/api → http://localhost:8080（JWT 鉴权；数据源 mock/real
+    // 由后端 datasource 配置切换，前端不自带假数据）。前端无需改 CORS。
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
