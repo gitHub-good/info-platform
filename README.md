@@ -93,7 +93,8 @@ info-platform/
 - [ ] 上线跟进 1：真实 LLM key 回归 SUCCESS 路径（测试报告 R1，顺带观察 AI 简报缓存 TTL）
 - [ ] 上线跟进 2：推荐命中率人工抽样 ≥30 条、达标线 ≥70%（测试报告 R2）
 - [ ] 上线跟进 3：13 页前端人工点检（M5 报告 R2 点检重点：提示词页保存确认与冲突重试分支）
-- [ ] M5 候选：llm_call_log/reading_event/job_execution_log 清理任务、每日推荐幂等键按用户、主题语义匹配、信息流阅读埋点（ADR-0019）、oxlint load-in-effect 存量收敛
+- [x] M6 体检修复与价值兑现（2026-09-24）：P0×3（详情页真实化/refresh 令牌校验/倾向重试上限 V16）+ P1×8（通知中心 SSE 消费/标的搜索 V17 池 45 只/订阅管理页/概览用户视角化/feed 毫秒级+负缓存/简报 FAILED 可重试/前端快修）——验收 Go，见 M6 测试报告与 ADR-0025/0026
+- [ ] M7 候选（backlog）：数据源失败事件同源节流（QUOTE errors24h 恶化中，ADR-0010 接口位已留）、Feed 阅读埋点（ADR-0019 契约缺口）、job_execution_log 清理、信息流游标落库、llmToday 口径歧义单、板块种子 V18、oxlint 存量收敛
 
 ## 🔗 关联
 
