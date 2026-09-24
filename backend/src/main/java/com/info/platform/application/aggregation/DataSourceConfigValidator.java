@@ -42,14 +42,21 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                     // 缺失按「不校验 + 读取回落代码缺省」处理，页面/种子补写后按值生效；ADR-0025）
                     ConfigFieldRules.positiveLong("failureCacheTtlSeconds"));
 
-    /** 各源 params 白名单（键空间收口；EVENT 为空 = 不允许任何外呼参数）。 */
+    /**
+     * 各源 params 白名单（键空间收口；EVENT 为空 = 不允许任何外呼参数）。 QUOTE/VALUATION 的 {@code backupSource}（ADR-0032
+     * 备选源开关热化）与 ANNOUNCE 的 {@code announceReferer}（原 yml 迁入补齐）为增量键。
+     */
     private static final Map<SourceCode, Set<String>> ALLOWED_PARAMS =
             Map.of(
-                    SourceCode.QUOTE, Set.of("quoteUrl", "fields"),
+                    SourceCode.QUOTE, Set.of("quoteUrl", "fields", "backupSource"),
                     SourceCode.FINANCE, Set.of("financeUrl", "financeReferer"),
-                    SourceCode.VALUATION, Set.of("quoteUrl", "valuationFields"),
+                    SourceCode.VALUATION, Set.of("quoteUrl", "valuationFields", "backupSource"),
                     SourceCode.ANNOUNCE,
-                            Set.of("announceUrl", "announcePageSize", "announceDetailUrlTemplate"),
+                            Set.of(
+                                    "announceUrl",
+                                    "announcePageSize",
+                                    "announceDetailUrlTemplate",
+                                    "announceReferer"),
                     SourceCode.NEWS,
                             Set.of(
                                     "newsUrl",
@@ -59,6 +66,9 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                                     "newsReferer"),
                     SourceCode.POLICY, Set.of("policyUrl", "policyReferer"),
                     SourceCode.EVENT, Set.of());
+
+    /** 备选源开关合法取值（原 yml {@code adapter.quote-source}/{@code adapter.valuation-source} 语义平移）。 */
+    private static final Set<String> BACKUP_SOURCE_VALUES = Set.of("auto", "eastmoney", "tencent");
 
     /** 本地枚举镜像（不引基础设施类型，application 层保持只依赖 domain/common）。 */
     private static final class RuntimeDataSourceMode {
@@ -118,6 +128,12 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                                 if (!isHttpUrl(value)) {
                                     problems.add("params." + key + ": 须以 http(s):// 开头且不含空白");
                                 }
+                            } else if (isBackupSourceParam(key)) {
+                                if (!value.isTextual()
+                                        || !BACKUP_SOURCE_VALUES.contains(value.asText())) {
+                                    problems.add(
+                                            "params." + key + ": 须为 auto | eastmoney | tencent 之一");
+                                }
                             } else if (isCountParam(key)) {
                                 if (!value.isIntegralNumber() || value.asLong() <= 0) {
                                     problems.add("params." + key + ": 须为正整数");
@@ -131,6 +147,11 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
 
     private static boolean isUrlParam(String key) {
         return key.endsWith("Url") || key.endsWith("Template") || key.endsWith("Referer");
+    }
+
+    /** 备选源开关（QUOTE/VALUATION 专用，ADR-0032；白名单已按源收口，键存在即属该源）。 */
+    private static boolean isBackupSourceParam(String key) {
+        return "backupSource".equals(key);
     }
 
     private static boolean isCountParam(String key) {

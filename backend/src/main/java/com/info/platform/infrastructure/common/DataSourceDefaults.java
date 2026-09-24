@@ -5,21 +5,24 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 数据源弹性/缓存权威缺省值（T36，从各 adapter/client 硬编码提取）。
+ * 数据源配置权威缺省值（T36 从各 adapter/client 硬编码提取；ADR-0032 起 application.yml {@code adapter:}
+ * 段原样迁入，本类即数据源配置<b>单一事实源</b>——对齐 ADR-0020 {@code LlmDefaults} 先例，页面配置（runtime_config DB）为唯一真相）。
  *
  * <p>三处用途共用同一份常量，保证不漂移：① {@code DataSourceRuntimeConfigSeeder} 种子值（首启导入 runtime_config，页面改过即以 DB
  * 为权威）； ② {@code ConfigCenter#dataSource} 键缺失/解析失败的回落； ③ 纯构造单测 （无 Spring 上下文）的 {@code
- * AbstractSourceAdapter} 弹性缺省。 提取对照（源码硬编码 → 配置键）见 T36 交付说明：
+ * AbstractSourceAdapter} 弹性缺省与各 HTTP client 构造期回落。 提取对照（源码硬编码/yml → 配置键）见 T36/ADR-0032 交付说明：
  *
  * <ul>
  *   <li>超时：QuoteSourceAdapter 1500ms；Valuation/Finance/Announce/News/Policy 各 2s；Event 500ms（原各类
  *       TIMEOUT 常量）
  *   <li>重试：全部源 0（原全部 {@code ResilienceSpec.noRetry}）
  *   <li>缓存 TTL：SourceCache.specFor —— 行情 5s / 财务·估值 1h / 公告 5min / 新闻 2min / 政策 10min / 事件 30s
- *   <li>params：各 HTTP client 构造期 {@code @Value} 默认值（与 application.yml 同值）
+ *   <li>params：原 application.yml {@code adapter.*} 段全部值（URL/字段串/referer/条数/备选源开关）+ 各 client 构造期
+ *       {@code @Value} 缺省（值不变，只换存放地）
  * </ul>
  *
- * <p>缓存容量（maximumSize）不在此列：Caffeine 容量建缓存时固化，保持启动期（方案 §4.3「容量保持启动期」）。
+ * <p>不在此列：缓存容量（maximumSize，Caffeine 建缓存时固化，方案 §4.3「容量保持启动期」）；列表源分页参数（{@code subject.sync.page-size}
+ * 等，仍走 yml，非 {@code adapter:} 段）。
  */
 public final class DataSourceDefaults {
 
@@ -28,6 +31,36 @@ public final class DataSourceDefaults {
 
     /** retries &gt; 0 时的指数退避基数（改造前无源配置重试，启用重试后的统一退避起点）。 */
     public static final long RETRY_BACKOFF_BASE_MILLIS = 200;
+
+    /**
+     * 全部源种子 mode 缺省（原 yml {@code adapter.mock.enabled=true} 的语义平移，ADR-0032）： 首启空库各源初始 MOCK，页面分源切
+     * REAL；亦为 {@code ConfigCenter} 数据源键缺失时的回落 mode。 行情/估值备选源开关（原 {@code
+     * adapter.quote-source}/{@code adapter.valuation-source}）经 params 热读，见 {@link #params}。
+     */
+    public static final RuntimeDataSource.Mode DEFAULT_MODE = RuntimeDataSource.Mode.MOCK;
+
+    /**
+     * 腾讯行情/估值备选源端点（原 yml {@code adapter.tencent.quote-url}）：行情与估值共用一个端点， 无 {@code SourceCode}
+     * 专属键，作为 {@code TencentQuoteClient} 构造期缺省（RESTART 级）。
+     */
+    public static final String TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q=";
+
+    /** 东财全量列表端点（原 yml {@code adapter.eastmoney.list-url}）：{@code EastMoneyListClient} 构造期缺省。 */
+    public static final String EASTMONEY_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get";
+
+    /** 新浪 A 股列表端点（原 {@code adapter.sina.stock-list-url} 构造期缺省，yml 未设、值即代码缺省）。 */
+    public static final String SINA_STOCK_LIST_URL =
+            "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php"
+                    + "/Market_Center.getHQNodeData";
+
+    /** 新浪列表源 Referer（原 {@code adapter.sina.stock-referer} 构造期缺省，yml 未设、值即代码缺省）。 */
+    public static final String SINA_STOCK_REFERER = "https://finance.sina.com.cn";
+
+    /**
+     * A 股列表桶源选择缺省（原 yml {@code subject.sync.a-share-source=auto}，ADR-0032 热化）： 种子 {@code
+     * subject.sync.aShareSource} 与 {@code RoutingSubjectListSource} 缺省共用。
+     */
+    public static final String A_SHARE_LIST_SOURCE = "auto";
 
     private DataSourceDefaults() {}
 
@@ -63,13 +96,20 @@ public final class DataSourceDefaults {
         };
     }
 
-    /** 各源自由参数缺省（与 application.yml 同值；EVENT 本地表无外呼参数）。 */
+    /**
+     * 各源自由参数缺省（原 application.yml {@code adapter.*} 段值原样迁入，ADR-0032；EVENT 本地表无外呼参数）。
+     *
+     * <p>增量键：QUOTE/VALUATION 的 {@code backupSource}（原 yml {@code adapter.quote-source}/{@code
+     * adapter.valuation-source} 备选源开关，热化后经 params 用时读取）；ANNOUNCE 的 {@code announceReferer} （原 yml
+     * {@code adapter.eastmoney.announce-referer}——T36 时 client 已每调用读 params 但种子缺该键，本次补齐）。
+     */
     public static Map<String, Object> params(SourceCode code) {
         Map<String, Object> params = new LinkedHashMap<>();
         switch (code) {
             case QUOTE -> {
                 params.put("quoteUrl", "https://push2.eastmoney.com/api/qt/stock/get");
                 params.put("fields", "f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171");
+                params.put("backupSource", BACKUP_SOURCE_AUTO);
             }
             case FINANCE -> {
                 params.put("financeUrl", "https://datacenter-web.eastmoney.com/api/data/v1/get");
@@ -78,6 +118,7 @@ public final class DataSourceDefaults {
             case VALUATION -> {
                 params.put("quoteUrl", "https://push2.eastmoney.com/api/qt/stock/get");
                 params.put("valuationFields", "f57,f162,f167");
+                params.put("backupSource", BACKUP_SOURCE_AUTO);
             }
             case ANNOUNCE -> {
                 params.put(
@@ -86,6 +127,7 @@ public final class DataSourceDefaults {
                 params.put(
                         "announceDetailUrlTemplate",
                         "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
+                params.put("announceReferer", "https://data.eastmoney.com/");
             }
             case NEWS -> {
                 params.put("newsUrl", "https://feed.mix.sina.com.cn/api/roll/get");
@@ -103,5 +145,20 @@ public final class DataSourceDefaults {
             }
         }
         return Map.copyOf(params);
+    }
+
+    /** 备选源开关缺省值：auto（东财失败自动降级备选源重拉，ADR-0030/0031 语义）。 */
+    public static final String BACKUP_SOURCE_AUTO = "auto";
+
+    /** 字符串参数缺省（client 构造期回落与种子共用同一来源，防两处定义漂移）；缺键返回 null。 */
+    public static String paramString(SourceCode code, String key) {
+        Object value = params(code).get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    /** 整型参数缺省；缺键返回 {@code fallback}。 */
+    public static int paramInt(SourceCode code, String key, int fallback) {
+        Object value = params(code).get(key);
+        return value instanceof Number number ? number.intValue() : fallback;
     }
 }

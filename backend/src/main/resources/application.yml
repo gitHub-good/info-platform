@@ -51,56 +51,8 @@ management:
 config:
   secret: ${CONFIG_SECRET:}
 
-# 数据源 adapter 切换：mock（T09 骨架）默认开启；T03~T08 真实 adapter 落地后设 false 切换
-adapter:
-  mock:
-    enabled: true
-  # 东方财富源：端点 URL 与字段列表可配，不硬编码全 URL
-  eastmoney:
-    # 行情源（T03）：push2 stock/get
-    quote-url: https://push2.eastmoney.com/api/qt/stock/get
-    fields: f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171
-    # 估值源（T04）：与行情同走 push2 stock/get，fields=估值列
-    # f162→peTtm、f167→pb（语义推测，待多股实测确认）；f163/f173 待确认未纳入
-    valuation-fields: f57,f162,f167
-    # 财务源（T04）：东财 datacenter F10 主财务指标（与行情/估值不同域名）
-    finance-url: https://datacenter-web.eastmoney.com/api/data/v1/get
-    # 东财软限频来源页（无 token，靠 Referer 标识来源）
-    finance-referer: https://data.eastmoney.com/
-    # 公告源（T05）：东财 np-anotice-stock；ISSUE-A（2026-09-22）WAF 收紧，需 UA + 站内 Referer（此前"无需 Referer"结论失效）
-    announce-url: https://np-anotice-stock.eastmoney.com/api/security/ann
-    # 东财软限频来源页（与 datacenter 财务端同款）
-    announce-referer: https://data.eastmoney.com/
-    # 公告取数条数（PRD 取最新 3 条）
-    announce-page-size: 3
-    # 公告详情 PDF 直链模板（art_code 占位由 adapter 替换；H2_ 前缀已 A 股实测确认）
-    announce-detail-url-template: https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf
-    # 全量列表源（T50 标的池定时同步）：push2 clist 分页拉取（ADR-0027 主选源）
-    list-url: https://push2.eastmoney.com/api/qt/clist/get
-  # 腾讯行情源（ADR-0031）：qt.gtimg.cn/q= 行情/估值备选——GBK 响应、支持批量（≤50/请求），
-  # 无 UA/WAF 要求；auto 模式下东财 push2 失败/空响应（IP 封禁签名）自动降级此端点重拉
-  tencent:
-    quote-url: https://qt.gtimg.cn/q=
-  # 行情/估值源选择（ADR-0031）：auto（默认）东财失败或空响应自动降级腾讯备选源重拉 /
-  # eastmoney / tencent 强制单源（排障用——验证降级逻辑是否为故障源）；配置笔误启动 fail-fast
-  quote-source: auto
-  valuation-source: auto
-  # 新浪新闻源（T06）：feed.mix.sina.com.cn 滚动新闻全市场流（不支持个股过滤，靠关键词匹配）
-  # lid=2510 财经滚动分类（2026-09-21 curl 实测可用；1685~1689 已失效 code:11）；需 UA+Referer 防封 403
-  sina:
-    news-url: https://feed.mix.sina.com.cn/api/roll/get
-    news-page-id: 153
-    news-lid: 2510
-    # 全市场流取数条数（本地按标题/关键词匹配过滤，num 越大命中率越高但耗时略增）
-    news-page-size: 20
-    news-referer: https://finance.sina.com.cn
-  # 政策源（T07）：gov.cn/zhengce 政策库 HTML 抓取（6 源中唯一无统一 API 的源，Jsoup 解析）
-  # 2026-09-21 curl 实测：响应头 Content-Type: text/html 无 charset，meta 声明 utf-8
-  # 政策列表唯一块在「最新政策」节（div.list.fl>ul>li），约 9 条最近政策；无行业分类标签，靠标题关键词命中
-  gov:
-    policy-url: https://www.gov.cn/zhengce/
-    # 软限频/防封：需 UA + Referer（gov.cn 对裸 curl 较宽松，仍带 UA+Referer 保险）
-    policy-referer: https://www.gov.cn/
+# 数据源 adapter 配置（URL/字段/referer/条数/备选源开关/mock 开关）不在本文件——页面配置为唯一真相（runtime_config
+# datasource.{CODE} 键，ADR-0017/0032），首启由 DataSourceDefaults 代码内置缺省播种；列表源端点常量亦收口该类。
 
 # 聚合编排总超时（2s 预算，各 adapter 弹性超时级联收敛，对齐技术方案 §4.3 流程 1）
 aggregation:
@@ -179,8 +131,8 @@ policy:
 # enabled/cron（T53）：job.SUBJECT_SYNC 种子来源（ManagedJob 收编；生产默认启用，每日 06:00 开市前完成，
 # 与每日推荐 09:00 同口径服务器本地时区；测试 profile 置 false → 调度零注册隔离）。
 # index-enabled（T54）：CN_INDEX 指数桶开关（fs=m:1+t:1,m:0+t:5 上证+深证系列，Should；失败仅 WARN 不阻塞股票同步）。
-# a-share-source（M7 备选源，ADR-0030）：A 股桶列表源选择——auto（默认）东财失败自动降级新浪整桶重拉 /
-# eastmoney / sina（强制单源，排障用）；港股/指数桶恒东财（新浪无港股节点）。
+# A 股桶列表源选择（原 a-share-source，ADR-0032 热化）：runtime_config 键 subject.sync.aShareSource
+# （auto=东财失败自动降级新浪 / eastmoney / sina 强制单源；页面/写接口保存即生效，无配置文件入口）。
 subject:
   sync:
     page-size: 100
@@ -192,7 +144,6 @@ subject:
     enabled: true
     cron: "0 0 6 * * ?"
     index-enabled: true
-    a-share-source: auto
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

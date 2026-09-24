@@ -2,13 +2,13 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -52,25 +52,30 @@ public class EastMoneyFinanceClient {
     /** 东财 F10 主财务指标报表名（API 契约常量）。 */
     private static final String REPORT_NAME = "RPT_F10_FINANCE_MAINFINADATA";
 
-    /** 东财软限频要求的来源页（无 token，靠 Referer 标识来源）。 */
-    private static final String DEFAULT_REFERER = "https://data.eastmoney.com/";
+    /** 东财软限频要求的来源页（无 token，靠 Referer 标识来源；缺省取 {@code DataSourceDefaults}）。 */
+    private static final String DEFAULT_REFERER =
+            DataSourceDefaults.paramString(SourceCode.FINANCE, "financeReferer");
 
     private static final String DEFAULT_FINANCE_URL =
-            "https://datacenter-web.eastmoney.com/api/data/v1/get";
+            DataSourceDefaults.paramString(SourceCode.FINANCE, "financeUrl");
 
     private final RestClient restClient;
     private final String financeUrl;
     private final String referer;
 
-    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
     @Autowired(required = false)
     ConfigCenter configCenter;
 
+    /** Spring 装配构造（ADR-0032）：回落值取 {@link DataSourceDefaults} 代码内置缺省（原 yml adapter 段迁移）。 */
+    @Autowired
+    public EastMoneyFinanceClient(RestClient.Builder restClientBuilder) {
+        this(restClientBuilder, DEFAULT_FINANCE_URL, DEFAULT_REFERER);
+    }
+
+    /** 全参构造（纯构造单测指定回落值）。 */
     public EastMoneyFinanceClient(
-            RestClient.Builder restClientBuilder,
-            @Value("${adapter.eastmoney.finance-url:" + DEFAULT_FINANCE_URL + "}")
-                    String financeUrl,
-            @Value("${adapter.eastmoney.finance-referer:" + DEFAULT_REFERER + "}") String referer) {
+            RestClient.Builder restClientBuilder, String financeUrl, String referer) {
         this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.financeUrl = financeUrl;
         this.referer = referer;

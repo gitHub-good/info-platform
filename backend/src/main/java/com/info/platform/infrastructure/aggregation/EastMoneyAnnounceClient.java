@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -9,7 +10,6 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -56,8 +56,8 @@ import org.springframework.web.util.UriComponentsBuilder;
  * <p>详情 URL：eastmoney 公告 web 详情页为 JS 渲染，无稳定的 art_code 直链（{@code /notices/detail/<art_code>.html} 实测
  * 302 回退到列表页）。 故由 {@link #detailUrlOf} 按 art_code 拼装公告 PDF 直链 {@code
  * https://pdf.dfcfw.com/pdf/H2_<art_code>_1.pdf}（2026-09-21 对多样本实测稳定，200 application/pdf）；{@code
- * H2_} 前缀已 A 股（source_type=31）实测确认，港股/其他市场前缀可能不同，故走配置项 {@code
- * adapter.eastmoney.announce-detail-url-template} 可调。
+ * H2_} 前缀已 A 股（source_type=31）实测确认，港股/其他市场前缀可能不同，故走运行时参数 {@code
+ * datasource.ANNOUNCE.params.announceDetailUrlTemplate} 可调（页面可改，ADR-0032）。
  */
 @Component
 public class EastMoneyAnnounceClient {
@@ -65,14 +65,15 @@ public class EastMoneyAnnounceClient {
     private static final Logger log = LoggerFactory.getLogger(EastMoneyAnnounceClient.class);
 
     private static final String DEFAULT_ANNOUNCE_URL =
-            "https://np-anotice-stock.eastmoney.com/api/security/ann";
+            DataSourceDefaults.paramString(SourceCode.ANNOUNCE, "announceUrl");
 
     /** 东财软限频来源页（ISSUE-A：公告端点 WAF 收紧后与 datacenter 财务端同带站内 Referer）。 */
-    private static final String DEFAULT_ANNOUNCE_REFERER = "https://data.eastmoney.com/";
+    private static final String DEFAULT_ANNOUNCE_REFERER =
+            DataSourceDefaults.paramString(SourceCode.ANNOUNCE, "announceReferer");
 
     /** 详情 PDF 直链模板（art_code 占位由 {@link #detailUrlOf} 替换）。H2_ 前缀已 A 股实测确认。 */
     private static final String DEFAULT_DETAIL_URL_TEMPLATE =
-            "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf";
+            DataSourceDefaults.paramString(SourceCode.ANNOUNCE, "announceDetailUrlTemplate");
 
     private static final String ART_CODE_PLACEHOLDER = "{art_code}";
 
@@ -85,7 +86,8 @@ public class EastMoneyAnnounceClient {
 
     private static final int PAGE_INDEX_FIRST = 1;
 
-    private static final int DEFAULT_PAGE_SIZE = 3;
+    private static final int DEFAULT_PAGE_SIZE =
+            DataSourceDefaults.paramInt(SourceCode.ANNOUNCE, "announcePageSize", 3);
 
     private final RestClient restClient;
     private final String announceUrl;
@@ -93,23 +95,28 @@ public class EastMoneyAnnounceClient {
     private final String detailUrlTemplate;
     private final String referer;
 
-    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
     @Autowired(required = false)
     ConfigCenter configCenter;
 
+    /** Spring 装配构造（ADR-0032）：回落值取 {@link DataSourceDefaults} 代码内置缺省（原 yml adapter 段迁移）。 */
+    @Autowired
+    public EastMoneyAnnounceClient(RestClient.Builder restClientBuilder) {
+        this(
+                restClientBuilder,
+                DEFAULT_ANNOUNCE_URL,
+                DEFAULT_PAGE_SIZE,
+                DEFAULT_DETAIL_URL_TEMPLATE,
+                DEFAULT_ANNOUNCE_REFERER);
+    }
+
+    /** 全参构造（纯构造单测指定回落值）。 */
     public EastMoneyAnnounceClient(
             RestClient.Builder restClientBuilder,
-            @Value("${adapter.eastmoney.announce-url:" + DEFAULT_ANNOUNCE_URL + "}")
-                    String announceUrl,
-            @Value("${adapter.eastmoney.announce-page-size:" + DEFAULT_PAGE_SIZE + "}")
-                    int pageSize,
-            @Value(
-                            "${adapter.eastmoney.announce-detail-url-template:"
-                                    + DEFAULT_DETAIL_URL_TEMPLATE
-                                    + "}")
-                    String detailUrlTemplate,
-            @Value("${adapter.eastmoney.announce-referer:" + DEFAULT_ANNOUNCE_REFERER + "}")
-                    String referer) {
+            String announceUrl,
+            int pageSize,
+            String detailUrlTemplate,
+            String referer) {
         this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.announceUrl = announceUrl;
         this.pageSize = pageSize;

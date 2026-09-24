@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.aggregation;
 import com.info.platform.application.aggregation.MarketSyncSpec;
 import com.info.platform.application.aggregation.SubjectListSource;
 import com.info.platform.application.aggregation.SubjectSnapshot;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import com.info.platform.infrastructure.common.ResilienceException;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.ResilienceSpec;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -44,7 +46,7 @@ public class EastMoneyListClient implements SubjectListSource {
 
     private static final Logger log = LoggerFactory.getLogger(EastMoneyListClient.class);
 
-    static final String DEFAULT_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get";
+    static final String DEFAULT_LIST_URL = DataSourceDefaults.EASTMONEY_LIST_URL;
 
     /** 东财返回格式契约常量（与 EastMoneyClient 同款）：fltt=2 带小数、invt=2 单位元、np=1 网页原生参数。 */
     private static final int PRICE_FMT_DECIMAL = 2;
@@ -76,13 +78,34 @@ public class EastMoneyListClient implements SubjectListSource {
     private final long pageIntervalMillis;
     private final int maxPages;
 
+    /**
+     * Spring 装配构造（ADR-0032）：列表端点取 {@link DataSourceDefaults#EASTMONEY_LIST_URL} 代码内置缺省（原 yml {@code
+     * adapter.eastmoney.list-url} 迁移）；分页参数仍走 {@code subject.sync.*} yml（RESTART 级）。
+     */
+    @Autowired
     public EastMoneyListClient(
             RestClient.Builder restClientBuilder,
             ResilienceRunner resilienceRunner,
-            @Value("${adapter.eastmoney.list-url:" + DEFAULT_LIST_URL + "}") String listUrl,
             @Value("${subject.sync.page-size:100}") int pageSize,
             @Value("${subject.sync.page-interval-millis:600}") long pageIntervalMillis,
             @Value("${subject.sync.max-pages:200}") int maxPages) {
+        this(
+                restClientBuilder,
+                resilienceRunner,
+                DEFAULT_LIST_URL,
+                pageSize,
+                pageIntervalMillis,
+                maxPages);
+    }
+
+    /** 全参构造（纯构造单测指定端点与分页参数）。 */
+    public EastMoneyListClient(
+            RestClient.Builder restClientBuilder,
+            ResilienceRunner resilienceRunner,
+            String listUrl,
+            int pageSize,
+            long pageIntervalMillis,
+            int maxPages) {
         this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.resilienceRunner = resilienceRunner;
         this.listUrl = listUrl;

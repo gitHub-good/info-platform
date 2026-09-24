@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -16,7 +17,6 @@ import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -82,10 +82,12 @@ public class GovPolicyClient {
 
     private static final Logger log = LoggerFactory.getLogger(GovPolicyClient.class);
 
-    private static final String DEFAULT_POLICY_URL = "https://www.gov.cn/zhengce/";
+    private static final String DEFAULT_POLICY_URL =
+            DataSourceDefaults.paramString(SourceCode.POLICY, "policyUrl");
 
     /** 软限频来源页（无 token，靠 Referer 标识来源，保险防 403）。 */
-    private static final String DEFAULT_REFERER = "https://www.gov.cn/";
+    private static final String DEFAULT_REFERER =
+            DataSourceDefaults.paramString(SourceCode.POLICY, "policyReferer");
 
     /** 浏览器 UA（gov.cn 实测裸 curl 带此 UA 返回 200，仍保留保险）。 */
     private static final String USER_AGENT =
@@ -102,14 +104,18 @@ public class GovPolicyClient {
     private final String policyUrl;
     private final String referer;
 
-    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
     @Autowired(required = false)
     ConfigCenter configCenter;
 
-    public GovPolicyClient(
-            RestClient.Builder restClientBuilder,
-            @Value("${adapter.gov.policy-url:" + DEFAULT_POLICY_URL + "}") String policyUrl,
-            @Value("${adapter.gov.policy-referer:" + DEFAULT_REFERER + "}") String referer) {
+    /** Spring 装配构造（ADR-0032）：回落值取 {@link DataSourceDefaults} 代码内置缺省（原 yml adapter 段迁移）。 */
+    @Autowired
+    public GovPolicyClient(RestClient.Builder restClientBuilder) {
+        this(restClientBuilder, DEFAULT_POLICY_URL, DEFAULT_REFERER);
+    }
+
+    /** 全参构造（纯构造单测指定回落值）。 */
+    public GovPolicyClient(RestClient.Builder restClientBuilder, String policyUrl, String referer) {
         this.restClient = restClientBuilder.build();
         this.policyUrl = policyUrl;
         this.referer = referer;

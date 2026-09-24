@@ -5,56 +5,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigSeed;
+import com.info.platform.domain.aggregation.SourceCode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
-import org.springframework.boot.context.annotation.UserConfigurations;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-/** 数据源域种子契约测试（T36）：7 键齐备、权威值形状锁定（供页面/消费点对齐）， mock 全局开关语义平移为分源 mode 种子默认值。 */
+/**
+ * 数据源域种子契约测试（T36；ADR-0032 起种子值全部取 {@link DataSourceDefaults} 代码内置缺省——原 yml {@code adapter:}
+ * 段删除后的防漂移锁定）：7 键齐备、权威值形状锁定（供页面/消费点对齐）， mock 全局开关语义平移为分源 mode 种子默认值（MOCK）。
+ */
 class DataSourceRuntimeConfigSeederTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private final ApplicationContextRunner runner =
-            new ApplicationContextRunner()
-                    .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-                    .withConfiguration(UserConfigurations.of(SeederConfig.class))
-                    .withPropertyValues(
-                            "adapter.mock.enabled=false",
-                            "adapter.eastmoney.quote-url=https://quote.example.com/get",
-                            "adapter.eastmoney.fields=f43,f57",
-                            "adapter.eastmoney.valuation-fields=f57,f162",
-                            "adapter.eastmoney.finance-url=https://fin.example.com/api",
-                            "adapter.eastmoney.finance-referer=https://fin.example.com/",
-                            "adapter.eastmoney.announce-url=https://ann.example.com/api",
-                            "adapter.eastmoney.announce-page-size=5",
-                            "adapter.eastmoney.announce-detail-url-template=https://pdf.example.com/{art_code}.pdf",
-                            "adapter.sina.news-url=https://news.example.com/roll",
-                            "adapter.sina.news-page-id=1",
-                            "adapter.sina.news-lid=2",
-                            "adapter.sina.news-page-size=7",
-                            "adapter.sina.news-referer=https://news.example.com",
-                            "adapter.gov.policy-url=https://gov.example.com/zhengce/",
-                            "adapter.gov.policy-referer=https://gov.example.com/");
+    private final DataSourceRuntimeConfigSeeder seeder =
+            new DataSourceRuntimeConfigSeeder(objectMapper);
 
-    @TestConfiguration
-    static class SeederConfig {
-        @org.springframework.context.annotation.Bean
-        DataSourceRuntimeConfigSeeder seeder(ObjectMapper objectMapper) {
-            return new DataSourceRuntimeConfigSeeder(objectMapper);
-        }
-    }
-
-    /** 在测试上下文内取种子（yml @Value 绑定需 Spring 处理；上下文随 run 关闭）。 */
     private List<RuntimeConfigSeed> seeds() {
-        List<RuntimeConfigSeed>[] holder = new List[1];
-        runner.run(
-                context ->
-                        holder[0] = context.getBean(DataSourceRuntimeConfigSeeder.class).seeds());
-        return holder[0];
+        return seeder.seeds();
     }
 
     @Test
@@ -72,18 +39,22 @@ class DataSourceRuntimeConfigSeederTest {
     }
 
     @Test
-    void quoteSeed_locksAuthoritativeValuesExtractedFromCode() throws Exception {
+    void quoteSeed_locksAuthoritativeValuesFromCodeDefaults() throws Exception {
         JsonNode doc = docOf("datasource.QUOTE");
 
         assertThat(doc.path("enabled").asBoolean()).isTrue();
-        assertThat(doc.path("mode").asText()).isEqualTo("REAL"); // adapter.mock.enabled=false
+        assertThat(doc.path("mode").asText())
+                .isEqualTo("MOCK"); // 原 adapter.mock.enabled=true 的语义平移（ADR-0032）
         assertThat(doc.path("timeoutMillis").asLong()).isEqualTo(1500); // QuoteSourceAdapter 原 1.5s
         assertThat(doc.path("retries").asInt()).isZero(); // 原 noRetry
         assertThat(doc.path("cacheTtlSeconds").asLong()).isEqualTo(5); // SourceCache.specFor 原 5s
-        assertThat(doc.path("failureCacheTtlSeconds").asLong()).isEqualTo(10); // P1-5b 负缓存缺省：行情 10s
+        assertThat(doc.path("failureCacheTtlSeconds").asLong()).isEqualTo(10); // P1-5b 行情负缓存 10s
         assertThat(doc.path("params").path("quoteUrl").asText())
-                .isEqualTo("https://quote.example.com/get");
-        assertThat(doc.path("params").path("fields").asText()).isEqualTo("f43,f57");
+                .isEqualTo("https://push2.eastmoney.com/api/qt/stock/get");
+        assertThat(doc.path("params").path("fields").asText())
+                .isEqualTo("f43,f44,f45,f46,f47,f48,f57,f58,f60,f168,f169,f170,f171");
+        // ADR-0032 备选源开关热化：原 yml adapter.quote-source=auto 迁入 params
+        assertThat(doc.path("params").path("backupSource").asText()).isEqualTo("auto");
     }
 
     @Test
@@ -104,13 +75,42 @@ class DataSourceRuntimeConfigSeederTest {
     }
 
     @Test
-    void announceSeed_carriesCountAndTemplateParams() throws Exception {
+    void announceSeed_carriesCountTemplateAndRefererParams() throws Exception {
         JsonNode params = docOf("datasource.ANNOUNCE").path("params");
 
-        assertThat(params.path("announceUrl").asText()).isEqualTo("https://ann.example.com/api");
-        assertThat(params.path("announcePageSize").asInt()).isEqualTo(5);
+        assertThat(params.path("announceUrl").asText())
+                .isEqualTo("https://np-anotice-stock.eastmoney.com/api/security/ann");
+        assertThat(params.path("announcePageSize").asInt()).isEqualTo(3);
         assertThat(params.path("announceDetailUrlTemplate").asText())
-                .isEqualTo("https://pdf.example.com/{art_code}.pdf");
+                .isEqualTo("https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
+        // ADR-0032 补齐：原 yml adapter.eastmoney.announce-referer 迁入 params（T36 时 client 热读但种子缺键）
+        assertThat(params.path("announceReferer").asText())
+                .isEqualTo("https://data.eastmoney.com/");
+    }
+
+    @Test
+    void valuationSeed_carriesBackupSourceSwitch() throws Exception {
+        JsonNode params = docOf("datasource.VALUATION").path("params");
+
+        assertThat(params.path("quoteUrl").asText())
+                .isEqualTo("https://push2.eastmoney.com/api/qt/stock/get");
+        assertThat(params.path("valuationFields").asText()).isEqualTo("f57,f162,f167");
+        assertThat(params.path("backupSource").asText()).isEqualTo("auto");
+    }
+
+    @Test
+    void seeds_paramsMatchDataSourceDefaults_noDrift() throws Exception {
+        // 种子 params 与 DataSourceDefaults 单一事实源逐键一致（防两处定义漂移，对齐 ADR-0032）
+        for (SourceCode code : SourceCode.values()) {
+            JsonNode seeded =
+                    docOf(ConfigCenter.KEY_DATASOURCE_PREFIX + code.name()).path("params");
+            DataSourceDefaults.params(code)
+                    .forEach(
+                            (key, value) ->
+                                    assertThat(seeded.path(key).asText())
+                                            .as("datasource.%s.params.%s", code, key)
+                                            .isEqualTo(String.valueOf(value)));
+        }
     }
 
     private JsonNode docOf(String key) throws Exception {

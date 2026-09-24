@@ -2,13 +2,13 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -20,7 +20,8 @@ import org.springframework.web.util.UriComponentsBuilder;
  *
  * <p>封装 GET {@code push2.eastmoney.com/api/qt/stock/get}：按 secid + f 字段列表取 {@code data} 节点原始字段。
  * 行情与估值同走该端点（Spike-1 §3.1 选型「端点收敛」），仅 f 字段列表不同—— 行情传行情列（f43/f44…）， 估值传估值列（f162/f167…）。端点 URL
- * 与行情字段列表走 {@code application.yml}（{@code adapter.eastmoney.*}）可配，不硬编码全 URL。
+ * 与行情字段列表可配（运行时 {@code datasource.{QUOTE,VALUATION}.params} 页面可改，ADR-0032；缺省取 {@code
+ * DataSourceDefaults} 代码内置值），不硬编码全 URL。
  *
  * <p>两类调用入口： {@link #fetchQuote}（行情 adapter 用）与 {@link #fetchValuation}（估值 adapter 用）——同端点不同 f 字段列。
  * <b>T36 热化</b>：URL 与字段列表改<b>每次调用</b>从运行时配置 {@code datasource.QUOTE / VALUATION.params} 读取（LIVE
@@ -50,17 +51,29 @@ public class EastMoneyClient {
     private final String fields;
     private final String valuationFields;
 
-    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
     @Autowired(required = false)
     ConfigCenter configCenter;
 
+    /**
+     * Spring 装配构造（ADR-0032）：构造期回落值取 {@link DataSourceDefaults} 代码内置缺省（原 yml {@code
+     * adapter.eastmoney.*} 段迁移，值不变）。
+     */
+    @Autowired
+    public EastMoneyClient(RestClient.Builder restClientBuilder) {
+        this(
+                restClientBuilder,
+                DataSourceDefaults.paramString(SourceCode.QUOTE, "quoteUrl"),
+                DataSourceDefaults.paramString(SourceCode.QUOTE, "fields"),
+                DataSourceDefaults.paramString(SourceCode.VALUATION, "valuationFields"));
+    }
+
+    /** 全参构造（纯构造单测指定回落值；运行时取数优先读 datasource.{QUOTE,VALUATION}.params）。 */
     public EastMoneyClient(
             RestClient.Builder restClientBuilder,
-            @Value("${adapter.eastmoney.quote-url:https://push2.eastmoney.com/api/qt/stock/get}")
-                    String quoteUrl,
-            @Value("${adapter.eastmoney.fields:f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171}")
-                    String fields,
-            @Value("${adapter.eastmoney.valuation-fields:f57,f162,f167}") String valuationFields) {
+            String quoteUrl,
+            String fields,
+            String valuationFields) {
         this.restClient = EastMoneyHttpSupport.withTextPlainJson(restClientBuilder).build();
         this.quoteUrl = quoteUrl;
         this.fields = fields;

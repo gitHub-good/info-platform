@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
@@ -51,12 +50,10 @@ public class ConfigCenter {
     private final ObjectMapper objectMapper;
 
     /**
-     * 全局 mock 开关（yml {@code adapter.mock.enabled}）：降级为<b>分源 mode 的种子默认值</b>（T36 / ADR-0017 冲突解法
-     * 1），true → 各源初始 MOCK。字段默认 true 对齐改造前 {@code matchIfMissing = true} 语义， 纯构造场景（无 Spring
-     * 处理 @Value）与生产缺省一致。
+     * 数据源键缺失/解析失败时的回落 mode（ADR-0032）：原 yml {@code adapter.mock.enabled=true} 的语义平移， 值取 {@link
+     * DataSourceDefaults#DEFAULT_MODE}（MOCK——纯构造场景与生产缺省一致，首启种子同源）。
      */
-    @Value("${adapter.mock.enabled:true}")
-    private boolean mockDefaultEnabled = true;
+    private final RuntimeDataSource.Mode fallbackMode = DataSourceDefaults.DEFAULT_MODE;
 
     /** 启动期冻结快照（RESTART 级参数读取口径）；null = 尚未冻结。 */
     private volatile RuntimeConfigSnapshot bootSnapshot;
@@ -101,8 +98,8 @@ public class ConfigCenter {
     /**
      * {@code datasource.{SOURCE_CODE}} 类型化视图（T36，LIVE 级用时读取）。
      *
-     * <p>键缺失（种子前）或文档解析失败（值损坏）不阻断热路径：记 WARN 后回落 {@link RuntimeDataSource#fallback} 代码缺省（mode 按全局
-     * mock 开关裁定），对齐方案 §5「降级预案：旧值继续生效」精神。
+     * <p>键缺失（种子前）或文档解析失败（值损坏）不阻断热路径：记 WARN 后回落 {@link RuntimeDataSource#fallback} 代码缺省（mode 按
+     * {@link DataSourceDefaults#DEFAULT_MODE} 裁定，ADR-0032），对齐方案 §5「降级预案：旧值继续生效」精神。
      */
     public RuntimeDataSource dataSource(SourceCode code) {
         RuntimeConfigEntry entry =
@@ -128,7 +125,7 @@ public class ConfigCenter {
     }
 
     private RuntimeDataSource.Mode defaultMode() {
-        return mockDefaultEnabled ? RuntimeDataSource.Mode.MOCK : RuntimeDataSource.Mode.REAL;
+        return fallbackMode;
     }
 
     /** {@code llm.global} 类型化视图；键不存在（未种子/未写入）返回空。 */

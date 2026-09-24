@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.aggregation;
 import com.info.platform.application.aggregation.MarketSyncSpec;
 import com.info.platform.application.aggregation.SubjectListSource;
 import com.info.platform.application.aggregation.SubjectSnapshot;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import com.info.platform.infrastructure.common.ResilienceException;
 import com.info.platform.infrastructure.common.ResilienceRunner;
 import com.info.platform.infrastructure.common.ResilienceSpec;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -47,9 +49,7 @@ public class SinaSubjectListClient implements SubjectListSource {
 
     private static final Logger log = LoggerFactory.getLogger(SinaSubjectListClient.class);
 
-    static final String DEFAULT_LIST_URL =
-            "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php"
-                    + "/Market_Center.getHQNodeData";
+    static final String DEFAULT_LIST_URL = DataSourceDefaults.SINA_STOCK_LIST_URL;
 
     /** 沪深 A 股全量节点（2026-09-22 实测含北交所 bj 前缀行，客户端按口径过滤）。 */
     private static final String NODE_HS_A = "hs_a";
@@ -60,7 +60,7 @@ public class SinaSubjectListClient implements SubjectListSource {
     private static final int SORT_ASCENDING = 1;
 
     /** 新浪软限频要求的来源页（无 token，靠 Referer 标识来源，防 403——与 SinaNewsClient 同款）。 */
-    static final String DEFAULT_REFERER = "https://finance.sina.com.cn";
+    static final String DEFAULT_REFERER = DataSourceDefaults.SINA_STOCK_REFERER;
 
     /** 浏览器 UA（新浪对裸 curl UA 易封，与 SinaNewsClient/EastMoneyHttpSupport 同款）。 */
     private static final String USER_AGENT =
@@ -82,14 +82,36 @@ public class SinaSubjectListClient implements SubjectListSource {
     private final int maxPages;
     private final String referer;
 
+    /**
+     * Spring 装配构造（ADR-0032）：端点/Referer 取 {@link DataSourceDefaults} 代码内置缺省（原 {@code
+     * adapter.sina.stock-*} 构造期缺省收口）；分页参数仍走 {@code subject.sync.*} yml（RESTART 级）。
+     */
+    @Autowired
     public SinaSubjectListClient(
             RestClient.Builder restClientBuilder,
             ResilienceRunner resilienceRunner,
-            @Value("${adapter.sina.stock-list-url:" + DEFAULT_LIST_URL + "}") String listUrl,
             @Value("${subject.sync.page-size:100}") int pageSize,
             @Value("${subject.sync.page-interval-millis:600}") long pageIntervalMillis,
-            @Value("${subject.sync.max-pages:200}") int maxPages,
-            @Value("${adapter.sina.stock-referer:" + DEFAULT_REFERER + "}") String referer) {
+            @Value("${subject.sync.max-pages:200}") int maxPages) {
+        this(
+                restClientBuilder,
+                resilienceRunner,
+                DEFAULT_LIST_URL,
+                pageSize,
+                pageIntervalMillis,
+                maxPages,
+                DEFAULT_REFERER);
+    }
+
+    /** 全参构造（纯构造单测指定端点/Referer/分页参数）。 */
+    public SinaSubjectListClient(
+            RestClient.Builder restClientBuilder,
+            ResilienceRunner resilienceRunner,
+            String listUrl,
+            int pageSize,
+            long pageIntervalMillis,
+            int maxPages,
+            String referer) {
         this.restClient = restClientBuilder.build();
         this.resilienceRunner = resilienceRunner;
         this.listUrl = listUrl;

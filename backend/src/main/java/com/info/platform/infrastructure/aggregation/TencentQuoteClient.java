@@ -1,6 +1,7 @@
 package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SubjectCode;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.math.BigDecimal;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -11,7 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -69,7 +70,7 @@ public class TencentQuoteClient {
 
     private static final Logger log = LoggerFactory.getLogger(TencentQuoteClient.class);
 
-    static final String DEFAULT_QUOTE_URL = "https://qt.gtimg.cn/q=";
+    static final String DEFAULT_QUOTE_URL = DataSourceDefaults.TENCENT_QUOTE_URL;
 
     /** 响应体编码（qt.gtimg.cn 实测 text/html; charset=GBK）。 */
     private static final Charset RESPONSE_CHARSET = Charset.forName("GBK");
@@ -95,9 +96,14 @@ public class TencentQuoteClient {
     private final RestClient restClient;
     private final String quoteUrl;
 
-    public TencentQuoteClient(
-            RestClient.Builder restClientBuilder,
-            @Value("${adapter.tencent.quote-url:" + DEFAULT_QUOTE_URL + "}") String quoteUrl) {
+    /** Spring 装配构造（ADR-0032）：端点缺省取 {@link DataSourceDefaults#TENCENT_QUOTE_URL} 代码内置值。 */
+    @Autowired
+    public TencentQuoteClient(RestClient.Builder restClientBuilder) {
+        this(restClientBuilder, DataSourceDefaults.TENCENT_QUOTE_URL);
+    }
+
+    /** 全参构造（纯构造单测指定端点）。 */
+    public TencentQuoteClient(RestClient.Builder restClientBuilder, String quoteUrl) {
         this.restClient = restClientBuilder.build();
         this.quoteUrl = quoteUrl;
     }

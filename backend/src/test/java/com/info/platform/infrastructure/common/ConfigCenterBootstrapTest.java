@@ -35,7 +35,8 @@ class ConfigCenterBootstrapTest {
                                 .get("enabled")
                                 .asBoolean())
                 .isFalse();
-        // 数据源域 7 键随 T36 落地（测试 yml 无 adapter.mock.enabled → 缺省 true → 种子 mode=MOCK）
+        // 数据源域 7 键随 T36 落地（ADR-0032 起 yml 无 adapter 段 → 种子 mode 取
+        // DataSourceDefaults.DEFAULT_MODE=MOCK）
         assertThat(configService.read("datasource.QUOTE")).isPresent();
         assertThat(configService.read("datasource.EVENT")).isPresent();
         assertThat(

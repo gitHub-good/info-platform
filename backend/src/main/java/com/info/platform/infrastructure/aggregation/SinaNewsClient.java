@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.infrastructure.common.ConfigCenter;
+import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -9,7 +10,6 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -55,28 +55,34 @@ import org.springframework.web.util.UriComponentsBuilder;
  * 异常直接抛出，由模板层降级。
  *
  * <p><b>lid 偏差</b>：Spike-1 §6.5 未给具体 lid 值（仅示例「港股 2509」等）；2026-09-21 curl 实测 lid=1685~1689 均返回
- * {@code code:11「列表和页面没有经过注册」}已失效，lid=2510~2518 可用（财经滚动分类）。 默认 lid=2510，可经 {@code
- * adapter.sina.news-lid} 配置。建议 Spike-1 §6.5 补充 lid=2510 实测可用、 标注 1685~1689 失效。
+ * {@code code:11「列表和页面没有经过注册」}已失效，lid=2510~2518 可用（财经滚动分类）。 默认 lid=2510，可经运行时参数 {@code
+ * datasource.NEWS.params.newsLid} 配置（页面可改，ADR-0032）。建议 Spike-1 §6.5 补充 lid=2510 实测可用、 标注 1685~1689
+ * 失效。
  */
 @Component
 public class SinaNewsClient {
 
     private static final Logger log = LoggerFactory.getLogger(SinaNewsClient.class);
 
-    private static final String DEFAULT_NEWS_URL = "https://feed.mix.sina.com.cn/api/roll/get";
+    private static final String DEFAULT_NEWS_URL =
+            DataSourceDefaults.paramString(SourceCode.NEWS, "newsUrl");
 
     /** 新浪滚动新闻 API 契约常量：pageid=153 为滚动新闻页面 ID（实测固定）。 */
-    private static final int DEFAULT_PAGE_ID = 153;
+    private static final int DEFAULT_PAGE_ID =
+            DataSourceDefaults.paramInt(SourceCode.NEWS, "newsPageId", 153);
 
     /** 财经滚动分类 lid（2026-09-21 curl 实测可用；1685~1689 已失效）。 */
-    private static final int DEFAULT_LID = 2510;
+    private static final int DEFAULT_LID =
+            DataSourceDefaults.paramInt(SourceCode.NEWS, "newsLid", 2510);
 
-    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int DEFAULT_PAGE_SIZE =
+            DataSourceDefaults.paramInt(SourceCode.NEWS, "newsPageSize", 20);
 
     private static final int PAGE_INDEX_FIRST = 1;
 
     /** 新浪软限频要求的来源页（无 token，靠 Referer 标识来源，防 403）。 */
-    private static final String DEFAULT_REFERER = "https://finance.sina.com.cn";
+    private static final String DEFAULT_REFERER =
+            DataSourceDefaults.paramString(SourceCode.NEWS, "newsReferer");
 
     /** 浏览器 UA（新浪对裸 curl UA 易封，实测带此 UA 返回 200）。 */
     private static final String USER_AGENT =
@@ -90,17 +96,30 @@ public class SinaNewsClient {
     private final int pageSize;
     private final String referer;
 
-    /** 配置中心（T36 热化）：null（纯构造单测）时回落 @Value yml 值。 */
+    /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
     @Autowired(required = false)
     ConfigCenter configCenter;
 
+    /** Spring 装配构造（ADR-0032）：回落值取 {@link DataSourceDefaults} 代码内置缺省（原 yml adapter 段迁移）。 */
+    @Autowired
+    public SinaNewsClient(RestClient.Builder restClientBuilder) {
+        this(
+                restClientBuilder,
+                DEFAULT_NEWS_URL,
+                DEFAULT_PAGE_ID,
+                DEFAULT_LID,
+                DEFAULT_PAGE_SIZE,
+                DEFAULT_REFERER);
+    }
+
+    /** 全参构造（纯构造单测指定回落值）。 */
     public SinaNewsClient(
             RestClient.Builder restClientBuilder,
-            @Value("${adapter.sina.news-url:" + DEFAULT_NEWS_URL + "}") String newsUrl,
-            @Value("${adapter.sina.news-page-id:" + DEFAULT_PAGE_ID + "}") int pageId,
-            @Value("${adapter.sina.news-lid:" + DEFAULT_LID + "}") int lid,
-            @Value("${adapter.sina.news-page-size:" + DEFAULT_PAGE_SIZE + "}") int pageSize,
-            @Value("${adapter.sina.news-referer:" + DEFAULT_REFERER + "}") String referer) {
+            String newsUrl,
+            int pageId,
+            int lid,
+            int pageSize,
+            String referer) {
         this.restClient = restClientBuilder.build();
         this.newsUrl = newsUrl;
         this.pageId = pageId;

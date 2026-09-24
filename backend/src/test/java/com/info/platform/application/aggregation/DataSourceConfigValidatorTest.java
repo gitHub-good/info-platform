@@ -151,4 +151,54 @@ class DataSourceConfigValidatorTest {
     void missingRequiredField_rejected() {
         assertInvalid("{\"mode\":\"REAL\",\"timeoutMillis\":1000}", "enabled");
     }
+
+    @Test
+    void backupSource_oneOfQuotedValues_onlyOnQuoteAndValuation() throws Exception {
+        // ADR-0032：备选源开关热化——QUOTE/VALUATION 合法值 auto|eastmoney|tencent，其余源不允许该键
+        String valid =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,"
+                        + "\"params\":{\"quoteUrl\":\"https://a.example.com\",\"backupSource\":\"tencent\"}}";
+        assertThatCode(() -> validator.validate("datasource.QUOTE", objectMapper.readTree(valid)))
+                .doesNotThrowAnyException();
+        assertThatCode(
+                        () ->
+                                validator.validate(
+                                        "datasource.VALUATION", objectMapper.readTree(valid)))
+                .doesNotThrowAnyException();
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1500,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":5,"
+                        + "\"params\":{\"quoteUrl\":\"https://a.example.com\",\"backupSource\":\"sina\"}}",
+                "backupSource");
+        assertThatThrownBy(
+                        () ->
+                                validator.validate(
+                                        "datasource.ANNOUNCE",
+                                        objectMapper.readTree(
+                                                "{\"enabled\":true,\"mode\":\"REAL\","
+                                                        + "\"timeoutMillis\":2000,\"retries\":0,"
+                                                        + "\"cacheTtlSeconds\":300,"
+                                                        + "\"params\":{\"announceUrl\":\"https://a.example.com\","
+                                                        + "\"backupSource\":\"auto\"}}")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不支持的字段");
+    }
+
+    @Test
+    void announceReferer_validUrlParam_accepted() throws Exception {
+        // ADR-0032 补齐：announceReferer 迁入 params 白名单（URL 规则同其他 referer）
+        String json =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":300,"
+                        + "\"params\":{\"announceUrl\":\"https://a.example.com\","
+                        + "\"announceReferer\":\"https://data.eastmoney.com/\"}}";
+        assertThatCode(() -> validator.validate("datasource.ANNOUNCE", objectMapper.readTree(json)))
+                .doesNotThrowAnyException();
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":300,"
+                        + "\"params\":{\"announceReferer\":\"not-a-url\"}}",
+                "announceReferer");
+    }
 }
