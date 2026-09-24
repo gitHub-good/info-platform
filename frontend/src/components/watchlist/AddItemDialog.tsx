@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { SubjectPicker } from '@/components/subject/SubjectPicker';
+import type { SubjectSummary } from '@/api/subject';
 
 const DEFAULT_THRESHOLD = '3.00';
 
@@ -13,48 +15,52 @@ interface AddItemDialogProps {
   onAdd: (subjectId: number, threshold: number) => Promise<void> | void;
 }
 
-/** 添加标的对话框：标的 ID（正整数）+ 异动阈值（%，默认 3.00）。 */
+/** 添加标的对话框：搜索选择标的（体检 P1-2，替代手输数字 ID）+ 异动阈值（%，默认 3.00）。 */
 export function AddItemDialog({ open, submitting, error, onClose, onAdd }: AddItemDialogProps) {
-  const [subjectId, setSubjectId] = useState('');
+  const [subject, setSubject] = useState<SubjectSummary | null>(null);
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
+  const [validation, setValidation] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setSubjectId('');
+      setSubject(null);
       setThreshold(DEFAULT_THRESHOLD);
+      setValidation(null);
     }
   }, [open]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const sid = Number(subjectId);
+    if (!subject) {
+      setValidation('请先搜索并选择标的');
+      return;
+    }
     const thr = Number(threshold);
-    if (!Number.isInteger(sid) || sid <= 0) return; // 标的 ID 须为正整数
     if (!Number.isFinite(thr) || thr < 0) return;
-    await onAdd(sid, Number(thr.toFixed(2)));
+    setValidation(null);
+    await onAdd(subject.id, Number(thr.toFixed(2)));
   };
 
   return (
     <Dialog
       open={open}
       title="添加标的"
-      description="输入标的 ID 与异动阈值（%），加入当前清单。"
+      description="搜索选择标的并设置异动阈值（%），加入当前清单。"
       onClose={onClose}
     >
       <form className="flex flex-col gap-3" onSubmit={submit} data-testid="watchlist-add-item-form">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>标的 ID</span>
-          <Input
-            type="number"
-            min={1}
-            step={1}
-            inputMode="numeric"
-            placeholder="如 1"
-            value={subjectId}
-            onChange={(e) => setSubjectId(e.target.value)}
-            data-testid="watchlist-add-subjectId"
+        <div className="flex flex-col gap-1 text-sm">
+          <span>标的</span>
+          <SubjectPicker
+            value={subject}
+            onChange={(next) => {
+              setSubject(next);
+              setValidation(null);
+            }}
+            disabled={submitting}
+            testId="watchlist-add-subject"
           />
-        </label>
+        </div>
         <label className="flex flex-col gap-1 text-sm">
           <span>异动阈值（%）</span>
           <Input
@@ -66,6 +72,11 @@ export function AddItemDialog({ open, submitting, error, onClose, onAdd }: AddIt
             data-testid="watchlist-add-threshold"
           />
         </label>
+        {validation ? (
+          <p className="text-sm text-destructive" data-testid="watchlist-add-validation" role="alert">
+            {validation}
+          </p>
+        ) : null}
         {error ? (
           <p className="text-sm text-destructive" data-testid="watchlist-add-error">
             {error}

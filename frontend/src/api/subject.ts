@@ -4,7 +4,7 @@
 //   输出结构与真实结构一致，本层无需分支。
 
 import { request } from '@/api/http';
-import type { SectionCode, SubjectDetailData } from '@/types/subject-detail';
+import type { Quote, SectionCode, SubjectDetailData } from '@/types/subject-detail';
 
 /** 标的摘要（GET /subjects/by-code/{code} 响应 data）：数字主键 + 头部展示字段。 */
 export interface SubjectSummary {
@@ -24,6 +24,39 @@ export interface SubjectSummary {
  */
 export function fetchSubjectByCode(code: string, signal?: AbortSignal): Promise<SubjectSummary> {
   return request<SubjectSummary>(`/subjects/by-code/${encodeURIComponent(code)}`, { signal });
+}
+
+/**
+ * 标的模糊搜索（体检 P1-2 搜索选择器数据源）。
+ * GET /api/v1/subjects/search?q=xxx&limit=20：按代码/名称 contains（大小写不敏感）搜启用标的；
+ * q 空白 → ApiError(2001, 400)；无结果返回空数组（非错误）。
+ */
+export function searchSubjects(
+  q: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<SubjectSummary[]> {
+  const limit = options.limit ?? 20;
+  return request<SubjectSummary[]>(
+    `/subjects/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    { signal: options.signal },
+  );
+}
+
+/** 批量标的行情行（GET /subjects/quotes 响应元素）：标的摘要 + 行情分区（失败/无数据为 null）。 */
+export interface SubjectQuoteRow extends SubjectSummary {
+  quote: Quote | null;
+}
+
+/**
+ * 批量取标的摘要+行情（体检 P1-2 自选清单表格列）。
+ * GET /api/v1/subjects/quotes?ids=1,2,3：不存在的主键后端跳过；任一标的行情失败该行 quote=null 不阻断。
+ * ids 为空不入请求（调用方自行兜底空对象）。
+ */
+export function fetchSubjectQuotes(
+  ids: number[],
+  signal?: AbortSignal,
+): Promise<SubjectQuoteRow[]> {
+  return request<SubjectQuoteRow[]>(`/subjects/quotes?ids=${ids.join(',')}`, { signal });
 }
 
 /**

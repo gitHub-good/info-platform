@@ -9,6 +9,7 @@ import { DisclaimerBadge } from '@/components/aibrief/DisclaimerBadge';
 import { SourceLinkList } from '@/components/aibrief/SourceLinkList';
 import { ApiError } from '@/api/http';
 import { trackReadingOnce } from '@/api/readingEvent';
+import { fetchSubjectQuotes, type SubjectSummary } from '@/api/subject';
 import {
   AI_BRIEF_POLL_INTERVAL_MS,
   createBrief,
@@ -74,6 +75,23 @@ export function AiBrief({ pollIntervalMs = AI_BRIEF_POLL_INTERVAL_MS }: AiBriefP
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
+  // 带参跳转预选标的（#/ai-brief?subjectId=1）：数字主键 → 摘要（供搜索选择器回显）
+  const [querySubjectId] = useState(readQuerySubjectId);
+  const [defaultSubject, setDefaultSubject] = useState<SubjectSummary | null>(null);
+
+  useEffect(() => {
+    if (!querySubjectId) return;
+    const controller = new AbortController();
+    // quotes 端点按 id 返回标的摘要（行情可为 null），兼作 id → 摘要解析；失败不阻断（选择器从空开始）
+    fetchSubjectQuotes([Number(querySubjectId)], controller.signal)
+      .then((rows) => {
+        if (!controller.signal.aborted && rows.length > 0) setDefaultSubject(rows[0]);
+      })
+      .catch(() => {
+        // 静默降级：预填是增强体验，失败不应阻断手动搜索选择
+      });
+    return () => controller.abort();
+  }, [querySubjectId]);
 
   // pollIntervalMs 经 ref 读取，避免轮询 effect 依赖它重启（同一次生成内间隔恒定）
   const pollRef = useRef(pollIntervalMs);
@@ -165,11 +183,13 @@ export function AiBrief({ pollIntervalMs = AI_BRIEF_POLL_INTERVAL_MS }: AiBriefP
           <CardTitle className="text-base">生成简报</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* key 重挂载：带参预选标的为异步解析（quotes 端点 id→摘要），到达时重挂表单完成回显 */}
           <BriefTriggerForm
+            key={defaultSubject ? `sub-${defaultSubject.id}` : 'no-default'}
             submitting={creating}
             error={createError}
             briefType={lastParams?.briefType}
-            defaultSubjectId={readQuerySubjectId()}
+            defaultSubject={defaultSubject}
             onTrigger={handleTrigger}
           />
         </CardContent>

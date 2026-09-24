@@ -61,6 +61,19 @@ function makeStore(opts: StoreOpts = {}) {
       if (opts.createCode) return httpFail(opts.createCode);
       return accepted({ taskId: 1 });
     }
+    if (method === 'GET' && /\/subjects\/search/.test(path)) {
+      // 体检 P1-2：搜索选择器数据源（联想下拉）
+      return ok([
+        { id: 1, subjectCode: 'SH600519', name: '贵州茅台', market: 'A_SHARE', type: 1, industry: '白酒' },
+        { id: 40, subjectCode: 'SZ300750', name: '宁德时代', market: 'A_SHARE', type: 1, industry: '动力电池' },
+      ]);
+    }
+    if (method === 'GET' && /\/subjects\/quotes/.test(path)) {
+      // 带参跳转预选标的的 id → 摘要解析（quotes 端点行情可为 null）
+      return ok([
+        { id: 1, subjectCode: 'SH600519', name: '贵州茅台', market: 'A_SHARE', type: 1, industry: '白酒', quote: null },
+      ]);
+    }
     if (method === 'GET') {
       const m = path.match(/\/ai-briefs\/(\d+)$/);
       if (m) {
@@ -144,9 +157,10 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-/** 触发简报：填标的 ID 1（默认个股型）→ 提交。 */
-async function triggerBrief(user: UserEvent, subjectId = '1') {
-  await user.type(screen.getByTestId('brief-subjectId'), subjectId);
+/** 触发简报（体检 P1-2 搜索选择器）：输入联想 → 选中贵州茅台（id=1，默认个股型）→ 提交。 */
+async function triggerBrief(user: UserEvent, query = '茅台', optionId = 1) {
+  await user.type(screen.getByTestId('brief-subject-input'), query);
+  await user.click(await screen.findByTestId(`brief-subject-option-${optionId}`));
   await user.click(screen.getByTestId('brief-trigger-submit'));
 }
 
@@ -278,7 +292,7 @@ describe('AiBrief AI 简报页', () => {
     const user = userEvent.setup();
     render(<AiBrief pollIntervalMs={50} />);
 
-    // 切到每日推荐，不填标的 ID
+    // 切到每日推荐，不选标的
     await user.click(screen.getByTestId('brief-type-4'));
     await user.click(screen.getByTestId('brief-trigger-submit'));
 
@@ -296,5 +310,28 @@ describe('AiBrief AI 简报页', () => {
     expect(body.subjectId).toBeNull();
     // 未出现校验错误
     expect(screen.queryByTestId('brief-validation-error')).toBeNull();
+  });
+
+  it('带参跳转（#/ai-brief?subjectId=1）：预选标的回显并直接可提交', async () => {
+    const store = makeStore({ getSequence: [PENDING_VIEW, DONE_VIEW] });
+    vi.stubGlobal('fetch', store.fetch);
+    const user = userEvent.setup();
+    window.location.hash = '#/ai-brief?subjectId=1';
+    render(<AiBrief pollIntervalMs={50} />);
+
+    // id=1 经 quotes 端点解析为摘要，选择器回显已选态（体检 P1-2 替代手输数字 ID）
+    const selected = await screen.findByTestId('brief-subject-selected');
+    expect(selected).toHaveTextContent('SH600519');
+    expect(selected).toHaveTextContent('贵州茅台');
+
+    await user.click(screen.getByTestId('brief-trigger-submit'));
+    await screen.findByTestId('brief-content');
+    const postCall = store.fetch.mock.calls.find(
+      (c) => (c[1] as RequestInit).method === 'POST' && /\/ai-briefs$/.test(String(c[0])),
+    );
+    const body = JSON.parse((postCall![1] as RequestInit).body as string) as {
+      subjectId: number | null;
+    };
+    expect(body.subjectId).toBe(1);
   });
 });

@@ -30,7 +30,14 @@ function cloneWl(w: WatchlistView): WatchlistView {
   return { ...w, items: w.items.map((i) => ({ ...i })) };
 }
 
-/** 构造一个状态化 fetch mock：GET 列表/单查、POST 创建/加标的、DELETE/PATCH 清单项。 */
+/** 标的主数据池（体检 P1-2：搜索选择器 + 行情列的数据源）。 */
+const SUBJECT_POOL = [
+  { id: 100, subjectCode: 'SZ000858', name: '五粮液', market: 'A_SHARE', type: 1, industry: '白酒' },
+  { id: 200, subjectCode: 'SH600036', name: '招商银行', market: 'A_SHARE', type: 1, industry: '银行' },
+  { id: 999, subjectCode: 'SH999999', name: '不存在的标的', market: 'A_SHARE', type: 1, industry: '测试' },
+];
+
+/** 构造一个状态化 fetch mock：GET 列表/单查/search/quotes、POST 创建/加标的、DELETE/PATCH 清单项。 */
 function makeStore(opts: StoreOpts = {}) {
   const wl1: WatchlistView = {
     id: 1,
@@ -41,7 +48,7 @@ function makeStore(opts: StoreOpts = {}) {
   };
   const wl2: WatchlistView = { id: 2, name: '观察池', remark: null, status: 1, items: [] };
   const watchlists: WatchlistView[] = [wl1, wl2];
-  let nextItemId = 1000;
+  let nextItemId = 10; // 新增清单项 id 从 11 起（断言按 testid 精确定位）
   let nextWlId = 100;
 
   const ok = (data: unknown) => ({
@@ -60,6 +67,13 @@ function makeStore(opts: StoreOpts = {}) {
     const method = init?.method ?? 'GET';
     const path = String(url);
 
+    if (method === 'GET' && /\/subjects\/search/.test(path)) {
+      const q = new URL(path, 'http://localhost').searchParams.get('q') ?? '';
+      const matched = SUBJECT_POOL.filter(
+        (s) => s.name.includes(q) || s.subjectCode.includes(q.toUpperCase()),
+      );
+      return ok(matched);
+    }
     if (method === 'GET' && /\/watchlists$/.test(path)) {
       return ok(watchlists.map(cloneWl));
     }
@@ -121,7 +135,7 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-/** 渲染并等待首屏：清单列表加载 + 自动选中第一个 + 详情加载完成。 */
+/** 渲染并等待首屏：清单列表加载 + 自动选中第一个 + 详情（含行情）加载完成。 */
 async function renderReady(store: ReturnType<typeof makeStore>) {
   vi.stubGlobal('fetch', store.fetch);
   render(<Watchlist />);
@@ -129,8 +143,18 @@ async function renderReady(store: ReturnType<typeof makeStore>) {
   return store.fetch;
 }
 
+/** 添加标的（体检 P1-2 搜索选择器）：输入关键字 → 联想下拉 → 选中 → （可选）填阈值。 */
+async function pickSubject(
+  user: ReturnType<typeof userEvent.setup>,
+  query: string,
+  optionId: number,
+) {
+  await user.type(screen.getByTestId('watchlist-add-subject-input'), query);
+  await user.click(await screen.findByTestId(`watchlist-add-subject-option-${optionId}`));
+}
+
 describe('Watchlist 管理页', () => {
-  it('渲染清单列表（名称 / 标的数）与默认选中清单的标的明细', async () => {
+  it('渲染清单列表（名称 / 标的数）与默认选中清单的标的明细（代码/名称/行业/行情）', async () => {
     const store = makeStore();
     const fetchMock = await renderReady(store);
 
@@ -139,7 +163,7 @@ describe('Watchlist 管理页', () => {
     expect(screen.getByTestId('watchlist-card-2')).toBeInTheDocument();
     expect(screen.getByTestId('watchlist-item-count-1')).toHaveTextContent('1 标的');
     expect(screen.getByTestId('watchlist-item-count-2')).toHaveTextContent('0 标的');
-    // 详情：默认选中 wl1，标题与标的 100 / 阈值 3.00
+    // 详情：默认选中 wl1，标的 100 / 阈值 3.00（表格增强在后续提交）
     expect(screen.getByTestId('watchlist-detail-name')).toHaveTextContent('核心持仓');
     expect(screen.getByTestId('watchlist-item-subjectId-10')).toHaveTextContent('100');
     expect(screen.getByTestId('watchlist-item-threshold-10')).toHaveTextContent('3.00');
@@ -180,21 +204,50 @@ describe('Watchlist 管理页', () => {
     );
   });
 
-  it('加标的成功后详情刷新出现新标的', async () => {
+  it('加标的：搜索选择器选中后提交，详情刷新出现新标的（不再手输数字 ID）', async () => {
     const store = makeStore();
     const user = userEvent.setup();
     await renderReady(store);
 
     await user.click(screen.getByTestId('watchlist-add-item'));
-    await user.type(screen.getByTestId('watchlist-add-subjectId'), '200');
+    await pickSubject(user, '600036', 200);
     await user.clear(screen.getByTestId('watchlist-add-threshold'));
     await user.type(screen.getByTestId('watchlist-add-threshold'), '5');
     await user.click(screen.getByTestId('watchlist-add-submit'));
 
     // 新标的 200 / 阈值 5.00 出现，清单标的数变 2
-    await screen.findByText('200');
-    expect(screen.getByText('5.00')).toBeInTheDocument();
+    await screen.findByTestId('watchlist-item-subjectId-11');
+    expect(screen.getByTestId('watchlist-item-subjectId-11')).toHaveTextContent('200');
+    expect(screen.getByTestId('watchlist-item-threshold-11')).toHaveTextContent('5.00');
     expect(screen.getByTestId('watchlist-item-count-1')).toHaveTextContent('2 标的');
+    // 数字 ID 输入框不复存在（体检 P1-2 移除）
+    expect(screen.queryByTestId('watchlist-add-subjectId')).toBeNull();
+    // POST body.subjectId 来自选中标的
+    const addCall = store.fetch.mock.calls.find(
+      (c) => (c[1] as RequestInit).method === 'POST' && /\/items$/.test(String(c[0])),
+    );
+    expect(addCall).toBeDefined();
+    expect(JSON.parse((addCall![1] as RequestInit).body as string)).toMatchObject({
+      subjectId: 200,
+    });
+  });
+
+  it('加标的未选标的：提交拦截并提示先选择（不发 POST）', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    await user.click(screen.getByTestId('watchlist-add-item'));
+    await user.click(screen.getByTestId('watchlist-add-submit'));
+
+    expect(await screen.findByTestId('watchlist-add-validation')).toHaveTextContent(
+      '请先搜索并选择标的',
+    );
+    expect(
+      store.fetch.mock.calls.some(
+        (c) => (c[1] as RequestInit).method === 'POST' && /\/items$/.test(String(c[0])),
+      ),
+    ).toBe(false);
   });
 
   it('加标的 30011(409) 已在清单：展示已在清单错误', async () => {
@@ -203,7 +256,7 @@ describe('Watchlist 管理页', () => {
     await renderReady(store);
 
     await user.click(screen.getByTestId('watchlist-add-item'));
-    await user.type(screen.getByTestId('watchlist-add-subjectId'), '100'); // wl1 已含 100
+    await pickSubject(user, '五粮液', 100); // wl1 已含 subjectId=100
     await user.click(screen.getByTestId('watchlist-add-submit'));
 
     expect(await screen.findByTestId('watchlist-add-error')).toHaveTextContent(
@@ -217,7 +270,7 @@ describe('Watchlist 管理页', () => {
     await renderReady(store);
 
     await user.click(screen.getByTestId('watchlist-add-item'));
-    await user.type(screen.getByTestId('watchlist-add-subjectId'), '999');
+    await pickSubject(user, '999999', 999);
     await user.click(screen.getByTestId('watchlist-add-submit'));
 
     expect(await screen.findByTestId('watchlist-add-error')).toHaveTextContent('标的不存在');
