@@ -18,10 +18,11 @@ import java.util.Objects;
  *   <li>{@link #complete}/{@link #markNeedVerify}/{@link #markFailed}：异步生成完成，写
  *       content/sourceLinks/costTokens/model/promptVersion 并翻终态（1 完成 / 3 待核实 / 2 失败）。终态写入走仓储 {@code
  *       save}（updateById，@Version 乐观锁）。
+ *   <li>{@link #retry}（P1-6）：FAILED 任务回置 PENDING 重新受理（同任务同幂等键，清失败残留、重置懒查超时窗起点）。
  * </ol>
  *
  * <p>幂等：{@code idempotency_key=subjectId+briefType+yyyyMMdd}，{@code UNIQUE} 约束为重复 POST
- * 最后防线（已完成直返上次结果）。
+ * 最后防线（成功终态/PENDING 在途直返上次结果；FAILED 允许重试，不占坑当日）。
  *
  * @param content BriefContent JSON（PENDING 时空串，终态写回真值）
  * @param model 实际服务模型（PENDING 时空串）
@@ -168,6 +169,29 @@ public class AiBrief {
     /** 超时兜底强制置失败（30min 卡死，懒查触发）：无视当前态强制翻 FAILED。 */
     public void forceFailed() {
         this.status = BriefStatus.FAILED;
+    }
+
+    /**
+     * 失败重试（P1-6，体检「FAILED 占坑当日幂等键」）：仅 FAILED 怛可回置——status 回 PENDING、清失败残留
+     * （content/model/prompt_version 空串占位、sourceLinks/costTokens 置空），同任务同幂等键重新受理（updateById 乐观锁 bump
+     * version，uq_ai_brief_idempotency 不变）。
+     *
+     * <p>{@code retryAt} 重置 createdAt：重试视作重新受理，30min 懒查超时窗（getBrief 强制置败口径）从头起算——否则旧 createdAt
+     * 会让重试任务在下一次查询即被懒查超时打回 FAILED。仅 PENDING/成功终态调用为无操作（幂等防误用）。
+     *
+     * @param retryAt 重试受理时刻（重置懒查超时窗起点）
+     */
+    public void retry(Instant retryAt) {
+        if (status != BriefStatus.FAILED) {
+            return;
+        }
+        this.status = BriefStatus.PENDING;
+        this.promptVersion = "";
+        this.model = "";
+        this.content = "";
+        this.sourceLinks = null;
+        this.costTokens = null;
+        this.createdAt = Objects.requireNonNull(retryAt, "retryAt 必填");
     }
 
     private void applyResult(

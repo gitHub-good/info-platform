@@ -7,6 +7,7 @@ import com.info.platform.domain.ai.AiBrief;
 import com.info.platform.domain.ai.AiBriefRepository;
 import com.info.platform.domain.ai.BriefStatus;
 import com.info.platform.domain.ai.BriefType;
+import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -142,6 +143,30 @@ class AiBriefRepositoryImplTest {
 
         // Assert
         assertThat(updated.getStatus()).isEqualTo(BriefStatus.FAILED);
+    }
+
+    @Test
+    void save_failedRetry_resetsPendingAndReclaimable() {
+        // P1-6（修前红：FAILED 终态 claim 返回 empty、无重试路径）：FAILED → retry 回置 PENDING → save 落库 →
+        // worker 可再次 CAS 领取（同任务同幂等键重新生成）
+        AiBrief brief = repository.save(AiBrief.createNew(107L, BriefType.STOCK, "107:1:20260921"));
+        AiBrief claimed = repository.claim(brief.getId(), 0L).orElseThrow();
+        claimed.markFailed();
+        AiBrief failed = repository.save(claimed);
+        assertThat(failed.getStatus()).isEqualTo(BriefStatus.FAILED);
+
+        // Act：重试受理（回置 PENDING + 清残留 + 重置 createdAt）→ 持久化
+        failed.retry(Instant.now());
+        AiBrief retried = repository.save(failed);
+
+        // Assert：PENDING 落库、version 再 bump、可重新领取
+        assertThat(retried.getStatus()).isEqualTo(BriefStatus.PENDING);
+        assertThat(retried.getVersion()).isEqualTo(failed.getVersion() + 1L);
+        Optional<AiBrief> reloaded = repository.findById(brief.getId());
+        assertThat(reloaded).isPresent();
+        assertThat(reloaded.get().getStatus()).isEqualTo(BriefStatus.PENDING);
+        assertThat(reloaded.get().getContent()).isEmpty();
+        assertThat(repository.claim(brief.getId(), reloaded.get().getVersion())).isPresent();
     }
 
     @Test

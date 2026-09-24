@@ -44,8 +44,9 @@ import org.springframework.stereotype.Service;
  * <p>三大用例：
  *
  * <ol>
- *   <li>{@link #createBrief}（POST 触发）：成本预检 → 幂等查重（已完成直返上次 taskId）→ INSERT 任务 status=0 → 202 +
- *       taskId → 发 {@link AiBriefGenerationRequestedEvent} 触发异步生成。
+ *   <li>{@link #createBrief}（POST 触发）：幂等查重（P1-6：成功终态/PENDING 在途直返上次 taskId；FAILED 重试受理）→ 成本预检（429
+ *       fail-fast）→ INSERT 任务 status=0 → 202 + taskId → 发 {@link AiBriefGenerationRequestedEvent}
+ *       触发异步生成。
  *   <li>{@link #onGenerationRequested}（@Async @EventListener）：消费上述事件 → {@link #generateBrief}
  *       在虚拟线程异步执行 （经事件多播器调用代理，@Async 生效，避自调用坑；对齐 {@code PushService.onAnomalyDetected}）。
  *   <li>{@link #getBrief}（GET 查询）：返回 status/content/sourceLinks/disclaimer；懒查超时（PENDING &gt;
@@ -106,28 +107,26 @@ public class AIBriefService {
     /**
      * 受理生成请求（POST /ai-briefs）。
      *
+     * <p>P1-6 幂等语义（体检「FAILED/PENDING 占坑当日幂等键」）：<b>先幂等查重、后预算预检</b>——当日成功终态 （DONE/NEED_VERIFY）与
+     * PENDING 在途任务 0 成本直返 taskId（预算耗尽也不拦截当日已生成结果的读取）； 当日 FAILED 任务允许重新触发（回置 PENDING
+     * 重新受理，重试是新的真实成本故仍过 {@code checkBudget}）；当日无任务走新建受理。
+     *
      * @param subjectId 标的 id（每日推荐型可空）
      * @param briefType 简报类型
-     * @return 任务 id（已存在则返回上次 taskId，幂等）
-     * @throws BusinessException 30030 成本上限（429）；30001 标的不存在（404，个股/事件/政策型）
+     * @return 任务 id（成功/在途幂等命中与 FAILED 重试均返回同 taskId）
+     * @throws BusinessException 30030 成本上限（429，新建与 FAILED 重试均 fail-fast）；30001 标的不存在（404，个股/事件/政策型）
      */
     public Long createBrief(Long subjectId, BriefType briefType) {
         Objects.requireNonNull(briefType, "briefType 必填");
         long userId = currentUserId();
-        // 成本预检：fail-fast，POST 同步返回 429（§4.1.4）
-        costBudget.checkBudget(userId);
         String idempotencyKey = buildIdempotencyKey(subjectId, briefType);
-        // 幂等查重：已存在（任意态）直返上次 taskId（§4.1.4 防重放；幂等短路先于标的校验，免重复请求重验标的）
+        // 幂等查重先于预算预检（P1-6 顺带项）：成功/在途命中 0 成本直返；FAILED 走重试受理
         Optional<AiBrief> existing = repository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
-            Long tid = existing.get().getId();
-            log.info(
-                    "AI 简报幂等命中: idempotencyKey={} taskId={} status={}",
-                    idempotencyKey,
-                    tid,
-                    existing.get().getStatus());
-            return tid;
+            return acceptExisting(existing.orElseThrow(), userId);
         }
+        // 成本预检：fail-fast，POST 同步返回 429（§4.1.4）
+        costBudget.checkBudget(userId);
         // 个股/事件/政策型须校验标的（每日推荐型无单一标的，跳过）
         if (subjectId != null) {
             subjectRepository
@@ -140,7 +139,7 @@ public class AIBriefService {
         } catch (DuplicateKeyException e) {
             // 并发双 POST 败者（体检 P2 后端条目）：应用层查重后、INSERT 前对手方提交同幂等键，
             // 仓储已译 DuplicateKeyException——重查幂等键按命中处理返回同一任务，不冒泡 500
-            return findExistingByConflict(idempotencyKey, e);
+            return refetchAfterConflict(idempotencyKey, e, userId);
         }
         log.info(
                 "AI 简报受理: taskId={} subjectId={} briefType={} userId={}",
@@ -151,6 +150,35 @@ public class AIBriefService {
         // 异步触发（经事件多播器→代理，@Async 生效）
         eventPublisher.publishEvent(new AiBriefGenerationRequestedEvent(brief.getId(), userId));
         return brief.getId();
+    }
+
+    /**
+     * 幂等命中分流（P1-6）：PENDING 在途 / 成功终态（{@code isCompleted}）直返 taskId（防重复触发、0 成本读缓存）； FAILED
+     * 重试受理——预算闸门前置（重试是新的真实成本），{@link AiBrief#retry} 回置 PENDING 清残留， 乐观锁 save 后重发异步事件（同 taskId
+     * 重新生成，getBrief(taskId) 历史可读）。
+     */
+    private Long acceptExisting(AiBrief existing, long userId) {
+        Long taskId = existing.getId();
+        if (existing.getStatus() != BriefStatus.FAILED) {
+            log.info(
+                    "AI 简报幂等命中: idempotencyKey={} taskId={} status={}",
+                    existing.getIdempotencyKey(),
+                    taskId,
+                    existing.getStatus());
+            return taskId;
+        }
+        costBudget.checkBudget(userId);
+        existing.retry(Instant.now());
+        AiBrief retried = repository.save(existing);
+        log.info(
+                "AI 简报失败重试受理: taskId={} subjectId={} briefType={} userId={} version={}",
+                taskId,
+                retried.getSubjectId(),
+                retried.getBriefType(),
+                userId,
+                retried.getVersion());
+        eventPublisher.publishEvent(new AiBriefGenerationRequestedEvent(taskId, userId));
+        return taskId;
     }
 
     /**
@@ -172,24 +200,25 @@ public class AIBriefService {
     }
 
     /**
-     * 并发败者按幂等命中处理（体检 P2 后端条目）：INSERT 撞 {@code uq_ai_brief_idempotency} 后重查幂等键。
+     * 并发败者重查（体检 P2 后端条目）：INSERT 撞 {@code uq_ai_brief_idempotency} 后重查幂等键。
      *
-     * <p>重查命中 → 返回既有 taskId（赢家已触发异步生成，不再重复触发）；重查仍空（UNIQUE 冲突但行不可见，理论不达）→ 原样上抛 {@link
-     * DuplicateKeyException} 由全局处理器兜底，不吞异常。
+     * <p>重查命中 → 走 {@link #acceptExisting} 分流（赢家刚 INSERT 的任务为 PENDING 在途，直返 taskId 不重复触发）； 重查仍空
+     * （UNIQUE 冲突但行不可见，理论不达）→ 原样上抛 {@link DuplicateKeyException} 由全局处理器兜底，不吞异常。
      */
-    private Long findExistingByConflict(String idempotencyKey, DuplicateKeyException cause) {
+    private Long refetchAfterConflict(
+            String idempotencyKey, DuplicateKeyException cause, long userId) {
         Optional<AiBrief> existing = repository.findByIdempotencyKey(idempotencyKey);
         if (existing.isEmpty()) {
             log.error("AI 简报并发冲突后重查幂等键未命中: idempotencyKey={}", idempotencyKey);
             throw cause;
         }
-        Long tid = existing.get().getId();
+        AiBrief winner = existing.orElseThrow();
         log.info(
                 "AI 简报并发幂等命中（败者返回既有任务）: idempotencyKey={} taskId={} status={}",
                 idempotencyKey,
-                tid,
-                existing.get().getStatus());
-        return tid;
+                winner.getId(),
+                winner.getStatus());
+        return acceptExisting(winner, userId);
     }
 
     /**

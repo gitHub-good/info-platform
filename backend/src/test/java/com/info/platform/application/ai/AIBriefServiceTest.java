@@ -41,6 +41,7 @@ import com.info.platform.domain.ai.PromptTemplate;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.common.UserContext;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -254,6 +255,134 @@ class AIBriefServiceTest {
                         e ->
                                 assertThat(((BusinessException) e).getErrorCode())
                                         .isEqualTo(ErrorCode.SUBJECT_NOT_FOUND));
+    }
+
+    // ---- P1-6 回归（体检「FAILED/PENDING 占坑当日幂等键」，修前红→修后绿） ----
+
+    @Test
+    void createBrief_failedExisting_retriggersSameTaskAsNewAttempt() {
+        // Arrange：当日已有 FAILED 任务（LLM 失败/超时置败）——修前红：任意态直返 FAILED taskId，
+        // 不 save 不发事件，当日永久降级；修后：状态回置 PENDING + version bump + 重新触发异步生成
+        AiBrief failed =
+                AiBrief.reconstruct(
+                        5L,
+                        SUBJECT_ID,
+                        BriefType.STOCK,
+                        "v1.0",
+                        "deepseek-flash",
+                        "",
+                        null,
+                        150,
+                        BriefStatus.FAILED,
+                        "key",
+                        3L,
+                        Instant.now().minus(Duration.ofMinutes(10)),
+                        Instant.now().minus(Duration.ofMinutes(9)));
+        when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.of(failed));
+        when(repository.save(any()))
+                .thenAnswer(
+                        inv -> {
+                            AiBrief saved = inv.getArgument(0);
+                            return AiBrief.reconstruct(
+                                    saved.getId(),
+                                    saved.getSubjectId(),
+                                    saved.getBriefType(),
+                                    saved.getPromptVersion(),
+                                    saved.getModel(),
+                                    saved.getContent(),
+                                    saved.getSourceLinks(),
+                                    saved.getCostTokens(),
+                                    saved.getStatus(),
+                                    saved.getIdempotencyKey(),
+                                    saved.getVersion() + 1,
+                                    saved.getCreatedAt(),
+                                    Instant.now());
+                        });
+
+        // Act：同 subject+briefType 再 POST → 重新触发生成（同 taskId，历史可经 getBrief(taskId) 读）
+        Long taskId = service.createBrief(SUBJECT_ID, BriefType.STOCK);
+
+        // Assert：同任务受理重试——PENDING 回置、失败残留清空、重发异步事件、预算先检
+        assertThat(taskId).isEqualTo(5L);
+        verify(costBudget).checkBudget(USER_ID);
+        ArgumentCaptor<AiBrief> savedCaptor = ArgumentCaptor.forClass(AiBrief.class);
+        verify(repository).save(savedCaptor.capture());
+        AiBrief retried = savedCaptor.getValue();
+        assertThat(retried.getStatus()).isEqualTo(BriefStatus.PENDING);
+        assertThat(retried.getContent()).isEmpty();
+        assertThat(retried.getModel()).isEmpty();
+        assertThat(retried.getCostTokens()).isNull();
+        assertThat(retried.getCreatedAt())
+                .as("重试视作重新受理，重置 30min 懒查超时窗")
+                .isAfter(Instant.now().minus(Duration.ofSeconds(5)));
+        verify(eventPublisher).publishEvent(new AiBriefGenerationRequestedEvent(5L, USER_ID));
+    }
+
+    @Test
+    void createBrief_pendingInFlight_returnsTaskIdWithoutRetrigger() {
+        // Arrange：PENDING 在途任务（防重复触发）——仍幂等直返
+        when(repository.findByIdempotencyKey(anyString()))
+                .thenReturn(Optional.of(brief(BriefStatus.PENDING, 0L)));
+
+        // Act
+        Long taskId = service.createBrief(SUBJECT_ID, BriefType.STOCK);
+
+        // Assert：直返 taskId，不回置、不重复触发
+        assertThat(taskId).isEqualTo(TASK_ID);
+        verify(repository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void createBrief_doneExisting_quotaExhausted_returnsCachedTaskId() {
+        // Arrange：预算耗尽 + 当日已生成成功——体检 P2 顺带项：先幂等查重再预算检查，成功命中 0 成本直返
+        doThrow(new BusinessException(ErrorCode.AI_QUOTA_EXHAUSTED, "配额用尽"))
+                .when(costBudget)
+                .checkBudget(anyLong());
+        AiBrief done =
+                AiBrief.reconstruct(
+                        2L,
+                        SUBJECT_ID,
+                        BriefType.STOCK,
+                        "v1.0",
+                        "deepseek-flash",
+                        "{}",
+                        null,
+                        150,
+                        BriefStatus.DONE,
+                        "key",
+                        5L,
+                        Instant.now(),
+                        Instant.now());
+        when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.of(done));
+
+        // Act：预算耗尽不拦截当日已生成结果的读取（修前红：checkBudget 在前直接 429）
+        Long taskId = service.createBrief(SUBJECT_ID, BriefType.STOCK);
+
+        // Assert
+        assertThat(taskId).isEqualTo(2L);
+        verify(repository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void createBrief_failedExisting_quotaExhausted_throws429() {
+        // Arrange：预算耗尽 + 当日 FAILED——重试是新的真实成本，仍须预算闸门拦截
+        doThrow(new BusinessException(ErrorCode.AI_QUOTA_EXHAUSTED, "配额用尽"))
+                .when(costBudget)
+                .checkBudget(anyLong());
+        when(repository.findByIdempotencyKey(anyString()))
+                .thenReturn(Optional.of(brief(BriefStatus.FAILED, 2L)));
+
+        // Act + Assert
+        assertThatThrownBy(() -> service.createBrief(SUBJECT_ID, BriefType.STOCK))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((BusinessException) e).getErrorCode())
+                                        .isEqualTo(ErrorCode.AI_QUOTA_EXHAUSTED));
+        verify(repository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     // ==================== generateBrief（异步生成） ====================
