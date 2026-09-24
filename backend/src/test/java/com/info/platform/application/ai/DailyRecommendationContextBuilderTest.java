@@ -69,7 +69,9 @@ class DailyRecommendationContextBuilderTest {
                         subjectRepository,
                         personalizer,
                         List.of(quoteAdapter, announceAdapter, newsAdapter),
-                        CLOCK);
+                        CLOCK,
+                        Runnable::run,
+                        2000L);
         when(personalizer.buildProfile(anyLong())).thenReturn(UserInterestProfile.EMPTY);
     }
 
@@ -214,6 +216,103 @@ class DailyRecommendationContextBuilderTest {
         // Assert：仅留存在的标的 1 只
         assertThat(metrics).hasSize(1);
         assertThat(metrics.get(0).subjectCode()).isEqualTo("SZ000858");
+    }
+
+    // ---- P1-5a 回归：池指标并行 + 总预算（修前逐标的串行 fetch，耗时 sum 而非 max）----
+
+    @Test
+    void buildPoolMetrics_parallelExecution_costsMaxNotSum() {
+        // Arrange：3 只标的，行情源每标的须「三方汇合」才放行——串行执行时首标的等不齐三方（2s 破栅降级归 0，
+        // 修前红：changePct 全 0），并行执行时三方迅速汇合各取行情值
+        java.util.concurrent.Phaser meeting = new java.util.concurrent.Phaser(3);
+        try (var exec =
+                java.util.concurrent.Executors.newThreadPerTaskExecutor(
+                        Thread.ofVirtual().factory())) {
+            DailyRecommendationContextBuilder parallelBuilder =
+                    new DailyRecommendationContextBuilder(
+                            watchlistRepository,
+                            subjectRepository,
+                            personalizer,
+                            List.of(quoteAdapter, announceAdapter, newsAdapter),
+                            CLOCK,
+                            exec,
+                            5000L);
+            when(watchlistRepository.findAllByOwnerId(USER_ID))
+                    .thenReturn(List.of(watchlistWith(SUBJECT_ID_1, SUBJECT_ID_2, 300L)));
+            when(subjectRepository.findById(SUBJECT_ID_1))
+                    .thenReturn(Optional.of(subject(SUBJECT_ID_1, "SH600519", "贵州茅台")));
+            when(subjectRepository.findById(SUBJECT_ID_2))
+                    .thenReturn(Optional.of(subject(SUBJECT_ID_2, "SZ000858", "五粮液")));
+            when(subjectRepository.findById(300L))
+                    .thenReturn(Optional.of(subject(300L, "SH600036", "招商银行")));
+            when(quoteAdapter.fetch(any()))
+                    .thenAnswer(
+                            inv -> {
+                                try {
+                                    meeting.awaitAdvanceInterruptibly(
+                                            meeting.arrive(),
+                                            2,
+                                            java.util.concurrent.TimeUnit.SECONDS);
+                                    return quoteResult(1L, 1.5);
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    return SourceResult.missing(SourceCode.QUOTE, 1L, "行情源");
+                                } catch (Exception e) {
+                                    // 串行破栅：等不齐三方（修前红路径）→ 降级归 0
+                                    return SourceResult.missing(SourceCode.QUOTE, 1L, "行情源");
+                                }
+                            });
+            when(announceAdapter.fetch(any())).thenReturn(announceResult(1L, 0));
+            when(newsAdapter.fetch(any())).thenReturn(newsResult(1L, 0));
+
+            // Act
+            List<PoolMetric> metrics = parallelBuilder.buildPoolMetrics(USER_ID);
+
+            // Assert：三方屏障汇合通过（并行证毕）+ 3 只指标齐全取到行情值
+            assertThat(metrics).hasSize(3);
+            assertThat(metrics).allSatisfy(m -> assertThat(m.changePct()).isEqualTo(1.5));
+        }
+    }
+
+    @Test
+    void buildPoolMetrics_overallBudgetExceeded_returnsZeroedMetricsFast() {
+        // Arrange：行情源阻塞 3s，总预算 150ms——超时标的补零快速返回（修前无预算：吃满单源超时）
+        try (var exec =
+                java.util.concurrent.Executors.newThreadPerTaskExecutor(
+                        Thread.ofVirtual().factory())) {
+            DailyRecommendationContextBuilder budgetBuilder =
+                    new DailyRecommendationContextBuilder(
+                            watchlistRepository,
+                            subjectRepository,
+                            personalizer,
+                            List.of(quoteAdapter, announceAdapter, newsAdapter),
+                            CLOCK,
+                            exec,
+                            150L);
+            when(watchlistRepository.findAllByOwnerId(USER_ID))
+                    .thenReturn(List.of(watchlistWith(SUBJECT_ID_1)));
+            when(subjectRepository.findById(SUBJECT_ID_1))
+                    .thenReturn(Optional.of(subject(SUBJECT_ID_1, "SH600519", "贵州茅台")));
+            when(quoteAdapter.fetch(any()))
+                    .thenAnswer(
+                            inv -> {
+                                Thread.sleep(3000);
+                                return quoteResult(SUBJECT_ID_1, 9.9);
+                            });
+            when(announceAdapter.fetch(any())).thenReturn(announceResult(SUBJECT_ID_1, 0));
+            when(newsAdapter.fetch(any())).thenReturn(newsResult(SUBJECT_ID_1, 0));
+
+            // Act
+            long start = System.nanoTime();
+            List<PoolMetric> metrics = budgetBuilder.buildPoolMetrics(USER_ID);
+            long elapsedMillis = (System.nanoTime() - start) / 1_000_000L;
+
+            // Assert：总预算内返回（远小于 3s），标的保留但指标归 0（源降级语义）
+            assertThat(elapsedMillis).as("总预算 150ms 兜底，不应等满单源 3s").isLessThan(2500L);
+            assertThat(metrics).hasSize(1);
+            assertThat(metrics.get(0).subjectCode()).isEqualTo("SH600519");
+            assertThat(metrics.get(0).changePct()).isZero();
+        }
     }
 
     // ==================== fixtures ====================

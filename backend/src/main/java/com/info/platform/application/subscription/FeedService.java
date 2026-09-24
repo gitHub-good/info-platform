@@ -50,11 +50,12 @@ import org.springframework.stereotype.Service;
  * 主题订阅仅命中已取内容（公告/新闻按标的取，故主题订阅需用户另有标的订阅才有公告/新闻可命中——M2 已知限制， M3 可加关键词取数）。单源 MISSING/FAILED
  * 不阻断（降级分区不进流）。
  *
- * <h2>每日推荐</h2>
+ * <h2>每日推荐（P1-5a 只读）</h2>
  *
- * 复用 {@link DailyRecommendationService#generateDaily}（当日幂等缓存命中直返，首次触发异步生成），Top5 映射为 {@code
- * type=recommendation} 条目，publishedAt 取装配时刻（排序靠前）。{@code generateDaily} 内部 set/clear
- * UserContext，本服务全程以 {@code userId} 参数传递（不依赖 ThreadLocal），不受其 clear 影响。
+ * 只读 {@link DailyRecommendationService#readDaily}（当日幂等缓存）：已终态成功 → Top5 映射为 {@code
+ * type=recommendation} 条目（publishedAt 取装配时刻，排序靠前）；未触发/在途（PENDING）→ <b>不等待、不受理</b>，条目缺推荐项并置 {@code
+ * recommendationPending=true}（FeedListView 增量字段）；FAILED/空输出 → 规则兜底（池指标并行取数）。触发生成的职责留给 {@code GET
+ * /recommendations/daily} 与盘前预热 Job——feed 每页请求只做一次幂等键 SELECT（毫秒级），不再有 30s 轮询阻塞 与每页重复触发。
  *
  * <h2>分页</h2>
  *
@@ -114,14 +115,22 @@ public class FeedService {
     /**
      * 个人信息流（命中内容 + 每日推荐，游标分页）。
      *
+     * <p>P1-5a：每日推荐走 {@link DailyRecommendationService#readDaily} <b>只读当日缓存</b>——未触发/在途不等待、不受理（避免
+     * {@code generateDaily} 的 30s 轮询阻塞请求线程与每页重复触发），未就绪时返回增量标志 {@code
+     * recommendationPending}（条目照常返回，仅缺推荐项）。
+     *
      * @param userId 当前用户（行级权限取数键）
      * @param cursor 上一页末条合成 id；null/0 表首页
      */
     public FeedListView getPersonalFeed(long userId, Long cursor) {
+        DailyRecommendationResult recommendation = dailyRecommendationService.readDaily(userId);
         List<Subscription> activeSubs = activeSubscriptions(userId);
         if (activeSubs.isEmpty()) {
             log.info("个人信息流无活跃订阅 userId={} 仅返回每日推荐", userId);
-            return paginate(recommendationEntries(userId), cursor);
+            return paginate(
+                    recommendationEntries(recommendation),
+                    cursor,
+                    recommendation.recommendationPending());
         }
         Map<Long, Subject> subjects = resolveSubjects(activeSubs);
         Map<Long, SubjectRef> subjectIndex = buildSubjectIndex(subjects);
@@ -131,14 +140,15 @@ public class FeedService {
         for (MatchedFeedContent m : matched) {
             entries.add(toEntry(m));
         }
-        entries.addAll(recommendationEntries(userId));
+        entries.addAll(recommendationEntries(recommendation));
         log.info(
-                "个人信息流装配 userId={} 活跃订阅={} 命中={} 条目={}",
+                "个人信息流装配 userId={} 活跃订阅={} 命中={} 条目={} 推荐未就绪={}",
                 userId,
                 activeSubs.size(),
                 matched.size(),
-                entries.size());
-        return paginate(entries, cursor);
+                entries.size(),
+                recommendation.recommendationPending());
+        return paginate(entries, cursor, recommendation.recommendationPending());
     }
 
     /** 取当前用户活跃订阅（行级 {@code WHERE user_id=?} + status=1 过滤）。 */
@@ -285,9 +295,8 @@ public class FeedService {
         return out;
     }
 
-    /** 每日推荐条目（T23 Top5，type=recommendation，publishedAt 取装配时刻）。 */
-    private List<FeedEntry> recommendationEntries(long userId) {
-        DailyRecommendationResult rec = dailyRecommendationService.generateDaily(userId);
+    /** 每日推荐条目（T23 Top5，type=recommendation，publishedAt 取装配时刻；P1-5a 只读结果投影，未就绪时为空列表）。 */
+    private List<FeedEntry> recommendationEntries(DailyRecommendationResult rec) {
         Instant now = Instant.now();
         List<FeedEntry> out = new ArrayList<>(rec.topRecommend().size());
         for (TopRecommendation r : rec.topRecommend()) {
@@ -328,8 +337,9 @@ public class FeedService {
         return new FeedEntry(c.publishedAt(), c.type().jsonValue(), c.contentId(), item);
     }
 
-    /** publishedAt 倒序排序 + 合成游标 id 分页（{@code id > cursor LIMIT 20}）。 */
-    private FeedListView paginate(List<FeedEntry> entries, Long cursor) {
+    /** publishedAt 倒序排序 + 合成游标 id 分页（{@code id > cursor LIMIT 20}）；透出推荐未就绪标志（P1-5a）。 */
+    private FeedListView paginate(
+            List<FeedEntry> entries, Long cursor, boolean recommendationPending) {
         entries.sort(COMPARATOR);
         long after = cursor == null ? 0L : cursor;
         List<FeedItem> page = new ArrayList<>();
@@ -347,7 +357,7 @@ public class FeedService {
             lastId = seq;
         }
         Long nextCursor = (page.size() == PAGE_SIZE && seq < entries.size()) ? lastId : null;
-        return new FeedListView(page, nextCursor);
+        return new FeedListView(page, nextCursor, recommendationPending);
     }
 
     /** 从全部 SourceAdapter 中取指定源（mock/真实互斥装配，恰一个；缺失记 WARN 返回 null）。 */

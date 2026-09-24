@@ -1,12 +1,14 @@
 package com.info.platform.application.ai;
 
 import com.info.platform.domain.ai.BriefContent;
+import com.info.platform.domain.ai.BriefStatus;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.TopRecommendation;
 import com.info.platform.domain.common.UserContext;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -82,12 +84,52 @@ public class DailyRecommendationService {
                 String disclaimer = disclaimerOf(view);
                 log.info("每日推荐 AI 生成成功 userId={} taskId={} top={}", userId, taskId, aiTop.size());
                 return new DailyRecommendationResult(
-                        DailyRecommendationResult.STATUS_DONE, aiTop, disclaimer, false);
+                        DailyRecommendationResult.STATUS_DONE, aiTop, disclaimer, false, false);
             }
             return ruleFallback(userId, view);
         } finally {
             UserContext.clear();
         }
+    }
+
+    /**
+     * 只读当日推荐（P1-5a，feed 路径专用）：读当日幂等缓存，<b>不受理、不触发生成、不轮询等待</b>。
+     *
+     * <p>当日无任务或在途（PENDING）→ {@code STATUS_PENDING} + {@code recommendationPending=true}（feed
+     * 显示占位/空推荐， 生成由 {@code GET /recommendations/daily} 或盘前预热 Job 触发）；已终态成功 → 解析 Top5（同 {@link
+     * #generateDaily}）； FAILED / 空输出 → 规则兜底（池指标经 {@link
+     * DailyRecommendationContextBuilder#buildPoolMetrics} 并行取数，快速返回）。 只读无计费/上下文副作用，不设 UserContext。
+     *
+     * @param userId 归属用户（兜底排序的画像取数键）
+     * @return 只读结果（未就绪时 topRecommend 为空且 pending=true）
+     */
+    public DailyRecommendationResult readDaily(long userId) {
+        Optional<AIBriefView> today =
+                aiBriefService.findTodayBrief(null, BriefType.DAILY_RECOMMEND);
+        if (today.isEmpty()) {
+            return pending(userId);
+        }
+        AIBriefView view = today.orElseThrow();
+        if (view.status() == BriefStatus.PENDING.code()) {
+            return pending(userId);
+        }
+        List<TopRecommendation> aiTop = extractTop(view);
+        if (!aiTop.isEmpty()) {
+            return new DailyRecommendationResult(
+                    DailyRecommendationResult.STATUS_DONE, aiTop, disclaimerOf(view), false, false);
+        }
+        return ruleFallback(userId, view);
+    }
+
+    /** 未就绪占位结果（feed 据 recommendationPending 标志渲染，Top5 为空）。 */
+    private static DailyRecommendationResult pending(long userId) {
+        log.debug("每日推荐未就绪（feed 只读返回占位） userId={}", userId);
+        return new DailyRecommendationResult(
+                DailyRecommendationResult.STATUS_PENDING,
+                List.of(),
+                BriefContent.DEFAULT_DISCLAIMER,
+                false,
+                true);
     }
 
     /** 轮询查询简报直至终态（DONE/FAILED/NEED_VERIFY）或超时。 */

@@ -154,6 +154,24 @@ public class AIBriefService {
     }
 
     /**
+     * 只读查当日简报（P1-5a feed 只读口径）：按幂等键查当日任务并返回视图，<b>不受理、不触发生成、不等待</b>。
+     *
+     * <p>与 {@link #createBrief} 的差异：当日无任务返回空（由调用方决定是否降级），调用方据此「只读当日缓存」—— feed 路径不再因 {@code
+     * generateDaily} 的 30s 轮询阻塞请求线程。懒查超时口径与 {@link #getBrief} 一致（PENDING 超 30min 强制 FAILED）。
+     *
+     * @param subjectId 标的 id（每日推荐型可空）
+     * @param briefType 简报类型
+     * @return 当日任务视图（含 status；PENDING=在途生成中）；当日无任务为空
+     */
+    public Optional<AIBriefView> findTodayBrief(Long subjectId, BriefType briefType) {
+        Objects.requireNonNull(briefType, "briefType 必填");
+        String idempotencyKey = buildIdempotencyKey(subjectId, briefType);
+        return repository
+                .findByIdempotencyKey(idempotencyKey)
+                .map(brief -> buildView(applyStaleTimeout(brief)));
+    }
+
+    /**
      * 并发败者按幂等命中处理（体检 P2 后端条目）：INSERT 撞 {@code uq_ai_brief_idempotency} 后重查幂等键。
      *
      * <p>重查命中 → 返回既有 taskId（赢家已触发异步生成，不再重复触发）；重查仍空（UNIQUE 冲突但行不可见，理论不达）→ 原样上抛 {@link

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +14,7 @@ import com.info.platform.domain.ai.TopRecommendation;
 import com.info.platform.domain.common.UserContext;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -236,5 +238,79 @@ class DailyRecommendationServiceTest {
         // Assert：返回后 ThreadLocal 已清空（finally clear），无残留串味
         assertThat(UserContext.get()).isNull();
         verify(aiBriefService).createBrief(null, BriefType.DAILY_RECOMMEND);
+    }
+
+    // ==================== readDaily（P1-5a feed 只读，修前红：feed 原走 generateDaily 阻塞）
+    // ====================
+
+    @Test
+    void readDaily_noBriefToday_returnsPendingWithoutTriggeringGeneration() {
+        // Arrange：当日无任务（feed 只读：不受理、不触发生成）
+        when(aiBriefService.findTodayBrief(null, BriefType.DAILY_RECOMMEND))
+                .thenReturn(Optional.empty());
+
+        // Act
+        DailyRecommendationResult result = service.readDaily(USER_ID);
+
+        // Assert：pending 占位（Top5 空 + recommendationPending=true），零副作用
+        assertThat(result.status()).isEqualTo(DailyRecommendationResult.STATUS_PENDING);
+        assertThat(result.recommendationPending()).isTrue();
+        assertThat(result.topRecommend()).isEmpty();
+        verify(aiBriefService, never()).createBrief(any(), any());
+        verify(aiBriefService, never()).getBrief(anyLong());
+    }
+
+    @Test
+    void readDaily_briefInFlight_returnsPendingWithoutPolling() {
+        // Arrange：当日任务 PENDING（在途生成中）——feed 不轮询等待（修前 generateDaily 最长阻塞 30s）
+        when(aiBriefService.findTodayBrief(null, BriefType.DAILY_RECOMMEND))
+                .thenReturn(
+                        Optional.of(
+                                new AIBriefView(0, null, null, BriefContent.DEFAULT_DISCLAIMER)));
+
+        // Act
+        DailyRecommendationResult result = service.readDaily(USER_ID);
+
+        // Assert：pending 占位，不受理、不轮询
+        assertThat(result.status()).isEqualTo(DailyRecommendationResult.STATUS_PENDING);
+        assertThat(result.recommendationPending()).isTrue();
+        verify(aiBriefService, never()).createBrief(any(), any());
+        verify(aiBriefService, never()).getBrief(anyLong());
+    }
+
+    @Test
+    void readDaily_briefDone_returnsCachedTop5() {
+        // Arrange：当日简报已完成（幂等缓存命中直返）
+        when(aiBriefService.findTodayBrief(null, BriefType.DAILY_RECOMMEND))
+                .thenReturn(
+                        Optional.of(new AIBriefView(1, dailyContent, List.of(), "AI 生成，非投资建议")));
+
+        // Act
+        DailyRecommendationResult result = service.readDaily(USER_ID);
+
+        // Assert：正常消费已完成简报（Top5 按 rank 升序），pending=false
+        assertThat(result.status()).isEqualTo(DailyRecommendationResult.STATUS_DONE);
+        assertThat(result.recommendationPending()).isFalse();
+        assertThat(result.topRecommend()).hasSize(3);
+        assertThat(result.topRecommend().get(0).subjectCode()).isEqualTo("SZ000858");
+    }
+
+    @Test
+    void readDaily_briefFailed_fallsBackToRuleRanking() {
+        // Arrange：当日简报 FAILED → 规则兜底（并行池指标，快速）
+        when(aiBriefService.findTodayBrief(null, BriefType.DAILY_RECOMMEND))
+                .thenReturn(
+                        Optional.of(
+                                new AIBriefView(2, null, null, BriefContent.DEFAULT_DISCLAIMER)));
+        when(contextBuilder.buildPoolMetrics(USER_ID))
+                .thenReturn(List.of(new PoolMetric("SH600519", "贵州茅台", 2.0, 0, 0)));
+
+        // Act
+        DailyRecommendationResult result = service.readDaily(USER_ID);
+
+        // Assert：兜底排序非 pending
+        assertThat(result.status()).isEqualTo(DailyRecommendationResult.STATUS_FALLBACK);
+        assertThat(result.recommendationPending()).isFalse();
+        assertThat(result.topRecommend()).hasSize(1);
     }
 }

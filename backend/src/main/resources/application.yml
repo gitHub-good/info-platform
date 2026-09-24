@@ -122,6 +122,8 @@ push:
 # 生产置 true 后每日 09:00（cron 可配）对配置 user-ids 预热生成，使 GET /recommendations/daily 首请求命中幂等缓存直返。
 # user-ids 逗号分隔，默认空（个人单用户配一个 user-id；多用户盘前预热待 WatchlistRepository 端口演进）。
 # poll/max-wait：on-demand 首请求触发后轮询查询简报至终态的间隔与上限（默认 500ms / 30s，对齐 LLM 超时）。
+# pool-metrics-timeout-millis（P1-5a，系统体检 20260924）：规则兜底/上下文装配的自选池逐标的取数总预算——
+# 逐标的并行执行（aggregationExecutor 虚拟线程），超时未完成的标的按源降级归 0（修前串行 N 标的 × 每源 2s 累加）。
 recommendation:
   schedule:
     enabled: false
@@ -129,6 +131,7 @@ recommendation:
     user-ids: ""
   poll-interval-millis: 500
   max-wait-millis: 30000
+  pool-metrics-timeout-millis: 2000
 
 # 政策时事流（T24，§4.1.5 + PRD 故事 4）：PolicyFetchJob @Scheduled 复用 T07 GovPolicyClient
 # 抓 gov.cn/zhengce 最近政策 → existsBySourceUrl 去重 → PolicyIndustryClassifier 标 related_industries → saveAll。

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -122,7 +123,7 @@ class FeedServiceTest {
         // 故主题订阅独占该政策命中，标的订阅独占公告命中——两条匹配路径分别验证
         when(policyRepository.findRecent(anyInt(), any(), any(), anyInt()))
                 .thenReturn(List.of(policy(1L, "国务院关于白酒产业的意见", List.of())));
-        when(dailyRecommendationService.generateDaily(ME))
+        when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
                                 DailyRecommendationResult.STATUS_DONE,
@@ -151,6 +152,101 @@ class FeedServiceTest {
         assertThat(view.items().get(2).id()).isEqualTo(3L);
     }
 
+    // ---- P1-5a 回归（修前红）：feed 不阻塞等待每日简报生成、只读缓存 ----
+
+    @Test
+    void getPersonalFeed_briefNotTerminal_returnsFastWithPendingFlag() {
+        // Arrange：无订阅 + 当日简报在途（readDaily 返回 pending）；generateDaily 若被调用则模拟 30s 轮询阻塞 400ms
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), eq(null), eq(null), anyInt()))
+                .thenReturn(List.of());
+        when(dailyRecommendationService.readDaily(ME))
+                .thenReturn(
+                        new DailyRecommendationResult(
+                                DailyRecommendationResult.STATUS_PENDING,
+                                List.of(),
+                                "AI 生成，非投资建议",
+                                false,
+                                true));
+        when(dailyRecommendationService.generateDaily(ME))
+                .thenAnswer(
+                        inv -> {
+                            Thread.sleep(400);
+                            return new DailyRecommendationResult(
+                                    DailyRecommendationResult.STATUS_DONE,
+                                    List.of(new TopRecommendation("SH600036", "招商银行", "活跃", 1)),
+                                    "AI 生成，非投资建议",
+                                    false);
+                        });
+
+        // Act
+        long start = System.nanoTime();
+        FeedListView view = service.getPersonalFeed(ME, null);
+        long elapsedMillis = (System.nanoTime() - start) / 1_000_000L;
+
+        // Assert：feed 只读缓存不阻塞（修前红：mock generateDaily 阻塞 400ms 时实测 elapsed ≥400ms），
+        // 未终态不等待不受理，透出 recommendationPending 占位标志且无推荐条目
+        assertThat(elapsedMillis).as("feed 装配耗时应远小于简报生成阻塞时长").isLessThan(250L);
+        assertThat(view.recommendationPending()).isTrue();
+        assertThat(view.items()).isEmpty();
+        verify(dailyRecommendationService, never()).generateDaily(anyLong());
+    }
+
+    @Test
+    void getPersonalFeed_briefTerminal_mergesRecommendationEntries() {
+        // Arrange：无订阅 + 当日简报已完成（readDaily 命中缓存 Top5）
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), eq(null), eq(null), anyInt()))
+                .thenReturn(List.of());
+        when(dailyRecommendationService.readDaily(ME))
+                .thenReturn(
+                        new DailyRecommendationResult(
+                                DailyRecommendationResult.STATUS_DONE,
+                                List.of(new TopRecommendation("SH600036", "招商银行", "活跃", 1)),
+                                "AI 生成，非投资建议",
+                                false,
+                                false));
+
+        // Act
+        FeedListView view = service.getPersonalFeed(ME, null);
+
+        // Assert：已完成简报正常进推荐条目，pending=false
+        assertThat(view.recommendationPending()).isFalse();
+        assertThat(view.items()).hasSize(1);
+        assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.RECOMMENDATION);
+        assertThat(view.items().get(0).subjectCode()).isEqualTo("SH600036");
+    }
+
+    @Test
+    void getPersonalFeed_secondPage_doesNotTriggerDailyGeneration() {
+        // Arrange：标的订阅 + 25 条公告 + 推荐就绪（翻页走 readDaily，不重复触发 generateDaily）
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), eq(null), eq(null), anyInt()))
+                .thenReturn(List.of(sub(10L, SubscriptionType.SUBJECT, "600519")));
+        when(subjectRepository.findById(MOUTAI_ID))
+                .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE, MOUTAI_ID, announceItems(25), "公告", NOW));
+        when(newsAdapter.fetch(any(Subject.class)))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
+        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(dailyRecommendationService.readDaily(ME))
+                .thenReturn(
+                        new DailyRecommendationResult(
+                                DailyRecommendationResult.STATUS_DONE,
+                                List.of(new TopRecommendation("SH600036", "招商银行", "活跃", 1)),
+                                "AI 生成，非投资建议",
+                                false,
+                                false));
+
+        // Act：首页 + 第二页
+        service.getPersonalFeed(ME, null);
+        service.getPersonalFeed(ME, 20L);
+
+        // Assert：翻页不重复触发简报生成（每页只读一次当日缓存）
+        verify(dailyRecommendationService, never()).generateDaily(anyLong());
+        verify(dailyRecommendationService, times(2)).readDaily(ME);
+    }
+
     // ---- 退订降噪（PRD 故事 5 场景 3）----
 
     @Test
@@ -169,7 +265,7 @@ class FeedServiceTest {
                         NOW);
         when(subscriptionRepository.findByOwnerIdCursor(eq(ME), eq(null), eq(null), anyInt()))
                 .thenReturn(List.of(unsubscribed));
-        when(dailyRecommendationService.generateDaily(ME))
+        when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
                                 DailyRecommendationResult.STATUS_DONE,
@@ -193,7 +289,7 @@ class FeedServiceTest {
         // Arrange：无任何订阅 → 仅每日推荐
         when(subscriptionRepository.findByOwnerIdCursor(eq(ME), eq(null), eq(null), anyInt()))
                 .thenReturn(List.of());
-        when(dailyRecommendationService.generateDaily(ME))
+        when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
                                 DailyRecommendationResult.STATUS_DONE,
@@ -226,7 +322,7 @@ class FeedServiceTest {
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
         when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
-        when(dailyRecommendationService.generateDaily(ME))
+        when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
                                 DailyRecommendationResult.STATUS_DONE,
@@ -263,7 +359,7 @@ class FeedServiceTest {
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
         when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
-        when(dailyRecommendationService.generateDaily(ME))
+        when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
                                 DailyRecommendationResult.STATUS_DONE,

@@ -20,10 +20,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -76,13 +82,18 @@ public class DailyRecommendationContextBuilder implements PlaceholderProvider {
     private final RecommendationPersonalizer personalizer;
     private final Map<SourceCode, SourceAdapter> adapters;
     private final Clock clock;
+    private final Executor poolMetricsExecutor;
+    private final long poolMetricsTimeoutMillis;
 
     public DailyRecommendationContextBuilder(
             WatchlistRepository watchlistRepository,
             SubjectRepository subjectRepository,
             RecommendationPersonalizer personalizer,
             List<SourceAdapter> adapters,
-            Clock clock) {
+            Clock clock,
+            @Qualifier("aggregationExecutor") Executor poolMetricsExecutor,
+            @Value("${recommendation.pool-metrics-timeout-millis:2000}")
+                    long poolMetricsTimeoutMillis) {
         this.watchlistRepository = watchlistRepository;
         this.subjectRepository = subjectRepository;
         this.personalizer = personalizer;
@@ -92,6 +103,8 @@ public class DailyRecommendationContextBuilder implements PlaceholderProvider {
                                 Collectors.toUnmodifiableMap(
                                         SourceAdapter::sourceCode, Function.identity()));
         this.clock = clock;
+        this.poolMetricsExecutor = poolMetricsExecutor;
+        this.poolMetricsTimeoutMillis = Math.max(1, poolMetricsTimeoutMillis);
     }
 
     /**
@@ -113,27 +126,91 @@ public class DailyRecommendationContextBuilder implements PlaceholderProvider {
     /**
      * 装配自选池指标列表（规则兜底排序用，复用 adapter 缓存）。
      *
+     * <p>P1-5a：逐标的取数改<b>并行 + 总预算</b>（对齐 {@code AggregationService} 编排风格）——标的解析（本地索引查询，毫秒级）保持串行，
+     * 每标的行情/公告/新闻取数提交 {@code aggregationExecutor}（虚拟线程）并行执行，{@code allOf().get(总超时)} 兜底（{@code
+     * recommendation.pool-metrics-timeout-millis}，缺省 2s）：超时未完成的标的按「源降级归 0」语义补零指标（不阻断整池）。 修前逐标的串行
+     * fetch，N 标的 × 每源 2s 超时逐项累加（FAILED/MISSING 无负缓存时冷路径可达 N×5.5s）。
+     *
      * @param userId 归属用户
      * @return 指标列表（去重保序）；自选池空时为空列表
      */
     public List<PoolMetric> buildPoolMetrics(long userId) {
-        List<Long> subjectIds = distinctActiveSubjectIds(userId);
-        if (subjectIds.isEmpty()) {
+        List<Subject> subjects = resolveSubjects(distinctActiveSubjectIds(userId));
+        if (subjects.isEmpty()) {
             return List.of();
         }
         SourceAdapter quote = adapters.get(SourceCode.QUOTE);
         SourceAdapter announce = adapters.get(SourceCode.ANNOUNCE);
         SourceAdapter news = adapters.get(SourceCode.NEWS);
-        List<PoolMetric> metrics = new ArrayList<>(subjectIds.size());
+        List<CompletableFuture<PoolMetric>> futures =
+                subjects.stream()
+                        .map(
+                                subject ->
+                                        CompletableFuture.supplyAsync(
+                                                () -> metricOf(subject, quote, announce, news),
+                                                poolMetricsExecutor))
+                        .toList();
+        awaitWithinBudget(futures, userId);
+        List<PoolMetric> metrics = new ArrayList<>(subjects.size());
+        for (int i = 0; i < subjects.size(); i++) {
+            metrics.add(metricOf(subjects.get(i), futures.get(i)));
+        }
+        return List.copyOf(metrics);
+    }
+
+    /** 总预算等待（对齐 AggregationService：超时/中断记 WARN 不抛，未完成 future 由 {@link #metricOf} 收割时补零）。 */
+    private void awaitWithinBudget(List<CompletableFuture<PoolMetric>> futures, long userId) {
+        CompletableFuture<Void> all =
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        try {
+            all.get(poolMetricsTimeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException te) {
+            log.warn(
+                    "每日推荐池指标取数总超时 userId={} timeoutMs={} 挂起标的={}",
+                    userId,
+                    poolMetricsTimeoutMillis,
+                    futures.stream().filter(f -> !f.isDone()).count());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("每日推荐池指标取数被中断 userId={}", userId);
+        } catch (Exception e) {
+            log.warn("每日推荐池指标取数异常 userId={}: {}", userId, String.valueOf(e));
+        }
+    }
+
+    /** 收割单标的指标：预算内完成 → 取数结果（内部已含源降级归 0）；未完成/异常完成 → 补零指标（标的保留，不阻断整池）。 */
+    private PoolMetric metricOf(Subject subject, CompletableFuture<PoolMetric> future) {
+        if (future.isDone() && !future.isCompletedExceptionally()) {
+            return future.join();
+        }
+        future.cancel(true);
+        return zeroedMetric(subject);
+    }
+
+    /** 补零指标（总预算超时/取数异常：信息面活跃度与事件计数归 0，语义同单源降级）。 */
+    private static PoolMetric zeroedMetric(Subject subject) {
+        return new PoolMetric(
+                subject.getSubjectCode().value(),
+                subject.getName(),
+                0.0,
+                0,
+                0,
+                subject.getId(),
+                subject.getIndustry());
+    }
+
+    /** 标的解析（本地主键查询，保持串行毫秒级；不存在的记 WARN 跳过）。 */
+    private List<Subject> resolveSubjects(List<Long> subjectIds) {
+        List<Subject> subjects = new ArrayList<>(subjectIds.size());
         for (Long subjectId : subjectIds) {
             Subject subject = subjectRepository.findById(subjectId).orElse(null);
             if (subject == null) {
                 log.warn("每日推荐：标的不存在，跳过 subjectId={}", subjectId);
                 continue;
             }
-            metrics.add(metricOf(subject, quote, announce, news));
+            subjects.add(subject);
         }
-        return List.copyOf(metrics);
+        return subjects;
     }
 
     /** 装配上下文 Map（指标 + 画像 → 占位符投影）。 */

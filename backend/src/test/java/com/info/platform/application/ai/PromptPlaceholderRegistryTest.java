@@ -37,7 +37,9 @@ class PromptPlaceholderRegistryTest {
                                     mock(SubjectRepository.class),
                                     mock(RecommendationPersonalizer.class),
                                     List.of(),
-                                    Clock.systemUTC()),
+                                    Clock.systemUTC(),
+                                    Runnable::run,
+                                    2000L),
                             new PolicyTendencyService(
                                     mock(PolicyRepository.class),
                                     mock(LlmGateway.class),
@@ -87,7 +89,9 @@ class PromptPlaceholderRegistryTest {
                         mock(SubjectRepository.class),
                         stubPersonalizer(),
                         List.of(),
-                        Clock.systemUTC());
+                        Clock.systemUTC(),
+                        Runnable::run,
+                        2000L);
 
         // Act + Assert：buildContext 输出键集 == provided 键集
         assertThat(builder.buildContext(1L).keySet())
