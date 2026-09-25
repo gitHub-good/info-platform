@@ -53,6 +53,15 @@ public class FieldMapper {
                     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
                     DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"));
 
+    /** M13 {@code to_iso_datetime}：墙钟时间格式（缺秒补 :00；按 Asia/Shanghai 转 UTC，金十 time 字段口径）。 */
+    private static final List<DateTimeFormatter> WALL_CLOCK_FORMATS =
+            List.of(
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+
+    /** 墙钟时间时区（快讯源 time 字段为北京时间）。 */
+    private static final java.time.ZoneId WALL_CLOCK_ZONE = java.time.ZoneId.of("Asia/Shanghai");
+
     private final ObjectMapper objectMapper;
 
     public FieldMapper(ObjectMapper objectMapper) {
@@ -126,6 +135,12 @@ public class FieldMapper {
                 return toDecimal(value);
             case TO_ISO_DATE:
                 return toIsoDate(value);
+            case TO_ISO_DATETIME:
+                return toIsoDatetime(value);
+            case EPOCH_SECONDS_TO_ISO:
+                return epochSecondsToIso(value);
+            case STRIP_HTML:
+                return stripHtml(value);
             default:
                 throw new IllegalStateException("未知 transform: " + transform);
         }
@@ -183,5 +198,45 @@ public class FieldMapper {
             }
         }
         throw new FieldMappingException("TO_ISO_DATE 无法解析: " + raw);
+    }
+
+    /**
+     * M13 {@code to_iso_datetime}：{@code yyyy-MM-dd HH:mm[:ss]} 墙钟时间 → ISO-8601 UTC 秒（缺秒补 :00； 按
+     * Asia/Shanghai——快讯源 time 字段为北京时间）。
+     */
+    private static String toIsoDatetime(Object value) {
+        String raw = value.toString().trim();
+        for (DateTimeFormatter formatter : WALL_CLOCK_FORMATS) {
+            try {
+                LocalDateTime wall = LocalDateTime.parse(raw, formatter);
+                return wall.atZone(WALL_CLOCK_ZONE).toInstant().toString();
+            } catch (DateTimeParseException ignore) {
+                // try next
+            }
+        }
+        throw new FieldMappingException("TO_ISO_DATETIME 无法解析: " + raw);
+    }
+
+    /** M13 {@code epoch_seconds_to_iso}：Unix 秒（数字/字符串）→ ISO-8601 UTC 秒。 */
+    private static String epochSecondsToIso(Object value) {
+        long seconds;
+        if (value instanceof Number number) {
+            seconds = number.longValue();
+        } else if (value instanceof String string) {
+            try {
+                seconds = Long.parseLong(string.trim());
+            } catch (NumberFormatException e) {
+                throw new FieldMappingException("EPOCH_SECONDS_TO_ISO 转换失败: " + string, e);
+            }
+        } else {
+            throw new FieldMappingException(
+                    "EPOCH_SECONDS_TO_ISO 不支持的类型: " + value.getClass());
+        }
+        return java.time.Instant.ofEpochSecond(seconds).toString();
+    }
+
+    /** M13 {@code strip_html}：HTML 片段抽纯文本（jsoup {@code .text()}，richtext 源清洗）。 */
+    private static String stripHtml(Object value) {
+        return org.jsoup.Jsoup.parse(String.valueOf(value)).text();
     }
 }
