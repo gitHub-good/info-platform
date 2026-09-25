@@ -87,6 +87,13 @@ class ReadingEventTest {
     }
 
     @Test
+    void fromName_feedType_acceptedWithRoundTrip() {
+        // REQ-20260925-08：白名单扩为四类，FEED（信息流「点原文」阅读）可解析且持久化名往返一致
+        assertThat(ReadingEventType.fromName("FEED")).isEqualTo(ReadingEventType.FEED);
+        assertThat(ReadingEventType.fromName(" feed ").persistentName()).isEqualTo("FEED");
+    }
+
+    @Test
     void fromName_knownAndUnknownValues() {
         // Arrange / Act / Assert：已知值解析（含大小写与空白容错）
         assertThat(ReadingEventType.fromName("SUBJECT_DETAIL"))

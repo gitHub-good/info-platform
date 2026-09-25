@@ -134,6 +134,52 @@ class ReadingEventServiceTest {
         assertThat(captor.getValue().getSubjectId()).isEqualTo(200L);
     }
 
+    @Test
+    void record_feedType_withSubjectCode_resolvesAndSaves() {
+        // Arrange：信息流「点原文」埋点（REQ-20260925-08 故事 1 场景 1）——FEED + 稳定 contentId + 标的代码可解析
+        when(subjectRepository.findByCode(SubjectCode.of("SH600519")))
+                .thenReturn(Optional.of(subject(100L, "SH600519")));
+
+        // Act
+        boolean recorded = service.record(USER_ID, "FEED", "announce:a1", "SH600519", null);
+
+        // Assert：受理落库，subjectId 由 subjectCode 解析，contentType=FEED
+        assertThat(recorded).isTrue();
+        ArgumentCaptor<ReadingEvent> captor = ArgumentCaptor.forClass(ReadingEvent.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getContentType()).isEqualTo(ReadingEventType.FEED);
+        assertThat(captor.getValue().getSubjectId()).isEqualTo(100L);
+        assertThat(captor.getValue().getContentRef()).isEqualTo("announce:a1");
+    }
+
+    @Test
+    void record_feedType_withoutSubject_savesWithNullSubject() {
+        // Arrange / Act：政策条目 FEED 埋点无标的关联（REQ-20260925-08 故事 1 场景 4：只留痕，不拒收）
+        boolean recorded = service.record(USER_ID, "FEED", "policy:42", null, null);
+
+        // Assert：照常落库（subjectId=null，画像侧跳过）
+        assertThat(recorded).isTrue();
+        ArgumentCaptor<ReadingEvent> captor = ArgumentCaptor.forClass(ReadingEvent.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getContentType()).isEqualTo(ReadingEventType.FEED);
+        assertThat(captor.getValue().getSubjectId()).isNull();
+    }
+
+    @Test
+    void record_feedDuplicateWithinWindow_skipsAndReturnsFalse() {
+        // Arrange：同 user+FEED+contentRef 1 小时窗口内已存在（REQ-20260925-08 故事 1 场景 2）
+        when(repository.existsSince(
+                        eq(USER_ID), eq(ReadingEventType.FEED), eq("announce:a1"), any()))
+                .thenReturn(true);
+
+        // Act
+        boolean recorded = service.record(USER_ID, "FEED", "announce:a1", "SH600519", null);
+
+        // Assert：recorded=false 且不落库（去重键含 contentType=FEED，与其他类型互不干扰）
+        assertThat(recorded).isFalse();
+        verify(repository, never()).save(any());
+    }
+
     // ==================== fixtures ====================
 
     private static Subject subject(long id, String code) {

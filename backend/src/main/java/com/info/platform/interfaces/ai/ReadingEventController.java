@@ -16,9 +16,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 阅读行为留痕接口（T29 推荐相关性优化，对齐技术方案 §4.1.6 个性化推荐数据输入）。
  *
- * <p>{@code POST /api/v1/reading-events}（Bearer）：前端在标的详情页/政策详情/简报页静默埋点上报阅读事件， 供每日推荐的个性化相关性排序（已读标的热度
- * + 时间衰减）消费。幂等友好：同 user+type+ref 1 小时窗口内 重复上报返回 {@code recorded=false}（不报错、不落重复行），防前端重试与 StrictMode
- * 双触发。
+ * <p>{@code POST /api/v1/reading-events}（Bearer）：前端在标的详情页/政策详情/简报页/信息流「点原文」 静默埋点上报阅读事件（信息流条目
+ * contentType=FEED、contentRef=FeedItem 稳定 contentId、 公告/新闻/推荐条目附 subjectCode，REQ-20260925-08），
+ * 供每日推荐的个性化相关性排序（已读标的热度 + 时间衰减）消费。幂等友好：同 user+type+ref 1 小时窗口内 重复上报返回 {@code
+ * recorded=false}（不报错、不落重复行），防前端重试与 StrictMode 双触发。
  *
  * <p>前端埋点约定：fire-and-forget（失败静默，不打扰主流程）；本接口无读取端点（画像经推荐链路内部消费）。
  */
