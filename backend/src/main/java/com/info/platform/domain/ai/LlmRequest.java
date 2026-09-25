@@ -28,12 +28,16 @@ public record LlmRequest(
     }
 
     /**
-     * AI 简报常用工厂：JSON mode + 默认采样（temperature 0.3 / maxTokens 2048，Spike-2 §4.1 基线）。
+     * AI 简报常用工厂：JSON mode + 默认采样（temperature 0.3）。
+     *
+     * <p>maxTokens 8192（2026-09-25 上调，原 Spike-2 基线 2048）：M12 详情分区分页扩容（公告 10 条/政策 30
+     * 条）后简报上下文变大，输出实测顶格 2048 被截断 → JSON 半截解析失败（llm_call_log 146 行 output=2048 实证）。8192 覆盖
+     * deepseek-flash/glm-4-flash 输出窗；成本侧由日预算护栏（LlmCostGuard）兜底。
      *
      * @param messages 对话上下文（system prompt 须含 "json" 字样以满足 DeepSeek JSON mode 前提）
      * @param briefTypeKey 简报类型键，缓存分区 + 成本归因
      */
     public static LlmRequest json(List<ChatMessage> messages, String briefTypeKey) {
-        return new LlmRequest(messages, null, 0.3, 2048, JSON_OBJECT, briefTypeKey);
+        return new LlmRequest(messages, null, 0.3, 8192, JSON_OBJECT, briefTypeKey);
     }
 }
