@@ -51,6 +51,9 @@
 | ADR-0035 | 列表页码分页取同端点双模式（page 出现即页码模式，游标不动）+ LIMIT/OFFSET 深分页从简与护栏（实测 12,385 行毫秒级，50 万行/P95 100ms 触发清理优先；REQ-20260925-06 / M9） | 已决 |
 | ADR-0036 | 留痕清理键空间与留痕明细载体：retention.global 独立域文档 + SUCCESS 行 error_message 复用为留痕明细（JobRunStats 可选通道扩展，零 DDL）+ 枚举白名单删除端口与子查询分批（REQ-20260925-07 / M10） | 已决 |
 | ADR-0037 | 详情分区分页取分区子端点契约（/announcements /events /news 三端点异构语义，聚合零改动）+ 翻页绕快照缓存直调源（fetchPage 默认方法共用三态骨架）+ 聚合附加 sectionPagination 键 + 新闻停止条件前端判定 + V19/V20 条件迁移（三源深翻实测留档；REQ-20260925-09 / M12） | 已决 |
+| ADR-0038 | 资讯源注册表 DB 化：info_source 独立表（预置/通用统一模型，seed-if-absent）+ 六源业务域体系边界冻结（请求驱动降级链 vs 调度驱动退避摘除，datasource.{CODE} 键空间不再增长；REQ-20260925-10 / V2.0-M13） | 已决 |
+| ADR-0039 | 资讯统一库独立建表 news_item（不与 policy_item 合并）+ 跨源指纹去重 sha256(归一化标题+日期) 全局唯一 + 双唯一索引 INSERT OR IGNORE 入库幂等（游标随条目事务推进不重不漏；REQ-20260925-10 / V2.0-M13） | 已决 |
+| ADR-0040 | 分钟级多源调度：SOURCE_POLL 聚合 ManagedJob（tick 现读启用源热生效/全局并发上限 4/指数退避封顶 60min/断流补抓深翻 truncated 显性化；否决每源一 Job 与 Quartz 新调度器；REQ-20260925-10 / V2.0-M13） | 已决 |
 
 ## 🔍 关联调研
 
