@@ -54,7 +54,7 @@ function jobOf(overrides: Partial<JobView> = {}): JobView {
   };
 }
 
-/** 5 任务全量视图（对齐 PRD 场景 4.1）。 */
+/** 5 任务全量视图（对齐 PRD 场景 4.1）+ RETENTION_CLEANUP（M10 T71 起第 7 个收编任务）。 */
 function fiveJobs(): JobView[] {
   return [
     jobOf(),
@@ -86,8 +86,8 @@ function fiveJobs(): JobView[] {
       intervalMillis: 30000,
       lastExecution: {
         status: 'FAILED',
-        startTime: '2026-09-22T02:00:00Z',
-        endTime: '2026-09-22T02:00:01Z',
+        startTime: '2026-09-22T03:00:00Z',
+        endTime: '2026-09-22T03:00:01Z',
         durationMillis: 900,
       },
     }),
@@ -102,7 +102,35 @@ function fiveJobs(): JobView[] {
       lastExecution: null,
       nextExecutionTime: null,
     }),
+    jobOf({
+      jobKey: 'RETENTION_CLEANUP',
+      jobName: 'RetentionCleanupJob',
+      name: '留痕数据清理',
+      scheduleType: 'CRON',
+      intervalMillis: null,
+      cron: '0 30 3 * * ?',
+      lastExecution: null,
+    }),
   ];
+}
+
+/** 留痕窗口视图（对齐后端 GET /retention/windows 契约：默认窗口 30/14/90/90 + 下限 7/2/35/35）。 */
+function retentionView() {
+  return {
+    windows: {
+      jobExecutionLogDays: 30,
+      dataSourceEventDays: 14,
+      llmCallLogDays: 90,
+      readingEventDays: 90,
+    },
+    limits: {
+      jobExecutionLogDays: { min: 7, default: 30 },
+      dataSourceEventDays: { min: 2, default: 14 },
+      llmCallLogDays: { min: 35, default: 90 },
+      readingEventDays: { min: 35, default: 90 },
+    },
+    updatedAt: '2026-09-22T01:00:00Z',
+  };
 }
 
 interface StoreOpts {
@@ -112,13 +140,31 @@ interface StoreOpts {
   failRunFor?: string[];
   /** 这些 jobKey 的手动触发返回 409/30063（防重入收敛路径）。 */
   runningRejectFor?: string[];
+  /** 留痕窗口 GET 失败（Dialog 预填失败路径）。 */
+  failWindowsGet?: boolean;
 }
 
-/** 状态化 mock：GET 返回任务列表副本；PATCH 合并返回；run 受理或按需失败/409。 */
-function makeStore({ jobs = fiveJobs(), failGet = false, failRunFor = [], runningRejectFor = [] }: StoreOpts = {}) {
-  const state = { jobs };
+/** 状态化 mock：GET 返回任务列表副本；PATCH 合并返回；run 受理或按需失败/409；retention/windows 独立状态。 */
+function makeStore({ jobs = fiveJobs(), failGet = false, failRunFor = [], runningRejectFor = [], failWindowsGet = false }: StoreOpts = {}) {
+  const state = { jobs, retention: retentionView() };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
+    if (path.endsWith('/retention/windows')) {
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, number | string>;
+        const next = {
+          windows: { ...state.retention.windows, ...body },
+          limits: state.retention.limits,
+          updatedAt: '2026-09-22T06:00:00Z',
+        };
+        state.retention = next;
+        return ok(next);
+      }
+      if (failWindowsGet) {
+        return fail(500, 50000, '服务异常');
+      }
+      return ok({ ...state.retention, windows: { ...state.retention.windows } });
+    }
     const runMatch = path.match(/\/jobs\/([A-Z_]+)\/run$/);
     if (runMatch && init?.method === 'POST') {
       if (runningRejectFor.includes(runMatch[1])) {
@@ -415,5 +461,164 @@ describe('TaskCenter 页面（T41）', () => {
     expect(countGets(store)).toBe(before30s);
     await vi.advanceTimersByTimeAsync(30000);
     expect(countGets(store)).toBe(before30s + 1);
+  });
+
+  // —— RETENTION_CLEANUP 窗口分组（T73，M10 技术方案增补 §3.5：页面载体=任务中心编辑 Dialog） ——
+
+  it('RETENTION_CLEANUP 行渲染 + 编辑 Dialog：GET 预填四窗口 + 含义文案含各表下限', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId('task-row-RETENTION_CLEANUP')).toBeInTheDocument();
+    expect(screen.getByTestId('task-schedule-RETENTION_CLEANUP')).toHaveTextContent('cron 0 30 3 * * ?');
+
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+
+    // Dialog 打开即 GET /retention/windows 预填（默认窗口 30/14/90/90）
+    await waitFor(() =>
+      expect(
+        store.fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/retention/windows')),
+      ).toBe(true),
+    );
+    expect(await screen.findByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays')).toHaveValue('30');
+    expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-dataSourceEventDays')).toHaveValue('14');
+    expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-llmCallLogDays')).toHaveValue('90');
+    expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-readingEventDays')).toHaveValue('90');
+
+    // 含义文案 + 下限提示（REQ 场景 5：口径交前端静态维护，下限来自 GET limits）
+    expect(screen.getByText('Job 执行日志保留天数（≥7）')).toBeInTheDocument();
+    expect(screen.getByText('数据源事件保留天数（≥2）')).toBeInTheDocument();
+    expect(screen.getByText('LLM 调用日志保留天数（≥35）')).toBeInTheDocument();
+    expect(screen.getByText('阅读行为保留天数（≥35）')).toBeInTheDocument();
+  });
+
+  it('窗口低于下限前端拦截不发请求（提交前拦截，对齐后端校验器下限）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-RETENTION_CLEANUP');
+
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+    const input = await screen.findByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays');
+    await user.clear(input);
+    await user.type(input, '6');
+    await user.click(screen.getByTestId('task-edit-save-RETENTION_CLEANUP'));
+
+    // 前端拦截：不发任何 PATCH（/jobs 与 /retention/windows 均无）
+    expect(await screen.findByText('Job 执行日志保留天数须为 ≥ 7 的整数')).toBeInTheDocument();
+    expect(store.fetchMock.mock.calls.filter((call) => call[1]?.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('保存双 PATCH：cron 走既有 /jobs/{jobKey}、窗口走新 /retention/windows（带 expectedUpdatedAt）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-RETENTION_CLEANUP');
+
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+    const cronInput = await screen.findByTestId('task-edit-cron-RETENTION_CLEANUP');
+    await user.clear(cronInput);
+    await user.type(cronInput, '0 45 3 * * ?');
+    const windowInput = screen.getByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays');
+    await user.clear(windowInput);
+    await user.type(windowInput, '45');
+    await user.click(screen.getByTestId('task-edit-save-RETENTION_CLEANUP'));
+
+    // 分域提交：调度走 /jobs、窗口走 /retention/windows（四字段全量 + 防呆时间戳）
+    await waitFor(() =>
+      expect(
+        store.fetchMock.mock.calls.some(
+          (call) =>
+            String(call[0]).endsWith('/jobs/RETENTION_CLEANUP') &&
+            call[1]?.method === 'PATCH' &&
+            String(call[1]?.body).includes('"cron":"0 45 3 * * ?"'),
+        ),
+      ).toBe(true),
+    );
+    expect(
+      store.fetchMock.mock.calls.some(
+        (call) =>
+          String(call[0]).endsWith('/retention/windows') &&
+          call[1]?.method === 'PATCH' &&
+          String(call[1]?.body).includes('"jobExecutionLogDays":45') &&
+          String(call[1]?.body).includes('"readingEventDays":90') &&
+          String(call[1]?.body).includes('"expectedUpdatedAt":"2026-09-22T01:00:00Z"'),
+      ),
+    ).toBe(true);
+
+    // 保存成功 Dialog 关闭 + 窗口生效提示（下一轮清理按新窗口）
+    await waitFor(() =>
+      expect(screen.queryByTestId('task-edit-save-RETENTION_CLEANUP')).toBeNull(),
+    );
+    expect(await screen.findByTestId('task-note-next-cycle')).toBeInTheDocument();
+  });
+
+  it('窗口 PATCH 失败：Dialog 保持打开错误就地渲染；已保存的 cron 不重复提交', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-RETENTION_CLEANUP');
+
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+    const cronInput = await screen.findByTestId('task-edit-cron-RETENTION_CLEANUP');
+    await user.clear(cronInput);
+    await user.type(cronInput, '0 45 3 * * ?');
+    const windowInput = screen.getByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays');
+    await user.clear(windowInput);
+    await user.type(windowInput, '45');
+
+    // 首次保存：cron PATCH 成功、窗口 PATCH 失败（模拟 30065/50000 类错误）——
+    // 包一层按 URL 定向失败的实现（mockImplementationOnce 会被先到的 /jobs PATCH 消耗）
+    const base = store.fetchMock.getMockImplementation();
+    let failWindowsOnce = true;
+    store.fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/retention/windows') && init?.method === 'PATCH' && failWindowsOnce) {
+        failWindowsOnce = false;
+        return fail(500, 50000, '服务异常');
+      }
+      return base?.(url, init) ?? ok(null);
+    });
+    await user.click(screen.getByTestId('task-edit-save-RETENTION_CLEANUP'));
+    expect(await screen.findByTestId('task-edit-error-RETENTION_CLEANUP')).toHaveTextContent('服务异常');
+
+    // Dialog 不关、输入保留
+    expect(screen.getByTestId('task-edit-cron-RETENTION_CLEANUP')).toHaveValue('0 45 3 * * ?');
+    expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays')).toHaveValue('45');
+
+    // 重试成功：/jobs PATCH 只发过一次（cron 已保存不重复提交），窗口 PATCH 补齐后关闭
+    await user.click(screen.getByTestId('task-edit-save-RETENTION_CLEANUP'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('task-edit-cron-RETENTION_CLEANUP')).toBeNull(),
+    );
+    const jobPatches = store.fetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith('/jobs/RETENTION_CLEANUP') && call[1]?.method === 'PATCH',
+    );
+    const windowPatches = store.fetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith('/retention/windows') && call[1]?.method === 'PATCH',
+    );
+    expect(jobPatches).toHaveLength(1);
+    expect(windowPatches).toHaveLength(2);
+  });
+
+  it('窗口 GET 失败：分组显示加载错误且字段禁用；非 RETENTION 任务不触发窗口请求', async () => {
+    const store = makeStore({ failWindowsGet: true });
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-RETENTION_CLEANUP');
+
+    // RETENTION Dialog：预填失败 → 错误就地展示、四字段禁用（防盲改）
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+    expect(await screen.findByTestId('task-edit-window-error-RETENTION_CLEANUP')).toHaveTextContent('保留窗口加载失败');
+    const input = await screen.findByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays');
+    expect((input as HTMLInputElement).disabled).toBe(true);
+
+    // 非 RETENTION 任务（DAILY_RECOMMEND）：不渲染窗口分组、不发 /retention/windows 请求
+    await user.click(screen.getByTestId('dialog-close'));
+    await user.click(screen.getByTestId('task-edit-DAILY_RECOMMEND'));
+    expect(await screen.findByTestId('task-edit-cron-DAILY_RECOMMEND')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-edit-window-DAILY_RECOMMEND-jobExecutionLogDays')).toBeNull();
+    expect(
+      store.fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/retention/windows')),
+    ).toHaveLength(1);
   });
 });

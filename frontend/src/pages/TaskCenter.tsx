@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
+import { getRetentionWindows, patchRetentionWindows } from '@/api/retention';
 import { getJobs, patchJob, runJob } from '@/api/taskCenter';
 import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { navigate } from '@/lib/navigation';
+import type { RetentionFieldLimits, RetentionWindowField } from '@/types/retention';
 import type { JobConfigUpdate, JobEffectiveMode, JobView } from '@/types/taskCenter';
 
 // —— 常量与工具 ——
@@ -78,6 +80,25 @@ function positiveSecondsError(raw: string): string | null {
 /** 逗号分隔用户 id 粗校验（空串允许，对齐后端校验器）。 */
 function userIdsError(raw: string): string | null {
   return raw.trim() === '' || /^\s*\d+(\s*,\s*\d+)*\s*$/.test(raw) ? null : '须为逗号分隔的用户 id，如 1,2';
+}
+
+// —— RETENTION_CLEANUP 保留窗口分组（T73，M10 技术方案增补 §3.5：页面载体=任务中心编辑 Dialog） ——
+
+/** 留痕清理任务键（窗口分组仅该任务显示，对齐 userIds 仅 DAILY_RECOMMEND 的条件渲染先例）。 */
+const RETENTION_JOB_KEY = 'RETENTION_CLEANUP';
+
+/** 四窗口字段元数据：含义文案（REQ 场景 5 口径交前端静态维护）+ 静态下限兜底（GET limits 优先）。 */
+const RETENTION_FIELDS: { field: RetentionWindowField; label: string; fallbackMin: number }[] = [
+  { field: 'jobExecutionLogDays', label: 'Job 执行日志保留天数', fallbackMin: 7 },
+  { field: 'dataSourceEventDays', label: '数据源事件保留天数', fallbackMin: 2 },
+  { field: 'llmCallLogDays', label: 'LLM 调用日志保留天数', fallbackMin: 35 },
+  { field: 'readingEventDays', label: '阅读行为保留天数', fallbackMin: 35 },
+];
+
+/** 窗口字段粗校验：整型且 ≥ 下限（对齐后端 RetentionConfigValidator 下限口径）。 */
+function windowDaysError(label: string, raw: string, min: number): string | null {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= min ? null : `${label}须为 ≥ ${min} 的整数`;
 }
 
 // —— 上次执行徽章（三色 + 运行中 amber，沿用 JobLog 状态徽章惯例） ——
@@ -159,61 +180,151 @@ function ScheduleNote({ note }: { note: ScheduleNoteKind }) {
   );
 }
 
-// —— 调度编辑 Dialog（间隔秒数 / cron / 每日推荐 userIds） ——
+// —— 调度编辑 Dialog（间隔秒数 / cron / 每日推荐 userIds / 留痕清理保留窗口） ——
+
+/** 保存结果回执：saved=null 表示本次仅窗口变更（无调度 PATCH），jobKey 供行内提示定位。 */
+interface EditSavedResult {
+  saved: JobView | null;
+  changed: string[];
+  jobKey: string;
+}
 
 interface EditDialogProps {
   job: JobView;
   onClose: () => void;
-  onSaved: (saved: JobView, changed: string[]) => void;
+  onSaved: (result: EditSavedResult) => void;
 }
 
 function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   const isCron = job.scheduleType === 'CRON';
   const showUserIds = job.jobKey === 'DAILY_RECOMMEND';
+  const showWindows = job.jobKey === RETENTION_JOB_KEY;
   const [intervalSeconds, setIntervalSeconds] = useState(
     job.intervalMillis != null ? String(Math.round(job.intervalMillis / 1000)) : '',
   );
   const [cron, setCron] = useState(job.cron ?? '');
   const [userIds, setUserIds] = useState(job.userIds ?? '');
+  // 保留窗口四字段（字符串态）+ 加载基线（dirty 比对）+ 下限/默认（GET limits，静态兜底）+ 防呆时间戳
+  const [windows, setWindows] = useState<Record<RetentionWindowField, string> | null>(null);
+  const [windowsLoaded, setWindowsLoaded] = useState<Record<RetentionWindowField, string> | null>(
+    null,
+  );
+  const [windowsLimits, setWindowsLimits] = useState<
+    Record<RetentionWindowField, RetentionFieldLimits> | null
+  >(null);
+  const [windowsUpdatedAt, setWindowsUpdatedAt] = useState<string | null>(null);
+  const [windowsError, setWindowsError] = useState<string | null>(null);
+  const [windowFieldError, setWindowFieldError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 保存失败文案（Dialog 内字段下方展示，保持 Dialog 打开不丢输入）
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // 双 PATCH 部分成功标记：cron 已保存后重试不再重复提交（避免 expectedUpdatedAt 过期 30065）
+  const cronSavedRef = useRef(false);
 
-  const dirty = isCron
-    ? cron.trim() !== (job.cron ?? '') || (showUserIds && userIds.trim() !== (job.userIds ?? ''))
-    : Number(intervalSeconds) * 1000 !== job.intervalMillis;
+  // Dialog 打开即 GET 预填（窗口的操作心智挂在这个清理任务上，方案 §3.5）
+  useEffect(() => {
+    if (!showWindows) {
+      return;
+    }
+    let cancelled = false;
+    getRetentionWindows()
+      .then((view) => {
+        if (cancelled) return;
+        const loaded: Record<RetentionWindowField, string> = {
+          jobExecutionLogDays: String(view.windows.jobExecutionLogDays),
+          dataSourceEventDays: String(view.windows.dataSourceEventDays),
+          llmCallLogDays: String(view.windows.llmCallLogDays),
+          readingEventDays: String(view.windows.readingEventDays),
+        };
+        setWindows(loaded);
+        setWindowsLoaded(loaded);
+        setWindowsLimits(view.limits);
+        setWindowsUpdatedAt(view.updatedAt);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setWindowsError(`保留窗口加载失败：${messageOf(err, '请稍后重试')}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showWindows]);
+
+  const minOf = (field: RetentionWindowField): number => {
+    const meta = RETENTION_FIELDS.find((item) => item.field === field);
+    return windowsLimits?.[field]?.min ?? meta?.fallbackMin ?? 1;
+  };
+
+  const windowsChanged =
+    showWindows &&
+    windows != null &&
+    windowsLoaded != null &&
+    RETENTION_FIELDS.some(({ field }) => windows[field].trim() !== windowsLoaded[field]);
+
+  const dirty =
+    (isCron
+      ? cron.trim() !== (job.cron ?? '') ||
+        (showUserIds && userIds.trim() !== (job.userIds ?? ''))
+      : Number(intervalSeconds) * 1000 !== job.intervalMillis) || windowsChanged;
 
   const handleSave = async () => {
     const validation = isCron ? cronError(cron) : positiveSecondsError(intervalSeconds);
     const usersValidation = showUserIds ? userIdsError(userIds) : null;
+    const windowValidation =
+      showWindows && windows != null
+        ? (RETENTION_FIELDS.map(({ field, label }) =>
+            windowDaysError(label, windows[field], minOf(field)),
+          ).find((message) => message != null) ?? null)
+        : null;
     setError(validation ?? usersValidation);
+    setWindowFieldError(windowValidation);
     setSaveError(null);
-    if (validation || usersValidation || !dirty) {
+    if (validation || usersValidation || windowValidation || !dirty) {
       return;
     }
-    const body: JobConfigUpdate = { expectedUpdatedAt: job.updatedAt ?? undefined };
     const changed: string[] = [];
-    if (isCron) {
-      if (cron.trim() !== (job.cron ?? '')) {
-        body.cron = cron.trim();
-        changed.push('cron');
-      }
-      if (showUserIds && userIds.trim() !== (job.userIds ?? '')) {
-        body.userIds = userIds.trim();
-        changed.push('userIds');
-      }
-    } else if (Number(intervalSeconds) * 1000 !== job.intervalMillis) {
-      body.intervalMillis = Number(intervalSeconds) * 1000;
-      changed.push('intervalMillis');
-    }
     setSaving(true);
     try {
-      const saved = await patchJob(job.jobKey, body);
-      onSaved(saved, changed);
+      // 双 PATCH 分域提交（方案 §3.5）：调度走既有 /jobs/{jobKey}，窗口走新 /retention/windows
+      let saved: JobView | null = null;
+      if (isCron && !cronSavedRef.current) {
+        const body: JobConfigUpdate = { expectedUpdatedAt: job.updatedAt ?? undefined };
+        if (cron.trim() !== (job.cron ?? '')) {
+          body.cron = cron.trim();
+          changed.push('cron');
+        }
+        if (showUserIds && userIds.trim() !== (job.userIds ?? '')) {
+          body.userIds = userIds.trim();
+          changed.push('userIds');
+        }
+        if (body.cron != null || body.userIds != null) {
+          saved = await patchJob(job.jobKey, body);
+          cronSavedRef.current = true;
+        }
+      } else if (!isCron && Number(intervalSeconds) * 1000 !== job.intervalMillis) {
+        saved = await patchJob(job.jobKey, {
+          intervalMillis: Number(intervalSeconds) * 1000,
+          expectedUpdatedAt: job.updatedAt ?? undefined,
+        });
+        changed.push('intervalMillis');
+      }
+      if (windowsChanged) {
+        await patchRetentionWindows({
+          jobExecutionLogDays: Number(windows?.jobExecutionLogDays),
+          dataSourceEventDays: Number(windows?.dataSourceEventDays),
+          llmCallLogDays: Number(windows?.llmCallLogDays),
+          readingEventDays: Number(windows?.readingEventDays),
+          expectedUpdatedAt: windowsUpdatedAt ?? undefined,
+        });
+        changed.push('windows');
+      }
+      onSaved({ saved, changed, jobKey: job.jobKey });
       onClose();
     } catch (err) {
       // 保存失败：Dialog 保持打开、输入保留，错误渲染在字段下方供就地重试
+      // （已成功的分域不重复提交：cronSavedRef 守卫）
       setSaveError(messageOf(err, '保存失败，请重试'));
     } finally {
       setSaving(false);
@@ -288,6 +399,43 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
             data-testid={`task-edit-userids-${job.jobKey}`}
           />
         </label>
+      ) : null}
+      {showWindows ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">保留窗口（天）</span>
+          <p className="text-xs text-muted-foreground">
+            保存即热生效——下一轮清理按新窗口；改大窗口不会恢复已删数据。
+          </p>
+          {windowsError ? (
+            <p
+              className="text-xs text-destructive"
+              role="alert"
+              data-testid={`task-edit-window-error-${job.jobKey}`}
+            >
+              {windowsError}
+            </p>
+          ) : null}
+          {RETENTION_FIELDS.map(({ field, label }) => (
+            <label key={field} className="flex flex-col gap-1 text-sm">
+              <span>{`${label}（≥${minOf(field)}）`}</span>
+              <Input
+                value={windows ? windows[field] : ''}
+                onChange={(e) =>
+                  setWindows((prev) => (prev ? { ...prev, [field]: e.target.value } : prev))
+                }
+                aria-label={label}
+                inputMode="numeric"
+                disabled={windows == null || windowsError != null}
+                data-testid={`task-edit-window-${job.jobKey}-${field}`}
+              />
+            </label>
+          ))}
+          {windowFieldError ? (
+            <span className="text-xs text-destructive" role="alert">
+              {windowFieldError}
+            </span>
+          ) : null}
+        </div>
       ) : null}
       {saveError ? (
         <p
@@ -506,14 +654,19 @@ export function TaskCenter() {
     }, NOTE_AUTO_CLEAR_MS);
   };
 
-  const applySaved = (saved: JobView, changed: string[]) => {
-    setJobs((prev) => prev?.map((job) => (job.jobKey === saved.jobKey ? saved : job)) ?? prev);
+  const applySaved = ({ saved, changed, jobKey }: EditSavedResult) => {
     // 生效方式按接口 effectiveMode 渲染（UI 方案 §4.2/D3）：
     // RESTART 常驻「重启后生效」/ LIVE_NEXT_CYCLE 常驻「下一调度周期生效」/ LIVE 短暂「已生效」
-    const modes: Record<string, JobEffectiveMode> = saved.effectiveModes ?? {};
-    const restart = changed.some((field) => modes[field] === 'RESTART');
-    const nextCycle = changed.some((field) => modes[field] === 'LIVE_NEXT_CYCLE');
-    setNote(saved.jobKey, restart ? 'restart' : nextCycle ? 'next-cycle' : 'done');
+    if (saved) {
+      setJobs((prev) => prev?.map((job) => (job.jobKey === saved.jobKey ? saved : job)) ?? prev);
+      const modes: Record<string, JobEffectiveMode> = saved.effectiveModes ?? {};
+      const restart = changed.some((field) => modes[field] === 'RESTART');
+      const nextCycle = changed.some((field) => modes[field] === 'LIVE_NEXT_CYCLE');
+      setNote(jobKey, restart ? 'restart' : nextCycle ? 'next-cycle' : 'done');
+    } else if (changed.includes('windows')) {
+      // 仅窗口变更（无调度 PATCH）：下一轮清理按新窗口（热生效，M10 T73）
+      setNote(jobKey, 'next-cycle');
+    }
     void refresh(true);
   };
 
@@ -529,7 +682,7 @@ export function TaskCenter() {
   const doSave = async (job: JobView, body: JobConfigUpdate, changed: string[]) => {
     try {
       const saved = await patchJob(job.jobKey, { ...body, expectedUpdatedAt: job.updatedAt ?? undefined });
-      applySaved(saved, changed);
+      applySaved({ saved, changed, jobKey: job.jobKey });
     } catch (err) {
       setRowError(job.jobKey, messageOf(err, '保存失败，请重试'));
     }

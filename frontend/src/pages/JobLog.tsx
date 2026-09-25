@@ -417,7 +417,8 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
                   <TableHead>状态</TableHead>
                   <TableHead>耗时</TableHead>
                   <TableHead>处理/错误</TableHead>
-                  <TableHead>异常信息</TableHead>
+                  {/* 列头随 ADR-0036 语义扩展：SUCCESS 行可载留痕明细（如 RETENTION_CLEANUP 逐表删除行数） */}
+                  <TableHead>明细 / 异常</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
