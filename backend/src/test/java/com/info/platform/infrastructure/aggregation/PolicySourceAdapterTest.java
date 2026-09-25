@@ -433,4 +433,32 @@ class PolicySourceAdapterTest {
                 Instant.parse("2026-09-20T00:00:00Z"),
                 Instant.parse("2026-09-20T00:00:00Z"));
     }
+
+    @Test
+    void fetch_nullIndustrySubject_noNpeReturnsMissing() {
+        // 修复回归：行业为 null 的标的（新浪池 5221 只全部行业空）查 Map.of() 行业字典曾抛
+        // NPE（pk.hashCode()）致整源降级 failed——修复后应正常走完并因无热词命中而 MISSING
+        Subject nullIndustry = subjectWithIndustry("SZ300142", "沃森生物", null);
+        String html =
+                """
+                <!doctype html><html><head>
+                <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+                <title>政策_中国政府网</title></head><body>
+                <div class="item item03"><div class="list fl"><ul>
+                  <li><a href="./202609/content_x1.htm" target="_blank">国务院办公厅关于促进白酒产业高质量发展的若干意见</a><span>2026-09-20</span></li>
+                </ul></div></div>
+                </body></html>
+                """;
+        SourceResult result =
+                fetchWithMockResponse(
+                        nullIndustry,
+                        server ->
+                                server.expect(requestTo(POLICY_URL))
+                                        .andRespond(
+                                                withSuccess(
+                                                        html.getBytes(StandardCharsets.UTF_8),
+                                                        MediaType.TEXT_HTML)));
+        // 无热词（行业 null）→ 全部不命中 → MISSING（修复前此处因 Map.of 字典 NPE 整源 failed）
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+    }
 }

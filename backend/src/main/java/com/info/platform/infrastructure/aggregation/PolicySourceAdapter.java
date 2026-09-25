@@ -177,6 +177,12 @@ public class PolicySourceAdapter extends AbstractSourceAdapter {
      * 无 NPE。
      */
     private static Set<String> industryKeywords(String industry) {
+        if (industry == null || industry.isBlank()) {
+            // 标的行业缺失（如新浪列表源建的标的，ADR-0030 无行业字段）→ 无热词 → 全部不命中 → MISSING。
+            // 必须提前返回：Map.of() 构建的不可变 MapN 不支持 null key 查询，getOrDefault(null,…) 会抛
+            // NPE（pk.hashCode()）致整源降级——曾致行业为空的全量标的政策分区取数失败。
+            return Set.of();
+        }
         return INDUSTRY_KEYWORDS.getOrDefault(industry, Set.of());
     }
 
