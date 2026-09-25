@@ -7,7 +7,8 @@ import java.util.Optional;
  *
  * <p>领域层纯净枚举（仅 JDK），与持久化层 {@code TINYINT} 互转、与 SSE {@code event:} 字段名互转。 对齐技术方案 §4.1.3 SSE 事件类型
  * anomaly/event/policy/ai_brief/daily_recommend 与 §4.2 push_record DDL 注释。 首期（T14）实现 {@link
- * #ANOMALY} 异动推送； 其余类型留枚举占位，后续任务（T15 事件 / T24 政策 / T21 AI 简报 / T23 每日推荐）补消费链路。
+ * #ANOMALY} 异动推送； M14 T115 扩 {@link #SOURCE_ALERT}/{@link #SOURCE_RECOVERED} 源异常事件（码 6/7， V6 DDL 的
+ * TINYINT 无 CHECK 约束、仅注释——扩码无需迁移）； 其余类型留枚举占位，后续任务（T15 事件 / T24 政策 / T21 AI 简报 / T23 每日推荐）补消费链路。
  */
 public enum PushType {
     /** 异动推送（AnomalyDetectedEvent 触发，refId=anomaly_event.id）。 */
@@ -19,7 +20,11 @@ public enum PushType {
     /** AI 简报推送（AiBriefDoneEvent 触发，预留）。 */
     AI_BRIEF(4, "ai_brief"),
     /** 每日推荐推送（盘前 Top5，预留）。 */
-    DAILY_RECOMMEND(5, "daily_recommend");
+    DAILY_RECOMMEND(5, "daily_recommend"),
+    /** 源异常告警（M14 T115：连续失败达阈值或退避 ≥30 分钟，SourceAlertEvent 触发，全量用户广播）。 */
+    SOURCE_ALERT(6, "source_alert"),
+    /** 源恢复通知（M14 T115 Should：告警态源恢复成功抓取时一条，feed.alert.recovered-enabled 可关）。 */
+    SOURCE_RECOVERED(7, "source_recovered");
 
     private final int code;
     private final String eventName;

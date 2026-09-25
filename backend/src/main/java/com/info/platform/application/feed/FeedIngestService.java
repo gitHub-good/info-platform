@@ -38,6 +38,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 任何取数/落库异常全捕获不上抛：consecutive_failures++ → backoff_until = now + min(interval×2^min(n,4), 60min)；
  * 成功清零。旁路事件走 {@link FeedEventRecorder}（首败与每 10 次节流）。深翻：gap &gt; 3×interval → 3
  * 页补抓，截断可观测（backfill=truncated）。
+ *
+ * <h2>告警旁路（M14 T115）</h2>
+ *
+ * 轮次结束（成败皆然）通知 {@link SourceAlertService} 评估告警/恢复；通知异常自吞（旁路契约，不拖垮轮次—— 与 eventRecorder 同纪律）。
  */
 @Service
 public class FeedIngestService {
@@ -66,6 +70,7 @@ public class FeedIngestService {
     private final SourcePollStateRepository stateRepository;
     private final SourceDailyStatsRepository statsRepository;
     private final FeedEventRecorder eventRecorder;
+    private final SourceAlertService alertService;
     private final TransactionTemplate txTemplate;
     private final Clock clock;
 
@@ -75,6 +80,7 @@ public class FeedIngestService {
             SourcePollStateRepository stateRepository,
             SourceDailyStatsRepository statsRepository,
             FeedEventRecorder eventRecorder,
+            SourceAlertService alertService,
             TransactionTemplate transactionTemplate,
             Clock clock) {
         this.fetcher = fetcher;
@@ -82,6 +88,7 @@ public class FeedIngestService {
         this.stateRepository = stateRepository;
         this.statsRepository = statsRepository;
         this.eventRecorder = eventRecorder;
+        this.alertService = alertService;
         this.txTemplate = transactionTemplate;
         this.clock = clock;
     }
@@ -150,6 +157,9 @@ public class FeedIngestService {
                 inserted,
                 pages,
                 result.truncated() ? "truncated" : pages > 1 ? "active" : "none");
+        notifyAlert(
+                new SourceAlertService.SourceAlertRound(
+                        source.getSourceCode(), source.getName(), true, 0, now, null, now, null));
     }
 
     /** §4.2 过滤：title 非空 && url/externalId 至少其一；maxItems 单轮上限；缺 publishedAt 回落抓取时刻。 */
@@ -249,12 +259,36 @@ public class FeedIngestService {
         if (failures == 1 || failures % EVENT_EVERY_N_FAILURES == 0) {
             eventRecorder.recordFailure(source.getSourceCode(), failures, summary);
         }
+        notifyAlert(
+                new SourceAlertService.SourceAlertRound(
+                        source.getSourceCode(),
+                        source.getName(),
+                        false,
+                        failures,
+                        now,
+                        backoff,
+                        state == null ? null : state.lastSuccessAt(),
+                        summary));
         log.warn(
                 "资讯源轮次失败 source={} consecutiveFailures={} backoffUntil={}: {}",
                 source.getSourceCode(),
                 failures,
                 backoff,
                 summary);
+    }
+
+    /** 告警旁路通知：异常自吞（T115 旁路契约——告警链路故障不影响轮次结果语义）。 */
+    private void notifyAlert(SourceAlertService.SourceAlertRound round) {
+        try {
+            alertService.onRoundFinished(round);
+        } catch (Exception e) {
+            log.error(
+                    "源告警旁路通知异常 source={} success={}: {}",
+                    round.sourceCode(),
+                    round.success(),
+                    e.toString(),
+                    e);
+        }
     }
 
     /** 状态行 upsert：无行先插（新源首抓/首败）再更（update 全字段）。 */

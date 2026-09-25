@@ -435,23 +435,10 @@ public class SourceRegistryService {
         return rank >= 0 ? rank : CATEGORY_ORDER.size();
     }
 
-    /** 感知延迟 P50/P90（最近邻秩法；无样本 null——与 0 可区分）。 */
+    /** 感知延迟 P50/P90（最近邻秩法公用实现；无样本 null——与 0 可区分）。 */
     private static SourceStatsView.Latency percentilePair(List<Long> samples) {
-        if (samples.isEmpty()) {
-            return new SourceStatsView.Latency(null, null, 0);
-        }
-        List<Long> sorted = new ArrayList<>(samples);
-        sorted.sort(Long::compareTo);
-        return new SourceStatsView.Latency(
-                sorted.get(percentileIndex(sorted.size(), 50)),
-                sorted.get(percentileIndex(sorted.size(), 90)),
-                sorted.size());
-    }
-
-    /** 最近邻秩：ceil(p% × n) − 1（clamp 到末位）。 */
-    private static int percentileIndex(int size, int percentile) {
-        int index = (int) Math.ceil(percentile / 100.0 * size) - 1;
-        return Math.min(Math.max(index, 0), size - 1);
+        LatencyPercentiles.Pair pair = LatencyPercentiles.percentilePair(samples);
+        return new SourceStatsView.Latency(pair.p50(), pair.p90(), samples.size());
     }
 
     private static String iso(Instant instant) {

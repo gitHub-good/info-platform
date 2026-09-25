@@ -1,5 +1,6 @@
 package com.info.platform.domain.common;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -14,4 +15,7 @@ public interface UserRepository {
 
     /** 判定用户名是否已被占用（注册/种子校验用）。 */
     boolean existsByUsername(String username);
+
+    /** 全量用户（M14 T115 源异常告警广播目标：个人单用户平台按全量推送，多用户化时换订阅解析）。 */
+    List<User> findAll();
 }

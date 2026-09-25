@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -129,6 +130,55 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
                     return Math.max(0L, millis);
                 },
                 sinceISO);
+    }
+
+    @Override
+    public List<FeedItemRepository.LatencySample> fetchLatencySamplesSince(String sinceISO) {
+        // T114 大盘样本（带源维度与入库时刻）：应用层按「排除每源首日 + 排除日粒度源」过滤（ADR-0045）
+        return jdbcTemplate.query(
+                "SELECT source_id, created_at, fetched_at, published_at FROM news_item"
+                        + " WHERE created_at >= ?",
+                (rs, rowNum) ->
+                        new FeedItemRepository.LatencySample(
+                                rs.getLong("source_id"),
+                                Instant.parse(rs.getString("created_at")),
+                                Math.max(
+                                        0L,
+                                        Duration.between(
+                                                        Instant.parse(rs.getString("published_at")),
+                                                        Instant.parse(rs.getString("fetched_at")))
+                                                .toMillis())),
+                sinceISO);
+    }
+
+    @Override
+    public Map<Long, Instant> findFirstIngestAt() {
+        return jdbcTemplate.query(
+                "SELECT source_id, MIN(created_at) AS first_at FROM news_item GROUP BY source_id",
+                (org.springframework.jdbc.core.ResultSetExtractor<Map<Long, Instant>>)
+                        rs -> {
+                            Map<Long, Instant> firstAt = new java.util.HashMap<>();
+                            while (rs.next()) {
+                                firstAt.put(
+                                        rs.getLong("source_id"),
+                                        Instant.parse(rs.getString("first_at")));
+                            }
+                            return firstAt;
+                        });
+    }
+
+    @Override
+    public Map<Long, Long> countGroupedBySource() {
+        return jdbcTemplate.query(
+                "SELECT source_id, COUNT(*) AS total FROM news_item GROUP BY source_id",
+                (org.springframework.jdbc.core.ResultSetExtractor<Map<Long, Long>>)
+                        rs -> {
+                            Map<Long, Long> totals = new java.util.HashMap<>();
+                            while (rs.next()) {
+                                totals.put(rs.getLong("source_id"), rs.getLong("total"));
+                            }
+                            return totals;
+                        });
     }
 
     /** 列表查询基座（软删源 join + WHERE 1=1 起步，过滤片段顺序追加）。 */

@@ -164,3 +164,13 @@ source:
   poll:
     enabled: true
     interval-millis: 60000
+
+# 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
+# SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED
+# （Should，recovered-enabled 可关）。退避窗阈值语义：低频源（30~60min）连续失败数攒得慢，退避指数扩张先触达
+# 「30 分钟无产出」（ADR-0045 裁量）。告警态在内存（重启后仍失败的源会重告一次，个人平台可容忍）。
+feed:
+  alert:
+    failure-threshold: 5
+    backoff-threshold-minutes: 30
+    recovered-enabled: true

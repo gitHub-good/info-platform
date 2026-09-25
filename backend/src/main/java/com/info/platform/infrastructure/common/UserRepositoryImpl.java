@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.info.platform.domain.common.User;
 import com.info.platform.domain.common.UserRepository;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
@@ -33,6 +34,11 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public boolean existsByUsername(String username) {
         return mapper.exists(new LambdaQueryWrapper<UserPO>().eq(UserPO::getUsername, username));
+    }
+
+    @Override
+    public List<User> findAll() {
+        return mapper.selectList(null).stream().map(UserRepositoryImpl::toEntity).toList();
     }
 
     private static User toEntity(UserPO po) {

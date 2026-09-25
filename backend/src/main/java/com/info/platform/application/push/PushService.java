@@ -1,6 +1,7 @@
 package com.info.platform.application.push;
 
 import com.info.platform.domain.aggregation.SubjectRepository;
+import com.info.platform.domain.common.UserRepository;
 import com.info.platform.domain.push.AnomalyDetectedEvent;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
@@ -8,6 +9,7 @@ import com.info.platform.domain.push.NotificationEvent;
 import com.info.platform.domain.push.PushRecord;
 import com.info.platform.domain.push.PushRepository;
 import com.info.platform.domain.push.PushType;
+import com.info.platform.domain.push.SourceAlertEvent;
 import com.info.platform.domain.push.SubscriptionResolver;
 import java.time.Clock;
 import java.time.Duration;
@@ -64,6 +66,7 @@ public class PushService {
     private final SubscriptionResolver subscriptionResolver;
     private final NotificationChannel channel;
     private final SubjectRepository subjectRepository;
+    private final UserRepository userRepository;
     private final Clock clock;
     private final int pendingRetentionDays;
 
@@ -73,6 +76,7 @@ public class PushService {
             SubscriptionResolver subscriptionResolver,
             NotificationChannel channel,
             SubjectRepository subjectRepository,
+            UserRepository userRepository,
             Clock clock,
             @Value("${push.retry.pending-retention-days:7}") int pendingRetentionDays) {
         this.pushRepository = pushRepository;
@@ -80,6 +84,7 @@ public class PushService {
         this.subscriptionResolver = subscriptionResolver;
         this.channel = channel;
         this.subjectRepository = subjectRepository;
+        this.userRepository = userRepository;
         this.clock = clock;
         this.pendingRetentionDays =
                 pendingRetentionDays < 0 ? DEFAULT_PENDING_RETENTION_DAYS : pendingRetentionDays;
@@ -179,11 +184,17 @@ public class PushService {
      * 次，仍失败置 status=2 + ERROR 告警（对齐 §4.3 流程 3）。
      */
     private void pushAnomalyToOne(long userId, Long subjectId, String refId, String content) {
-        PushRecord record = PushRecord.create(userId, subjectId, PushType.ANOMALY, refId, content);
+        pushToOne(userId, subjectId, PushType.ANOMALY, refId, content);
+    }
+
+    /** 单用户通用推送（幂等写 → 在线/离线分流 → 重试1次 → 状态翻转）：异动与源告警广播共用同一编排。 */
+    private void pushToOne(
+            long userId, Long subjectId, PushType pushType, String refId, String content) {
+        PushRecord record = PushRecord.create(userId, subjectId, pushType, refId, content);
         Optional<PushRecord> savedOpt = pushRepository.saveIfAbsent(record);
         if (savedOpt.isEmpty()) {
             // 幂等防重：同 key 已存在（事件重投/@Async 重发），跳过不重推
-            log.debug("异动推送防重跳过: userId={} idempotencyKey={}", userId, record.getIdempotencyKey());
+            log.debug("推送防重跳过: userId={} idempotencyKey={}", userId, record.getIdempotencyKey());
             return;
         }
         PushRecord saved = savedOpt.get();
@@ -194,12 +205,75 @@ public class PushService {
         }
         NotificationEvent payload =
                 NotificationEvent.of(
-                        PushType.ANOMALY,
-                        subjectId,
-                        resolveSubjectCode(subjectId, null),
-                        refId,
-                        content);
+                        pushType, subjectId, resolveSubjectCode(subjectId, null), refId, content);
         deliver(saved, userId, payload);
+    }
+
+    /**
+     * 源异常/恢复推送（M14 T115，REQ 故事 3）：{@code @Async @EventListener} 消费 {@link SourceAlertEvent}（feed 域
+     * SourceAlertService 发布），按事件类组装文案与幂等键段后广播全量用户（个人单用户平台）。 异常兜底记 ERROR 不上抛（异步监听器纪律）。
+     */
+    @Async("pushAsyncExecutor")
+    @EventListener
+    public void onSourceAlert(SourceAlertEvent event) {
+        try {
+            handleSourceAlert(event);
+        } catch (Exception e) {
+            log.error(
+                    "源告警推送处理异常 source={} kind={}: {}",
+                    event.sourceCode(),
+                    event.kind(),
+                    e.toString(),
+                    e);
+        }
+    }
+
+    /** 源告警推送编排（包内可见，单测直调绕过 @Async 代理）。 */
+    void handleSourceAlert(SourceAlertEvent event) {
+        boolean alert = event.kind() == SourceAlertEvent.Kind.ALERT;
+        String refId =
+                event.sourceCode()
+                        + (alert ? ":" : ":recovered:")
+                        + event.episodeKey(); // episodeKey 随轮次时刻变化，幂等键不跨episode误吞
+        broadcast(
+                alert ? PushType.SOURCE_ALERT : PushType.SOURCE_RECOVERED, refId, contentOf(event));
+        log.info("源告警推送完成 source={} kind={} refId={}", event.sourceCode(), event.kind(), refId);
+    }
+
+    /** 广播推送：全量用户逐个走通用单用户编排（单用户异常不阻断其余）。 */
+    private void broadcast(PushType pushType, String refId, String content) {
+        for (com.info.platform.domain.common.User user : userRepository.findAll()) {
+            try {
+                pushToOne(user.getId(), null, pushType, refId, content);
+            } catch (Exception e) {
+                log.error(
+                        "单用户广播推送异常 userId={} type={}: {}", user.getId(), pushType, e.toString(), e);
+            }
+        }
+    }
+
+    /** 源告警文案：源名/失败摘要/持续时长（REQ 故事 3 场景 1 字段要求）。 */
+    private String contentOf(SourceAlertEvent event) {
+        if (event.kind() == SourceAlertEvent.Kind.RECOVERED) {
+            return String.format(
+                    "[源恢复] %s（%s）已恢复抓取，此前连续失败 %d 轮",
+                    event.sourceName(), event.sourceCode(), event.consecutiveFailures());
+        }
+        StringBuilder content =
+                new StringBuilder(
+                        String.format(
+                                "[源异常] %s（%s）连续失败 %d 轮：%s",
+                                event.sourceName(),
+                                event.sourceCode(),
+                                event.consecutiveFailures(),
+                                event.errorSummary() == null ? "未知原因" : event.errorSummary()));
+        if (event.failingSince() != null) {
+            long minutes =
+                    Math.max(
+                            0, Duration.between(event.failingSince(), clock.instant()).toMinutes());
+            content.append(String.format("（自上次成功持续 %d 分钟）", minutes));
+        }
+        return content.toString();
     }
 
     /** 在线推送交付（含重试1次与状态翻转）。 */

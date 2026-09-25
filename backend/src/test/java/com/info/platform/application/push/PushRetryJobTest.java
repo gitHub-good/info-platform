@@ -62,6 +62,7 @@ class PushRetryJobTest {
     @Mock private SubscriptionResolver subscriptionResolver;
     @Mock private NotificationChannel channel;
     @Mock private com.info.platform.domain.aggregation.SubjectRepository subjectRepository;
+    @Mock private com.info.platform.domain.common.UserRepository userRepository;
 
     private PushService pushService;
     private PushRetryJob job;
@@ -96,6 +97,7 @@ class PushRetryJobTest {
                         subscriptionResolver,
                         channel,
                         subjectRepository,
+                        userRepository,
                         FIXED_CLOCK,
                         7);
         job = new PushRetryJob(pushService, pushRepository, anomalyRepository, 100, 7);

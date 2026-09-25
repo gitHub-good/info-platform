@@ -62,6 +62,7 @@ class PushServiceTest {
     @Mock private SubscriptionResolver subscriptionResolver;
     @Mock private NotificationChannel channel;
     @Mock private SubjectRepository subjectRepository;
+    @Mock private com.info.platform.domain.common.UserRepository userRepository;
 
     private PushService service;
     private AnomalyDetectedEvent event;
@@ -76,6 +77,7 @@ class PushServiceTest {
                         subscriptionResolver,
                         channel,
                         subjectRepository,
+                        userRepository,
                         FIXED_CLOCK,
                         7);
         event =
@@ -540,6 +542,145 @@ class PushServiceTest {
                 0L,
                 null,
                 null);
+    }
+
+    // ---- M14 T115：源异常/恢复推送（广播链路） ----
+
+    @Test
+    void handleSourceAlert_onlineUser_pushedWithContentAndEpisodeRefId() {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        service.handleSourceAlert(
+                new com.info.platform.domain.push.SourceAlertEvent(
+                        com.info.platform.domain.push.SourceAlertEvent.Kind.ALERT,
+                        "jin10_flash",
+                        "金十数据·快讯",
+                        5,
+                        FIXED_CLOCK.instant().minus(Duration.ofMinutes(45)),
+                        "FeedFetchException: 连接超时",
+                        FIXED_CLOCK.instant()));
+
+        // push_record 落库：类型 SOURCE_ALERT、幂等键含 episodeKey（恢复后新一轮不被误吞）
+        ArgumentCaptor<PushRecord> saved = ArgumentCaptor.forClass(PushRecord.class);
+        verify(pushRepository).saveIfAbsent(saved.capture());
+        assertThat(saved.getValue().getPushType()).isEqualTo(PushType.SOURCE_ALERT);
+        assertThat(saved.getValue().getIdempotencyKey())
+                .isEqualTo(USER_ID + ":6:jin10_flash:" + FIXED_CLOCK.instant());
+        // SSE 载荷：type=source_alert、content 含源名/失败轮数/摘要/持续时长
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().type()).isEqualTo("source_alert");
+        assertThat(payload.getValue().content())
+                .contains("金十数据·快讯")
+                .contains("连续失败 5 轮")
+                .contains("连接超时")
+                .contains("持续 45 分钟");
+        verify(pushRepository).update(any(PushRecord.class));
+    }
+
+    @Test
+    void handleSourceAlert_recoveredEvent_usesSourceRecoveredType() {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        service.handleSourceAlert(
+                new com.info.platform.domain.push.SourceAlertEvent(
+                        com.info.platform.domain.push.SourceAlertEvent.Kind.RECOVERED,
+                        "jin10_flash",
+                        "金十数据·快讯",
+                        5,
+                        null,
+                        null,
+                        FIXED_CLOCK.instant()));
+
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().type()).isEqualTo("source_recovered");
+        assertThat(payload.getValue().content()).contains("[源恢复]").contains("已恢复抓取");
+    }
+
+    @Test
+    void handleSourceAlert_offlineUser_leavesPendingForReconnectPull() {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(false);
+
+        service.handleSourceAlert(
+                new com.info.platform.domain.push.SourceAlertEvent(
+                        com.info.platform.domain.push.SourceAlertEvent.Kind.ALERT,
+                        "t115_src",
+                        "源",
+                        6,
+                        null,
+                        "DNS 解析失败",
+                        FIXED_CLOCK.instant()));
+
+        verify(pushRepository).saveIfAbsent(any(PushRecord.class));
+        verify(channel, never()).send(anyLong(), any(NotificationEvent.class), anyLong());
+        verify(pushRepository, never()).update(any(PushRecord.class));
+    }
+
+    @Test
+    void handleSourceAlert_oneUserFailsOthersStillPushed() {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        1L, "a", "hash", 0L, null, null),
+                                com.info.platform.domain.common.User.reconstruct(
+                                        2L, "b", "hash", 0L, null, null)));
+        // 用户 1 落库即抛（如 DB 竞态），用户 2 不受阻断
+        when(pushRepository.saveIfAbsent(any(PushRecord.class)))
+                .thenThrow(new RuntimeException("db down"))
+                .thenAnswer(
+                        inv -> {
+                            PushRecord arg = inv.getArgument(0);
+                            return Optional.of(
+                                    PushRecord.reconstruct(
+                                            PUSH_RECORD_ID,
+                                            arg.getUserId(),
+                                            null,
+                                            arg.getPushType(),
+                                            arg.getRefId().orElse(null),
+                                            arg.getContent(),
+                                            arg.getIdempotencyKey(),
+                                            PushStatus.PENDING,
+                                            null,
+                                            0,
+                                            0L,
+                                            null,
+                                            null));
+                        });
+
+        service.handleSourceAlert(
+                new com.info.platform.domain.push.SourceAlertEvent(
+                        com.info.platform.domain.push.SourceAlertEvent.Kind.ALERT,
+                        "t115_src",
+                        "源",
+                        6,
+                        null,
+                        "超时",
+                        FIXED_CLOCK.instant()));
+
+        verify(pushRepository, times(2)).saveIfAbsent(any(PushRecord.class));
     }
 
     private static Subject subjectFixture(long id, String code) {

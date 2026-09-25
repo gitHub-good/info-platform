@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -56,6 +57,8 @@ class FeedIngestServiceIntegrationTest {
 
     private final AtomicReference<Supplier<FetchResult>> fetchBehavior = new AtomicReference<>();
     private final AtomicReference<FetchContext> lastContext = new AtomicReference<>();
+    private final ApplicationEventPublisher alertPublisher =
+            org.mockito.Mockito.mock(ApplicationEventPublisher.class);
 
     private FeedIngestService service;
     private InfoSource source;
@@ -76,6 +79,7 @@ class FeedIngestServiceIntegrationTest {
                         stateRepository,
                         statsRepository,
                         eventRecorder,
+                        new SourceAlertService(alertPublisher, CLOCK, 5, 30, true),
                         transactionTemplate,
                         CLOCK);
         source =
@@ -343,6 +347,86 @@ class FeedIngestServiceIntegrationTest {
         SourcePollState after = state().orElseThrow();
         assertThat(after.cursorValue()).isEqualTo("600");
         assertThat(after.nextDueAt()).isEqualTo(NOW.plus(Duration.ofMinutes(5)));
+    }
+
+    // —— M14 T115：轮次 → 告警评估旁路（真实 SourceAlertService + mock 事件发布器） ——
+
+    @Test
+    void alertBackoffThreshold_firesOnThirdFailure_ofFiveMinuteSource_thenRecovered() {
+        // 5min 源：n=1/2 退避 10/20min < 30min 不告警；n=3 退避 40min ≥ 30min 时间阈值先于轮数阈值命中
+        fetchBehavior.set(
+                () -> {
+                    throw new RuntimeException("FeedFetchException: 连接超时");
+                });
+        service.poll(source);
+        service.poll(source);
+        org.mockito.Mockito.verifyNoInteractions(alertPublisher);
+        service.poll(source);
+
+        org.mockito.ArgumentCaptor<com.info.platform.domain.push.SourceAlertEvent> alertCaptor =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.info.platform.domain.push.SourceAlertEvent.class);
+        org.mockito.Mockito.verify(alertPublisher).publishEvent(alertCaptor.capture());
+        assertThat(alertCaptor.getValue().kind())
+                .isEqualTo(com.info.platform.domain.push.SourceAlertEvent.Kind.ALERT);
+        assertThat(alertCaptor.getValue().consecutiveFailures()).isEqualTo(3);
+        assertThat(alertCaptor.getValue().sourceCode()).isEqualTo("t103_ingest");
+
+        // 恢复：成功轮 → SOURCE_RECOVERED（失败轮数回填告警时值 3）
+        fetchBehavior.set(() -> FetchResult.of(List.of(item("700", "恢复", NOW))));
+        assertThat(service.poll(source)).isTrue();
+        org.mockito.ArgumentCaptor<com.info.platform.domain.push.SourceAlertEvent> recoveredCaptor =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.info.platform.domain.push.SourceAlertEvent.class);
+        org.mockito.Mockito.verify(alertPublisher, org.mockito.Mockito.times(2))
+                .publishEvent(recoveredCaptor.capture());
+        assertThat(recoveredCaptor.getAllValues().get(1).kind())
+                .isEqualTo(com.info.platform.domain.push.SourceAlertEvent.Kind.RECOVERED);
+        assertThat(recoveredCaptor.getAllValues().get(1).consecutiveFailures()).isEqualTo(3);
+    }
+
+    @Test
+    void alertCountThreshold_firesAtFifthFailure_whenBackoffWindowBelowTimeThreshold() {
+        // 退避阈值调高到 90min（>60min 封顶，永不先行）：只剩轮数阈值 5
+        FeedIngestService isolated =
+                new FeedIngestService(
+                        (src, ctx) -> {
+                            throw new RuntimeException("FeedFetchException: 超时");
+                        },
+                        itemRepository,
+                        stateRepository,
+                        statsRepository,
+                        eventRecorder,
+                        new SourceAlertService(alertPublisher, CLOCK, 5, 90, true),
+                        transactionTemplate,
+                        CLOCK);
+        for (int i = 1; i <= 4; i++) {
+            isolated.poll(source);
+        }
+        org.mockito.Mockito.verifyNoInteractions(alertPublisher);
+        isolated.poll(source); // 第 5 轮：轮数阈值命中
+
+        org.mockito.ArgumentCaptor<com.info.platform.domain.push.SourceAlertEvent> captor =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.info.platform.domain.push.SourceAlertEvent.class);
+        org.mockito.Mockito.verify(alertPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().consecutiveFailures()).isEqualTo(5);
+    }
+
+    @Test
+    void alertPublisherThrows_pollOutcomeUnaffected() {
+        org.mockito.Mockito.doThrow(new RuntimeException("SSE 不可用"))
+                .when(alertPublisher)
+                .publishEvent(org.mockito.ArgumentMatchers.any());
+        fetchBehavior.set(
+                () -> {
+                    throw new RuntimeException("FeedFetchException: 超时");
+                });
+        service.poll(source);
+        service.poll(source);
+        service.poll(source); // 退避 40min 命中阈值 → 发布抛异常被旁路吞掉
+        SourcePollState after = state().orElseThrow();
+        assertThat(after.consecutiveFailures()).isEqualTo(3);
     }
 
     @Test

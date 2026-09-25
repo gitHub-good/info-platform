@@ -1,6 +1,8 @@
 package com.info.platform.domain.feed;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 资讯统一库仓储端口（{@code news_item}，M13 T104，ADR-0039）。
@@ -37,4 +39,23 @@ public interface FeedItemRepository {
      * @param sinceISO 窗口起点（ISO-8601 Instant 文本，含；按 created_at 过滤）
      */
     List<Long> fetchLatencyMillisSince(String sinceISO);
+
+    /**
+     * 感知延迟样本（带源维度与入库时刻，M14 T114 大盘「仅增量轮」口径用）：应用层按「排除每源首日回灌 + 排除日粒度源」过滤后现算 P50/P90。
+     *
+     * @param sinceISO 窗口起点（ISO-8601 Instant 文本，含；按 created_at 过滤）
+     */
+    List<LatencySample> fetchLatencySamplesSince(String sinceISO);
+
+    /**
+     * 各源首次入库时刻（MIN(created_at) GROUP BY source_id）：「排除每源首日」简化口径的首日判定基准（REQ
+     * 风险表授权的回灌排除实现，ADR-0045）。无条目的源不出现在结果中。
+     */
+    Map<Long, Instant> findFirstIngestAt();
+
+    /** 各源累计入库条数（不分软删源——大盘源维度表的「累计条数」列对归档源同样如实展示）。 */
+    Map<Long, Long> countGroupedBySource();
+
+    /** 单条感知延迟样本（T114）：源维度 + 入库时刻（首日过滤用）+ 延迟毫秒（负值已截 0）。 */
+    record LatencySample(long sourceId, Instant ingestedAt, long latencyMillis) {}
 }

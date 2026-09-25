@@ -301,4 +301,67 @@ class FeedItemRepositoryImplTest {
                         sourceB);
         assertThat(rows).isEqualTo(1);
     }
+
+    // —— T114 大盘读路径新增：延迟样本 / 首次入库时刻 / 分源计数（SQL 直插控制 created_at/published_at） ——
+
+    private void insertItemRow(
+            long sourceId, String externalId, String createdAt, String publishedAt, String title) {
+        jdbcTemplate.update(
+                "INSERT INTO news_item (source_id, external_id, title, summary, url, author,"
+                        + " published_at, fetched_at, fingerprint, status, created_at, updated_at)"
+                        + " VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 1, ?, ?)",
+                sourceId,
+                externalId,
+                title,
+                publishedAt,
+                createdAt,
+                "fp-" + externalId,
+                createdAt,
+                createdAt);
+    }
+
+    @Test
+    void fetchLatencySamplesSince_returnsSourceIdAndClampedLatency() {
+        // A：3 分钟延迟 + 源侧时钟超前的负延迟（截 0）；B：created_at 窗口外不入样本
+        insertItemRow(sourceA, "t114_l1", "2026-09-22T02:00:00Z", "2026-09-22T01:57:00Z", "样本一");
+        insertItemRow(sourceA, "t114_l2", "2026-09-22T01:00:00Z", "2026-09-22T01:30:00Z", "样本二");
+        insertItemRow(sourceB, "t114_l3", "2026-09-21T23:00:00Z", "2026-09-21T22:50:00Z", "窗口外");
+
+        List<FeedItemRepository.LatencySample> samples =
+                itemRepository.fetchLatencySamplesSince("2026-09-22T00:00:00Z");
+
+        assertThat(samples)
+                .usingRecursiveComparison()
+                .ignoringCollectionOrder()
+                .isEqualTo(
+                        List.of(
+                                new FeedItemRepository.LatencySample(
+                                        sourceA, Instant.parse("2026-09-22T02:00:00Z"), 180_000L),
+                                new FeedItemRepository.LatencySample(
+                                        sourceA, Instant.parse("2026-09-22T01:00:00Z"), 0L)));
+    }
+
+    @Test
+    void findFirstIngestAt_returnsPerSourceMinCreatedAt() {
+        insertItemRow(sourceA, "t114_f1", "2026-09-22T02:00:00Z", "2026-09-22T01:57:00Z", "晚");
+        insertItemRow(sourceA, "t114_f2", "2026-09-20T01:00:00Z", "2026-09-20T00:57:00Z", "早");
+        insertItemRow(sourceB, "t114_f3", "2026-09-21T23:00:00Z", "2026-09-21T22:50:00Z", "B");
+
+        assertThat(itemRepository.findFirstIngestAt())
+                .containsEntry(sourceA, Instant.parse("2026-09-20T01:00:00Z"))
+                .containsEntry(sourceB, Instant.parse("2026-09-21T23:00:00Z"));
+    }
+
+    @Test
+    void countGroupedBySource_countsAllRowsIncludingSoftDeletedSource() {
+        insertItemRow(sourceA, "t114_c1", "2026-09-22T02:00:00Z", "2026-09-22T01:57:00Z", "一");
+        insertItemRow(sourceA, "t114_c2", "2026-09-22T03:00:00Z", "2026-09-22T02:57:00Z", "二");
+        insertItemRow(sourceB, "t114_c3", "2026-09-22T02:00:00Z", "2026-09-22T01:57:00Z", "三");
+        jdbcTemplate.update("UPDATE info_source SET deleted = 1 WHERE id = ?", sourceB);
+
+        // 大盘「累计条数」对归档源同样如实展示（与默认流 join 排除口径区分）
+        assertThat(itemRepository.countGroupedBySource())
+                .containsEntry(sourceA, 2L)
+                .containsEntry(sourceB, 1L);
+    }
 }
