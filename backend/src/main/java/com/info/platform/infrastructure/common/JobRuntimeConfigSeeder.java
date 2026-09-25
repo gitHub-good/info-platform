@@ -80,6 +80,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${retention.cleanup.cron:0 30 3 * * ?}")
     private String retentionCleanupCron;
 
+    /** AI 归类管道开关/批窗口（M15 T121：NEWS_PIPELINE 聚合 Job，默认 10min，可配 5~15min，ADR-0046 裁决 4）。 */
+    @Value("${pipeline.news.enabled:true}")
+    private boolean pipelineNewsEnabled;
+
+    @Value("${pipeline.news.interval-millis:600000}")
+    private long pipelineNewsIntervalMillis;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -144,6 +151,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         "资讯源轮询调度（SourcePollJob，分钟级聚合轮询全部启用资讯源：错峰/退避/断流补抓，M13 ADR-0040）",
                         sourcePollEnabled,
                         sourcePollIntervalMillis));
+        seeds.add(
+                fixedDelay(
+                        "NEWS_PIPELINE",
+                        "AI 归类管道调度（NewsPipelineJob，批窗口 10min：L0 规则预筛 → L1 批量归类 → L2 事件提取[T122]，"
+                                + "段间独立容错，M15 ADR-0046）",
+                        pipelineNewsEnabled,
+                        pipelineNewsIntervalMillis));
         return seeds;
     }
 

@@ -81,7 +81,8 @@ public class LlmGatewayImpl implements LlmGateway {
     @Override
     public LlmResponse chat(LlmRequest request) {
         long startNanos = System.nanoTime();
-        LlmResponse cached = cache.getIfPresent(request);
+        // cacheable=false（管道批量，ADR-0046 裁决 2）：读写双侧绕开——同批重试命中同一份坏输出即死循环，且不污染可缓存键空间
+        LlmResponse cached = request.cacheable() ? cache.getIfPresent(request) : null;
         if (cached != null) {
             log.debug("LLM 缓存命中 briefType={}，0 调用", request.briefTypeKey());
             LlmCallLog hit = LlmCallLog.begin(currentUserId(), request.briefTypeKey());
@@ -133,7 +134,9 @@ public class LlmGatewayImpl implements LlmGateway {
             try {
                 LlmResponse resp = callWithTimeout(adapter, request, runtimeTimeout());
                 costGuard.recordUsage(userId, resp.usage());
-                cache.put(request, resp);
+                if (request.cacheable()) {
+                    cache.put(request, resp);
+                }
                 LlmCallLog ok = LlmCallLog.begin(userId, request.briefTypeKey());
                 ok.markSuccess(
                         name,

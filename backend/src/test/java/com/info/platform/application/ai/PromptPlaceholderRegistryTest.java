@@ -44,15 +44,31 @@ class PromptPlaceholderRegistryTest {
                                     mock(PolicyRepository.class),
                                     mock(LlmGateway.class),
                                     mock(PromptTemplateService.class),
-                                    mock(BriefContentCodec.class))));
+                                    mock(BriefContentCodec.class)),
+                            classifyProvider()));
+
+    /** 场景 5（行业归类）供给方：全部依赖 mock（注册表只读 provided()，不触发调用）。 */
+    private static com.info.platform.application.analysis.ClassificationService classifyProvider() {
+        return new com.info.platform.application.analysis.ClassificationService(
+                mock(com.info.platform.domain.analysis.NewsAnalysisRepository.class),
+                mock(LlmGateway.class),
+                mock(PromptTemplateService.class),
+                mock(com.info.platform.application.analysis.SubjectMatcher.class),
+                new com.info.platform.application.analysis.PipelineSettings(
+                        mock(com.info.platform.application.common.RuntimeConfigService.class),
+                        new com.fasterxml.jackson.databind.ObjectMapper()),
+                Clock.systemUTC(),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+    }
 
     @Test
-    void aggregates_fourScenarios_withExpectedCounts() {
-        // Act + Assert：首版注册表 30 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）
+    void aggregates_fiveScenarios_withExpectedCounts() {
+        // Act + Assert：注册表 32 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）+ 2（场景5 行业归类，M15 T121）
         assertThat(registry.byBriefType(BriefType.STOCK)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.EVENT_ATTRIBUTION)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.POLICY)).hasSize(7);
         assertThat(registry.byBriefType(BriefType.DAILY_RECOMMEND)).hasSize(6);
+        assertThat(registry.byBriefType(BriefType.L1_CLASSIFY)).hasSize(2);
         assertThat(registry.all()).containsOnlyKeys(BriefType.values());
     }
 

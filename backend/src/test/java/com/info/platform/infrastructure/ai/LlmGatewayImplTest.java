@@ -181,6 +181,52 @@ class LlmGatewayImplTest {
     }
 
     @Test
+    void chat_cacheableFalse_bypassesCacheReadAndWrite() {
+        // M15 ADR-0046 裁决 2：管道批量调用绕缓存——同批重试命中同一份坏输出即死循环
+        when(deepseek.chat(any())).thenReturn(DS_RESP);
+        LlmGatewayImpl gw = gateway();
+        LlmRequest pipelineReq =
+                LlmRequest.pipeline(
+                        List.of(new ChatMessage("system", "sys"), new ChatMessage("user", "ctx")),
+                        "5",
+                        0.1,
+                        8192);
+
+        LlmResponse first = gw.chat(pipelineReq);
+        LlmResponse second = gw.chat(pipelineReq); // 不允许命中缓存
+
+        assertThat(first).isEqualTo(DS_RESP);
+        assertThat(second).isEqualTo(DS_RESP);
+        verify(deepseek, times(2)).chat(any()); // 每次真实过 adapter
+
+        // Assert：两次留痕均为真实调用（非 cache hit，token 有量）
+        ArgumentCaptor<LlmCallLog> captor = ArgumentCaptor.forClass(LlmCallLog.class);
+        verify(callLog, times(2)).record(captor.capture());
+        assertThat(captor.getAllValues())
+                .allSatisfy(entry -> assertThat(entry.isCacheHit()).isFalse());
+    }
+
+    @Test
+    void chat_cacheableFalse_doesNotPolluteCacheForIdenticalCacheableRequest() {
+        // 绕缓存请求不写入缓存：后续同内容可缓存请求仍真实调用（不共享坏输出）
+        when(deepseek.chat(any())).thenReturn(DS_RESP);
+        LlmGatewayImpl gw = gateway();
+        LlmRequest pipelineReq =
+                LlmRequest.pipeline(
+                        List.of(new ChatMessage("system", "sys"), new ChatMessage("user", "ctx")),
+                        "5",
+                        0.1,
+                        8192);
+        gw.chat(pipelineReq);
+
+        LlmRequest cacheableReq = LlmRequest.json(pipelineReq.messages(), "1");
+
+        gw.chat(cacheableReq); // 若绕缓存请求误写缓存，此处将命中缓存不再过 adapter
+
+        verify(deepseek, times(2)).chat(any());
+    }
+
+    @Test
     void chat_defaultFails_fallbackSucceeds() {
         when(deepseek.chat(any())).thenThrow(new RuntimeException("deepseek down"));
         when(glm.chat(any())).thenReturn(GLM_RESP);

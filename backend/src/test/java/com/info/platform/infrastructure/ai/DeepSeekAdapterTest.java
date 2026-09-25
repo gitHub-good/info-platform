@@ -82,7 +82,8 @@ class DeepSeekAdapterTest {
                         0.3,
                         2048,
                         LlmRequest.JSON_OBJECT,
-                        "1");
+                        "1",
+                        true);
 
         LlmResponse resp =
                 callWithMock(

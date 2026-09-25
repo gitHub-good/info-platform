@@ -47,8 +47,11 @@ public class JobScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(JobScheduler.class);
 
-    /** 调度线程数：每任务一线程上限（个人量级 8 任务——M13 增 SOURCE_POLL tick 长驻占用 1 线程， 5→8 防与既有 7 Job 抢占，ADR-0040）。 */
-    private static final int POOL_SIZE = 8;
+    /**
+     * 调度线程数：每任务一线程上限（M15 增 4 个管道 Job——NEWS_PIPELINE tick 长驻占用线程，8→12 防与既有 8 Job 抢占， ADR-0046 裁决 4 与
+     * ADR-0040 同款论证）。
+     */
+    private static final int POOL_SIZE = 12;
 
     private final ThreadPoolTaskScheduler taskScheduler;
     private final JobRegistry registry;

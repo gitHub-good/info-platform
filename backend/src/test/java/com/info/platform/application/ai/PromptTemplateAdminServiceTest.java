@@ -58,7 +58,7 @@ class PromptTemplateAdminServiceTest {
     }
 
     @Test
-    void list_groupsAllFourScenarios_sortsVersionsNumericallyDesc() {
+    void list_groupsAllScenarios_sortsVersionsNumericallyDesc() {
         // Arrange：STOCK 多版本（含 v1.10 > v1.9 数值序场景）；EVENT 空场景；其余单版本
         when(repository.findAllByBriefType(BriefType.STOCK))
                 .thenReturn(
@@ -72,12 +72,15 @@ class PromptTemplateAdminServiceTest {
                 .thenReturn(List.of(row(9L, BriefType.POLICY, "v1.0", 1)));
         when(repository.findAllByBriefType(BriefType.DAILY_RECOMMEND))
                 .thenReturn(List.of(row(11L, BriefType.DAILY_RECOMMEND, "v1.1", 1)));
+        when(repository.findAllByBriefType(BriefType.L1_CLASSIFY))
+                .thenReturn(List.of(row(21L, BriefType.L1_CLASSIFY, "v1.0", 1)));
 
         // Act
         ListView view = service.list();
 
-        // Assert：恒 4 组按 briefType 序；数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
-        assertThat(view.groups()).hasSize(4);
+        // Assert：恒按 BriefType 序出组（M15 起 5 组——场景 5 行业归类零特例自动可见，ADR-0046 裁决 3）；
+        // 数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
+        assertThat(view.groups()).hasSize(5);
         var stock = view.groups().get(0);
         assertThat(stock.name()).isEqualTo("个股简报");
         assertThat(stock.versions())
@@ -92,6 +95,9 @@ class PromptTemplateAdminServiceTest {
         assertThat(event.versions()).isEmpty();
         assertThat(event.activeCount()).isZero();
         assertThat(event.activeVersionId()).isNull();
+        var classify = view.groups().get(4);
+        assertThat(classify.name()).isEqualTo("行业归类");
+        assertThat(classify.activeCount()).isEqualTo(1);
     }
 
     @Test

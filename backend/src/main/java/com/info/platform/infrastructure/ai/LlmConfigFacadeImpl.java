@@ -355,7 +355,8 @@ public class LlmConfigFacadeImpl implements LlmConfigFacade {
                         0.1,
                         CONNECTIVITY_MAX_TOKENS,
                         null,
-                        CONNECTIVITY_SCENE_KEY);
+                        CONNECTIVITY_SCENE_KEY,
+                        true);
         Duration timeout =
                 configCenter.llmGlobal().map(g -> g.timeout()).orElseGet(LlmDefaults::timeout);
         Future<LlmResponse> future = executor.submit(() -> adapter.chat(probe));

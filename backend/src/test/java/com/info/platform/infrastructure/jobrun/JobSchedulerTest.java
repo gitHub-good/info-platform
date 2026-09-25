@@ -220,4 +220,13 @@ class JobSchedulerTest {
         // Assert：不注册（宁可不调度不带病运行）
         assertThat(scheduler.nextExecutionTime("POLICY_FETCH")).isEmpty();
     }
+
+    @Test
+    void poolSize_expandedToTwelveForPipelineJobs() {
+        // M15 ADR-0046 裁决 4：4 个管道 Job（FIXED_DELAY tick 长驻占线程）入编后池 8→12，防与既有 8 Job 抢占
+        Object poolSize =
+                org.springframework.test.util.ReflectionTestUtils.getField(
+                        JobScheduler.class, "POOL_SIZE");
+        assertThat(poolSize).isEqualTo(12);
+    }
 }

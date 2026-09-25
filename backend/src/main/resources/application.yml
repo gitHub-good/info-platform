@@ -165,6 +165,14 @@ source:
     enabled: true
     interval-millis: 60000
 
+# AI 归类管道（M15 T121，ADR-0046 裁决 4）：job.NEWS_PIPELINE 种子来源（ManagedJob 第 9 键，FIXED_DELAY 批窗口）。
+# 批窗口默认 10min（可配 300000~900000，页面热切换）；T+30min SLA 依赖批窗口 + 单批 8.1s 实测（裕量 2.5 倍）。
+# L2 事件提取/快照/日报 Job 键随 T122~T124 增补；管道参数（批大小/阈值）在 runtime_config pipeline.* 键（页面热改）。
+pipeline:
+  news:
+    enabled: true
+    interval-millis: 600000
+
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED
 # （Should，recovered-enabled 可关）。退避窗阈值语义：低频源（30~60min）连续失败数攒得慢，退避指数扩张先触达

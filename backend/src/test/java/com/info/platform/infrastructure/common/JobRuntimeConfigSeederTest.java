@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllEightJobKeys() {
+    void seeds_carriesAllNineJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 7 键不被 SOURCE_POLL 增补挤占（第 8 键追加在尾部，M13 T103 / ADR-0040）
+        // 纯增量守卫：既有 8 键不被增补挤占（NEWS_PIPELINE 第 9 键追加在尾部，M15 T121 / ADR-0046）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -61,7 +61,40 @@ class JobRuntimeConfigSeederTest {
                         "job.DAILY_RECOMMEND",
                         "job.SUBJECT_SYNC",
                         "job.RETENTION_CLEANUP",
-                        "job.SOURCE_POLL");
+                        "job.SOURCE_POLL",
+                        "job.NEWS_PIPELINE");
+    }
+
+    // ---- NEWS_PIPELINE 种子（T121，M15 / ADR-0046）----
+
+    private RuntimeConfigSeed newsPipelineSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "pipelineNewsEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "pipelineNewsIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.NEWS_PIPELINE"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.NEWS_PIPELINE 种子"));
+    }
+
+    @Test
+    void seeds_newsPipeline_productionDefaults_enabledFixedDelay10min() {
+        RuntimeConfigSeed seed = newsPipelineSeed(true, 600000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.NEWS_PIPELINE");
+        assertThat(seed.description()).contains("NewsPipelineJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":600000");
+    }
+
+    @Test
+    void seeds_newsPipeline_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：pipeline.news.enabled=false → 种子停用 → 调度零注册（九 Job 惯例）
+        RuntimeConfigSeed seed = newsPipelineSeed(false, 600000L);
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"intervalMillis\":600000");
     }
 
     // ---- SOURCE_POLL 种子（T103，M13 / ADR-0040）----
