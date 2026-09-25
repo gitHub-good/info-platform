@@ -43,7 +43,8 @@ public class NewsPipelineJob implements ManagedJob, JobRunStats {
     @Override
     public String description() {
         return "批窗口（默认 10min）：L0 规则预筛（noise 隔离 + 近重复关联主条，零成本）→ L1 批量归类（35 枚举，"
-                + "≤20 条/批 + 对半拆批 + 低置信兜底）→ L2 事件提取（T122 追加）；段间独立容错（M15 ADR-0046）";
+                + "≤20 条/批 + 对半拆批 + 低置信兜底）→ L2 事件提取（重要性预筛 ≤20% 配额，10 条/批）；"
+                + "段间独立容错（M15 ADR-0046）";
     }
 
     @Override

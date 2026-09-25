@@ -1,0 +1,162 @@
+package com.info.platform.infrastructure.analysis;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.domain.analysis.Direction;
+import com.info.platform.domain.analysis.EventItem;
+import com.info.platform.domain.analysis.EventItemRepository;
+import com.info.platform.domain.analysis.EventType;
+import com.info.platform.domain.analysis.Importance;
+import java.sql.PreparedStatement;
+import java.time.Instant;
+import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.stereotype.Repository;
+
+/**
+ * {@link EventItemRepository} 端口的 SQLite 实现（M15 T122，ADR-0046 裁决 1）。
+ *
+ * <p>UPSERT by {@code UNIQUE(news_id)}（{@code INSERT ... ON CONFLICT(news_id) DO
+ * UPDATE}——拆批重试与补跑重入幂等）； 时间列整秒 ISO-8601 UTC 文本（V22/V23 惯例）；JSON
+ * 列（affected_industries/key_figures/subjects）经 Jackson 序列化，回读失败按空表降级（历史行损坏不阻断读）。
+ */
+@Repository
+public class EventItemRepositoryImpl implements EventItemRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(EventItemRepositoryImpl.class);
+
+    private static final String UPSERT_SQL =
+            """
+            INSERT INTO event_item
+              (news_id, event_type, summary, affected_industries, direction, importance,
+               key_figures, subjects, quote, event_time, event_date, prompt_version,
+               created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(news_id) DO UPDATE SET
+              event_type = excluded.event_type,
+              summary = excluded.summary,
+              affected_industries = excluded.affected_industries,
+              direction = excluded.direction,
+              importance = excluded.importance,
+              key_figures = excluded.key_figures,
+              subjects = excluded.subjects,
+              quote = excluded.quote,
+              event_time = excluded.event_time,
+              event_date = excluded.event_date,
+              prompt_version = excluded.prompt_version,
+              updated_at = excluded.updated_at
+            """;
+
+    private static final RowMapper<EventItem> EVENT_ROW =
+            (rs, rowNum) ->
+                    EventItem.reconstruct(
+                            rs.getLong("id"),
+                            rs.getLong("news_id"),
+                            EventType.fromName(rs.getString("event_type")),
+                            rs.getString("summary"),
+                            jsonList(rs.getString("affected_industries")),
+                            Direction.fromName(rs.getString("direction")),
+                            Importance.fromName(rs.getString("importance")),
+                            jsonFigures(rs.getString("key_figures")),
+                            jsonSubjects(rs.getString("subjects")),
+                            rs.getString("quote"),
+                            nullableInstant(rs.getString("event_time")),
+                            rs.getString("event_date"),
+                            rs.getString("prompt_version"),
+                            nullableInstant(rs.getString("created_at")),
+                            nullableInstant(rs.getString("updated_at")));
+
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+
+    public EventItemRepositoryImpl(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    public EventItem upsert(EventItem item) {
+        String now = Instant.now().toString();
+        jdbcTemplate.update(
+                connection -> {
+                    PreparedStatement ps = connection.prepareStatement(UPSERT_SQL);
+                    ps.setLong(1, item.getNewsId());
+                    ps.setString(2, item.getEventType().name());
+                    ps.setString(3, item.getSummary());
+                    ps.setString(4, toJson(item.getAffectedIndustries()));
+                    ps.setString(5, item.getDirection().name());
+                    ps.setString(6, item.getImportance().name());
+                    ps.setString(7, toJson(item.getKeyFigures()));
+                    ps.setString(8, toJson(item.getSubjects()));
+                    ps.setString(9, item.getQuote());
+                    ps.setString(10, isoOrNull(item.getEventTime()));
+                    ps.setString(11, item.getEventDate());
+                    ps.setString(12, item.getPromptVersion());
+                    ps.setString(13, now);
+                    ps.setString(14, now);
+                    return ps;
+                });
+        return item;
+    }
+
+    @Override
+    public List<EventItem> findByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbcTemplate.query(
+                "SELECT * FROM event_item WHERE id IN (" + placeholders + ")",
+                EVENT_ROW,
+                ids.toArray());
+    }
+
+    // —— JSON 列编解码 ——
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (Exception e) {
+            log.warn("event_item JSON 序列化失败（落空表）: {}", e.getMessage());
+            return "[]";
+        }
+    }
+
+    private static List<String> jsonList(String json) {
+        try {
+            return json == null ? List.of() : MAPPER.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private static List<EventItem.KeyFigure> jsonFigures(String json) {
+        try {
+            return json == null ? List.of() : MAPPER.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private static List<EventItem.SubjectRef> jsonSubjects(String json) {
+        try {
+            return json == null ? List.of() : MAPPER.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /** RowMapper 静态上下文共享解码器（无状态，与实例 MAPPER 同配置）。 */
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private static Instant nullableInstant(String iso) {
+        return iso == null || iso.isBlank() ? null : Instant.parse(iso);
+    }
+
+    private static String isoOrNull(Instant instant) {
+        return instant == null ? null : instant.toString();
+    }
+}

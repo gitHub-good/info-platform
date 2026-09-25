@@ -10,14 +10,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 管道 tick 编排（应用层，M15 T121，方案 §4.3 伪码 / §4.7）：L0 预筛 → L1 批量归类（L2 随 T122 追加段）。
+ * 管道 tick 编排（应用层，M15 T121/T122，方案 §4.3/§4.4/§4.7）：L0 预筛 → L1 批量归类 → L2 配额提取（三段顺序、段间独立容错）。
  *
  * <p><b>段间独立容错</b>（ADR-0046 裁决 4）：一段失败不阻断后段与下轮——各段 try-catch 记 ERROR，段级结果进 tick 明细。 tick 明细为
- * JobRunStats 段式串（ADR-0036 通道）：{@code l0=pass:n; noise:n; near_dup:n; l1=done:n; fail:n;
- * pending=n}。
+ * JobRunStats 段式串（ADR-0036 通道）：{@code l0=pass:n; noise:n; near_dup:n; l1=done:n; fail:n; pending=n;
+ * l2=extracted:n; no_event:n; failed:n; deferred:n}。
  *
- * <p>L2 配额提取（T122）与护栏挂钩（T125）在后续批追加为第三段；{@code lastTick} 为 {@code GET /pipeline/status}
- * 的「最近批窗口」数据面（本批基础版）。
+ * <p>{@code lastTick} 为 {@code GET /pipeline/status} 的「最近批窗口」数据面（护栏挂钩随 T125 追加：DEGRADED 跳 L2 /
+ * FUSED 全跳）。
  */
 @Service
 public class NewsPipelineService {
@@ -26,6 +26,7 @@ public class NewsPipelineService {
 
     private final L0PrefilterService l0Prefilter;
     private final ClassificationService classificationService;
+    private final EventExtractionService eventExtractionService;
     private final NewsAnalysisRepository repository;
     private final PipelineSettings settings;
     private final Clock clock;
@@ -35,11 +36,13 @@ public class NewsPipelineService {
     public NewsPipelineService(
             L0PrefilterService l0Prefilter,
             ClassificationService classificationService,
+            EventExtractionService eventExtractionService,
             NewsAnalysisRepository repository,
             PipelineSettings settings,
             Clock clock) {
         this.l0Prefilter = l0Prefilter;
         this.classificationService = classificationService;
+        this.eventExtractionService = eventExtractionService;
         this.repository = repository;
         this.settings = settings;
         this.clock = clock;
@@ -54,9 +57,10 @@ public class NewsPipelineService {
         Instant startedAt = clock.instant();
         L0Outcome l0 = runL0();
         L1Outcome l1 = runL1();
-        String detail = l0.detail() + "; " + l1.detail();
+        L2Outcome l2 = runL2();
+        String detail = l0.detail() + "; " + l1.detail() + "; " + l2.detail();
         lastTick = new LastTick(startedAt, clock.instant(), detail);
-        return new TickReport(detail, l0.total() + l1.done());
+        return new TickReport(detail, l0.total() + l1.done() + l2.processed());
     }
 
     /** 最近一轮批窗口（status 端点「最近批窗口」数据面；未跑过为 null）。 */
@@ -99,6 +103,16 @@ public class NewsPipelineService {
         }
     }
 
+    private L2Outcome runL2() {
+        try {
+            EventExtractionService.L2Report report = eventExtractionService.runL2Window();
+            return new L2Outcome(report);
+        } catch (RuntimeException e) {
+            log.error("L2 事件提取段失败: {}", e.toString(), e);
+            return new L2Outcome(null);
+        }
+    }
+
     /** tick 报告（JobRunStats）。 */
     public record TickReport(String detail, int processed) {}
 
@@ -113,6 +127,17 @@ public class NewsPipelineService {
             return pending < 0
                     ? "l1=error"
                     : "l1=done:" + done + "; fail:" + failed + "; pending=" + pending;
+        }
+    }
+
+    private record L2Outcome(EventExtractionService.L2Report report) {
+
+        private int processed() {
+            return report == null ? 0 : report.extracted() + report.noEvent() + report.failed();
+        }
+
+        private String detail() {
+            return report == null ? "l2=error" : report.detail();
         }
     }
 }

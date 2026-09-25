@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.analysis;
 
+import com.info.platform.domain.analysis.L2Status;
 import com.info.platform.domain.analysis.NewsAnalysis;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import java.sql.PreparedStatement;
@@ -192,6 +193,170 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
             updated += jdbcTemplate.update(MARK_FAILED_SQL, now, newsId);
         }
         return updated;
+    }
+
+    // —— L2（M15 T122）——
+
+    private static final String FIND_L2_CANDIDATES_SQL =
+            """
+            SELECT na.news_id, ni.title, ni.summary, s.name AS source_name, s.category AS source_category,
+                   na.main_category, ni.published_at, na.created_at, na.l2_status, na.matched_subjects
+              FROM news_analysis na
+              JOIN news_item ni ON ni.id = na.news_id
+              JOIN info_source s ON s.id = ni.source_id
+             WHERE na.l0_result = 'PASS'
+               AND na.l1_status = 'DONE'
+               AND (
+                     (na.l2_status IN ('SKIP', 'SELECTED', 'FAILED') AND na.created_at >= ?
+                      AND (na.l2_status != 'FAILED' OR na.l2_attempts < ?))
+                     OR (na.l2_status = 'DEFERRED' AND na.created_at >= ?)
+                   )
+            """;
+
+    private static final String UPDATE_IMPORTANCE_SQL =
+            "UPDATE news_analysis SET importance_score = ?, updated_at = ? WHERE news_id = ?";
+
+    private static final String MARK_L2_SELECTED_SQL =
+            """
+            UPDATE news_analysis SET l2_status = 'SELECTED', updated_at = ?
+             WHERE news_id = ? AND l2_status IN ('SKIP', 'SELECTED', 'DEFERRED', 'FAILED')
+            """;
+
+    private static final String MARK_L2_DEFERRED_SQL =
+            """
+            UPDATE news_analysis SET l2_status = 'DEFERRED', updated_at = ?
+             WHERE news_id = ? AND l2_status IN ('SKIP', 'SELECTED', 'FAILED')
+            """;
+
+    private static final String APPLY_L2_SQL =
+            """
+            UPDATE news_analysis SET l2_status = ?, updated_at = ?
+             WHERE news_id = ? AND l2_status IN ('SKIP', 'SELECTED', 'DEFERRED', 'FAILED')
+            """;
+
+    private static final String MARK_L2_FAILED_SQL =
+            """
+            UPDATE news_analysis SET l2_status = 'FAILED', l2_attempts = l2_attempts + 1, updated_at = ?
+             WHERE news_id = ?
+            """;
+
+    private static final RowMapper<NewsAnalysisRepository.L2Candidate> L2_CANDIDATE_ROW =
+            (rs, rowNum) ->
+                    new NewsAnalysisRepository.L2Candidate(
+                            rs.getLong("news_id"),
+                            rs.getString("title"),
+                            nullable(rs.getString("summary")),
+                            rs.getString("source_name"),
+                            rs.getString("source_category"),
+                            rs.getString("main_category"),
+                            Instant.parse(rs.getString("published_at")),
+                            Instant.parse(rs.getString("created_at")),
+                            L2Status.fromName(rs.getString("l2_status")),
+                            nullable(rs.getString("matched_subjects")));
+
+    @Override
+    public List<NewsAnalysisRepository.L2Candidate> findL2Candidates(
+            String todayStartIso,
+            String backfillSinceIso,
+            int maxAttempts,
+            List<Long> excludeSourceIds,
+            int limit) {
+        // 当日新账（SKIP/SELECTED/FAILED[attempts 未满]）+ 24h 窗口 DEFERRED 旧账；排除 aiExclusion=L2 源（T125 承载）
+        StringBuilder sql = new StringBuilder(FIND_L2_CANDIDATES_SQL);
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(todayStartIso);
+        args.add(maxAttempts);
+        args.add(backfillSinceIso);
+        if (excludeSourceIds != null && !excludeSourceIds.isEmpty()) {
+            sql.append(" AND ni.source_id NOT IN (")
+                    .append(
+                            String.join(
+                                    ",",
+                                    java.util.Collections.nCopies(excludeSourceIds.size(), "?")))
+                    .append(")");
+            args.addAll(excludeSourceIds);
+        }
+        sql.append(" ORDER BY na.news_id ASC LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), L2_CANDIDATE_ROW, args.toArray());
+    }
+
+    @Override
+    public int updateImportanceScores(Map<Long, Double> scoresByNewsId) {
+        if (scoresByNewsId == null || scoresByNewsId.isEmpty()) {
+            return 0;
+        }
+        String now = Instant.now().toString();
+        List<Object[]> batch =
+                scoresByNewsId.entrySet().stream()
+                        .map(entry -> new Object[] {entry.getValue(), now, entry.getKey()})
+                        .toList();
+        int[] results = jdbcTemplate.batchUpdate(UPDATE_IMPORTANCE_SQL, batch);
+        int updated = 0;
+        for (int result : results) {
+            updated += result == java.sql.Statement.SUCCESS_NO_INFO ? 1 : Math.max(0, result);
+        }
+        return updated;
+    }
+
+    @Override
+    public int markL2Selected(List<Long> newsIds) {
+        return updateByNewsIds(MARK_L2_SELECTED_SQL, newsIds);
+    }
+
+    @Override
+    public int markL2Deferred(List<Long> newsIds) {
+        return updateByNewsIds(MARK_L2_DEFERRED_SQL, newsIds);
+    }
+
+    @Override
+    public int applyL2Result(NewsAnalysisRepository.L2Write write) {
+        return jdbcTemplate.update(
+                APPLY_L2_SQL, write.status().name(), Instant.now().toString(), write.newsId());
+    }
+
+    @Override
+    public int markL2Failed(List<Long> newsIds) {
+        return updateByNewsIds(MARK_L2_FAILED_SQL, newsIds);
+    }
+
+    private int updateByNewsIds(String sql, List<Long> newsIds) {
+        if (newsIds == null || newsIds.isEmpty()) {
+            return 0;
+        }
+        String now = Instant.now().toString();
+        int updated = 0;
+        for (Long newsId : newsIds) {
+            updated += jdbcTemplate.update(sql, now, newsId);
+        }
+        return updated;
+    }
+
+    @Override
+    public long countL1DoneSince(String createdSinceIso) {
+        Long count =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM news_analysis WHERE l1_status = 'DONE' AND created_at >= ?",
+                        Long.class,
+                        createdSinceIso);
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public long countL2ProcessedSince(String sinceIso) {
+        // 配额消耗口径：终态行（updated_at 当日推进）；DEFERRED 未消耗（债务仍在）
+        Long count =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM news_analysis WHERE l2_status IN ('EXTRACTED', 'NO_EVENT',"
+                                + " 'FAILED') AND updated_at >= ?",
+                        Long.class,
+                        sinceIso);
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public Map<String, Long> countL2ByStatusSince(String createdSinceIso) {
+        return countByColumnValue("l2_status", createdSinceIso);
     }
 
     @Override

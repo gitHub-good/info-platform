@@ -3,10 +3,13 @@ package com.info.platform.application.analysis;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.analysis.ImportanceScorer;
 import com.info.platform.domain.analysis.NearDuplicateDetector.DupParams;
 import com.info.platform.domain.analysis.NoiseRuleEngine;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import org.slf4j.Logger;
@@ -59,14 +62,33 @@ public class PipelineSettings {
     /** 单 tick L1 批数上限（400 = 20 批；停机恢复补跑有界，余量下 tick 自然续跑）。 */
     static final int L1_TICK_CAP = 400;
 
+    /** L2 重要性预筛阈值缺省（方案 §4.4：score ≥ 2.5 命中）。 */
+    static final double DEFAULT_L2_THRESHOLD = 2.5;
+
+    /** L2 日配额比例缺省（REQ 场景 4：≤20%）。 */
+    static final double DEFAULT_L2_QUOTA_RATIO = 0.2;
+
     /** L1 采样参数缺省（方案 §4.3 伪码：temperature 0.1 / maxTokens 8192）。 */
     public static final double L1_TEMPERATURE = 0.1;
 
     public static final int L1_MAX_TOKENS = 8192;
 
+    /** L2 批大小缺省（方案 §4.4：batch=10 条/次调用）。 */
+    static final int DEFAULT_L2_BATCH_SIZE = 10;
+
+    /** 单 tick L2 候选上限（防御性；正常水位 ~130 事件/日）。 */
+    static final int L2_TICK_CAP = 400;
+
+    /** L2 采样参数（同 L1 管道口径：temperature 0.1 / maxTokens 8192）。 */
+    public static final double L2_TEMPERATURE = 0.1;
+
+    public static final int L2_MAX_TOKENS = 8192;
+
     static final String KEY_PIPELINE_GLOBAL = "pipeline.global";
 
     static final String KEY_PIPELINE_L0 = "pipeline.l0";
+
+    static final String KEY_PIPELINE_L2 = "pipeline.l2";
 
     private final RuntimeConfigService configService;
 
@@ -148,12 +170,78 @@ public class PipelineSettings {
         return intOf(l0Doc(), "nearDupWindowHours", DEFAULT_BACKFILL_HOURS);
     }
 
+    // —— L2 事件提取参数（M15 T122，方案 §4.4 / §4.8 pipeline.l2 键） ——
+
+    /** L2 批大小（缺省 10，方案 §4.4 模板契约）。 */
+    public int l2BatchSize() {
+        int size = intOf(l2Doc(), "l2BatchSize", DEFAULT_L2_BATCH_SIZE);
+        return size <= 0 ? DEFAULT_L2_BATCH_SIZE : size;
+    }
+
+    /** 重要性预筛阈值（缺省 2.5）。 */
+    public double l2Threshold() {
+        return doubleOf(l2Doc(), "threshold", DEFAULT_L2_THRESHOLD);
+    }
+
+    /** 日配额比例（缺省 0.2——REQ 场景 4 命中量校准至 ≤20%）。 */
+    public double l2QuotaRatio() {
+        double ratio = doubleOf(l2Doc(), "quotaRatio", DEFAULT_L2_QUOTA_RATIO);
+        return ratio <= 0 || ratio > 1 ? DEFAULT_L2_QUOTA_RATIO : ratio;
+    }
+
+    /** 标的池命中加成（缺省 1.5）。 */
+    public double l2SubjectBonus() {
+        return doubleOf(l2Doc(), "subjectBonus", ImportanceScorer.defaults().subjectBonus());
+    }
+
+    /** 源类别权重表（缺省：政策/宏观 2.0 · 快讯 1.5 · 媒体/国际/自建 1.0）。 */
+    public Map<String, Double> l2SourceWeights() {
+        JsonNode node = l2Doc() == null ? null : l2Doc().get("sourceWeights");
+        Map<String, Double> weights = new LinkedHashMap<>();
+        if (node != null && node.isObject()) {
+            node.fields()
+                    .forEachRemaining(
+                            field -> {
+                                if (field.getValue().isNumber()) {
+                                    weights.put(field.getKey(), field.getValue().asDouble());
+                                }
+                            });
+        }
+        return weights.isEmpty() ? ImportanceScorer.defaults().sourceWeights() : weights;
+    }
+
+    /** 强触发词表（缺省 19 词，方案 §4.4）。 */
+    public List<String> l2StrongTriggers() {
+        List<String> words = stringListOf(l2Doc(), "strongTriggers");
+        return words.isEmpty() ? ImportanceScorer.defaults().strongTriggers() : words;
+    }
+
+    /** 中触发词表（缺省 15 词，方案 §4.4）。 */
+    public List<String> l2MediumTriggers() {
+        List<String> words = stringListOf(l2Doc(), "mediumTriggers");
+        return words.isEmpty() ? ImportanceScorer.defaults().mediumTriggers() : words;
+    }
+
+    /** 重要性打分参数组装（ImportanceScorer 消费形态）。 */
+    public ImportanceScorer.ScorerParams l2ScorerParams() {
+        return new ImportanceScorer.ScorerParams(
+                l2SourceWeights(),
+                l2StrongTriggers(),
+                l2MediumTriggers(),
+                l2SubjectBonus(),
+                l2Threshold());
+    }
+
     private JsonNode globalDoc() {
         return doc(KEY_PIPELINE_GLOBAL);
     }
 
     private JsonNode l0Doc() {
         return doc(KEY_PIPELINE_L0);
+    }
+
+    private JsonNode l2Doc() {
+        return doc(KEY_PIPELINE_L2);
     }
 
     private JsonNode doc(String configKey) {

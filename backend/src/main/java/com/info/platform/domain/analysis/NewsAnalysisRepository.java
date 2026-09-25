@@ -62,6 +62,74 @@ public interface NewsAnalysisRepository {
      */
     int markL1Failed(List<Long> newsIds);
 
+    // —— L2 事件提取（M15 T122，方案 §4.4） ——
+
+    /**
+     * L2 候选查询：当日 SKIP/SELECTED/FAILED（attempts 未满）存量重扫 + 24h 窗口内 DEFERRED 旧账（次日先还，ADR-0046 裁决 5）。
+     *
+     * <p>仅 PASS 且 L1 DONE 条目（L2 消费归类产物与候选公司）；排除 aiExclusion=L2 源（T125 承载，REQ 拍板五-1——照常归类不产事件）。
+     *
+     * @param todayStartIso Asia/Shanghai 当日零点（ISO 文本）——当日新账窗口下界
+     * @param backfillSinceIso DEFERRED 旧账回看下界（24h 补跑窗口）
+     * @param maxAttempts FAILED 当日重试上限
+     * @param excludeSourceIds 排除源 id 清单（aiExclusion=L2；空表 = 不排除）
+     * @param limit 单次取数上限（防御性）
+     */
+    List<L2Candidate> findL2Candidates(
+            String todayStartIso,
+            String backfillSinceIso,
+            int maxAttempts,
+            List<Long> excludeSourceIds,
+            int limit);
+
+    /**
+     * 回写重要性分（L2 预筛产物，配额排序依据）。
+     *
+     * @return 受影响行数
+     */
+    int updateImportanceScores(Map<Long, Double> scoresByNewsId);
+
+    /**
+     * 标记命中预筛进批（SELECTED——配额内待提取）。
+     *
+     * @return 受影响行数
+     */
+    int markL2Selected(List<Long> newsIds);
+
+    /**
+     * 标记配额外截断（DEFERRED——如实统计不静默丢弃，方案 §4.4 配额语义）。
+     *
+     * @return 受影响行数
+     */
+    int markL2Deferred(List<Long> newsIds);
+
+    /**
+     * L2 结果条件落库（幂等）：{@code WHERE news_id=? AND l2_status IN
+     * ('SKIP','SELECTED','DEFERRED','FAILED')}。
+     *
+     * @return 受影响行数（0 = 终态竞态，不视为错误）
+     */
+    int applyL2Result(L2Write write);
+
+    /**
+     * L2 失败记账：attempts+1 且置 FAILED（网络类失败本 tick 放弃；当日 attempts 达上限不再进批）。
+     *
+     * @return 累计受影响行数
+     */
+    int markL2Failed(List<Long> newsIds);
+
+    /** 当日 L1 DONE 数（L2 日配额基数 = quotaRatio × 本值）。 */
+    long countL1DoneSince(String createdSinceIso);
+
+    /**
+     * 当日 L2 已处理数（配额消耗计数：l2_status ∈ {EXTRACTED,NO_EVENT,FAILED} 且 updated_at ≥ 当日零点—— DEFERRED
+     * 旧账次日还清也计当日消耗）。
+     */
+    long countL2ProcessedSince(String sinceIso);
+
+    /** 当日 L2 各态计数（status 端点与覆盖率口径；key = l2_status 枚举名，缺态不出现）。 */
+    Map<String, Long> countL2ByStatusSince(String createdSinceIso);
+
     /** 当日 L0 三态计数（status 端点数据面；key = l0_result 枚举名，缺态不出现在结果中）。 */
     Map<String, Long> countL0ByResultSince(String createdSinceIso);
 
@@ -86,6 +154,23 @@ public interface NewsAnalysisRepository {
             Instant publishedAt,
             Instant fetchedAt) {}
 
+    /**
+     * L2 候选（join news_item/info_source/news_analysis：重要性打分与事件提取渲染所需字段）。
+     *
+     * @param currentL2 当前 l2_status（DEFERRED = 旧账，排序优先——次日低峰先还）
+     */
+    record L2Candidate(
+            long newsId,
+            String title,
+            String summary,
+            String sourceName,
+            String sourceCategory,
+            String mainCategory,
+            Instant publishedAt,
+            Instant createdAt,
+            L2Status currentL2,
+            String matchedSubjectsJson) {}
+
     /** L1 结果落库参数（分类产物 + 条件 UPDATE 锚点）。 */
     record L1Write(
             long newsId,
@@ -97,4 +182,11 @@ public interface NewsAnalysisRepository {
             String matchedSubjects,
             String promptVersion,
             Instant classifiedAt) {}
+
+    /**
+     * L2 结果落库参数（news_analysis.l2_status 条件推进；event_item 行由 {@link EventItemRepository} 承载）。
+     *
+     * @param status EXTRACTED / NO_EVENT / FAILED（FAILED 走 {@link #markL2Failed} 带计数，不走本写）
+     */
+    record L2Write(long newsId, L2Status status) {}
 }

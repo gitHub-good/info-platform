@@ -11,11 +11,11 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * 管道域运行时配置种子（{@code pipeline.*}，M15 T120/T121，方案 §4.8 键表 / ADR-0032 seed-if-absent）。
+ * 管道域运行时配置种子（{@code pipeline.*}，M15 T120~T125，方案 §4.8 键表 / ADR-0032 seed-if-absent）。
  *
- * <p>本批播种 2 键（有消费方的键先落，防后续批次消费方定形前抢注 DB 权威值）：{@code pipeline.global}（L1 批量参数——T121 消费）、 {@code
- * pipeline.l0}（预筛参数——T120 消费）。{@code pipeline.budget/heat/l2} 随 T122/T123/T125 消费方落地。 {@code
- * simhashDistanceMax} 缺省 18 = ADR-0047 实测勘定（方案原文 3 在 20~60 字 CJK 标题上召回失效）。
+ * <p>已播种 3 键（有消费方的键先落，防后续批次消费方定形前抢注 DB 权威值）：{@code pipeline.global}（L1 批量参数——T121 消费）、 {@code
+ * pipeline.l0}（预筛参数——T120 消费）、{@code pipeline.l2}（事件提取参数——T122 消费）。 {@code pipeline.heat/budget} 随
+ * T123/T125 消费方落地。{@code simhashDistanceMax} 缺省 18 = ADR-0047 实测勘定（方案原文 3 在 20~60 字 CJK 标题上召回失效）。
  */
 @Component
 public class PipelineRuntimeConfigSeeder implements RuntimeConfigSeeder {
@@ -53,6 +53,34 @@ public class PipelineRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         "pipeline.l0",
                         write(l0),
                         "L0 预筛参数（noise 关键词与正则/近重复海明预筛[ADR-0047 勘定 18]与编辑距离阈值/24h 比较窗/超短豁免，M15 方案 §4.8）"));
+        Map<String, Object> l2 = new LinkedHashMap<>();
+        l2.put("l2BatchSize", 10);
+        l2.put("threshold", 2.5);
+        l2.put("quotaRatio", 0.2);
+        l2.put("subjectBonus", 1.5);
+        Map<String, Object> sourceWeights = new LinkedHashMap<>();
+        sourceWeights.put("政策", 2.0);
+        sourceWeights.put("宏观", 2.0);
+        sourceWeights.put("快讯", 1.5);
+        sourceWeights.put("媒体", 1.0);
+        sourceWeights.put("国际", 1.0);
+        sourceWeights.put("自建", 1.0);
+        l2.put("sourceWeights", sourceWeights);
+        l2.put(
+                "strongTriggers",
+                List.of(
+                        "业绩预告", "预增", "预亏", "并购", "重组", "收购", "回购", "增持", "减持", "重大合同", "中标", "处罚",
+                        "立案", "降准", "降息", "关税", "管制", "突破", "获批"));
+        l2.put(
+                "mediumTriggers",
+                List.of(
+                        "签约", "合作", "投产", "上调", "下调", "涨价", "降价", "新高", "新低", "停牌", "复牌", "辞职",
+                        "聘任", "上线", "发布"));
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "pipeline.l2",
+                        write(l2),
+                        "L2 事件提取参数（重要性打分源权重/强弱触发词/标的加成/阈值 2.5/日配额比例 0.2/批大小，M15 方案 §4.4/§4.8）"));
         return seeds;
     }
 

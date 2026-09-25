@@ -39,6 +39,12 @@ class PipelineSettingsTest {
         assertThat(settings.l0BufferMinutes()).isEqualTo(2);
         assertThat(settings.dupParams()).isEqualTo(new DupParams(18, 0.25, 8)); // ADR-0047 勘定 18
         assertThat(settings.nearDupWindowHours()).isEqualTo(24);
+        assertThat(settings.l2BatchSize()).isEqualTo(10);
+        assertThat(settings.l2Threshold()).isEqualTo(2.5);
+        assertThat(settings.l2QuotaRatio()).isEqualTo(0.2);
+        assertThat(settings.l2SubjectBonus()).isEqualTo(1.5);
+        assertThat(settings.l2ScorerParams().strongTriggers()).hasSize(19);
+        assertThat(settings.l2ScorerParams().mediumTriggers()).hasSize(15);
     }
 
     @Test
@@ -108,10 +114,50 @@ class PipelineSettingsTest {
     }
 
     @Test
+    void l2Params_hotConfigOverrides() {
+        stubKey(
+                "pipeline.l2",
+                """
+                {"l2BatchSize":5,"threshold":4.0,"quotaRatio":0.1,"subjectBonus":2.0,
+                 "sourceWeights":{"快讯":2.5},
+                 "strongTriggers":["自定强词"],"mediumTriggers":["自定中词"]}
+                """);
+
+        assertThat(settings.l2BatchSize()).isEqualTo(5);
+        assertThat(settings.l2Threshold()).isEqualTo(4.0);
+        assertThat(settings.l2QuotaRatio()).isEqualTo(0.1);
+        assertThat(settings.l2SubjectBonus()).isEqualTo(2.0);
+        assertThat(settings.l2ScorerParams().sourceWeights()).containsEntry("快讯", 2.5);
+        assertThat(settings.l2ScorerParams().strongTriggers()).containsExactly("自定强词");
+        assertThat(settings.l2ScorerParams().mediumTriggers()).containsExactly("自定中词");
+    }
+
+    @Test
+    void l2Params_quotaRatioInvalid_fallsBack() {
+        // quotaRatio ∈ (0,1]：0 与越界值回落 0.2（REQ 场景 4 ≤20% 红线）
+        stubKey("pipeline.l2", "{\"quotaRatio\":0}");
+        assertThat(settings.l2QuotaRatio()).isEqualTo(0.2);
+
+        stubKey("pipeline.l2", "{\"quotaRatio\":1.5}");
+        assertThat(settings.l2QuotaRatio()).isEqualTo(0.2);
+    }
+
+    @Test
+    void l2Params_corruptedKey_fallsBackToDefaults() {
+        stubKey("pipeline.l2", "broken-json");
+
+        assertThat(settings.l2Threshold()).isEqualTo(2.5);
+        assertThat(settings.l2ScorerParams().strongTriggers()).hasSize(19);
+    }
+
+    @Test
     void constants_matchDesignDefaults() {
         assertThat(PipelineSettings.L1_TEMPERATURE).isEqualTo(0.1);
         assertThat(PipelineSettings.L1_MAX_TOKENS).isEqualTo(8192);
         assertThat(PipelineSettings.L1_TICK_CAP).isEqualTo(400);
         assertThat(PipelineSettings.L0_INTAKE_CAP_PER_TICK).isEqualTo(200);
+        assertThat(PipelineSettings.L2_TEMPERATURE).isEqualTo(0.1);
+        assertThat(PipelineSettings.L2_MAX_TOKENS).isEqualTo(8192);
+        assertThat(PipelineSettings.L2_TICK_CAP).isEqualTo(400);
     }
 }

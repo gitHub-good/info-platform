@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.info.platform.domain.analysis.L0Result;
 import com.info.platform.domain.analysis.L1Status;
+import com.info.platform.domain.analysis.L2Status;
 import com.info.platform.domain.analysis.NewsAnalysis;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import com.info.platform.domain.feed.AdapterType;
@@ -333,5 +334,119 @@ class NewsAnalysisRepositoryImplTest {
         // 窗口起点推到未来（现存行 created_at 均在其前）→ 空计数
         assertThat(repository.countL0ByResultSince(Instant.now().plusSeconds(3600).toString()))
                 .isEmpty();
+    }
+
+    // ---- L2（T122，方案 §4.4）----
+
+    /** 建 PASS 行并完成 L1（L2 候选前置：PASS + DONE）。 */
+    private long classifiedNews(long sourceId, String title) {
+        long newsId = newNews(sourceId, title, "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        repository.insertIgnoreBatch(
+                List.of(NewsAnalysis.newForL0(newsId, L0Result.PASS, null, null)));
+        repository.applyL1Result(
+                new NewsAnalysisRepository.L1Write(
+                        newsId, "银行", null, null, 0.9, false, null, "v1.0", Instant.now()));
+        return newsId;
+    }
+
+    @Test
+    void findL2Candidates_filtersStatusWindowAttemptsAndExclusion() {
+        long todayHit = classifiedNews(sourceA, "L2候选-当日命中条目");
+        long pendingL1 =
+                newNews(sourceA, "L2候选-未归类条目", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        repository.insertIgnoreBatch(
+                List.of(NewsAnalysis.newForL0(pendingL1, L0Result.PASS, null, null)));
+        long extracted = classifiedNews(sourceA, "L2候选-已提取终态条目");
+        repository.markL2Selected(List.of(extracted));
+        repository.applyL2Result(new NewsAnalysisRepository.L2Write(extracted, L2Status.EXTRACTED));
+        long exhausted = classifiedNews(sourceA, "L2候选-重试耗尽条目");
+        repository.markL2Failed(List.of(exhausted, exhausted, exhausted));
+        long excluded = classifiedNews(sourceB, "L2候选-排除源条目");
+        long oldDebt = classifiedNews(sourceA, "L2候选-旧账条目");
+        jdbcTemplate.update(
+                "UPDATE news_analysis SET l2_status='DEFERRED', created_at='2026-09-21T03:00:00Z'"
+                        + " WHERE news_id=?",
+                oldDebt);
+
+        // 当日窗口 = 过去（全部行 created_at 在其后）；旧账窗口 = 2026-09-21 起（oldDebt 行 created_at 已回拨）
+        List<Long> ids =
+                repository
+                        .findL2Candidates(
+                                "2026-09-21T00:00:00Z",
+                                "2026-09-21T00:00:00Z",
+                                3,
+                                List.of(sourceB),
+                                100)
+                        .stream()
+                        .map(NewsAnalysisRepository.L2Candidate::newsId)
+                        .toList();
+
+        // PENDING/EXTRACTED/耗尽 FAILED/排除源 全部排除；SKIP 命中 + DEFERRED 旧账入选
+        assertThat(ids).containsExactlyInAnyOrder(todayHit, oldDebt);
+
+        NewsAnalysisRepository.L2Candidate candidate =
+                repository
+                        .findL2Candidates(
+                                "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z", 3, List.of(), 100)
+                        .get(0);
+        assertThat(candidate.sourceCategory()).isEqualTo("快讯");
+        assertThat(candidate.mainCategory()).isEqualTo("银行");
+        assertThat(candidate.currentL2()).isIn(L2Status.SKIP, L2Status.DEFERRED);
+    }
+
+    @Test
+    void l2Writes_scoreSelectionDeferredResultAndFailed() {
+        long newsId = classifiedNews(sourceA, "L2写路径-全字段条目");
+
+        int scored = repository.updateImportanceScores(Map.of(newsId, 3.5));
+        int selected = repository.markL2Selected(List.of(newsId));
+        int applied =
+                repository.applyL2Result(
+                        new NewsAnalysisRepository.L2Write(newsId, L2Status.EXTRACTED));
+
+        assertThat(scored).isEqualTo(1);
+        assertThat(selected).isEqualTo(1);
+        assertThat(applied).isEqualTo(1);
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap("SELECT * FROM news_analysis WHERE news_id = ?", newsId);
+        assertThat((Double) row.get("importance_score")).isEqualTo(3.5);
+        assertThat(row.get("l2_status")).isEqualTo(L2Status.EXTRACTED.name());
+        // 终态再推进不命中（幂等：EXTRACTED 后不再改写）
+        assertThat(
+                        repository.applyL2Result(
+                                new NewsAnalysisRepository.L2Write(newsId, L2Status.NO_EVENT)))
+                .isZero();
+
+        long other = classifiedNews(sourceA, "L2写路径-延迟与失败条目");
+        repository.markL2Deferred(List.of(other));
+        repository.markL2Failed(List.of(other));
+        Map<String, Object> deferredRow =
+                jdbcTemplate.queryForMap("SELECT * FROM news_analysis WHERE news_id = ?", other);
+        assertThat(deferredRow.get("l2_status")).isEqualTo(L2Status.FAILED.name());
+        assertThat(((Number) deferredRow.get("l2_attempts")).intValue()).isEqualTo(1);
+    }
+
+    @Test
+    void l2Counts_doneBaseProcessedAndStatusCounts() {
+        long base = classifiedNews(sourceA, "L2计数-配额基数条目");
+        long processed = classifiedNews(sourceA, "L2计数-已处理条目");
+        repository.markL2Selected(List.of(processed));
+        repository.applyL2Result(new NewsAnalysisRepository.L2Write(processed, L2Status.EXTRACTED));
+        long deferred = classifiedNews(sourceA, "L2计数-延迟条目");
+        repository.markL2Deferred(List.of(deferred));
+        long pendingOnly =
+                newNews(sourceA, "L2计数-未归类不计基数", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        repository.insertIgnoreBatch(
+                List.of(NewsAnalysis.newForL0(pendingOnly, L0Result.PASS, null, null)));
+
+        String since = "2026-09-22T00:00:00Z";
+        assertThat(repository.countL1DoneSince(since)).isEqualTo(3);
+        // 已处理 = 终态（EXTRACTED/NO_EVENT/FAILED）且 updated_at ≥ since；DEFERRED 不算消耗
+        assertThat(repository.countL2ProcessedSince(since)).isEqualTo(1);
+        Map<String, Long> l2 = repository.countL2ByStatusSince(since);
+        assertThat(l2)
+                .containsEntry("SKIP", 2L) // base + 未归类条目（缺省 SKIP，不进配额基数）
+                .containsEntry("EXTRACTED", 1L)
+                .containsEntry("DEFERRED", 1L);
     }
 }

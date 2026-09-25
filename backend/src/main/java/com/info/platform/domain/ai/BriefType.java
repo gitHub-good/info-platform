@@ -5,7 +5,8 @@ package com.info.platform.domain.ai;
  * 的缓存分区/成本归因键）。
  *
  * <p>领域层纯净枚举（仅 JDK），与持久化层 {@code TINYINT} 互转。1~4 对齐 Spike-2 §7 四类 v1 模板： 1 个股 / 2 事件归因 / 3 政策解读 / 4
- * 每日推荐；M15（ADR-0046 裁决 3）扩管道场景 5 行业归类（V23 播种 v1.0，治理页零改动自动可见），6 事件提取 / 7 行业日报随 T122/T124 播种。
+ * 每日推荐；M15（ADR-0046 裁决 3）扩管道场景 5 行业归类（V23 播种 v1.0，治理页零改动自动可见）/ 6 事件提取（V24 播种 v1.0，T122）/ 7
+ * 行业日报（T124 播种）。
  *
  * <p>{@link #key()} 返回字符串码（如 {@code "1"}），供 T21 构造 {@link LlmRequest#json(java.util.List, String)
  * LlmRequest.json(messages, briefTypeKey)} 时直接传入（{@code briefTypeKey} 即此 key，见 LlmRequest 契约）。
@@ -20,7 +21,9 @@ public enum BriefType {
     /** 每日推荐（自选池信息面活跃度排序 Top5，briefType=4，关联 T23）。 */
     DAILY_RECOMMEND(4, "每日推荐"),
     /** 行业归类（L1 批量归类管道模板，briefType=5，M15 / ADR-0046 裁决 3；scene 留痕与护栏成本口径键）。 */
-    L1_CLASSIFY(5, "行业归类");
+    L1_CLASSIFY(5, "行业归类"),
+    /** 事件提取（L2 批量结构化事件管道模板，briefType=6，M15 T122 / ADR-0046 裁决 3；V24 播种 v1.0）。 */
+    L2_EXTRACT(6, "事件提取");
 
     private final int code;
     private final String displayName;
