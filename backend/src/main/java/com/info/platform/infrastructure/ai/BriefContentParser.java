@@ -32,6 +32,8 @@ import org.springframework.stereotype.Component;
  *   <li>Jackson 反序列化为 {@link BriefContent}，{@code FAIL_ON_UNKNOWN_PROPERTIES=false} 容忍模型多输出字段（如
  *       {@code topRecommend}）；缺失的 {@code keyEvents}/{@code facts} 数组由 {@link BriefContent} 紧凑构造器归空。
  *   <li>任一步失败 → 记 WARN（含 content 片段，不泄露全文）+ 返回 empty。
+ *   <li>展示字段兜底（2026-09-22 id=13 实测）：{@code event}/{@code claim} 为 null/空时由 {@link
+ *       #fillDisplayFallbacks} 后处理填充（reason 首句截断 / 「{metric} 数值」）——生成与读取双路径生效。
  * </ol>
  *
  * <p>反向序列化： {@link #writeJson} 产出规范 BriefContent JSON（落 {@code ai_brief.content}，去 fence/解释文字后的干净
@@ -45,6 +47,18 @@ import org.springframework.stereotype.Component;
 public class BriefContentParser implements BriefContentCodec {
 
     private static final Logger log = LoggerFactory.getLogger(BriefContentParser.class);
+
+    /** 事件标题兜底截断上限（与模板 v1.1 的 event 10~20 字契约一致）。 */
+    private static final int MAX_FALLBACK_TITLE_LENGTH = 20;
+
+    /** 事件标题无可合成素材（event 与 reason 均空）时的泛化标题，保证展示不空。 */
+    private static final String GENERIC_EVENT_TITLE = "关键事件";
+
+    /** claim 兜底后缀（与 metric 拼为「{metric} 数值」）。 */
+    private static final String CLAIM_FALLBACK_SUFFIX = " 数值";
+
+    /** 句界标点（中英文句号/叹号/问号/分号与换行）——取首句作事件标题兜底。 */
+    private static final String SENTENCE_DELIMITERS = "。！？!?；;\n";
 
     private final ObjectMapper parseMapper;
     private final ObjectMapper writer;
@@ -112,11 +126,90 @@ public class BriefContentParser implements BriefContentCodec {
         }
         try {
             BriefContent content = parseMapper.readValue(cleaned, BriefContent.class);
-            return Optional.of(content);
+            return Optional.of(fillDisplayFallbacks(content));
         } catch (Exception e) {
             log.warn("BriefContent 解析失败：{}（content 片段: {}）", e.getMessage(), snippet(cleaned));
             return Optional.empty();
         }
+    }
+
+    /**
+     * 展示字段兜底后处理（2026-09-22 ai_brief id=13 实测）：v1.0 模板产物 {@code keyEvents[].event} 与 {@code
+     * facts[].claim} 可能为 null/空（模型把内容写进 reason）→ 前端关键事件区无标题、事实表无陈述。
+     *
+     * <p>写在解析器而非领域结构：生成路径（parse→writeJson 归一化落库）与读取路径（getBrief 重解析存量
+     * content）双路径生效——存量简报与新简报展示均不空；领域 record 不动。
+     *
+     * @param content 反序列化产物
+     * @return event/claim 兜底填充后的副本（其余字段原样）
+     */
+    private static BriefContent fillDisplayFallbacks(BriefContent content) {
+        if (content.keyEvents().isEmpty() && content.facts().isEmpty()) {
+            return content;
+        }
+        List<BriefKeyEvent> events =
+                content.keyEvents().stream().map(BriefContentParser::fallbackEvent).toList();
+        List<BriefFact> facts =
+                content.facts().stream().map(BriefContentParser::fallbackFact).toList();
+        return new BriefContent(
+                content.summary(),
+                events,
+                content.bias(),
+                content.biasReason(),
+                content.watchSuggestion(),
+                facts,
+                content.disclaimer(),
+                content.topRecommend());
+    }
+
+    /** event 空 → reason 首句截断 ≤20 字；reason 亦空 → 泛化标题。 */
+    private static BriefKeyEvent fallbackEvent(BriefKeyEvent event) {
+        if (event.event() != null && !event.event().isBlank()) {
+            return event;
+        }
+        return new BriefKeyEvent(
+                fallbackTitle(event.reason()), event.impact(), event.reason(), event.sourceUrl());
+    }
+
+    /** 标题兜底：reason 首句（句界标点前）截断；无素材用泛化标题。 */
+    private static String fallbackTitle(String reason) {
+        String firstSentence = firstSentence(reason);
+        if (firstSentence == null) {
+            return GENERIC_EVENT_TITLE;
+        }
+        return firstSentence.length() <= MAX_FALLBACK_TITLE_LENGTH
+                ? firstSentence
+                : firstSentence.substring(0, MAX_FALLBACK_TITLE_LENGTH);
+    }
+
+    /** 取首个非空句（句界标点不保留）；全空返回 null。 */
+    private static String firstSentence(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        for (String part : text.split("[" + SENTENCE_DELIMITERS + "]")) {
+            String sentence = part.strip();
+            if (!sentence.isEmpty()) {
+                return sentence;
+            }
+        }
+        return null;
+    }
+
+    /** claim 空 → 「{metric} 数值」；metric 亦空则保持 null（前端显示 —，无可合成素材）。 */
+    private static BriefFact fallbackFact(BriefFact fact) {
+        if (fact.claim() != null && !fact.claim().isBlank()) {
+            return fact;
+        }
+        if (fact.metric() == null || fact.metric().isBlank()) {
+            return fact;
+        }
+        return new BriefFact(
+                fact.metric() + CLAIM_FALLBACK_SUFFIX,
+                fact.metric(),
+                fact.value(),
+                fact.source(),
+                fact.sourceUrl());
     }
 
     /** 序列化 BriefContent 为规范 JSON（落 {@code ai_brief.content}）。 */
