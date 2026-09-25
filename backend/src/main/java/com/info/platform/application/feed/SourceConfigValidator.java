@@ -47,6 +47,17 @@ public class SourceConfigValidator {
     private static final int PAGE_SIZE_MIN = 1;
     private static final int PAGE_SIZE_MAX = 100;
 
+    /** 新增通道预检（T105 构造前拦截）：preset 通道对实体有 adapter_ref 强约束，须先于构造拒绝， 报错文案保持「adapterType」字段级。 */
+    public void validateCreateType(AdapterType adapterType) {
+        if (!CREATE_ALLOWED_TYPES.contains(adapterType)) {
+            throw new BusinessException(
+                    ErrorCode.INFO_SOURCE_CONFIG_INVALID,
+                    "adapterType: 仅允许 rss / json_api（页面新增不开放 "
+                            + (adapterType == null ? "空值" : adapterType.wireCode())
+                            + "）");
+        }
+    }
+
     /** 新增通用源校验：通道白名单 + 通用结构校验。 */
     public void validateCreate(InfoSource source) {
         List<String> problems = new ArrayList<>();

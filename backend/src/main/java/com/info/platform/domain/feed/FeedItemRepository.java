@@ -30,4 +30,11 @@ public interface FeedItemRepository {
 
     /** 页码模式精确计数（与 {@link #findPage} 同过滤口径）。 */
     long countByFilter(Long sourceId);
+
+    /**
+     * 感知延迟样本（fetched_at − published_at 毫秒，负值截 0——源侧时钟超前不产生负口径），stats 端点 P50/P90 现算（§4.8）。
+     *
+     * @param sinceISO 窗口起点（ISO-8601 Instant 文本，含；按 created_at 过滤）
+     */
+    List<Long> fetchLatencyMillisSince(String sinceISO);
 }

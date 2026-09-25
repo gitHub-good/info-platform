@@ -4,6 +4,7 @@ import com.info.platform.domain.feed.FeedItem;
 import com.info.platform.domain.feed.FeedItemRepository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
@@ -112,6 +113,22 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
         applySourceFilter(query, sourceId);
         Long count = jdbcTemplate.queryForObject(query.sql(), Long.class, query.args());
         return count == null ? 0L : count;
+    }
+
+    @Override
+    public List<Long> fetchLatencyMillisSince(String sinceISO) {
+        // 感知延迟样本（§4.8）：fetched_at − published_at，负值截 0（源侧时钟超前不产生负口径）
+        return jdbcTemplate.query(
+                "SELECT fetched_at, published_at FROM news_item WHERE created_at >= ?",
+                (rs, rowNum) -> {
+                    long millis =
+                            Duration.between(
+                                            Instant.parse(rs.getString("published_at")),
+                                            Instant.parse(rs.getString("fetched_at")))
+                                    .toMillis();
+                    return Math.max(0L, millis);
+                },
+                sinceISO);
     }
 
     /** 列表查询基座（软删源 join + WHERE 1=1 起步，过滤片段顺序追加）。 */

@@ -276,6 +276,45 @@ class SourceSchedulingServiceTest {
         first.join(5000);
     }
 
+    @Test
+    void submitPollNow_dispatchesAsyncOnPool_returnsResultAndClearsGuard() throws Exception {
+        InfoSource target = source(41, 5);
+        when(ingestService.poll(any(InfoSource.class))).thenReturn(true);
+        SourceSchedulingService service = service(controlPool);
+
+        var future = service.submitPollNow(target);
+
+        assertThat(future.get(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        // 守卫已清：可再次受理
+        assertThat(service.submitPollNow(target)).isNotNull();
+    }
+
+    @Test
+    void submitPollNow_inFlightSource_rejected30074_immediately() throws Exception {
+        InfoSource target = source(42, 5);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger started = new AtomicInteger();
+        when(ingestService.poll(any(InfoSource.class)))
+                .thenAnswer(
+                        inv -> {
+                            started.incrementAndGet();
+                            release.await();
+                            return true;
+                        });
+        SourceSchedulingService service = service(controlPool);
+
+        var accepted = service.submitPollNow(target);
+        awaitUntil(() -> started.get() >= 1);
+
+        // 在飞判定同步回（202 通道的 409/30074 语义），无需等待后台轮次结束
+        assertThatThrownBy(() -> service.submitPollNow(target))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INFO_SOURCE_POLL_IN_FLIGHT);
+        release.countDown();
+        assertThat(accepted.get(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    }
+
     private static void awaitUntil(java.util.function.BooleanSupplier condition)
             throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5_000;

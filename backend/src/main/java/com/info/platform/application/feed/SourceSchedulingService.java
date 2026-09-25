@@ -131,6 +131,29 @@ public class SourceSchedulingService {
         }
     }
 
+    /**
+     * 手动抓取异步受理（T105 POST /{id}/poll 202）：CAS 守卫同步判 30074，轮次派发域内线程池（方案库 12：手动受理非 JobExecutor 通道，留痕走
+     * data_source_event）。
+     *
+     * @throws BusinessException 30074 该源抓取进行中
+     */
+    public Future<Boolean> submitPollNow(InfoSource source) {
+        if (!inFlight.add(source.getId())) {
+            throw new BusinessException(
+                    ErrorCode.INFO_SOURCE_POLL_IN_FLIGHT, "该源抓取正在进行中: " + source.getSourceCode());
+        }
+        boolean submitted = false;
+        try {
+            Future<Boolean> future = pollPool.submit(guardedPoll(source));
+            submitted = true;
+            return future;
+        } finally {
+            if (!submitted) {
+                inFlight.remove(source.getId());
+            }
+        }
+    }
+
     /** 到期筛选 + 重启抖动重铺（仅停机积压源：next_due 落后超过一个完整间隔）。 */
     private List<DueSource> collectDue(Instant now) {
         List<DueSource> due = new ArrayList<>();
@@ -193,14 +216,18 @@ public class SourceSchedulingService {
     }
 
     private Future<Boolean> dispatch(InfoSource source) {
-        return pollPool.submit(
-                () -> {
-                    try {
-                        return ingestService.poll(source);
-                    } finally {
-                        inFlight.remove(source.getId());
-                    }
-                });
+        return pollPool.submit(guardedPoll(source));
+    }
+
+    /** 单源一轮的可提交体：轮次结束（无论成败）自清在飞集合。 */
+    private java.util.concurrent.Callable<Boolean> guardedPoll(InfoSource source) {
+        return () -> {
+            try {
+                return ingestService.poll(source);
+            } finally {
+                inFlight.remove(source.getId());
+            }
+        };
     }
 
     /** 预算内等待收编：逐 future 以剩余预算限时 get；超时放弃收编（不中断在飞轮，dispatch 的 finally 自清在飞集合）。 */
