@@ -16,11 +16,11 @@ import org.springframework.test.context.ActiveProfiles;
 
 /**
  * ExpiredLogDeleterImpl 集成测试（T70，方案 §6 删除端口组 / ADR-0036 §3）：SQLite 共享内存库 + Flyway 建表后验证删除端口语义——
- * 空删返回 0 / 窗口内行全保留 / created_at 恰等于 cutoff 的边界行保留（严格早于）/ cutoff 带亚秒精度先整秒截断 /
- * limit 拆批（分多批、计数合计准确、循环终止）/ 业务表零触碰（白名单只动四留痕表）。
+ * 空删返回 0 / 窗口内行全保留 / created_at 恰等于 cutoff 的边界行保留（严格早于）/ cutoff 带亚秒精度先整秒截断 / limit
+ * 拆批（分多批、计数合计准确、循环终止）/ 业务表零触碰（白名单只动四留痕表）。
  *
- * <p>数据经唯一标记（job_name='RetentionTestJob' 等）插入与清理，不与其他测试类共享行；时间戳全部用
- * 2020~2026 显式常量，cutoff 断言不受真实时钟影响。
+ * <p>数据经唯一标记（job_name='RetentionTestJob' 等）插入与清理，不与其他测试类共享行；时间戳全部用 2020~2026 显式常量，cutoff
+ * 断言不受真实时钟影响。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -99,8 +99,11 @@ class ExpiredLogDeleterImplTest {
     void deleteExpiredBefore_emptySlice_returnsZero() {
         // Arrange：早于任何测试行（全部 2026 年）的 cutoff；四表无匹配行
         // Act
-        long deleted = deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG,
-                Instant.parse("2020-01-01T00:00:00Z"), 500);
+        long deleted =
+                deleter.deleteExpiredBefore(
+                        RetentionLogTable.JOB_EXECUTION_LOG,
+                        Instant.parse("2020-01-01T00:00:00Z"),
+                        500);
 
         // Assert：空删返回 0（空轮照常返回，不抛出）
         assertThat(deleted).isZero();
@@ -114,7 +117,8 @@ class ExpiredLogDeleterImplTest {
         insertJobLog("2026-08-23T00:00:01Z");
 
         // Act
-        long deleted = deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG, CUTOFF, 500);
+        long deleted =
+                deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG, CUTOFF, 500);
 
         // Assert：仅严格早于 cutoff 的行删除；边界行与窗口内行保留（PRD 场景 1/2 红线）
         assertThat(deleted).isEqualTo(1);
@@ -135,8 +139,11 @@ class ExpiredLogDeleterImplTest {
         insertJobLog("2026-08-22T23:59:59Z");
 
         // Act
-        long deleted = deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG,
-                Instant.parse("2026-08-23T00:00:00.750Z"), 500);
+        long deleted =
+                deleter.deleteExpiredBefore(
+                        RetentionLogTable.JOB_EXECUTION_LOG,
+                        Instant.parse("2026-08-23T00:00:00.750Z"),
+                        500);
 
         // Assert：截断后判定——边界行保留、仅 1 秒前行删除
         assertThat(deleted).isEqualTo(1);
@@ -214,7 +221,10 @@ class ExpiredLogDeleterImplTest {
                         "runtime_config");
         List<Long> before =
                 businessTables.stream()
-                        .map(t -> jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + t, Long.class))
+                        .map(
+                                t ->
+                                        jdbcTemplate.queryForObject(
+                                                "SELECT COUNT(*) FROM " + t, Long.class))
                         .toList();
 
         // Act：四表全删（PRD 场景 6 白名单红线）
@@ -227,9 +237,7 @@ class ExpiredLogDeleterImplTest {
             long after =
                     jdbcTemplate.queryForObject(
                             "SELECT COUNT(*) FROM " + businessTables.get(i), Long.class);
-            assertThat(after)
-                    .as("业务表 %s 行数不应变化", businessTables.get(i))
-                    .isEqualTo(before.get(i));
+            assertThat(after).as("业务表 %s 行数不应变化", businessTables.get(i)).isEqualTo(before.get(i));
         }
     }
 
@@ -239,10 +247,14 @@ class ExpiredLogDeleterImplTest {
         assertThatThrownBy(() -> deleter.deleteExpiredBefore(null, CUTOFF, 500))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(
-                () -> deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG, null, 500))
+                        () ->
+                                deleter.deleteExpiredBefore(
+                                        RetentionLogTable.JOB_EXECUTION_LOG, null, 500))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(
-                () -> deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG, CUTOFF, 0))
+                        () ->
+                                deleter.deleteExpiredBefore(
+                                        RetentionLogTable.JOB_EXECUTION_LOG, CUTOFF, 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

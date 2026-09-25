@@ -8,8 +8,8 @@ import java.util.Map;
  *
  * <p>端口在应用层、实现在基础设施层（{@code infrastructure.retention.RetentionConfigFacadeImpl}）：实现需读写
  * runtime_config（RuntimeConfigService 换快照与事件发布），与既有 LlmConfigFacade / JobCenterFacade 同因（应用层直依
- * 基础设施件会成环）。读侧走 {@link RetentionWindows}（字段级回退防御）；写侧拼全量文档委托
- * {@code RuntimeConfigService.write}（校验 2001 + expectedUpdatedAt 30065 + 换快照热生效）。
+ * 基础设施件会成环）。读侧走 {@link RetentionWindows}（字段级回退防御）；写侧拼全量文档委托 {@code RuntimeConfigService.write}（校验
+ * 2001 + expectedUpdatedAt 30065 + 换快照热生效）。
  */
 public interface RetentionConfigFacade {
 
@@ -41,9 +41,7 @@ public interface RetentionConfigFacade {
      */
     record FieldLimits(int min, @JsonProperty("default") int defaultValue) {}
 
-    /**
-     * PATCH 请求体：四字段全量（null/缺失 → 校验器 2001 必填拦截，不部分写）；expectedUpdatedAt 可选并发防呆。
-     */
+    /** PATCH 请求体：四字段全量（null/缺失 → 校验器 2001 必填拦截，不部分写）；expectedUpdatedAt 可选并发防呆。 */
     record WindowsUpdate(
             Integer jobExecutionLogDays,
             Integer dataSourceEventDays,

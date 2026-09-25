@@ -15,8 +15,8 @@ import org.springframework.stereotype.Component;
  * SQLite 默认构建未开 {@code SQLITE_ENABLE_UPDATE_DELETE_LIMIT}，{@code DELETE … LIMIT} 直写不可用；子查询形态可移植且
  * 内层可走 created_at 索引。表名取自枚举常量（编译期定死）拼接 SQL 骨架，cutoff/limit 一律 {@code ?} 绑定，无注入面。
  *
- * <p>事务边界：单次调用即一批（调用方每批一次、循环至返回值 &lt; limit）——Spring 代理下每条 JdbcTemplate 语句独立提交，
- * 对齐 ADR-0036「批间独立事务」（500 行毫秒级提交，WAL 写锁持有窗口短）。
+ * <p>事务边界：单次调用即一批（调用方每批一次、循环至返回值 &lt; limit）——Spring 代理下每条 JdbcTemplate 语句独立提交， 对齐
+ * ADR-0036「批间独立事务」（500 行毫秒级提交，WAL 写锁持有窗口短）。
  */
 @Component
 public class ExpiredLogDeleterImpl implements ExpiredLogDeleter {
@@ -38,8 +38,12 @@ public class ExpiredLogDeleterImpl implements ExpiredLogDeleter {
         String bound = cutoff.truncatedTo(ChronoUnit.SECONDS).toString();
         String name = table.physicalName();
         String sql =
-                "DELETE FROM " + name + " WHERE id IN ("
-                        + "SELECT id FROM " + name + " WHERE created_at < ? LIMIT ?)";
+                "DELETE FROM "
+                        + name
+                        + " WHERE id IN ("
+                        + "SELECT id FROM "
+                        + name
+                        + " WHERE created_at < ? LIMIT ?)";
         return jdbcTemplate.update(sql, bound, limit);
     }
 }

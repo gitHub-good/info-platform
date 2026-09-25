@@ -7,9 +7,9 @@ import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.application.retention.RetentionConfigFacade;
 import com.info.platform.application.retention.RetentionConfigValidator;
 import com.info.platform.application.retention.RetentionWindows;
-import com.info.platform.domain.retention.RetentionLogTable;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import com.info.platform.domain.retention.RetentionLogTable;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * {@link RetentionConfigFacade} 实现（T72，方案 §4.3）。读：runtime_config 快照现读 + {@link RetentionWindows}
- * 字段级回退解析 + 枚举常量拼 limits。写：四字段拼全量文档（null 不拼入——校验器 2001 必填拦截）→
- * {@link RuntimeConfigService#write}（校验 + 乐观防呆 + 换快照热生效），写后回读刷新视图。
+ * 字段级回退解析 + 枚举常量拼 limits。写：四字段拼全量文档（null 不拼入——校验器 2001 必填拦截）→ {@link RuntimeConfigService#write}（校验
+ * + 乐观防呆 + 换快照热生效），写后回读刷新视图。
  */
 @Component
 public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
@@ -27,14 +27,16 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
     private final RuntimeConfigService configService;
     private final ObjectMapper objectMapper;
 
-    public RetentionConfigFacadeImpl(RuntimeConfigService configService, ObjectMapper objectMapper) {
+    public RetentionConfigFacadeImpl(
+            RuntimeConfigService configService, ObjectMapper objectMapper) {
         this.configService = configService;
         this.objectMapper = objectMapper;
     }
 
     @Override
     public WindowsView view() {
-        RuntimeConfigEntry entry = configService.read(RetentionConfigValidator.CONFIG_KEY).orElse(null);
+        RuntimeConfigEntry entry =
+                configService.read(RetentionConfigValidator.CONFIG_KEY).orElse(null);
         RetentionWindows windows =
                 RetentionWindows.resolve(entry == null ? null : entry.document());
         Map<String, FieldLimits> limits = new LinkedHashMap<>();

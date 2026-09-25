@@ -8,9 +8,9 @@ import com.info.platform.application.common.RuntimeConfigSeed;
 import org.junit.jupiter.api.Test;
 
 /**
- * RetentionRuntimeConfigSeeder 单测（T72，M10 技术方案增补 §4.1）：retention.global 种子键形态与默认窗口
- * （枚举 defaultDays 单一事实源 30/14/90/90）；seed-if-absent 幂等由 RuntimeConfigService.seedIfAbsent 通用机制保证
- * （DB 已有键不动，已有测试覆盖），此处锁定种子结构与值。
+ * RetentionRuntimeConfigSeeder 单测（T72，M10 技术方案增补 §4.1）：retention.global 种子键形态与默认窗口 （枚举 defaultDays
+ * 单一事实源 30/14/90/90）；seed-if-absent 幂等由 RuntimeConfigService.seedIfAbsent 通用机制保证 （DB
+ * 已有键不动，已有测试覆盖），此处锁定种子结构与值。
  */
 class RetentionRuntimeConfigSeederTest {
 

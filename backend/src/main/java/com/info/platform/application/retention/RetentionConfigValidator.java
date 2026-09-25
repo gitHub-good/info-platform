@@ -37,7 +37,13 @@ public class RetentionConfigValidator implements RuntimeConfigValidator {
             } else if (!field.isIntegralNumber()) {
                 problems.add(table.jsonField() + ": 须为整数");
             } else if (field.asInt() < table.minDays()) {
-                problems.add(table.jsonField() + ": 须 >= " + table.minDays() + "（" + table.physicalName() + " 下限）");
+                problems.add(
+                        table.jsonField()
+                                + ": 须 >= "
+                                + table.minDays()
+                                + "（"
+                                + table.physicalName()
+                                + " 下限）");
             }
         }
         if (!problems.isEmpty()) {

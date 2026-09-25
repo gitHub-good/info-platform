@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,8 +23,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * RetentionCleanupService 单测（T71，方案 §4.5 / §6 服务与 Job 组）：四表独立窗口同时生效 / 空轮 SUCCESS 语义（合计 0 不抛）/
- * 明细四段格式（段序=枚举序）/ 分批循环至返回 &lt; 500 / 每轮现读配置（含 Clock 注入的热改窗口）/ 配置缺失与非法值回退默认 /
- * 单表失败续跑其余表 + 轮末汇总抛出 + 部分计数入明细。AAA 结构（mock 删除端口与配置读取，固定 Clock）。
+ * 明细四段格式（段序=枚举序）/ 分批循环至返回 &lt; 500 / 每轮现读配置（含 Clock 注入的热改窗口）/ 配置缺失与非法值回退默认 / 单表失败续跑其余表 + 轮末汇总抛出 +
+ * 部分计数入明细。AAA 结构（mock 删除端口与配置读取，固定 Clock）。
  */
 class RetentionCleanupServiceTest {
 
@@ -107,7 +106,8 @@ class RetentionCleanupServiceTest {
     void runOnce_emptyRound_processedZeroDetailAllZeros_noException() {
         // Arrange：四表全返回 0（空轮，PRD 场景 3）
         stubConfig(DEFAULT_DOC);
-        when(deleter.deleteExpiredBefore(any(RetentionLogTable.class), any(Instant.class), anyInt()))
+        when(deleter.deleteExpiredBefore(
+                        any(RetentionLogTable.class), any(Instant.class), anyInt()))
                 .thenReturn(0L);
 
         // Act
@@ -127,7 +127,8 @@ class RetentionCleanupServiceTest {
                 "{\"jobExecutionLogDays\":10,\"dataSourceEventDays\":14,"
                         + "\"llmCallLogDays\":90,\"readingEventDays\":90}");
         Instant cutoff = Instant.parse("2026-09-12T03:30:00Z");
-        when(deleter.deleteExpiredBefore(eq(RetentionLogTable.JOB_EXECUTION_LOG), eq(cutoff), eq(500)))
+        when(deleter.deleteExpiredBefore(
+                        eq(RetentionLogTable.JOB_EXECUTION_LOG), eq(cutoff), eq(500)))
                 .thenReturn(500L, 500L, 12L);
 
         // Act
@@ -144,7 +145,8 @@ class RetentionCleanupServiceTest {
     void runOnce_configKeyMissing_runsWithDefaults_neverZeroWindows() {
         // Arrange：键缺失（种子前/整键损坏）→ 全默认 30/14/90/90（降级预案：DB 无配置 = 用默认，不是全删）
         when(configService.read(KEY)).thenReturn(Optional.empty());
-        when(deleter.deleteExpiredBefore(any(RetentionLogTable.class), any(Instant.class), anyInt()))
+        when(deleter.deleteExpiredBefore(
+                        any(RetentionLogTable.class), any(Instant.class), anyInt()))
                 .thenReturn(0L);
 
         // Act
@@ -163,9 +165,7 @@ class RetentionCleanupServiceTest {
                         500);
         verify(deleter)
                 .deleteExpiredBefore(
-                        RetentionLogTable.LLM_CALL_LOG,
-                        Instant.parse("2026-06-24T03:30:00Z"),
-                        500);
+                        RetentionLogTable.LLM_CALL_LOG, Instant.parse("2026-06-24T03:30:00Z"), 500);
         verify(deleter)
                 .deleteExpiredBefore(
                         RetentionLogTable.READING_EVENT,
@@ -179,7 +179,8 @@ class RetentionCleanupServiceTest {
         stubConfig(
                 "{\"jobExecutionLogDays\":0,\"dataSourceEventDays\":5,"
                         + "\"llmCallLogDays\":90,\"readingEventDays\":90}");
-        when(deleter.deleteExpiredBefore(any(RetentionLogTable.class), any(Instant.class), anyInt()))
+        when(deleter.deleteExpiredBefore(
+                        any(RetentionLogTable.class), any(Instant.class), anyInt()))
                 .thenReturn(0L);
 
         // Act
@@ -242,8 +243,7 @@ class RetentionCleanupServiceTest {
         // Arrange：上一轮单表失败后，下一轮调度继续（REQ 非功能：失败轮不停摆）。
         // 先铺通用 0 行，再铺 LLM 专属链（Mockito 后铺的匹配桩胜出）：首轮即抛 → 次轮 0 行
         stubConfig(DEFAULT_DOC);
-        when(deleter.deleteExpiredBefore(
-                        any(RetentionLogTable.class), any(Instant.class), eq(500)))
+        when(deleter.deleteExpiredBefore(any(RetentionLogTable.class), any(Instant.class), eq(500)))
                 .thenReturn(0L);
         when(deleter.deleteExpiredBefore(
                         eq(RetentionLogTable.LLM_CALL_LOG), any(Instant.class), eq(500)))
@@ -265,7 +265,8 @@ class RetentionCleanupServiceTest {
     void runOnce_readsConfigEveryRound_hotWindowChangeTakesEffectNextRound() {
         // Arrange：第一轮窗口 30 天
         stubConfig(DEFAULT_DOC);
-        when(deleter.deleteExpiredBefore(any(RetentionLogTable.class), any(Instant.class), anyInt()))
+        when(deleter.deleteExpiredBefore(
+                        any(RetentionLogTable.class), any(Instant.class), anyInt()))
                 .thenReturn(0L);
         service.runOnce();
         verify(deleter)

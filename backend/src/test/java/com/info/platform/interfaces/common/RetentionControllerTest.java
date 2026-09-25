@@ -24,8 +24,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * RetentionController 切片测试（T72，契约 §4.3）：GET/PATCH /api/v1/retention/windows 形状 + 错误码映射
- * （2001 → 400 字段级、30065 → 409）。standaloneSetup 独立 MockMvc（对齐 JobControllerTest 模式，JWT 保护由生产过滤器承担）。
+ * RetentionController 切片测试（T72，契约 §4.3）：GET/PATCH /api/v1/retention/windows 形状 + 错误码映射 （2001 → 400
+ * 字段级、30065 → 409）。standaloneSetup 独立 MockMvc（对齐 JobControllerTest 模式，JWT 保护由生产过滤器承担）。
  */
 class RetentionControllerTest {
 
@@ -109,7 +109,8 @@ class RetentionControllerTest {
     void updateWindows_concurrentConflict_409() throws Exception {
         when(facade.update(any(WindowsUpdate.class)))
                 .thenThrow(
-                        new BusinessException(ErrorCode.CONFIG_CONFLICT, "配置已被并发修改: retention.global，请刷新后重试"));
+                        new BusinessException(
+                                ErrorCode.CONFIG_CONFLICT, "配置已被并发修改: retention.global，请刷新后重试"));
 
         mockMvc.perform(
                         patch("/api/v1/retention/windows")

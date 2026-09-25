@@ -11,8 +11,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * RetentionWindows 解析单测（T71，方案 §4.2 执行侧防御）：全字段采信 / 键缺失全默认 / 逐字段独立回退（缺失、非整型、低于下限
- * 各自回退该表 defaultDays，好字段不受牵连）/ 恰等于下限采信 / of(table) 映射。纯函数单测（无 Spring 上下文）。
+ * RetentionWindows 解析单测（T71，方案 §4.2 执行侧防御）：全字段采信 / 键缺失全默认 / 逐字段独立回退（缺失、非整型、低于下限 各自回退该表
+ * defaultDays，好字段不受牵连）/ 恰等于下限采信 / of(table) 映射。纯函数单测（无 Spring 上下文）。
  */
 class RetentionWindowsTest {
 
@@ -48,9 +48,7 @@ class RetentionWindowsTest {
         RetentionWindows windows = RetentionWindows.resolve(null);
 
         // Assert：默认窗口 30/14/90/90（枚举单一事实源）
-        assertThat(windows)
-                .isEqualTo(
-                        new RetentionWindows(30, 14, 90, 90));
+        assertThat(windows).isEqualTo(new RetentionWindows(30, 14, 90, 90));
     }
 
     @Test
@@ -77,9 +75,7 @@ class RetentionWindowsTest {
         // Arrange：jobExecutionLogDays 被写坏，其余字段合法
         RetentionWindows windows =
                 RetentionWindows.resolve(
-                        doc(
-                                "{\"jobExecutionLogDays\":" + raw
-                                        + ",\"dataSourceEventDays\":5}"));
+                        doc("{\"jobExecutionLogDays\":" + raw + ",\"dataSourceEventDays\":5}"));
 
         // Assert：坏字段回退 30（不是 0——「设 0 清空」不可达），好字段照常采信
         assertThat(windows.jobExecutionLogDays()).isEqualTo(30);
@@ -96,8 +92,7 @@ class RetentionWindowsTest {
                                         + "\"llmCallLogDays\":35,\"readingEventDays\":35}"));
 
         // Assert
-        assertThat(windows)
-                .isEqualTo(new RetentionWindows(7, 2, 35, 35));
+        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35));
     }
 
     @Test

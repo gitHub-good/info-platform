@@ -6,13 +6,13 @@ import com.info.platform.application.jobrun.ScheduleType;
 import org.springframework.stereotype.Component;
 
 /**
- * 留痕数据清理任务（T71，方案 §4.5）——第 7 个收编 {@link ManagedJob}：注册为无条件 bean 即被任务中心收编
- * （可视/手动触发 202+executionId/启停热切换），调度中心零改动。
+ * 留痕数据清理任务（T71，方案 §4.5）——第 7 个收编 {@link ManagedJob}：注册为无条件 bean 即被任务中心收编 （可视/手动触发
+ * 202+executionId/启停热切换），调度中心零改动。
  *
  * <p>调度：CRON 型（种子 {@code job.RETENTION_CLEANUP}，默认 {@code 0 30 3 * * ?} 每日 03:30，避开 06:00 标的池同步与
- * 09:00 每日推荐；测试 profile {@code retention.cleanup.enabled=false} 零注册）。业务执行委托
- * {@link RetentionCleanupService}，留痕由 JobExecutor 统一驱动；实现 {@link JobRunStats} 上报轮次合计与四段明细
- * （SUCCESS 行 processed_count/error_message，ADR-0036 §2）。
+ * 09:00 每日推荐；测试 profile {@code retention.cleanup.enabled=false} 零注册）。业务执行委托 {@link
+ * RetentionCleanupService}，留痕由 JobExecutor 统一驱动；实现 {@link JobRunStats} 上报轮次合计与四段明细 （SUCCESS 行
+ * processed_count/error_message，ADR-0036 §2）。
  */
 @Component
 public class RetentionCleanupJob implements ManagedJob, JobRunStats {

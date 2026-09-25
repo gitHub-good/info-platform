@@ -11,9 +11,9 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * 留痕窗口种子（{@code retention.global}，T72，M10 技术方案增补 §4.1）：四字段默认窗口取 {@link RetentionLogTable}
- * 枚举 defaultDays（30/14/90/90，代码内置默认，ADR-0032 同系列——无 yml 遗留可平移）。seed-if-absent 由配置中心统一执行
- * （DB 已有键不动，DB 为权威）。
+ * 留痕窗口种子（{@code retention.global}，T72，M10 技术方案增补 §4.1）：四字段默认窗口取 {@link RetentionLogTable} 枚举
+ * defaultDays（30/14/90/90，代码内置默认，ADR-0032 同系列——无 yml 遗留可平移）。seed-if-absent 由配置中心统一执行 （DB 已有键不动，DB
+ * 为权威）。
  */
 @Component
 public class RetentionRuntimeConfigSeeder implements RuntimeConfigSeeder {

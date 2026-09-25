@@ -21,9 +21,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * RetentionConfigFacadeImpl 单测（T72，方案 §4.3）：GET 视图组装（窗口/limits/updatedAt；键缺失 → 全默认 + null）/
- * PATCH 全量文档拼装并委托 RuntimeConfigService.write（expectedUpdatedAt 透传、写后回读刷新）/ 缺字段不拼入（由校验器 2001
- * 拦截）。AAA 结构（mock RuntimeConfigService——校验/落库/换快照由其承担）。
+ * RetentionConfigFacadeImpl 单测（T72，方案 §4.3）：GET 视图组装（窗口/limits/updatedAt；键缺失 → 全默认 + null）/ PATCH
+ * 全量文档拼装并委托 RuntimeConfigService.write（expectedUpdatedAt 透传、写后回读刷新）/ 缺字段不拼入（由校验器 2001 拦截）。AAA
+ * 结构（mock RuntimeConfigService——校验/落库/换快照由其承担）。
  */
 class RetentionConfigFacadeImplTest {
 
@@ -119,7 +119,8 @@ class RetentionConfigFacadeImplTest {
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
                         + "\"llmCallLogDays\":90,\"readingEventDays\":90}",
                 "2026-09-22T01:00:00Z");
-        when(configService.write(eq(KEY), any(String.class), eq(Instant.parse("2026-09-22T01:00:00Z"))))
+        when(configService.write(
+                        eq(KEY), any(String.class), eq(Instant.parse("2026-09-22T01:00:00Z"))))
                 .thenAnswer(
                         inv -> {
                             stubEntry(
@@ -137,11 +138,13 @@ class RetentionConfigFacadeImplTest {
         // Act：PATCH 四字段全量 + expectedUpdatedAt 防呆
         RetentionConfigFacade.WindowsView view =
                 facade.update(
-                        new RetentionConfigFacade.WindowsUpdate(7, 14, 35, 35, "2026-09-22T01:00:00Z"));
+                        new RetentionConfigFacade.WindowsUpdate(
+                                7, 14, 35, 35, "2026-09-22T01:00:00Z"));
 
         // Assert：写入文档四字段齐整；返回写后视图（新值 + 新 updatedAt）
         ArgumentCaptor<String> docCaptor = ArgumentCaptor.forClass(String.class);
-        verify(configService).write(eq(KEY), docCaptor.capture(), eq(Instant.parse("2026-09-22T01:00:00Z")));
+        verify(configService)
+                .write(eq(KEY), docCaptor.capture(), eq(Instant.parse("2026-09-22T01:00:00Z")));
         assertThat(docCaptor.getValue())
                 .contains("\"jobExecutionLogDays\":7")
                 .contains("\"dataSourceEventDays\":14")
@@ -155,11 +158,15 @@ class RetentionConfigFacadeImplTest {
     void update_nullField_omittedFromDocument_validatorWillReject() {
         // Arrange：缺字段的 PATCH → 文档不拼入该字段（校验器 2001 必填拦截）；expectedUpdatedAt 缺省为 null（不比对）
         when(configService.write(eq(KEY), any(String.class), any()))
-                .thenThrow(new BusinessException(ErrorCode.PARAM_INVALID, "jobExecutionLogDays: 必填"));
+                .thenThrow(
+                        new BusinessException(ErrorCode.PARAM_INVALID, "jobExecutionLogDays: 必填"));
 
         // Act + Assert：异常透传（2001 字段级，原值保留——DB 不动）
         assertThatThrownBy(
-                        () -> facade.update(new RetentionConfigFacade.WindowsUpdate(null, 14, 35, 35, null)))
+                        () ->
+                                facade.update(
+                                        new RetentionConfigFacade.WindowsUpdate(
+                                                null, 14, 35, 35, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
         verify(configService).write(eq(KEY), any(String.class), any());
@@ -170,11 +177,15 @@ class RetentionConfigFacadeImplTest {
         // Arrange：expectedUpdatedAt 非 ISO-8601 → 2001（对齐 JobCenterFacadeImpl.parseExpected 惯例）
         // Act + Assert
         assertThatThrownBy(
-                        () -> facade.update(new RetentionConfigFacade.WindowsUpdate(7, 14, 35, 35, "not-a-time")))
+                        () ->
+                                facade.update(
+                                        new RetentionConfigFacade.WindowsUpdate(
+                                                7, 14, 35, 35, "not-a-time")))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
-                        ex -> assertThat(((BusinessException) ex).getErrorCode())
-                                .isEqualTo(ErrorCode.PARAM_INVALID))
+                        ex ->
+                                assertThat(((BusinessException) ex).getErrorCode())
+                                        .isEqualTo(ErrorCode.PARAM_INVALID))
                 .hasMessageContaining("expectedUpdatedAt");
     }
 
@@ -186,10 +197,14 @@ class RetentionConfigFacadeImplTest {
 
         // Act + Assert：透传给接口层 → 409
         assertThatThrownBy(
-                        () -> facade.update(new RetentionConfigFacade.WindowsUpdate(7, 14, 35, 35, "2026-09-22T00:00:00Z")))
+                        () ->
+                                facade.update(
+                                        new RetentionConfigFacade.WindowsUpdate(
+                                                7, 14, 35, 35, "2026-09-22T00:00:00Z")))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
-                        ex -> assertThat(((BusinessException) ex).getErrorCode())
-                                .isEqualTo(ErrorCode.CONFIG_CONFLICT));
+                        ex ->
+                                assertThat(((BusinessException) ex).getErrorCode())
+                                        .isEqualTo(ErrorCode.CONFIG_CONFLICT));
     }
 }

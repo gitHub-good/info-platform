@@ -20,10 +20,9 @@ import org.springframework.stereotype.Service;
 /**
  * 留痕清理服务（T71，方案 §4.5）：四张留痕表的过期行分批循环删除 + 统计汇总。
  *
- * <p>执行流（每轮）：① 现读 {@code retention.global} 解析窗口（字段级回退防御）；② 逐表（枚举序固定，明细段序由此确定）
- * cutoff = now − 窗口（整秒截断）后分批循环删至返回值 &lt; 批大小；③ 单表失败 catch 续跑其余表，已删批部分计数仍入明细；
- * ④ 轮末 INFO 单行摘要（行数 + 窗口 + 耗时，运维留档）；⑤ 有失败才汇总抛 {@link RetentionCleanupException}（→ 通道记
- * FAILED，成功表明细 + 失败原因同载 error_message）。
+ * <p>执行流（每轮）：① 现读 {@code retention.global} 解析窗口（字段级回退防御）；② 逐表（枚举序固定，明细段序由此确定） cutoff = now −
+ * 窗口（整秒截断）后分批循环删至返回值 &lt; 批大小；③ 单表失败 catch 续跑其余表，已删批部分计数仍入明细； ④ 轮末 INFO 单行摘要（行数 + 窗口 + 耗时，运维留档）；⑤
+ * 有失败才汇总抛 {@link RetentionCleanupException}（→ 通道记 FAILED，成功表明细 + 失败原因同载 error_message）。
  *
  * <p>幂等：删除按「严格早于边界」判定，重复执行结果收敛（方案库 03）。
  */
@@ -64,7 +63,8 @@ public class RetentionCleanupService {
                 long deleted;
                 do {
                     // 分批循环删至返回值 < 批大小即无过期行；计数累在外层——失败时已删批部分计数不丢
-                    deleted = deleter.deleteExpiredBefore(table, cutoff, RetentionPolicy.BATCH_SIZE);
+                    deleted =
+                            deleter.deleteExpiredBefore(table, cutoff, RetentionPolicy.BATCH_SIZE);
                     deletedTotal += deleted;
                 } while (deleted == RetentionPolicy.BATCH_SIZE);
             } catch (RuntimeException ex) {
@@ -94,10 +94,7 @@ public class RetentionCleanupService {
     /** 每轮现读窗口（键缺失 → 全默认；字段非法 → 字段级回退，RetentionWindows 契约）。 */
     private RetentionWindows currentWindows() {
         return RetentionWindows.resolve(
-                configService
-                        .read(CONFIG_KEY)
-                        .map(RuntimeConfigEntry::document)
-                        .orElse(null));
+                configService.read(CONFIG_KEY).map(RuntimeConfigEntry::document).orElse(null));
     }
 
     /** 删除界：now − 窗口天数，整秒截断（与 created_at 整秒定长文本字典序对齐，ADR-0036 §3）。 */
