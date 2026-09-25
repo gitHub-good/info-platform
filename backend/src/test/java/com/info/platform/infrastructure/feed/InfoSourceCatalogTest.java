@@ -25,7 +25,7 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        // M13 试点三源 + M14 T110 批次一一级 JSON 四源 + T111 官方 HTML 三源（种子顺序即展示顺序；T112 报纸三源随后）
+        // M13 试点三源 + M14 T110 批次一一级 JSON 四源 + T111/T112 官方与报纸 HTML 六源（种子顺序即展示顺序）
         assertThat(codes)
                 .containsExactly(
                         "mw_topstories",
@@ -37,7 +37,10 @@ class InfoSourceCatalogTest {
                         "em_macro_indicators",
                         "ndrc_policy",
                         "csrc_news",
-                        "stats_release");
+                        "stats_release",
+                        "stcn_news",
+                        "yicai_news",
+                        "jingji21_finance");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -45,8 +48,8 @@ class InfoSourceCatalogTest {
     }
 
     @Test
-    void presets_containsM14BatchOneJsonSources_tenPresetsTotal() {
-        // M14 T110 一级 JSON 四源 + T111 官方三源入目录（T112 报纸三源随后，REQ 累计 13 源口径）
+    void presets_containsM14BatchOneJsonSources_thirteenPresetsTotal() {
+        // M14 T110 一级 JSON 四源 + T111/T112 官方报纸六源入目录（REQ 累计 13 源口径）
         var codes =
                 InfoSourceCatalog.presets().stream()
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
@@ -60,14 +63,17 @@ class InfoSourceCatalogTest {
                         "em_macro_indicators",
                         "ndrc_policy",
                         "csrc_news",
-                        "stats_release");
-        assertThat(codes).hasSize(10);
+                        "stats_release",
+                        "stcn_news",
+                        "yicai_news",
+                        "jingji21_finance");
+        assertThat(codes).hasSize(13);
     }
 
     @Test
     void presets_containsM14BatchOneHtmlSources_presetChannelCursorNone() {
-        // T111 三源：preset 通道（HTML 列表适配在代码内）+ cursorType=NONE（增量靠唯一索引，日期粒度过粗的裁量见
-        // ADR-0044）+ 官方频控 60min（REQ 频段 30~60 上限）
+        // T111/T112 六源：全部 preset 通道（HTML 列表适配在代码内）+ cursorType=NONE（增量靠唯一索引，
+        // 日期粒度过粗/列表乱序/相对时间的裁量见 ADR-0044）+ 频控落 REQ 频段（官方 60min、报纸 15~30min）
         var htmlCodes =
                 InfoSourceCatalog.presets().stream()
                         .filter(p -> p.adapterType() == AdapterType.PRESET)
@@ -79,8 +85,19 @@ class InfoSourceCatalogTest {
                         "em_macro_indicators",
                         "ndrc_policy",
                         "csrc_news",
-                        "stats_release");
-        for (String code : new String[] {"ndrc_policy", "csrc_news", "stats_release"}) {
+                        "stats_release",
+                        "stcn_news",
+                        "yicai_news",
+                        "jingji21_finance");
+        for (String code :
+                new String[] {
+                    "ndrc_policy",
+                    "csrc_news",
+                    "stats_release",
+                    "stcn_news",
+                    "yicai_news",
+                    "jingji21_finance"
+                }) {
             var entry =
                     htmlCodes.stream()
                             .filter(p -> p.sourceCode().equals(code))
@@ -91,7 +108,14 @@ class InfoSourceCatalogTest {
                     .as("%s cursorType", code)
                     .isEqualTo("NONE");
             assertThat(entry.adapterRef()).as("%s adapter_ref", code).isNotBlank();
-            assertThat(entry.intervalMinutes()).as("%s 官方源频控 30~60", code).isBetween(30, 60);
+            int interval = entry.intervalMinutes();
+            if (code.endsWith("_policy")
+                    || code.equals("csrc_news")
+                    || code.equals("stats_release")) {
+                assertThat(interval).as("%s 官方源频控 30~60", code).isBetween(30, 60);
+            } else {
+                assertThat(interval).as("%s 报纸源频控 15~30", code).isBetween(15, 30);
+            }
         }
     }
 

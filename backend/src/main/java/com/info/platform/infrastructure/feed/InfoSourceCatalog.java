@@ -249,6 +249,63 @@ public final class InfoSourceCatalog {
                     {"cursorType":"NONE"}""",
                     60);
 
+    /**
+     * 证券时报要闻（M14 T112，拍板一 #6，Should）：预置 adapter（{@code stcnNewsAdapter}）。端点为现行栏目路径 {@code
+     * /article/list/yw.html}（旧快讯路径与 RSS 均 404，由首页 data-items 对照得出，ADR-0044）；首屏 id 相邻 乱序对 →
+     * cursorType=NONE（裁量见适配器类注释）。
+     *
+     * <p>robots：stcn.com robots 为自定义 404 页 → 按「无 robots 文件 = 无限制」。频控 30min（REQ 报纸频段上限）。
+     */
+    private static final PresetEntry STCN_NEWS =
+            new PresetEntry(
+                    "stcn_news",
+                    "证券时报·要闻",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "stcnNewsAdapter",
+                    "https://www.stcn.com/article/list/yw.html",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
+    /**
+     * 第一财经资讯（M14 T112，拍板一 #7，Should）：预置 adapter（{@code yicaiNewsAdapter}），yicai.com/news 主列表 （旧快讯
+     * API 已死），相对时间折算与尾部 id 乱序 → cursorType=NONE 见适配器类注释（2026-09-25 预检实测， ADR-0044）。
+     *
+     * <p>robots：200 仅禁 {@code /api/}、{@code /search}——走 {@code /news/} HTML 列表不受影响。频控 20min（REQ 报纸
+     * 频段中值，快讯密度较高的列表源）。
+     */
+    private static final PresetEntry YICAI_NEWS =
+            new PresetEntry(
+                    "yicai_news",
+                    "第一财经·资讯",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "yicaiNewsAdapter",
+                    "https://www.yicai.com/news/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    20);
+
+    /**
+     * 21 财经金融频道（M14 T112，拍板一 #8，Should）：预置 adapter（{@code jingji21FinanceAdapter}），channel/finance
+     * 列表（编辑排序非时间序 → cursorType=NONE，裁量见适配器类注释，ADR-0044）。
+     *
+     * <p>robots：通配 {@code Allow:/}（仅禁 {@code /sitemap/generate}）但显式禁止 GPTBot 等 AI 训练类爬虫——聚合展示
+     * 用途不受影响；<b>M15 AI 管道启动前复核条款，有疑虑则该源内容不入深度分析</b>（REQ 非功能条款注记）。频控 30min。
+     */
+    private static final PresetEntry JINGJI21_FINANCE =
+            new PresetEntry(
+                    "jingji21_finance",
+                    "21财经·金融",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "jingji21FinanceAdapter",
+                    "https://www.21jingji.com/channel/finance/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -261,6 +318,9 @@ public final class InfoSourceCatalog {
                 EM_MACRO_INDICATORS,
                 NDRC_POLICY,
                 CSRC_NEWS,
-                STATS_RELEASE);
+                STATS_RELEASE,
+                STCN_NEWS,
+                YICAI_NEWS,
+                JINGJI21_FINANCE);
     }
 }
