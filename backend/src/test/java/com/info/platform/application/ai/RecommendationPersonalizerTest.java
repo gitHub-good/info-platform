@@ -169,6 +169,63 @@ class RecommendationPersonalizerTest {
         assertThat(profile.isPersonalized()).isFalse();
     }
 
+    // ---- T81（REQ-20260925-08 故事 2）：FEED 事件的画像消费断言留证 ----
+    // 画像消费链路现状：aggregateReads 不筛 contentType、只按 subjectId 聚合——以下用例锁定
+    // 「带标的的 FEED 同权计入已读热度、无标的的 FEED 只留痕不入画像」口径，防未来回归。
+
+    @Test
+    void buildProfile_feedRead_countedWithFullDayWeight() {
+        // Arrange：仅一条 FEED 留痕（subject_id=X，今天）——PRD 故事 2 场景 1
+        when(readingEventRepository.findByUserSince(eq(USER_ID), any(), anyInt()))
+                .thenReturn(List.of(read(100L, NOW, ReadingEventType.FEED, "announce:a1")));
+        when(subjectRepository.findById(100L))
+                .thenReturn(Optional.of(subject(100L, "SH600519", "贵州茅台", "白酒")));
+
+        // Act
+        UserInterestProfile profile = personalizer.buildProfile(USER_ID);
+
+        // Assert：count=1、heat=当天权重 1.0（衰减口径与其他类型一致）
+        assertThat(profile.readStats()).hasSize(1);
+        UserInterestProfile.SubjectReadStat stat = profile.readStats().get(0);
+        assertThat(stat.subjectId()).isEqualTo(100L);
+        assertThat(stat.count()).isEqualTo(1);
+        assertThat(stat.heat()).isCloseTo(1.0, within(1e-9));
+    }
+
+    @Test
+    void buildProfile_feedAndSubjectDetail_sameWeightMixed() {
+        // Arrange：标的 100 同日一条 SUBJECT_DETAIL + 一条 FEED——PRD 故事 2 场景 2（同权不打折不加权）
+        when(readingEventRepository.findByUserSince(eq(USER_ID), any(), anyInt()))
+                .thenReturn(
+                        List.of(
+                                read(100L, NOW, ReadingEventType.SUBJECT_DETAIL, "SH600519"),
+                                read(100L, NOW, ReadingEventType.FEED, "news:n1")));
+        when(subjectRepository.findById(100L))
+                .thenReturn(Optional.of(subject(100L, "SH600519", "贵州茅台", "白酒")));
+
+        // Act
+        UserInterestProfile profile = personalizer.buildProfile(USER_ID);
+
+        // Assert：count=2、heat=2.0（FEED 与详情阅读等权聚合）
+        assertThat(profile.readStats()).hasSize(1);
+        assertThat(profile.readStats().get(0).count()).isEqualTo(2);
+        assertThat(profile.readStats().get(0).heat()).isCloseTo(2.0, within(1e-9));
+    }
+
+    @Test
+    void buildProfile_feedReadWithoutSubject_skipped() {
+        // Arrange：政策条目 FEED 留痕（subject_id=null）——PRD 故事 2 场景 4（只留痕不入画像）
+        when(readingEventRepository.findByUserSince(eq(USER_ID), any(), anyInt()))
+                .thenReturn(List.of(read(null, NOW, ReadingEventType.FEED, "policy:1")));
+
+        // Act
+        UserInterestProfile profile = personalizer.buildProfile(USER_ID);
+
+        // Assert：任何标的的聚合不受影响（与既有 POLICY 无标的留痕行为对称）
+        assertThat(profile.readStats()).isEmpty();
+        assertThat(profile.isPersonalized()).isFalse();
+    }
+
     // ==================== fixtures ====================
 
     private static Subscription sub(SubscriptionType type, String subKey) {
@@ -198,8 +255,12 @@ class RecommendationPersonalizerTest {
     }
 
     private static ReadingEvent read(Long subjectId, Instant at) {
-        return ReadingEvent.reconstruct(
-                null, USER_ID, subjectId, ReadingEventType.SUBJECT_DETAIL, "ref", at);
+        return read(subjectId, at, ReadingEventType.SUBJECT_DETAIL, "ref");
+    }
+
+    private static ReadingEvent read(
+            Long subjectId, Instant at, ReadingEventType type, String ref) {
+        return ReadingEvent.reconstruct(null, USER_ID, subjectId, type, ref, at);
     }
 
     private static Subject subject(long id, String code, String name, String industry) {

@@ -29,7 +29,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>数据源：{@code subscription_config} 活跃订阅（主题词 = TOPIC + POLICY_THEME 的 subKey；标的订阅 = SUBJECT 的
  * subKey 解析 subjectId）+ {@code reading_event} 近 30 天留痕（按 subjectId 聚合，热度按 {@code 0.5^(距今天数/7)}
- * 时间衰减——一周前的阅读权重减半，防止陈旧兴趣长期主导排序）。
+ * 时间衰减——一周前的阅读权重减半，防止陈旧兴趣长期主导排序）。聚合不筛 contentType：SUBJECT_DETAIL/POLICY/AI_BRIEF/FEED
+ * 同权计入已读热度（信息流「点原文」阅读与详情阅读等权，REQ-20260925-08 议题 2 拍板——渠道权重调参走变更控制，本批不区分）。
  *
  * <p>降级（对齐技术方案 §5「每日推荐用规则兜底」精神）：任一取数异常整画像退化为空（WARN 不上抛）——个性化是增强信号，装配失败不能拖垮推荐主链路；空画像下评分退化为既有活跃度排序。
  */
@@ -135,7 +136,10 @@ public class RecommendationPersonalizer {
         return new UserInterestProfile.SubscribedSubject(subjectId, code, name);
     }
 
-    /** 阅读留痕按标的聚合：次数、最近阅读日期、衰减热度（无标的关联的阅读跳过）。 */
+    /**
+     * 阅读留痕按标的聚合：次数、最近阅读日期、衰减热度。不筛 contentType（FEED 同权，见类 javadoc）；无标的关联的阅读跳过 （subjectId=null：政策条目
+     * FEED、POLICY 详情等——只留痕不入画像，REQ-20260925-08 故事 2 场景 4）。
+     */
     private List<UserInterestProfile.SubjectReadStat> aggregateReads(List<ReadingEvent> reads) {
         Instant now = Instant.now(clock);
         Map<Long, Accumulator> bySubject = new LinkedHashMap<>();
