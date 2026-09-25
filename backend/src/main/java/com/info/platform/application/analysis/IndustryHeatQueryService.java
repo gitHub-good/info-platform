@@ -104,7 +104,8 @@ public class IndustryHeatQueryService {
                         page.isEmpty() ? null : page.get(page.size() - 1).eventId()));
     }
 
-    private static Long nextBeforeId(int pageSize, int limit, long total, long lastIdOfPage) {
+    private static Long nextBeforeId(int pageSize, int limit, long total, Long lastIdOfPage) {
+        // BUG-02（M15 验收）：空页时调用方传 null，原始 long 形参拆箱 NPE——改包装类型（空页恒返 null）
         return pageSize == limit && total > limit ? lastIdOfPage : null;
     }
 

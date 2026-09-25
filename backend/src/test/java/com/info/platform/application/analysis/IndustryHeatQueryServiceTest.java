@@ -202,4 +202,15 @@ class IndustryHeatQueryServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("limit");
     }
+
+    @Test
+    void drilldown_emptyPage_noNpeReturnEmptyView() {
+        // BUG-02 修复回归：空页（该行业窗内无条目）最后一页判断传 null 曾拆箱 NPE 致 500（8/8 复现）
+        IndustryHeatItemsView news = service.items("美容护理", "H24", "news", null, 20);
+        assertThat(news.total()).isZero();
+        assertThat(news.nextBeforeId()).isNull();
+        IndustryHeatItemsView events = service.items("美容护理", "H24", "events", null, 20);
+        assertThat(events.total()).isZero();
+        assertThat(events.nextBeforeId()).isNull();
+    }
 }

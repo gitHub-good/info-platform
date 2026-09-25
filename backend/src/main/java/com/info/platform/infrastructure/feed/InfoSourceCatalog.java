@@ -303,7 +303,7 @@ public final class InfoSourceCatalog {
                     "jingji21FinanceAdapter",
                     "https://www.21jingji.com/channel/finance/",
                     """
-                    {"cursorType":"NONE"}""",
+                    {"cursorType":"NONE","aiExclusion":"L2"}""",
                     30);
 
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
