@@ -12,16 +12,16 @@ afterEach(() => {
 });
 
 describe('AppLayout 统一导航骨架（T38）', () => {
-  it('渲染 4 分组 14 项导航（PRD 场景 1.1 全量可达 + 体检 P1-3 订阅管理），当前项高亮', () => {
+  it('渲染 4 分组 15 项导航（PRD 场景 1.1 全量可达 + 体检 P1-3 订阅管理 + M13 资讯源管理），当前项高亮', () => {
     render(<AppLayout currentRoute="/watchlists">内容</AppLayout>);
 
     // 分组标题
     for (const group of NAV_GROUPS) {
       expect(screen.getByText(group.label)).toBeInTheDocument();
     }
-    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：13 页 + 底部登出共 14 项
+    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：14 页 + 底部登出共 15 项
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(13);
+    expect(allItems).toHaveLength(14);
     for (const item of allItems) {
       expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
     }

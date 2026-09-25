@@ -13,6 +13,7 @@ import { Subscriptions } from '@/pages/Subscriptions';
 import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
+import { InfoSources } from '@/pages/InfoSources';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
 import { getToken } from '@/api/http';
@@ -77,6 +78,10 @@ function renderPage(route: string) {
   }
   if (route.startsWith('/datasource-config')) {
     return <DatasourceConfig />;
+  }
+  // 资讯源管理（M13 T105）：源注册表 DB 化后的运营页，与数据源配置页边界冻结（ADR-0038）
+  if (route.startsWith('/info-sources')) {
+    return <InfoSources />;
   }
   if (route.startsWith('/task-center')) {
     return <TaskCenter />;
