@@ -55,6 +55,7 @@ class FeedControllerTest {
                                 List.of(
                                         new FeedItem(
                                                 1L,
+                                                "announce:a1",
                                                 FeedItemType.ANNOUNCE,
                                                 "2026年半年度报告",
                                                 "",
@@ -67,6 +68,7 @@ class FeedControllerTest {
                                                 List.of("贵州茅台")),
                                         new FeedItem(
                                                 2L,
+                                                "recommendation:SH600036",
                                                 FeedItemType.RECOMMENDATION,
                                                 "招商银行",
                                                 "信息面活跃",
@@ -79,15 +81,17 @@ class FeedControllerTest {
                                                 null)),
                                 2L));
 
-        // Act + Assert：200 + code=0 + 命中原因/关键词 + nextCursor
+        // Act + Assert：200 + code=0 + 命中原因/关键词 + 稳定 contentId（M11 契约增量）+ nextCursor
         mockMvc.perform(get("/api/v1/feed/personal"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.items[0].type").value("announce"))
                 .andExpect(jsonPath("$.data.items[0].title").value("2026年半年度报告"))
+                .andExpect(jsonPath("$.data.items[0].contentId").value("announce:a1"))
                 .andExpect(jsonPath("$.data.items[0].matchReason").value("标的订阅:贵州茅台"))
                 .andExpect(jsonPath("$.data.items[0].keywords[0]").value("贵州茅台"))
                 .andExpect(jsonPath("$.data.items[1].type").value("recommendation"))
+                .andExpect(jsonPath("$.data.items[1].contentId").value("recommendation:SH600036"))
                 .andExpect(jsonPath("$.data.items[1].matchReason").value("每日推荐"))
                 .andExpect(jsonPath("$.data.items[1].keywords").isEmpty())
                 .andExpect(jsonPath("$.data.nextCursor").value(2));

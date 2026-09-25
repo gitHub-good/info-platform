@@ -82,6 +82,12 @@ public class FeedService {
     /** 内容时间归属时区（与新闻 adapter ctime 落地 Asia/Shanghai 一致）。 */
     private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Shanghai");
 
+    /** contentId 类型前缀分隔符（形态 {@code {type}:{源稳定 id}}，见 FeedItem#contentId）。 */
+    private static final String CONTENT_ID_SEPARATOR = ":";
+
+    /** contentId 长度上限（对齐 readingEvent contentRef ≤200 校验，透出前防御截断）。 */
+    private static final int CONTENT_ID_MAX_LENGTH = 200;
+
     private static final Comparator<FeedEntry> COMPARATOR =
             Comparator.comparing(
                             FeedEntry::publishedAt, Comparator.nullsLast(Comparator.reverseOrder()))
@@ -303,6 +309,7 @@ public class FeedService {
             FeedItem item =
                     new FeedItem(
                             0L,
+                            stableContentId(FeedItemType.RECOMMENDATION, r.subjectCode()),
                             FeedItemType.RECOMMENDATION,
                             r.subjectName(),
                             r.reason(),
@@ -324,6 +331,7 @@ public class FeedService {
         FeedItem item =
                 new FeedItem(
                         0L,
+                        stableContentId(c.type(), c.contentId()),
                         c.type(),
                         c.title(),
                         c.summary(),
@@ -372,6 +380,23 @@ public class FeedService {
     }
 
     // —— 工具方法 ——
+
+    /**
+     * 派生条目稳定内容标识（FEED 阅读埋点 contentRef，M11/REQ-20260925-08）。
+     *
+     * <p>形态 {@code {type}:{源稳定 id}}（公告/新闻 externalId、政策 policyId、推荐 subjectCode），满足四不变量： 跨请求稳定（源 id
+     * 稳定）、≤{@value CONTENT_ID_MAX_LENGTH}（超长防御截断）、类型前缀可辨（防跨类型条目撞 readingEvent 去重键）、与合成游标 id 无关。源缺稳定
+     * id 返回 null（该条不埋点，不用游标 id 兜底——ADR-0019 教训）。
+     */
+    static String stableContentId(FeedItemType type, String rawId) {
+        if (rawId == null || rawId.isBlank()) {
+            return null;
+        }
+        String prefixed = type.jsonValue() + CONTENT_ID_SEPARATOR + rawId.trim();
+        return prefixed.length() <= CONTENT_ID_MAX_LENGTH
+                ? prefixed
+                : prefixed.substring(0, CONTENT_ID_MAX_LENGTH);
+    }
 
     /** SourceResult.data["items"] → 规范化 Map 列表（OK 且有 items 才返回非空）。 */
     private static List<Map<String, Object>> itemsOf(SourceResult result) {

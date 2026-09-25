@@ -375,7 +375,209 @@ class FeedServiceTest {
         assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.RECOMMENDATION);
     }
 
+    // ---- M11 / REQ-20260925-08：contentId 稳定标识契约（四不变量）----
+
+    @Test
+    void getPersonalFeed_contentId_typePrefixedPerType() {
+        // Arrange：主路径同款三类型场景（公告 externalId / 政策 policyId / 推荐 subjectCode）
+        arrangeSubjectFeedWithOneAnnounceOnePolicy();
+
+        // Act
+        FeedListView view = service.getPersonalFeed(ME, null);
+
+        // Assert：形态 {type}:{源稳定 id}——类型前缀可辨（防跨类型条目撞 FEED 去重键）
+        assertThat(view.items()).hasSize(3);
+        assertThat(view.items().get(0).contentId()).isEqualTo("recommendation:SH600036");
+        assertThat(view.items().get(1).contentId()).isEqualTo("policy:1");
+        assertThat(view.items().get(2).contentId()).isEqualTo("announce:a1");
+    }
+
+    @Test
+    void getPersonalFeed_contentId_stableAcrossRequests_neverCursorId() {
+        // Arrange：25 条公告；两次请求之间源新增 1 条更新公告 → 游标 id 整体漂移（ADR-0019 场景）
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(List.of(sub(10L, SubscriptionType.SUBJECT, "600519")));
+        when(subjectRepository.findById(MOUTAI_ID))
+                .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
+        when(newsAdapter.fetch(any(Subject.class)))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
+        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE, MOUTAI_ID, announceItems(25), "公告", NOW));
+
+        // Act：请求一（无新公告）
+        FeedListView first = service.getPersonalFeed(ME, null);
+        // 请求二：源新增一条更新的公告（externalId=anew、publishedAt 更晚）→ 排序靠前，游标 id 整体后移
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE,
+                                MOUTAI_ID,
+                                announceItemsWithNewerExtra(),
+                                "公告",
+                                NOW));
+
+        FeedListView second = service.getPersonalFeed(ME, null);
+
+        // Assert：同一条目（a5）两次请求 contentId 相同、游标 id 漂移、contentId 不等于任何游标 id
+        FeedItem firstA5 = findByContentId(first, "announce:a05");
+        FeedItem secondA5 = findByContentId(second, "announce:a05");
+        assertThat(firstA5).isNotNull();
+        assertThat(secondA5).isNotNull();
+        assertThat(secondA5.id()).isNotEqualTo(firstA5.id()); // 游标漂移实证
+        assertThat(secondA5.contentId()).isEqualTo(firstA5.contentId()); // 稳定标识不漂移
+        assertThat(firstA5.contentId()).isNotEqualTo(String.valueOf(firstA5.id()));
+        assertThat(secondA5.contentId()).isNotEqualTo(String.valueOf(secondA5.id()));
+    }
+
+    @Test
+    void getPersonalFeed_contentId_overlongSourceId_clampedTo200() {
+        // Arrange：源 externalId 超长（250）→ 透出前防御截断至 200（对齐 readingEvent contentRef 校验上限）
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(List.of(sub(10L, SubscriptionType.SUBJECT, "600519")));
+        when(subjectRepository.findById(MOUTAI_ID))
+                .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
+        when(newsAdapter.fetch(any(Subject.class)))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
+        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE,
+                                MOUTAI_ID,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.of(
+                                                        "externalId",
+                                                        "x".repeat(250),
+                                                        "title",
+                                                        "超长标识公告",
+                                                        "publishedAt",
+                                                        "2026-09-15",
+                                                        "category",
+                                                        "财务报告",
+                                                        "url",
+                                                        "https://ex/ann/long"))),
+                                "公告",
+                                NOW));
+
+        // Act
+        FeedListView view = service.getPersonalFeed(ME, null);
+
+        // Assert：contentId 长度恰为 200 且保留类型前缀
+        FeedItem announce =
+                view.items().stream()
+                        .filter(i -> i.type() == FeedItemType.ANNOUNCE)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(announce.contentId()).hasSize(200);
+        assertThat(announce.contentId()).startsWith("announce:");
+    }
+
+    @Test
+    void getPersonalFeed_contentId_sourceIdMissing_nullNotCursorFallback() {
+        // Arrange：公告源缺 externalId（Map 无该键）→ contentId=null（禁用合成游标 id 兜底，ADR-0019 教训）
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(List.of(sub(10L, SubscriptionType.SUBJECT, "600519")));
+        when(subjectRepository.findById(MOUTAI_ID))
+                .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
+        when(newsAdapter.fetch(any(Subject.class)))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
+        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE,
+                                MOUTAI_ID,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.of(
+                                                        "title",
+                                                        "无标识公告",
+                                                        "publishedAt",
+                                                        "2026-09-15",
+                                                        "category",
+                                                        "财务报告",
+                                                        "url",
+                                                        "https://ex/ann/noid"))),
+                                "公告",
+                                NOW));
+
+        // Act
+        FeedListView view = service.getPersonalFeed(ME, null);
+
+        // Assert：该条 contentId=null（前端据此不埋点），推荐条目 contentId 照常派生
+        FeedItem announce =
+                view.items().stream()
+                        .filter(i -> i.type() == FeedItemType.ANNOUNCE)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(announce.contentId()).isNull();
+        assertThat(announce.id()).isEqualTo(2L); // 游标 id 照常回填（不拿去做 contentId）
+        assertThat(view.items().get(0).contentId()).isEqualTo("recommendation:SH600036");
+    }
+
     // ---- fixtures ----
+
+    /** 主路径场景：标的订阅 + 主题订阅（白酒）+ 1 公告（externalId=a1）+ 1 政策（id=1，标题命中主题）+ 推荐就绪（SH600036）。 */
+    private void arrangeSubjectFeedWithOneAnnounceOnePolicy() {
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(
+                        List.of(
+                                sub(10L, SubscriptionType.SUBJECT, "600519"),
+                                sub(11L, SubscriptionType.TOPIC, "白酒")));
+        when(subjectRepository.findById(MOUTAI_ID))
+                .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE,
+                                MOUTAI_ID,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.of(
+                                                        "externalId",
+                                                        "a1",
+                                                        "title",
+                                                        "2026年半年度报告",
+                                                        "publishedAt",
+                                                        "2026-09-15",
+                                                        "category",
+                                                        "财务报告",
+                                                        "url",
+                                                        "https://ex/ann/1"))),
+                                "公告",
+                                NOW));
+        when(newsAdapter.fetch(any(Subject.class)))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
+        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt()))
+                .thenReturn(List.of(policy(1L, "国务院关于白酒产业的意见", List.of())));
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+    }
+
+    /** 每日推荐就绪结果（Top1：SH600036）。 */
+    private static DailyRecommendationResult doneRec() {
+        return new DailyRecommendationResult(
+                DailyRecommendationResult.STATUS_DONE,
+                List.of(new TopRecommendation("SH600036", "招商银行", "活跃", 1)),
+                "AI 生成，非投资建议",
+                false);
+    }
+
+    private static FeedItem findByContentId(FeedListView view, String contentId) {
+        return view.items().stream()
+                .filter(i -> contentId.equals(i.contentId()))
+                .findFirst()
+                .orElse(null);
+    }
 
     private static Subscription sub(Long id, SubscriptionType type, String key) {
         return Subscription.reconstruct(
@@ -419,8 +621,30 @@ class FeedServiceTest {
                 NOW);
     }
 
+    /** 25 条基础公告 + 1 条更新的公告（externalId=anew、publishedAt 更晚，模拟两次请求之间新内容到达）。 */
+    private static Map<String, Object> announceItemsWithNewerExtra() {
+        List<Map<String, Object>> items = new ArrayList<>(announceItemList(25));
+        items.add(
+                Map.of(
+                        "externalId",
+                        "anew",
+                        "title",
+                        "新到达公告",
+                        "publishedAt",
+                        "2026-09-16",
+                        "category",
+                        "财务报告",
+                        "url",
+                        "https://ex/ann/new"));
+        return Map.of("items", List.copyOf(items));
+    }
+
     /** 构造 N 条公告 item Map（externalId/title/publishedAt/category/url，同 subjectId 归属）。 */
     private static Map<String, Object> announceItems(int n) {
+        return Map.of("items", List.copyOf(announceItemList(n)));
+    }
+
+    private static List<Map<String, Object>> announceItemList(int n) {
         List<Map<String, Object>> items = new ArrayList<>(n);
         IntStream.range(0, n)
                 .forEach(
@@ -428,7 +652,9 @@ class FeedServiceTest {
                                 items.add(
                                         Map.of(
                                                 "externalId",
-                                                "a" + i,
+                                                // 零填充两位：同日发布时排序副键（contentId）字典序 == 数值序，
+                                                // 页内条目顺序可预期（分页/游标漂移断言依赖）
+                                                String.format("a%02d", i),
                                                 "title",
                                                 "公告" + i,
                                                 "publishedAt",
@@ -437,6 +663,6 @@ class FeedServiceTest {
                                                 "财务报告",
                                                 "url",
                                                 "https://ex/ann/" + i)));
-        return Map.of("items", List.copyOf(items));
+        return items;
     }
 }
