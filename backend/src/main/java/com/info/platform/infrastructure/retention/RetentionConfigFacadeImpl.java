@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.retention;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.info.platform.application.common.RuntimeConfigEntry;
@@ -18,8 +19,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * {@link RetentionConfigFacade} 实现（T72，方案 §4.3）。读：runtime_config 快照现读 + {@link RetentionWindows}
- * 字段级回退解析 + 枚举常量拼 limits。写：四字段拼全量文档（null 不拼入——校验器 2001 必填拦截）→ {@link RuntimeConfigService#write}（校验
- * + 乐观防呆 + 换快照热生效），写后回读刷新视图。
+ * 字段级回退解析 + 枚举常量拼 limits。写：四字段拼全量文档（null 不拼入——校验器 2001 必填拦截；非整数类型原样透传—— 校验器 2001 须为整数拦截，D3）→ {@link
+ * RuntimeConfigService#write}（校验 + 乐观防呆 + 换快照热生效），写后回读刷新视图。
  */
 @Component
 public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
@@ -68,9 +69,13 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
         return view();
     }
 
-    private void putIfPresent(ObjectNode doc, RetentionLogTable table, Integer value) {
-        if (value != null) {
-            doc.put(table.jsonField(), value);
+    /**
+     * 原样透传节点（D3）：合法整数原样落文档；非整数类型（字符串/布尔/浮点）也原样保留，由写路径校验器按「JSON 整数」 严格判定 （2001
+     * 字段级「须为整数」——单一事实源，不在门面重复类型判定）。缺失/JSON null 不拼入（校验器 2001「必填」拦截）。
+     */
+    private void putIfPresent(ObjectNode doc, RetentionLogTable table, JsonNode value) {
+        if (value != null && !value.isNull()) {
+            doc.set(table.jsonField(), value);
         }
     }
 

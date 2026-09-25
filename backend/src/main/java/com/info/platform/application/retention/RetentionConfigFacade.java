@@ -1,6 +1,7 @@
 package com.info.platform.application.retention;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Map;
 
 /**
@@ -19,8 +20,8 @@ public interface RetentionConfigFacade {
     /**
      * 全量替换窗口（PATCH 语义：四字段 write 语义整体替换）。
      *
-     * @throws com.info.platform.domain.common.BusinessException 2001 字段缺失/非法（校验器字段级）；30065 并发冲突；
-     *     50000 写库失败（快照不动，旧值继续生效）
+     * @throws com.info.platform.domain.common.BusinessException 2001 字段缺失/非 JSON
+     *     整数（校验器字段级「必填」「须为整数」/ 下限）；30065 并发冲突；50000 写库失败（快照不动，旧值继续生效）
      */
     WindowsView update(WindowsUpdate update);
 
@@ -41,11 +42,17 @@ public interface RetentionConfigFacade {
      */
     record FieldLimits(int min, @JsonProperty("default") int defaultValue) {}
 
-    /** PATCH 请求体：四字段全量（null/缺失 → 校验器 2001 必填拦截，不部分写）；expectedUpdatedAt 可选并发防呆。 */
+    /**
+     * PATCH 请求体：四字段全量（null/缺失 → 校验器 2001 必填拦截，不部分写）；expectedUpdatedAt 可选并发防呆。
+     *
+     * <p>四窗口字段收 {@link JsonNode} 原样透传（D3 修复）：Integer 绑定会让非整数 JSON 在 Jackson 层先失败（字符串/布尔 →
+     * 50000）或被静默截断（14.5 → 14 采信），{@code RetentionConfigValidator} 的「须为整数」分支经此路径不可达。收 JsonNode
+     * 后由写路径校验器按「JSON 整数」严格判定（单一事实源），非法类型 2001 字段级。
+     */
     record WindowsUpdate(
-            Integer jobExecutionLogDays,
-            Integer dataSourceEventDays,
-            Integer llmCallLogDays,
-            Integer readingEventDays,
+            JsonNode jobExecutionLogDays,
+            JsonNode dataSourceEventDays,
+            JsonNode llmCallLogDays,
+            JsonNode readingEventDays,
             String expectedUpdatedAt) {}
 }

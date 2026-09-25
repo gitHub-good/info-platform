@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.IntNode;
 import com.info.platform.application.common.RuntimeConfigEntry;
 import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.application.retention.RetentionConfigFacade;
@@ -135,11 +136,15 @@ class RetentionConfigFacadeImplTest {
                                     Instant.parse("2026-09-22T02:00:00Z"));
                         });
 
-        // Act：PATCH 四字段全量 + expectedUpdatedAt 防呆
+        // Act：PATCH 四字段全量 + expectedUpdatedAt 防呆（D3 后窗口字段收 JsonNode，合法整数以 IntNode 透传）
         RetentionConfigFacade.WindowsView view =
                 facade.update(
                         new RetentionConfigFacade.WindowsUpdate(
-                                7, 14, 35, 35, "2026-09-22T01:00:00Z"));
+                                IntNode.valueOf(7),
+                                IntNode.valueOf(14),
+                                IntNode.valueOf(35),
+                                IntNode.valueOf(35),
+                                "2026-09-22T01:00:00Z"));
 
         // Assert：写入文档四字段齐整；返回写后视图（新值 + 新 updatedAt）
         ArgumentCaptor<String> docCaptor = ArgumentCaptor.forClass(String.class);
@@ -166,7 +171,11 @@ class RetentionConfigFacadeImplTest {
                         () ->
                                 facade.update(
                                         new RetentionConfigFacade.WindowsUpdate(
-                                                null, 14, 35, 35, null)))
+                                                null,
+                                                IntNode.valueOf(14),
+                                                IntNode.valueOf(35),
+                                                IntNode.valueOf(35),
+                                                null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
         verify(configService).write(eq(KEY), any(String.class), any());
@@ -180,7 +189,11 @@ class RetentionConfigFacadeImplTest {
                         () ->
                                 facade.update(
                                         new RetentionConfigFacade.WindowsUpdate(
-                                                7, 14, 35, 35, "not-a-time")))
+                                                IntNode.valueOf(7),
+                                                IntNode.valueOf(14),
+                                                IntNode.valueOf(35),
+                                                IntNode.valueOf(35),
+                                                "not-a-time")))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -200,7 +213,11 @@ class RetentionConfigFacadeImplTest {
                         () ->
                                 facade.update(
                                         new RetentionConfigFacade.WindowsUpdate(
-                                                7, 14, 35, 35, "2026-09-22T00:00:00Z")))
+                                                IntNode.valueOf(7),
+                                                IntNode.valueOf(14),
+                                                IntNode.valueOf(35),
+                                                IntNode.valueOf(35),
+                                                "2026-09-22T00:00:00Z")))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
