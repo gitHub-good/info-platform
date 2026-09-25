@@ -14,6 +14,7 @@ import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
 import { FeedDashboard } from '@/pages/FeedDashboard';
+import { IndustryHeat } from '@/pages/IndustryHeat';
 import { InfoSources } from '@/pages/InfoSources';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
@@ -46,6 +47,10 @@ function renderPage(route: string) {
   if (route.startsWith('/ai-brief')) {
     // AiBrief 自带 main+max-w-4xl（T44 去掉此处外层嵌套 main：同页双 main 属无效结构）
     return <AiBrief />;
+  }
+  // 行业热度与日报（M15 T126）：第 16 页，「分析」组——热度榜/日报双 Tab（自带 main+max-w-4xl）
+  if (route.startsWith('/industry-heat')) {
+    return <IndustryHeat />;
   }
   if (route.startsWith('/policies')) {
     return <Policy />;

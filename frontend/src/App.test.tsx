@@ -193,6 +193,20 @@ function makeFetch() {
     if (path.endsWith('/jobs')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { jobs: [] }, traceId: 't' });
     }
+    if (path.includes('/industry-heat')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: {
+          window: 'H24',
+          industries: [],
+          basis: 'heat-v1',
+          snapshotAt: '2026-09-22T08:00:00Z',
+          pipeline: { level: 'NORMAL' },
+        },
+        traceId: 't',
+      });
+    }
     if (path.includes('/feed/personal')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
     }
@@ -385,6 +399,18 @@ describe('App 路由与登录守卫（T38）', () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/prompt-templates')),
+      ).toBe(true),
+    );
+  });
+
+  it('#/industry-heat 挂载行业热度页（M15 T126 第 16 页）并按 H24 请求热度榜接口，侧栏项可达', async () => {
+    const fetchMock = renderLoggedIn('#/industry-heat');
+
+    expect(await screen.findByTestId('industry-heat-page')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-item-industry-heat')).toHaveAttribute('aria-current', 'page');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/industry-heat?window=H24')),
       ).toBe(true),
     );
   });
