@@ -336,4 +336,43 @@ class FeedDashboardServiceTest {
     private static FeedItemRepository.LatencySample sample(long sourceId, Duration latency) {
         return new FeedItemRepository.LatencySample(sourceId, NOW, Math.max(0, latency.toMillis()));
     }
+
+    // ---- T128：源维度行透出 staleSince 疑似停更徽章数据面（方案 §4.7 / ADR-0049 裁量 6） ----
+
+    @Test
+    void dashboard_sourceRowCarriesStaleSinceFromConfig() {
+        InfoSource stale =
+                InfoSource.reconstruct(
+                        9L,
+                        "t128_stale",
+                        "停更源",
+                        "快讯",
+                        AdapterType.RSS,
+                        null,
+                        "https://example.com/t128",
+                        SourceConfig.empty().withStaleSince("2026-09-15"),
+                        5,
+                        true,
+                        false,
+                        false,
+                        NOW.minus(Duration.ofDays(30)),
+                        NOW.minus(Duration.ofDays(30)));
+        InfoSource healthy = source(10, "t128_ok", true);
+        when(infoSourceRepository.findAll()).thenReturn(List.of(stale, healthy));
+
+        FeedDashboardView view = service.dashboard();
+
+        FeedDashboardView.SourceRowView staleRow =
+                view.sources().stream()
+                        .filter(row -> row.sourceCode().equals("t128_stale"))
+                        .findFirst()
+                        .orElseThrow();
+        FeedDashboardView.SourceRowView healthyRow =
+                view.sources().stream()
+                        .filter(row -> row.sourceCode().equals("t128_ok"))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(staleRow.staleSince()).isEqualTo("2026-09-15");
+        assertThat(healthyRow.staleSince()).isNull();
+    }
 }

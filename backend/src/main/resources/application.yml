@@ -190,3 +190,7 @@ feed:
     failure-threshold: 5
     backoff-threshold-minutes: 30
     recovered-enabled: true
+  # 疑似停更检查 Job（T128）：每日 04:10（避开 03:30 留痕清理与 06:00 标的池同步；调度键 job.SOURCE_STALE_CHECK）
+  stale-check:
+    enabled: true
+    cron: 0 10 4 * * ?

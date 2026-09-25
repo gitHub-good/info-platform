@@ -179,6 +179,7 @@ public class FeedDashboardService {
                 source.isEnabled(),
                 source.isPreset(),
                 source.isDeleted(),
+                source.getConfig().staleSince(), // 疑似停更徽章数据面（M15 T128）
                 stats == null ? 0 : stats.pollCount(),
                 stats == null ? 0 : stats.newCount(),
                 stats == null ? 0 : stats.failCount(),

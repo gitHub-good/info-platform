@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllElevenJobKeys() {
+    void seeds_carriesAllTwelveJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 10 键不被增补挤占（INDUSTRY_DAILY_REPORT 第 11 键追加在尾部，M15 T124 / ADR-0046）
+        // 纯增量守卫：既有 11 键不被增补挤占（SOURCE_STALE_CHECK 第 12 键追加在尾部，M15 T128 / ADR-0046）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -64,7 +64,8 @@ class JobRuntimeConfigSeederTest {
                         "job.SOURCE_POLL",
                         "job.NEWS_PIPELINE",
                         "job.INDUSTRY_HEAT_SNAPSHOT",
-                        "job.INDUSTRY_DAILY_REPORT");
+                        "job.INDUSTRY_DAILY_REPORT",
+                        "job.SOURCE_STALE_CHECK");
     }
 
     // ---- NEWS_PIPELINE 种子（T121，M15 / ADR-0046）----
@@ -164,6 +165,39 @@ class JobRuntimeConfigSeederTest {
         RuntimeConfigSeed seed = dailyReportSeed(false, "0 0 8 * * ?");
 
         assertThat(seed.json()).contains("\"enabled\":false").contains("\"cron\":\"0 0 8 * * ?\"");
+    }
+
+    // ---- SOURCE_STALE_CHECK 种子（T128，M15 / ADR-0046 裁决 4：第 12 键）----
+
+    private RuntimeConfigSeed staleCheckSeed(boolean enabled, String cron) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "staleCheckEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "staleCheckCron", cron);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.SOURCE_STALE_CHECK"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.SOURCE_STALE_CHECK 种子"));
+    }
+
+    @Test
+    void seeds_staleCheck_productionDefaults_enabledCron0410Daily() {
+        // 生产默认：每日 04:10（避开 03:30 留痕清理与 06:00 标的池同步，ADR-0046 裁决 4）
+        RuntimeConfigSeed seed = staleCheckSeed(true, "0 10 4 * * ?");
+
+        assertThat(seed.configKey()).isEqualTo("job.SOURCE_STALE_CHECK");
+        assertThat(seed.description()).contains("SourceStaleCheckJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 10 4 * * ?\"");
+    }
+
+    @Test
+    void seeds_staleCheck_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：source.stale-check.enabled=false → 种子停用 → 调度零注册（十二 Job 惯例）
+        RuntimeConfigSeed seed = staleCheckSeed(false, "0 10 4 * * ?");
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"cron\":\"0 10 4 * * ?\"");
     }
 
     // ---- SOURCE_POLL 种子（T103，M13 / ADR-0040）----

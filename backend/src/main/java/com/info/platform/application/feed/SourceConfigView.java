@@ -18,6 +18,7 @@ import java.util.Map;
  * @param cursorField 游标取值字段
  * @param urlTemplate 条目直链合成模板（M14 T110）
  * @param aiExclusion AI 管道排除档位线值（NONE/L2/ALL，M15 T125——源管理页「AI 深度分析排除」徽章数据面）
+ * @param staleSince 疑似停更标记起始日（M15 T128——「疑似停更」徽章数据面；null = 未标记；Job 独占写，请求面不可写）
  */
 public record SourceConfigView(
         String listPath,
@@ -30,12 +31,13 @@ public record SourceConfigView(
         String cursorType,
         String cursorField,
         String urlTemplate,
-        String aiExclusion) {
+        String aiExclusion,
+        String staleSince) {
 
     /** 单条字段映射视图。 */
     public record ItemMappingView(String source, String target, String transform) {}
 
-    /** 领域对象 → 视图（游标类型取生效值，NONE 显式可见；aiExclusion 取生效档位，NONE 显式可见——源管理页徽章数据面）。 */
+    /** 领域对象 → 视图（游标类型取生效值，NONE 显式可见；aiExclusion 取生效档位，NONE 显式可见——源管理页徽章数据面； staleSince 原样透出）。 */
     public static SourceConfigView from(SourceConfig config) {
         return new SourceConfigView(
                 config.listPath(),
@@ -50,6 +52,7 @@ public record SourceConfigView(
                 config.effectiveCursorType().name(),
                 config.cursorField(),
                 config.urlTemplate(),
-                config.effectiveAiExclusion().name());
+                config.effectiveAiExclusion().name(),
+                config.staleSince());
     }
 }

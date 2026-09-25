@@ -63,7 +63,8 @@ public class SourceConfigCodec {
                 CursorType.from(root.path("cursorType").asText(null)),
                 root.path("cursorField").asText(null),
                 root.path("urlTemplate").asText(null),
-                AiExclusion.fromName(root.path("aiExclusion").asText(null)));
+                AiExclusion.fromName(root.path("aiExclusion").asText(null)),
+                root.path("staleSince").asText(null));
     }
 
     /** 序列化（null 配置 → "{}"；键序固定）。 */
@@ -102,6 +103,8 @@ public class SourceConfigCodec {
         if (config.aiExclusion() != null && config.aiExclusion() != AiExclusion.NONE) {
             doc.put("aiExclusion", config.aiExclusion().name());
         }
+        // 停更标记同理：未标记不落键（Job 独占热写，M15 T128——ADR-0049 裁量 6）
+        putIfNotBlank(doc, "staleSince", config.staleSince());
         try {
             return MAPPER.writeValueAsString(doc);
         } catch (JsonProcessingException e) {

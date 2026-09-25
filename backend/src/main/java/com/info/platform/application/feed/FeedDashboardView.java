@@ -51,6 +51,7 @@ public record FeedDashboardView(
             boolean enabled,
             boolean preset,
             boolean deleted,
+            String staleSince,
             long todayPollCount,
             long todayNewCount,
             long todayFailCount,

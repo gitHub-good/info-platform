@@ -747,4 +747,69 @@ class SourceRegistryServiceIntegrationTest {
                                 .effectiveAiExclusion())
                 .isEqualTo(AiExclusion.ALL);
     }
+
+    // ---- T128：staleSince 疑似停更标记（config 承载 + 编辑保留 + 徽章透出，ADR-0049 裁量 6） ----
+
+    @Test
+    void staleSince_configRoundtrip_andCardEcho() {
+        InfoSourceCardView created =
+                service.create(command("T128A 停更源", "https://example.com/stale.xml"));
+        extraCleanupCodes.add(created.sourceCode());
+
+        // Job 写入语义：仓储保存带 staleSince 的 config（SourceStaleCheckService 同款热写路径）
+        InfoSource saved = infoSourceRepository.findById(created.id()).orElseThrow();
+        saved.edit(null, null, null, saved.getConfig().withStaleSince("2026-09-20"), null, null);
+        infoSourceRepository.save(saved);
+
+        // Codec 往返（写 JSON → 读回）+ 未标记源不落键（存量字节级不变，ADR-0048 裁量 1 同款）
+        assertThat(
+                        infoSourceRepository
+                                .findById(created.id())
+                                .orElseThrow()
+                                .getConfig()
+                                .staleSince())
+                .isEqualTo("2026-09-20");
+        // 源管理页列表徽章数据面：卡片 config.staleSince 透出
+        InfoSourceCardView card =
+                service.list().groups().stream()
+                        .flatMap(group -> group.sources().stream())
+                        .filter(c -> c.id() == created.id())
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(card.config().staleSince()).isEqualTo("2026-09-20");
+        // 未标记源 staleSince 为 null（徽章不显示）
+        InfoSourceCardView fresh =
+                service.create(command("T128B 新源", "https://example.com/fresh.xml"));
+        extraCleanupCodes.add(fresh.sourceCode());
+        assertThat(infoSourceRepository.findById(fresh.id()).orElseThrow().getConfig().staleSince())
+                .isNull();
+    }
+
+    @Test
+    void staleSince_survivesConfigPatch() {
+        // PATCH 编辑配置不改写 Job 运行态：页面载荷无 staleSince 字段（SourceConfigPayload 不承载），编辑后标记保留
+        InfoSourceCardView created =
+                service.create(command("T128 编辑保留", "https://example.com/keep.xml"));
+        extraCleanupCodes.add(created.sourceCode());
+        InfoSource saved = infoSourceRepository.findById(created.id()).orElseThrow();
+        saved.edit(null, null, null, saved.getConfig().withStaleSince("2026-09-18"), null, null);
+        infoSourceRepository.save(saved);
+
+        SourceConfig edited = SourceConfig.empty();
+        InfoSourceCardView updated =
+                service.update(
+                        created.id(),
+                        new SourceRegistryService.UpdateCommand(
+                                null, null, null, null, 20, null, edited));
+
+        assertThat(updated.intervalMinutes()).isEqualTo(20);
+        assertThat(updated.config().staleSince()).isEqualTo("2026-09-18"); // 编辑回显保留
+        assertThat(
+                        infoSourceRepository
+                                .findById(created.id())
+                                .orElseThrow()
+                                .getConfig()
+                                .staleSince())
+                .isEqualTo("2026-09-18"); // 持久层保留
+    }
 }

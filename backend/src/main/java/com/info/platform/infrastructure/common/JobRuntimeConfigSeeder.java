@@ -101,6 +101,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${pipeline.daily-report.cron:0 0 8 * * ?}")
     private String dailyReportCron;
 
+    /** 疑似停更检查开关/CRON（M15 T128：SOURCE_STALE_CHECK，默认每日 04:10，ADR-0046 裁决 4）。 */
+    @Value("${source.stale-check.enabled:true}")
+    private boolean staleCheckEnabled;
+
+    @Value("${source.stale-check.cron:0 10 4 * * ?}")
+    private String staleCheckCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -189,6 +196,16 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         write(dailyReport),
                         "行业日报调度（IndustryDailyReportJob，每日 08:00 统计注入模板单次 LLM 生成前一日日报——"
                                 + "数字全部来自统计 SQL，FUSED 跳过次日补，M15 方案 §4.5）"));
+        Map<String, Object> staleCheck = new LinkedHashMap<>();
+        staleCheck.put("enabled", staleCheckEnabled);
+        staleCheck.put("scheduleType", CRON);
+        staleCheck.put("cron", staleCheckCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.SOURCE_STALE_CHECK",
+                        write(staleCheck),
+                        "疑似停更检查调度（SourceStaleCheckJob，每日 04:10 各启用源滚动窗净入库判定 → config.staleSince"
+                                + " 标记/恢复解除，不自动停用，M15 方案 §4.7 / REQ AMB-01）"));
         return seeds;
     }
 

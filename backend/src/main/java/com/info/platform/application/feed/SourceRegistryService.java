@@ -197,7 +197,11 @@ public class SourceRegistryService {
                                 command.name(),
                                 command.category(),
                                 command.endpoint(),
-                                command.config(),
+                                // 载荷不带 staleSince（Job 独占写，M15 T128）：编辑保留既有停更标记
+                                command.config() == null
+                                        ? null
+                                        : command.config()
+                                                .withStaleSince(source.getConfig().staleSince()),
                                 command.intervalMinutes(),
                                 command.enabled()));
         validator.validateCommon(source);

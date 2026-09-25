@@ -25,6 +25,8 @@ import java.util.Objects;
  * @param aiExclusion AI 管道排除档位（M15 T125，REQ 拍板五-1）：null/{@link AiExclusion#NONE} 缺省全参与；{@code L2}
  *     深度分析排除（照常归类不产事件）； {@code ALL} 全管道排除（不建 analysis 行）——线值白名单校验归 {@code
  *     SourceConfigValidator}（30072）
+ * @param staleSince 疑似停更标记起始日（M15 T128，方案 §4.7 / AMB-01）：{@code yyyy-MM-dd}；null = 未标记。Job 独占写入
+ *     （SourceStaleCheckService 连续窗口零净入库写入 / 恢复入库清除），请求面不可写（PATCH 携带无效，编辑保留既有值）
  */
 public record SourceConfig(
         String listPath,
@@ -37,7 +39,8 @@ public record SourceConfig(
         CursorType cursorType,
         String cursorField,
         String urlTemplate,
-        AiExclusion aiExclusion) {
+        AiExclusion aiExclusion,
+        String staleSince) {
 
     /** 单轮入库上限缺省（方案 §4.3：默认 50）。 */
     public static final int DEFAULT_MAX_ITEMS = 50;
@@ -65,7 +68,53 @@ public record SourceConfig(
                 cursorType,
                 cursorField,
                 urlTemplate,
+                null,
                 null);
+    }
+
+    /** 兼容构造（M15 T125 调用面：无停更标记即 null）。 */
+    public SourceConfig(
+            String listPath,
+            String stripPrefix,
+            String stripSuffix,
+            List<ItemMapping> itemMapping,
+            Map<String, String> headers,
+            Integer maxItems,
+            Integer pageSize,
+            CursorType cursorType,
+            String cursorField,
+            String urlTemplate,
+            AiExclusion aiExclusion) {
+        this(
+                listPath,
+                stripPrefix,
+                stripSuffix,
+                itemMapping,
+                headers,
+                maxItems,
+                pageSize,
+                cursorType,
+                cursorField,
+                urlTemplate,
+                aiExclusion,
+                null);
+    }
+
+    /** 停更标记副本（Job 写入专用——其余字段原样保留）。 */
+    public SourceConfig withStaleSince(String staleSince) {
+        return new SourceConfig(
+                listPath,
+                stripPrefix,
+                stripSuffix,
+                itemMapping,
+                headers,
+                maxItems,
+                pageSize,
+                cursorType,
+                cursorField,
+                urlTemplate,
+                aiExclusion,
+                staleSince);
     }
 
     /** 深翻每页条数缺省（方案 §4.3：默认 20）。 */
@@ -91,6 +140,7 @@ public record SourceConfig(
                 null,
                 null,
                 CursorType.NONE,
+                null,
                 null,
                 null,
                 null);
