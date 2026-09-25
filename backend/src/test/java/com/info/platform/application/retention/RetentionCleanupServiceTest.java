@@ -10,6 +10,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigEntry;
 import com.info.platform.application.common.RuntimeConfigService;
@@ -20,6 +24,7 @@ import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 /**
  * RetentionCleanupService 单测（T71，方案 §4.5 / §6 服务与 Job 组）：四表独立窗口同时生效 / 空轮 SUCCESS 语义（合计 0 不抛）/
@@ -259,6 +264,34 @@ class RetentionCleanupServiceTest {
         assertThat(second.detail())
                 .isEqualTo(
                         "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0");
+    }
+
+    @Test
+    void runOnce_infoSummary_logsAllFourWindows() {
+        // Arrange（D2 回归）：每轮 INFO 单行摘要四表窗口齐载（readingEventDays 曾缺失——只打 30/14/90 三段）
+        stubConfig(DEFAULT_DOC);
+        when(deleter.deleteExpiredBefore(
+                        any(RetentionLogTable.class), any(Instant.class), anyInt()))
+                .thenReturn(0L);
+        Logger logger = (Logger) LoggerFactory.getLogger(RetentionCleanupService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            // Act
+            service.runOnce();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        // Assert：恰一条 INFO 摘要，窗口四段（段序=枚举序）、合计与耗时齐载
+        assertThat(appender.list).hasSize(1);
+        ILoggingEvent summary = appender.list.get(0);
+        assertThat(summary.getLevel()).isEqualTo(Level.INFO);
+        assertThat(summary.getFormattedMessage())
+                .contains("共删除 0 行")
+                .contains("窗口 30/14/90/90 天")
+                .contains("耗时 ");
     }
 
     @Test

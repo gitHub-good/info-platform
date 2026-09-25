@@ -77,13 +77,15 @@ public class RetentionCleanupService {
         }
         long total = counts.values().stream().mapToLong(Long::longValue).sum();
         String detail = detailOf(counts);
+        // INFO 摘要四表窗口齐载（D2：readingEventDays 曾缺失，段序=枚举序，方案 §3.2「含窗口与耗时」）
         log.info(
-                "留痕清理完成 共删除 {} 行（{}）窗口 {}/{}/{} 天 耗时 {}ms",
+                "留痕清理完成 共删除 {} 行（{}）窗口 {}/{}/{}/{} 天 耗时 {}ms",
                 total,
                 detail,
                 windows.jobExecutionLogDays(),
                 windows.dataSourceEventDays(),
                 windows.llmCallLogDays(),
+                windows.readingEventDays(),
                 (System.nanoTime() - startedNanos) / 1_000_000);
         if (!failures.isEmpty()) {
             throw new RetentionCleanupException(detail + " | 失败: " + String.join("; ", failures));
@@ -97,7 +99,7 @@ public class RetentionCleanupService {
                 configService.read(CONFIG_KEY).map(RuntimeConfigEntry::document).orElse(null));
     }
 
-    /** 删除界：now − 窗口天数，整秒截断（与 created_at 整秒定长文本字典序对齐，ADR-0036 §3）。 */
+    /** 删除界：now − 窗口天数，整秒截断（亚秒边界的字典序对齐由删除端口的比较下界处理，D1）。 */
     private Instant cutoffOf(int days) {
         return clock.instant().minus(Duration.ofDays(days)).truncatedTo(ChronoUnit.SECONDS);
     }

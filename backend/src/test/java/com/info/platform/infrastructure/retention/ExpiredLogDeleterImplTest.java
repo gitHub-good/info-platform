@@ -151,6 +151,42 @@ class ExpiredLogDeleterImplTest {
     }
 
     @Test
+    void deleteExpiredBefore_subSecondRows_boundarySecondAllKept() {
+        // Arrange（D1 回归）：真实 created_at 为 Instant.toString() 变长亚秒文本（如 …T00:00:00.552745400Z），
+        // 边界秒 [cutoff, cutoff+1s) 内 .123/.5/.900/.999 各亚秒行 + 边界整秒行全部保留；上一秒（整秒与 .999）删除。
+        // 修前缺陷形态：cutoff 整秒串 '…00Z' 与亚秒行 '…00.123Z' 字典序比较，'.'(0x2E) < 'Z'(0x5A) → 边界秒行被误判过期
+        insertJobLog("2026-08-22T23:59:59Z");
+        insertJobLog("2026-08-22T23:59:59.999Z");
+        insertJobLog("2026-08-23T00:00:00Z");
+        insertJobLog("2026-08-23T00:00:00.123Z");
+        insertJobLog("2026-08-23T00:00:00.5Z");
+        insertJobLog("2026-08-23T00:00:00.900Z");
+        insertJobLog("2026-08-23T00:00:00.999Z");
+        insertJobLog("2026-08-23T00:00:01Z");
+
+        // Act
+        long deleted =
+                deleter.deleteExpiredBefore(RetentionLogTable.JOB_EXECUTION_LOG, CUTOFF, 500);
+
+        // Assert：仅上一秒两行删除（严格早于 cutoff）；边界秒内亚秒各行、整秒边界行、窗口内行全保留
+        assertThat(deleted).isEqualTo(2);
+        List<String> remaining =
+                jdbcTemplate.queryForList(
+                        "SELECT created_at FROM job_execution_log WHERE job_name = ? ORDER BY"
+                                + " created_at",
+                        String.class,
+                        MARK);
+        assertThat(remaining)
+                .containsExactly(
+                        "2026-08-23T00:00:00.123Z",
+                        "2026-08-23T00:00:00.5Z",
+                        "2026-08-23T00:00:00.900Z",
+                        "2026-08-23T00:00:00.999Z",
+                        "2026-08-23T00:00:00Z",
+                        "2026-08-23T00:00:01Z");
+    }
+
+    @Test
     void deleteExpiredBefore_limitSplitsBatches_countsAccurateAndLoopTerminates() {
         // Arrange：7 行过期（cutoff 前各自整秒不同）+ 1 行窗口内（data_source_event），limit=3 → 3+3+1 三批
         for (int i = 0; i < 7; i++) {
