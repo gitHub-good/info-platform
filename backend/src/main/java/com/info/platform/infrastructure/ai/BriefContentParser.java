@@ -1,11 +1,16 @@
 package com.info.platform.infrastructure.ai;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.info.platform.domain.ai.BriefContent;
 import com.info.platform.domain.ai.BriefContentCodec;
 import com.info.platform.domain.ai.BriefFact;
 import com.info.platform.domain.ai.BriefKeyEvent;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -47,8 +52,47 @@ public class BriefContentParser implements BriefContentCodec {
     public BriefContentParser(ObjectMapper objectMapper) {
         // copy 不影响 Spring 共享 ObjectMapper（如日期格式等全局配置）
         this.parseMapper =
-                objectMapper.copy().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+                objectMapper
+                        .copy()
+                        .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                        // LLM 输出的数值容错（2026-09-25 真实事故）：模型可能给 "68.78%" / "1,234.56" /
+                        // "0.53" 等字符串形式的数值，Jackson 默认对 Double 字段只收 JSON number 与纯数字串，
+                        // 带单位/千分位直接整份解析失败 → 简报 FAILED。宽松反序列化容忍现实世界格式。
+                        .registerModule(lenientDoubleModule());
         this.writer = objectMapper;
+    }
+
+    /** {@code Double} 字段宽松反序列化：JSON number 原样；字符串剥离 %、千分位逗号、空白后解析；无法解析返回 null（字段本就可空）。 */
+    private static SimpleModule lenientDoubleModule() {
+        SimpleModule module = new SimpleModule("lenient-double");
+        module.addDeserializer(
+                Double.class,
+                new JsonDeserializer<Double>() {
+                    @Override
+                    public Double deserialize(JsonParser p, DeserializationContext ctxt)
+                            throws IOException {
+                        String raw = p.getValueAsString();
+                        if (raw == null) {
+                            return p.getNumberValue() == null
+                                    ? null
+                                    : p.getNumberValue().doubleValue();
+                        }
+                        String cleaned =
+                                raw.replace("%", "").replace(",", "").replace("，", "").trim();
+                        if (cleaned.isEmpty()
+                                || "null".equalsIgnoreCase(cleaned)
+                                || "-".equals(cleaned)) {
+                            return null;
+                        }
+                        try {
+                            return Double.parseDouble(cleaned);
+                        } catch (NumberFormatException e) {
+                            // 非数值字符串（如定性描述）——字段可空语义，置 null 不阻断整份简报
+                            return null;
+                        }
+                    }
+                });
+        return module;
     }
 
     /**
