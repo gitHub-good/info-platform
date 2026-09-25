@@ -207,6 +207,14 @@ function makeFetch() {
         traceId: 't',
       });
     }
+    if (path.includes('/events')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: { total: 0, items: [], nextBeforeId: null },
+        traceId: 't',
+      });
+    }
     if (path.includes('/feed/personal')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
     }
@@ -411,6 +419,18 @@ describe('App 路由与登录守卫（T38）', () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some((call) => String(call[0]).includes('/industry-heat?window=H24')),
+      ).toBe(true),
+    );
+  });
+
+  it('#/events 挂载事件流页（M15 T127 第 17 页）并请求事件流接口，「分析」组侧栏项可达', async () => {
+    const fetchMock = renderLoggedIn('#/events');
+
+    expect(await screen.findByTestId('events-page')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-item-events')).toHaveAttribute('aria-current', 'page');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/api/v1/events')),
       ).toBe(true),
     );
   });

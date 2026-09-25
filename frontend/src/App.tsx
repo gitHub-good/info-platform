@@ -15,6 +15,7 @@ import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
 import { FeedDashboard } from '@/pages/FeedDashboard';
 import { IndustryHeat } from '@/pages/IndustryHeat';
+import { Events } from '@/pages/Events';
 import { InfoSources } from '@/pages/InfoSources';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
@@ -51,6 +52,10 @@ function renderPage(route: string) {
   // 行业热度与日报（M15 T126）：第 16 页，「分析」组——热度榜/日报双 Tab（自带 main+max-w-4xl）
   if (route.startsWith('/industry-heat')) {
     return <IndustryHeat />;
+  }
+  // 事件流（M15 T127）：第 17 页，「分析」组——L2 结构化事件卡片流（自带 main+max-w-4xl）
+  if (route.startsWith('/events')) {
+    return <Events />;
   }
   if (route.startsWith('/policies')) {
     return <Policy />;

@@ -1,0 +1,373 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError } from '@/api/http';
+import { getEvents } from '@/api/eventStream';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatDateTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import {
+  DIRECTION_LABELS,
+  EVENT_TYPE_LABELS,
+  IMPORTANCE_LABELS,
+  labelOf,
+} from '@/types/industryHeat';
+import { SW_INDUSTRIES, type EventCard } from '@/types/eventStream';
+
+// 事件流页（M15 T127，#/events 全站第 17 页——方案 §4.8 + REQ 故事 3）。
+// L2 结构化事件全字段卡片流：类型/方向（沿 A 股惯例利好红利空绿）/重要度（高>中>低）徽章、
+// 影响行业 chips、关键数字 chips（原文可回溯）、subjects 可点跳标的详情、quote 原文引用 + 原文外链；
+// 四维筛选（类型 9 枚举/行业 31 申万/重要度/方向）变更回第 1 页，beforeId 游标加载更多。
+// 三态齐备：加载骨架 / 空态引导 / 错误重试；受保护接口 401 由 http 层统一跳登录。
+
+function messageOf(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.msg : fallback;
+}
+
+/** 事件方向徽章（利好红 / 利空绿 / 中性灰，A 股惯例）。 */
+function DirectionBadge({ direction, testId }: { direction: string; testId: string }) {
+  const label = labelOf(DIRECTION_LABELS, direction);
+  const tone =
+    direction === 'BULLISH'
+      ? 'bg-red-500/15 text-red-500'
+      : direction === 'BEARISH'
+        ? 'bg-green-500/15 text-green-500'
+        : 'bg-muted text-muted-foreground';
+  return (
+    <Badge className={tone} data-testid={testId}>
+      {label}
+    </Badge>
+  );
+}
+
+/** 重要度徽章（HIGH > MEDIUM > LOW 视觉分层：高强调、中常规、低弱化）。 */
+function ImportanceBadge({ importance, testId }: { importance: string; testId: string }) {
+  const label = labelOf(IMPORTANCE_LABELS, importance);
+  const tone =
+    importance === 'HIGH'
+      ? 'bg-amber-500/25 font-medium text-amber-300'
+      : importance === 'MEDIUM'
+        ? 'bg-amber-500/15 text-amber-400'
+        : 'bg-muted text-muted-foreground';
+  return (
+    <Badge className={tone} data-testid={testId}>
+      重要度 {label}
+    </Badge>
+  );
+}
+
+/** 事件卡片（全字段面：徽章行 / 摘要 / 行业与关键数字 chips / 标的 / 引用与外链）。 */
+function EventCardView({ event }: { event: EventCard }) {
+  return (
+    <Card data-testid={`event-card-${event.id}`}>
+      <CardContent className="flex flex-col gap-2 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className="bg-sky-500/15 text-sky-400" data-testid={`event-type-${event.id}`}>
+            {labelOf(EVENT_TYPE_LABELS, event.eventType)}
+          </Badge>
+          <DirectionBadge
+            direction={event.direction}
+            testId={`event-direction-${event.id}`}
+          />
+          <ImportanceBadge
+            importance={event.importance}
+            testId={`event-importance-${event.id}`}
+          />
+          <span
+            className="ml-auto text-xs text-muted-foreground"
+            data-testid={`event-time-${event.id}`}
+          >
+            {event.eventTime ? formatDateTime(event.eventTime) : '--'}
+          </span>
+        </div>
+
+        <p className="text-sm font-medium">{event.summary}</p>
+
+        {event.industries.length > 0 ? (
+          <div className="flex flex-wrap gap-1" data-testid={`event-industries-${event.id}`}>
+            {event.industries.map((industry) => (
+              <Badge key={industry} variant="secondary">
+                {industry}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+
+        {event.figures.length > 0 ? (
+          <div className="flex flex-wrap gap-1" data-testid={`event-figures-${event.id}`}>
+            {event.figures.map((figure, idx) => (
+              <Badge key={idx} className="bg-muted font-mono text-muted-foreground">
+                {figure.label}: {figure.value}
+                {figure.unit}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+
+        {event.subjects.length > 0 ? (
+          <div className="flex flex-wrap gap-1" data-testid={`event-subjects-${event.id}`}>
+            {event.subjects.map((subject, idx) =>
+              subject.code ? (
+                <a
+                  key={idx}
+                  href={`#/subjects/${subject.code}`}
+                  title={subject.industry ? `${subject.name} · ${subject.industry}` : subject.name ?? ''}
+                  data-testid={`event-subject-${subject.code}`}
+                  className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary underline underline-offset-2 transition-colors hover:bg-primary/20"
+                >
+                  {subject.name}
+                </a>
+              ) : (
+                <Badge key={idx} variant="outline">
+                  {subject.name}
+                </Badge>
+              ),
+            )}
+          </div>
+        ) : null}
+
+        {event.quote ? (
+          <p
+            className="border-l-2 border-border pl-2 text-xs text-muted-foreground"
+            data-testid={`event-quote-${event.id}`}
+          >
+            原文引用：「{event.quote}」
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate" title={event.newsTitle ?? undefined}>
+            {event.newsTitle ?? `资讯 #${event.newsId}`}
+          </span>
+          {event.newsUrl ? (
+            <a
+              href={event.newsUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-testid={`event-link-${event.id}`}
+              className="shrink-0 underline underline-offset-2 hover:text-foreground"
+            >
+              查看原文
+            </a>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface FilterState {
+  type: string;
+  industry: string;
+  importance: string;
+  direction: string;
+}
+
+const INITIAL_FILTERS: FilterState = { type: '', industry: '', importance: '', direction: '' };
+
+/** 下拉筛选行（类型 9 枚举 / 行业 31 申万 / 重要度 / 方向；变更即回第 1 页重拉）。 */
+function FilterRow({
+  filters,
+  onChange,
+}: {
+  filters: FilterState;
+  onChange: (key: keyof FilterState, value: string) => void;
+}) {
+  const selectClass =
+    'h-8 rounded-md border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="events-filters">
+      <select
+        aria-label="事件类型"
+        data-testid="events-filter-type"
+        value={filters.type}
+        onChange={(e) => onChange('type', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">全部类型</option>
+        {Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="影响行业"
+        data-testid="events-filter-industry"
+        value={filters.industry}
+        onChange={(e) => onChange('industry', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">全部行业</option>
+        {SW_INDUSTRIES.map((industry) => (
+          <option key={industry} value={industry}>
+            {industry}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="重要度"
+        data-testid="events-filter-importance"
+        value={filters.importance}
+        onChange={(e) => onChange('importance', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">全部重要度</option>
+        {Object.entries(IMPORTANCE_LABELS).map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="方向"
+        data-testid="events-filter-direction"
+        value={filters.direction}
+        onChange={(e) => onChange('direction', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">全部方向</option>
+        {Object.entries(DIRECTION_LABELS).map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** 事件流页（第 17 页，「分析」组）。 */
+export function Events() {
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
+  const [items, setItems] = useState<EventCard[]>([]);
+  const [total, setTotal] = useState(0);
+  const [nextBeforeId, setNextBeforeId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchPage = useCallback(
+    async (beforeId?: number) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      // 加载态由调用方置位（首屏 useState 初值 / 筛选与重试事件处理器）——本函数同步段零 setState
+      if (beforeId != null) setLoadingMore(true);
+      try {
+        const view = await getEvents({ ...filters, beforeId }, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setTotal(view.total);
+        setNextBeforeId(view.nextBeforeId);
+        setItems((prev) => (beforeId == null ? view.items : [...prev, ...view.items]));
+        setError(null);
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setError(messageOf(err, '事件流加载失败'));
+      } finally {
+        if (!ctrl.signal.aborted) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [filters],
+  );
+
+  // fetchPage 随 filters 变化：筛选变更即回第 1 页重拉（前请求 abort 守卫竞态）
+  useEffect(() => {
+    void fetchPage();
+    return () => abortRef.current?.abort();
+  }, [fetchPage]);
+
+  const updateFilter = (key: keyof FilterState, value: string) => {
+    // 事件驱动重置清单（不依赖 effect 内 setState）：切筛选立即清旧列表回骨架态
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setItems([]);
+    setTotal(0);
+    setNextBeforeId(null);
+    setError(null);
+    setLoading(true);
+  };
+
+  return (
+    <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="events-page">
+      <header className="mb-4">
+        <h1 className="text-xl font-medium">事件流</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          AI 管道提取的结构化事件：按类型/行业/重要度/方向筛选，关键数字与引用取自原文可回溯。
+        </p>
+      </header>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <FilterRow filters={filters} onChange={updateFilter} />
+        <span
+          className="ml-auto text-xs text-muted-foreground"
+          data-testid="events-total"
+        >
+          共 {total} 条事件
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col gap-3" data-testid="events-loading">
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+        </div>
+      ) : error && items.length === 0 ? (
+        <div className="flex flex-col items-start gap-2" data-testid="events-error">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              void fetchPage();
+            }}
+            data-testid="events-retry"
+          >
+            重试
+          </Button>
+        </div>
+      ) : items.length === 0 ? (
+        <p
+          className={cn('py-10 text-center text-sm text-muted-foreground')}
+          data-testid="events-empty"
+        >
+          暂无事件：AI 管道按配额提取高价值结构化事件（L2 产出），可稍后刷新或放宽筛选。
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3" data-testid="events-list">
+          {items.map((event) => (
+            <EventCardView key={event.id} event={event} />
+          ))}
+          {nextBeforeId != null ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-center"
+              disabled={loadingMore}
+              onClick={() => void fetchPage(nextBeforeId)}
+              data-testid="events-load-more"
+            >
+              {loadingMore ? '加载中…' : '加载更多'}
+            </Button>
+          ) : null}
+          {error ? (
+            <p className="text-xs text-destructive" role="alert" data-testid="events-more-error">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </main>
+  );
+}
+
+export default Events;

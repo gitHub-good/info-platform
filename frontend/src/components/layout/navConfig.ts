@@ -15,6 +15,7 @@ import {
   ScrollText,
   Star,
   Gauge,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,7 +33,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 16 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页）。 */
+/** 4 分组 17 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页，事件流为 M15 第 17 页）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -53,6 +54,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/ai-brief', label: 'AI 简报', icon: FileText },
       // 行业热度与日报（M15 T126，分析组第 4 项 / 全站第 16 页）：AI 分析产出，紧邻 AI 简报
       { to: '/industry-heat', label: '行业热度', icon: Flame },
+      // 事件流（M15 T127，分析组第 5 项 / 全站第 17 页）：L2 结构化事件卡片流，插「行业热度」后
+      { to: '/events', label: '事件流', icon: Zap },
       // 订阅管理（体检 P1-3）：信息流的数据源头，排在信息流之前
       { to: '/subscriptions', label: '订阅管理', icon: Bookmark },
       { to: '/feed', label: '信息流', icon: Rss },
