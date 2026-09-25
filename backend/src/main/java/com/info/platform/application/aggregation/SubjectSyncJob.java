@@ -1,5 +1,6 @@
 package com.info.platform.application.aggregation;
 
+import com.info.platform.application.jobrun.JobRunStats;
 import com.info.platform.application.jobrun.ManagedJob;
 import com.info.platform.application.jobrun.ScheduleType;
 import java.util.List;
@@ -22,7 +23,12 @@ import org.springframework.stereotype.Component;
  * 日志记录失败市场（下轮自动重试）——避免「A 股已建池但任务标红失败」误导。 防重入（手动 + 定时并发）由 JobExecutor CAS 守卫拦截，本类无需自防。
  */
 @Component
-public class SubjectSyncJob implements ManagedJob {
+public class SubjectSyncJob implements ManagedJob, JobRunStats {
+
+    /** 轮次统计（JobExecutor 同 jobKey CAS 守卫保证串行，普通字段即可；轮首重置）。 */
+    private int lastProcessedCount;
+
+    private String lastRunDetail;
 
     private static final Logger log = LoggerFactory.getLogger(SubjectSyncJob.class);
 
@@ -62,12 +68,14 @@ public class SubjectSyncJob implements ManagedJob {
             if (e.getResults().isEmpty()) {
                 throw e;
             }
+            recordStats(e.getResults());
             log.warn(
                     "标的池同步部分成功: {} | 失败市场（下轮自动重试）: {}",
                     joinSummaries(e.getResults()),
                     String.join("; ", e.getFailures()));
             return;
         }
+        recordStats(results);
         log.info(
                 "标的池同步完成（Job 留痕摘要）: {} | processed={}（新增 {} + 更新 {}），停用 {}，源总行数 {}",
                 joinSummaries(results),
@@ -77,6 +85,24 @@ public class SubjectSyncJob implements ManagedJob {
                 totalOf(results, MarketSyncResult::updated),
                 totalOf(results, MarketSyncResult::deactivated),
                 totalOf(results, MarketSyncResult::total));
+    }
+
+    /** 轮次统计上报（JobRunStats 通道）：processed = 新增 + 更新；明细 = 各桶 summary 段式。 */
+    private void recordStats(List<MarketSyncResult> results) {
+        lastProcessedCount =
+                totalOf(results, MarketSyncResult::inserted)
+                        + totalOf(results, MarketSyncResult::updated);
+        lastRunDetail = joinSummaries(results);
+    }
+
+    @Override
+    public int lastProcessedCount() {
+        return lastProcessedCount;
+    }
+
+    @Override
+    public String lastRunDetail() {
+        return lastRunDetail;
     }
 
     private static String joinSummaries(List<MarketSyncResult> results) {

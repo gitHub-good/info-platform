@@ -80,5 +80,8 @@ class SubjectSyncJobTest {
 
         // 部分成功轮（A 股成功港股失败）：不上抛（Job 状态 SUCCESS），失败市场 WARN 留痕下轮重试
         assertThatCode(job::run).doesNotThrowAnyException();
+        // JobRunStats 通道上报：成功侧计数与明细可见（修复「任务中心恒 0」显示缺陷）
+        assertThat(job.lastProcessedCount()).isEqualTo(5561);
+        assertThat(job.lastRunDetail()).contains("A_SHARE_STOCK").contains("inserted=5561");
     }
 }
