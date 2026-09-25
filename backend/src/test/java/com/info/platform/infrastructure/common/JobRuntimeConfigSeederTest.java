@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_stillCarriesAllFiveLegacyJobs() {
+    void seeds_carriesAllSevenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 5 键不被 SUBJECT_SYNC 增补挤占
+        // 纯增量守卫：既有 6 键不被 RETENTION_CLEANUP 增补挤占（第 7 键追加在尾部）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -59,6 +59,40 @@ class JobRuntimeConfigSeederTest {
                         "job.ANOMALY_DETECT",
                         "job.PUSH_RETRY",
                         "job.DAILY_RECOMMEND",
-                        "job.SUBJECT_SYNC");
+                        "job.SUBJECT_SYNC",
+                        "job.RETENTION_CLEANUP");
+    }
+
+    // ---- RETENTION_CLEANUP 种子（T71，M10 技术方案增补 §4.1）----
+
+    private RuntimeConfigSeed retentionSeed(boolean enabled, String cron) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "retentionCleanupEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "retentionCleanupCron", cron);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.RETENTION_CLEANUP"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.RETENTION_CLEANUP 种子"));
+    }
+
+    @Test
+    void seeds_retentionCleanup_productionDefaults_enabledCron0330Daily() {
+        // 生产默认：首启即启用（首轮收敛存量），每日 03:30（避开 06:00 标的池同步与 09:00 每日推荐）
+        RuntimeConfigSeed seed = retentionSeed(true, "0 30 3 * * ?");
+
+        assertThat(seed.configKey()).isEqualTo("job.RETENTION_CLEANUP");
+        assertThat(seed.description()).contains("RetentionCleanupJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 30 3 * * ?\"");
+    }
+
+    @Test
+    void seeds_retentionCleanup_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：retention.cleanup.enabled=false → 种子停用 → 调度零注册（对齐六 Job 惯例）
+        RuntimeConfigSeed seed = retentionSeed(false, "0 30 3 * * ?");
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"cron\":\"0 30 3 * * ?\"");
     }
 }

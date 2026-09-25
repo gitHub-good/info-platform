@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * 任务域种子（{@code job.*} 6 键，T34；T53 增 {@code job.SUBJECT_SYNC}）。
+ * 任务域种子（{@code job.*} 7 键，T34；T53 增 {@code job.SUBJECT_SYNC}，T71 增 {@code job.RETENTION_CLEANUP}）。
  *
  * <p>键值对照方案 §4.1「任务键与既有 Job 对照表」：jobKey/jobName 对齐既有 yml 开关与 {@code job_execution_log.job_name}。
  * 种子值取当前 yml（测试 profile 各开关为 false → 种子 enabled=false → T37 调度中心零注册，隔离语义等价平移）。消费与 校验器随 T37 落地。
@@ -66,6 +66,12 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${subject.sync.cron:0 0 6 * * ?}")
     private String subjectSyncCron;
 
+    @Value("${retention.cleanup.enabled:true}")
+    private boolean retentionCleanupEnabled;
+
+    @Value("${retention.cleanup.cron:0 30 3 * * ?}")
+    private String retentionCleanupCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -114,6 +120,16 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         "job.SUBJECT_SYNC",
                         write(subjectSync),
                         "标的池同步调度（SubjectSyncJob，每日全量拉取 A 股/港股/指数保鲜标的池，M7 技术方案增补 §4.6）"));
+        Map<String, Object> retentionCleanup = new LinkedHashMap<>();
+        retentionCleanup.put("enabled", retentionCleanupEnabled);
+        retentionCleanup.put("scheduleType", CRON);
+        retentionCleanup.put("cron", retentionCleanupCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.RETENTION_CLEANUP",
+                        write(retentionCleanup),
+                        "留痕数据清理调度（RetentionCleanupJob，每日 03:30 清理四张留痕表过期行，窗口见 retention.global，"
+                                + "M10 技术方案增补 §4.1）"));
         return seeds;
     }
 

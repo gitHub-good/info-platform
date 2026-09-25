@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.jobrun;
 
+import com.info.platform.application.jobrun.JobRunStats;
 import com.info.platform.application.jobrun.ManagedJob;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -93,12 +94,23 @@ public class JobExecutor {
         runGuarded(job, recorder.start(job.jobName()), guard);
     }
 
-    /** 守卫持有期内的完整执行：start（可 null）→ run → success/failed → finally 释放守卫。 */
+    /**
+     * 守卫持有期内的完整执行：start（可 null）→ run → success/failed → finally 释放守卫。
+     *
+     * <p>成功路径按可选接口 {@link JobRunStats} 读取轮次计数与明细（T71 / ADR-0036 §2）——不实现的 Job 恒记 (0,0,null)，
+     * 字节级不变；FAILED 路径不读（异常摘要语义不变）。
+     */
     private void runGuarded(ManagedJob job, JobExecutionLog started, AtomicBoolean guard) {
         try {
             job.run();
             if (started != null) {
-                recorder.success(started, 0, 0);
+                int processedCount = 0;
+                String detail = null;
+                if (job instanceof JobRunStats stats) {
+                    processedCount = stats.lastProcessedCount();
+                    detail = stats.lastRunDetail();
+                }
+                recorder.success(started, processedCount, 0, detail);
             }
         } catch (Throwable ex) {
             // 与退役 AOP 的 FAILED 语义一致：异常摘要入 errorMessage；定时链路无调用方，此处记 ERROR 不上抛

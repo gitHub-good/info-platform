@@ -69,13 +69,39 @@ class JobExecutionRecorderTest {
         // Act
         recorder.success(log, 5, 1);
 
-        // Assert：状态 SUCCESS，endTime=END，duration=1000ms，计数写入，已落库
+        // Assert：状态 SUCCESS，endTime=END，duration=1000ms，计数写入，已落库；
+        // 三参路径 error_message 保持 NULL（既有 Job 字节级不变锚点，T71 通道扩展）
         assertThat(log.getStatus()).isEqualTo(JobExecutionStatus.SUCCESS);
         assertThat(log.getEndTime()).contains(END);
         assertThat(log.getDurationMillis()).contains(1000L);
         assertThat(log.getProcessedCount()).isEqualTo(5);
         assertThat(log.getErrorCount()).isEqualTo(1);
         assertThat(log.getErrorMessage()).isEmpty();
+        verify(repository).save(any(JobExecutionLog.class));
+    }
+
+    @Test
+    void success_withDetail_persistsDetailAsTerminalInfo() {
+        // Arrange（T71 / ADR-0036 §2：SUCCESS 行 error_message 复用为留痕明细——终态附加信息）
+        JobExecutionLog log = recorder.start("RetentionCleanupJob");
+        org.mockito.Mockito.reset(repository);
+        when(repository.save(any(JobExecutionLog.class)))
+                .thenAnswer(inv -> inv.getArgument(0, JobExecutionLog.class));
+
+        // Act：四参重载带明细
+        recorder.success(
+                log,
+                6,
+                0,
+                "job_execution_log=2; data_source_event=0; llm_call_log=1; reading_event=3");
+
+        // Assert：SUCCESS + 计数 + 明细入 error_message（FAILED 的异常摘要语义不变，此为终态附加信息）
+        assertThat(log.getStatus()).isEqualTo(JobExecutionStatus.SUCCESS);
+        assertThat(log.getProcessedCount()).isEqualTo(6);
+        assertThat(log.getErrorCount()).isZero();
+        assertThat(log.getErrorMessage().orElse(""))
+                .contains("job_execution_log=2")
+                .contains("reading_event=3");
         verify(repository).save(any(JobExecutionLog.class));
     }
 

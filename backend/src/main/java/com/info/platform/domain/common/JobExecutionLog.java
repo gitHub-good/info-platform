@@ -107,8 +107,22 @@ public class JobExecutionLog {
                 updatedAt);
     }
 
-    /** 翻转为成功终态：填 endTime、按 (endTime - startTime) 计 duration、记处理/错误计数。 */
+    /**
+     * 翻转为成功终态：填 endTime、按 (endTime - startTime) 计 duration、记处理/错误计数（明细为 null——既有语义）。
+     */
     public void markSuccess(Instant endTime, int processedCount, int errorCount) {
+        markSuccess(endTime, processedCount, errorCount, null);
+    }
+
+    /**
+     * 翻转为成功终态并携带留痕明细（T71 / ADR-0036 §2）。
+     *
+     * <p>error_message 列语义由「FAILED 异常摘要」扩展为「终态附加信息」：FAILED = 异常摘要（不变）；SUCCESS = 留痕明细
+     * （仅计数型 Job 使用，如留痕清理轮的逐表删除行数）。原三参签名语义不变（委托 detail=null）。
+     *
+     * @param detail 终态附加信息（null 时列保持 NULL）
+     */
+    public void markSuccess(Instant endTime, int processedCount, int errorCount, String detail) {
         Objects.requireNonNull(endTime, "endTime 必填");
         this.endTime = endTime;
         this.durationMillis =
@@ -116,7 +130,7 @@ public class JobExecutionLog {
         this.processedCount = processedCount;
         this.errorCount = errorCount;
         this.status = JobExecutionStatus.SUCCESS;
-        this.errorMessage = null;
+        this.errorMessage = detail;
     }
 
     /** 翻转为失败终态：填 endTime、duration、异常摘要、处理/错误计数。 */

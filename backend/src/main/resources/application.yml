@@ -145,5 +145,14 @@ subject:
     cron: "0 0 6 * * ?"
     index-enabled: true
 
+# 留痕数据清理（M10，T71 / ADR-0036）：job.RETENTION_CLEANUP 种子来源（ManagedJob 收编第 7 键）。
+# 生产默认启用（首启 03:30 即收敛存量）；测试 profile 置 false → 调度零注册隔离。
+# 保留窗口（四表 30/14/90/90 天）不在本文件——runtime_config 键 retention.global 为唯一真相
+# （首启由 RetentionRuntimeConfigSeeder 代码内置默认播种，ADR-0032 同系列），页面/接口保存即热生效（下一轮现读）。
+retention:
+  cleanup:
+    enabled: true
+    cron: "0 30 3 * * ?"
+
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,6 +14,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.info.platform.application.jobrun.JobRunStats;
 import com.info.platform.application.jobrun.ManagedJob;
 import com.info.platform.application.jobrun.ScheduleType;
 import com.info.platform.domain.common.BusinessException;
@@ -119,10 +121,10 @@ class JobExecutorTest {
         // Act
         JobExecutor.TriggerOutcome outcome = executor.triggerNow(job(() -> {}));
 
-        // Assert：同步返回受理（executionId=留痕 id），执行完成记 SUCCESS(0,0)
+        // Assert：同步返回受理（executionId=留痕 id），执行完成记 SUCCESS(0,0,null)——未实现 JobRunStats 的既有 Job 行为锚点
         assertThat(outcome.executionId()).isEqualTo(123L);
         verify(recorder).start(JOB_NAME);
-        verify(recorder).success(eq(started), eq(0), eq(0));
+        verify(recorder).success(eq(started), eq(0), eq(0), isNull());
         verify(recorder, never()).failed(any(), any(), anyInt(), anyInt());
     }
 
@@ -191,10 +193,10 @@ class JobExecutorTest {
         // Act
         executor.runScheduled(job(() -> trace.add("run")));
 
-        // Assert：start → run → success 顺序（留痕语义与退役 AOP 一致）
+        // Assert：start → run → success 顺序（留痕语义与退役 AOP 一致；三参路径明细为 null）
         InOrder inOrder = inOrder(recorder);
         inOrder.verify(recorder).start(JOB_NAME);
-        inOrder.verify(recorder).success(eq(started), eq(0), eq(0));
+        inOrder.verify(recorder).success(eq(started), eq(0), eq(0), isNull());
         assertThat(trace).containsExactly("run");
     }
 
@@ -214,7 +216,82 @@ class JobExecutorTest {
         // Assert：FAILED 带异常摘要（errorMessage 语义与 AOP 时代一致），守卫已释放
         verify(recorder).failed(any(), contains("sample-failure"), eq(0), eq(0));
         verify(recorder, never()).success(any(), anyInt(), anyInt());
+        verify(recorder, never()).success(any(), anyInt(), anyInt(), any());
         assertThat(executor.isRunning("PUSH_RETRY")).isFalse();
+    }
+
+    // ---- JobRunStats 通道扩展（T71 / ADR-0036 §2）：成功路径按可选接口读取 (processed, detail) ----
+
+    /** 测试任务 + JobRunStats（同时实现两接口——JobExecutor instanceof 读取计数与明细）。 */
+    private static ManagedJob statsJob(int processed, String detail) {
+        class StatsJob implements ManagedJob, JobRunStats {
+
+            @Override
+            public String jobKey() {
+                return "RETENTION_CLEANUP";
+            }
+
+            @Override
+            public String jobName() {
+                return "RetentionCleanupJob";
+            }
+
+            @Override
+            public String displayName() {
+                return "留痕数据清理";
+            }
+
+            @Override
+            public String description() {
+                return "测试任务";
+            }
+
+            @Override
+            public ScheduleType scheduleType() {
+                return ScheduleType.CRON;
+            }
+
+            @Override
+            public void run() {}
+
+            @Override
+            public int lastProcessedCount() {
+                return processed;
+            }
+
+            @Override
+            public String lastRunDetail() {
+                return detail;
+            }
+        }
+        return new StatsJob();
+    }
+
+    @Test
+    void runScheduled_statsReportingJob_successCarriesCountsAndDetail() {
+        // Arrange：实现 JobRunStats 的任务（如 RETENTION_CLEANUP）
+        JobExecutionLog started = startedLog(30L);
+        when(recorder.start("RetentionCleanupJob")).thenReturn(started);
+        String detail = "job_execution_log=2; data_source_event=0; llm_call_log=1; reading_event=3";
+        executor = directExecutor();
+
+        // Act
+        executor.runScheduled(statsJob(6, detail));
+
+        // Assert：SUCCESS 行 processed=合计、error_message=留痕明细（终态附加信息，ADR-0036）
+        verify(recorder).success(eq(started), eq(6), eq(0), eq(detail));
+    }
+
+    @Test
+    void runScheduled_plainJob_statsPathByteIdentical_zeroAndNullDetail() {
+        // 通道非破坏性锚点：六个既有 Job 不实现 JobRunStats → SUCCESS 恒 (0,0) 且明细 null（字节级不变）
+        JobExecutionLog started = startedLog(31L);
+        when(recorder.start(JOB_NAME)).thenReturn(started);
+        executor = directExecutor();
+
+        executor.runScheduled(job(() -> {}));
+
+        verify(recorder).success(eq(started), eq(0), eq(0), isNull());
     }
 
     @Test

@@ -53,18 +53,31 @@ public class JobExecutionRecorder {
     }
 
     /**
-     * 翻转为 SUCCESS 并落库（proceed 正常返回后调）。
+     * 翻转为 SUCCESS 并落库（proceed 正常返回后调；明细为 null——既有语义）。
      *
      * @param logEntry {@link #start} 返回的记录；null 时 no-op
      * @param processedCount 处理条数（AOP 首期传 0）
      * @param errorCount 错误条数（AOP 首期传 0）
      */
     public void success(JobExecutionLog logEntry, int processedCount, int errorCount) {
+        success(logEntry, processedCount, errorCount, null);
+    }
+
+    /**
+     * 翻转为 SUCCESS 并落库，携带留痕明细（T71 / ADR-0036 §2：SUCCESS 行 error_message 复用为「终态附加信息」）。
+     *
+     * @param logEntry {@link #start} 返回的记录；null 时 no-op
+     * @param processedCount 处理条数（如留痕清理轮四表删除合计）
+     * @param errorCount 错误条数
+     * @param detail 留痕明细（null 时 error_message 保持 NULL；FAILED 行的异常摘要语义不变）
+     */
+    public void success(
+            JobExecutionLog logEntry, int processedCount, int errorCount, String detail) {
         if (logEntry == null) {
             return;
         }
         try {
-            logEntry.markSuccess(clock.instant(), processedCount, errorCount);
+            logEntry.markSuccess(clock.instant(), processedCount, errorCount, detail);
             repository.save(logEntry);
         } catch (Exception e) {
             log.error("Job 执行留痕 success 失败 jobName={}: {}", logEntry.getJobName(), e.toString(), e);
