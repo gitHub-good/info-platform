@@ -75,6 +75,17 @@ public enum ErrorCode {
     /** 版本号冲突（UNIQUE(brief_type, version) 兜底，msg 注明冲突版本，409） */
     PROMPT_TEMPLATE_VERSION_CONFLICT(30070, "版本号冲突，请刷新列表后重试", 409),
 
+    /** 资讯源不存在（404，M13 源管理，方案 §4.5） */
+    INFO_SOURCE_NOT_FOUND(30071, "资讯源不存在", 404),
+    /** 资讯源配置校验失败（类型/URL/频控 1~60/映射/headers/游标声明，msg 字段级，400） */
+    INFO_SOURCE_CONFIG_INVALID(30072, "资讯源配置校验失败", 400),
+    /** 预置源禁止删除（平台资产，仅启停与参数编辑；前端亦无删除入口，403） */
+    INFO_SOURCE_PRESET_DELETE_FORBIDDEN(30073, "预置源不支持删除，仅可停用", 403),
+    /** 该源抓取正在进行中（单源 CAS 守卫，手动触发 409） */
+    INFO_SOURCE_POLL_IN_FLIGHT(30074, "该源抓取正在进行中，请稍后重试", 409),
+    /** robots.txt 禁止抓取该端点（合规红线硬拦截，400） */
+    INFO_SOURCE_ROBOTS_FORBIDDEN(30075, "robots.txt 禁止抓取该端点", 400),
+
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
 
