@@ -1,0 +1,201 @@
+package com.info.platform.application.analysis;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.analysis.NearDuplicateDetector.DupParams;
+import com.info.platform.domain.analysis.NoiseRuleEngine;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+/**
+ * 管道运行参数（应用层，M15 T120/T121，方案 §4.8 {@code pipeline.*} 配置键的消费点）。
+ *
+ * <p>每次 tick 用时读取（配置中心快照，页面保存即对下一批生效）；键缺失或字段损坏回落代码缺省并记 WARN（不阻断批窗口——旧值/缺省 继续生效，对齐既有降级惯例）。本批消费
+ * {@code pipeline.global}（L1 批量参数）与 {@code pipeline.l0}（预筛参数）两键； {@code pipeline.budget/heat/l2} 随
+ * T122/T123/T125 消费方落地。
+ */
+@Service
+public class PipelineSettings {
+
+    private static final Logger log = LoggerFactory.getLogger(PipelineSettings.class);
+
+    /** L1 批大小缺省（ADR-0046 裁决 2：20 条/次实测背书）。 */
+    static final int DEFAULT_L1_BATCH_SIZE = 20;
+
+    /** L1 批大小可配区间（方案 §3.2：10~30，>30 禁配——截断与失败爆炸半径红线）。 */
+    static final int L1_BATCH_MIN = 10;
+
+    static final int L1_BATCH_MAX = 30;
+
+    /** 低置信兜底阈值缺省（方案 §4.3：confidence &lt; 0.45 → 市场·其他 + low_confidence=1）。 */
+    static final double DEFAULT_CONFIDENCE_FLOOR = 0.45;
+
+    /** 当日重试上限缺省（单条终败后 l1_attempts 达 3 不再进批，次日 24h 窗口再试一轮）。 */
+    static final int DEFAULT_MAX_RETRIES = 3;
+
+    /** L1 待处理回看窗口缺省（小时）——次日补跑语义（ADR-0046 裁决 5）。 */
+    static final int DEFAULT_BACKFILL_HOURS = 24;
+
+    /** L0 摄取缓冲缺省（分钟）——与摄取事务竞态的错峰（方案 §4.2 X=2min）。 */
+    static final int DEFAULT_L0_BUFFER_MINUTES = 2;
+
+    /** L0 摄取缓冲（分钟）。 */
+    public int l0BufferMinutes() {
+        return intOf(globalDoc(), "l0BufferMinutes", DEFAULT_L0_BUFFER_MINUTES);
+    }
+
+    /** 单 tick L0 摄取上限（防御性；正常水位 ~5 条/10min）。 */
+    static final int L0_INTAKE_CAP_PER_TICK = 200;
+
+    /** 近重复比较池上限（防御性；正常水位 ≤700/24h）。 */
+    static final int NEAR_DUP_POOL_CAP = 2000;
+
+    /** 单 tick L1 批数上限（400 = 20 批；停机恢复补跑有界，余量下 tick 自然续跑）。 */
+    static final int L1_TICK_CAP = 400;
+
+    /** L1 采样参数缺省（方案 §4.3 伪码：temperature 0.1 / maxTokens 8192）。 */
+    public static final double L1_TEMPERATURE = 0.1;
+
+    public static final int L1_MAX_TOKENS = 8192;
+
+    static final String KEY_PIPELINE_GLOBAL = "pipeline.global";
+
+    static final String KEY_PIPELINE_L0 = "pipeline.l0";
+
+    private final RuntimeConfigService configService;
+
+    private final ObjectMapper objectMapper;
+
+    public PipelineSettings(RuntimeConfigService configService, ObjectMapper objectMapper) {
+        this.configService = configService;
+        this.objectMapper = objectMapper;
+    }
+
+    /** L1 批大小（10~30 越界回落缺省 20 并 WARN——&gt;30 禁配红线的运行时兜底）。 */
+    public int l1BatchSize() {
+        int size = intOf(globalDoc(), "l1BatchSize", DEFAULT_L1_BATCH_SIZE);
+        if (size < L1_BATCH_MIN || size > L1_BATCH_MAX) {
+            log.warn(
+                    "pipeline.global.l1BatchSize={} 越界（{}~{}），回落缺省 {}",
+                    size,
+                    L1_BATCH_MIN,
+                    L1_BATCH_MAX,
+                    DEFAULT_L1_BATCH_SIZE);
+            return DEFAULT_L1_BATCH_SIZE;
+        }
+        return size;
+    }
+
+    /** 低置信兜底阈值。 */
+    public double confidenceFloor() {
+        return doubleOf(globalDoc(), "confidenceFloor", DEFAULT_CONFIDENCE_FLOOR);
+    }
+
+    /** 当日重试上限。 */
+    public int maxRetriesPerDay() {
+        return intOf(globalDoc(), "maxRetriesPerDay", DEFAULT_MAX_RETRIES);
+    }
+
+    /** L1 待处理回看窗口（小时）。 */
+    public int l1BackfillHours() {
+        return intOf(globalDoc(), "l1BackfillHours", DEFAULT_BACKFILL_HOURS);
+    }
+
+    /** L0 noise 规则引擎（关键词 + 正则热改即时生效；正则损坏条目剔除并 WARN）。 */
+    public NoiseRuleEngine noiseRuleEngine() {
+        JsonNode doc = l0Doc();
+        List<String> keywords = stringListOf(doc, "noiseKeywords");
+        List<NoiseRuleEngine.NamedPattern> patterns = new ArrayList<>();
+        JsonNode rawPatterns = doc == null ? null : doc.get("noisePatterns");
+        if (rawPatterns != null && rawPatterns.isArray()) {
+            for (JsonNode raw : rawPatterns) {
+                String expr = raw == null ? null : raw.asText(null);
+                if (expr == null || expr.isBlank()) {
+                    continue;
+                }
+                try {
+                    patterns.add(
+                            new NoiseRuleEngine.NamedPattern(
+                                    "自定义" + patterns.size(), Pattern.compile(expr)));
+                } catch (PatternSyntaxException e) {
+                    log.warn("pipeline.l0.noisePatterns 含非法正则（已剔除）: {}", expr);
+                }
+            }
+        }
+        if (keywords.isEmpty() && patterns.isEmpty()) {
+            return NoiseRuleEngine.withDefaults();
+        }
+        return new NoiseRuleEngine(keywords, patterns);
+    }
+
+    /** 近重复参数（simhash 距离缺省 18 = ADR-0047 勘定）。 */
+    public DupParams dupParams() {
+        JsonNode doc = l0Doc();
+        return new DupParams(
+                intOf(doc, "simhashDistanceMax", 18),
+                doubleOf(doc, "editDistanceMax", 0.25),
+                intOf(doc, "minTitleLength", 8));
+    }
+
+    /** 近重复比较池回看窗口（小时）。 */
+    public int nearDupWindowHours() {
+        return intOf(l0Doc(), "nearDupWindowHours", DEFAULT_BACKFILL_HOURS);
+    }
+
+    private JsonNode globalDoc() {
+        return doc(KEY_PIPELINE_GLOBAL);
+    }
+
+    private JsonNode l0Doc() {
+        return doc(KEY_PIPELINE_L0);
+    }
+
+    private JsonNode doc(String configKey) {
+        return configService.read(configKey).map(entry -> readTree(entry.json())).orElse(null);
+    }
+
+    private JsonNode readTree(String json) {
+        try {
+            return objectMapper.readTree(json);
+        } catch (Exception e) {
+            log.warn("管道配置解析失败（回落代码缺省）: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static int intOf(JsonNode doc, String field, int defaultValue) {
+        JsonNode node = doc == null ? null : doc.get(field);
+        if (node == null || !node.canConvertToInt()) {
+            return defaultValue;
+        }
+        return node.asInt();
+    }
+
+    private static double doubleOf(JsonNode doc, String field, double defaultValue) {
+        JsonNode node = doc == null ? null : doc.get(field);
+        if (node == null || !node.isNumber()) {
+            return defaultValue;
+        }
+        return node.asDouble();
+    }
+
+    private static List<String> stringListOf(JsonNode doc, String field) {
+        JsonNode node = doc == null ? null : doc.get(field);
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item != null && item.isTextual() && !item.asText().isBlank()) {
+                values.add(item.asText());
+            }
+        }
+        return values;
+    }
+}
