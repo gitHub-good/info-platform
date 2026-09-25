@@ -23,7 +23,9 @@ public enum BriefType {
     /** 行业归类（L1 批量归类管道模板，briefType=5，M15 / ADR-0046 裁决 3；scene 留痕与护栏成本口径键）。 */
     L1_CLASSIFY(5, "行业归类"),
     /** 事件提取（L2 批量结构化事件管道模板，briefType=6，M15 T122 / ADR-0046 裁决 3；V24 播种 v1.0）。 */
-    L2_EXTRACT(6, "事件提取");
+    L2_EXTRACT(6, "事件提取"),
+    /** 行业日报（L3 日报叙述模板，briefType=7，M15 T124 / ADR-0046 裁决 3；V25 播种 v1.0——数字全部统计注入，AI 只写叙述）。 */
+    INDUSTRY_DAILY(7, "行业日报");
 
     private final int code;
     private final String displayName;

@@ -94,6 +94,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${pipeline.heat-snapshot.interval-millis:1800000}")
     private long heatSnapshotIntervalMillis;
 
+    /** 行业日报开关/CRON（M15 T124：INDUSTRY_DAILY_REPORT，默认每日 08:00 可配，ADR-0046 裁决 4）。 */
+    @Value("${pipeline.daily-report.enabled:true}")
+    private boolean dailyReportEnabled;
+
+    @Value("${pipeline.daily-report.cron:0 0 8 * * ?}")
+    private String dailyReportCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -172,6 +179,16 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 + "零 LLM 护栏不停，M15 方案 §4.5）",
                         heatSnapshotEnabled,
                         heatSnapshotIntervalMillis));
+        Map<String, Object> dailyReport = new LinkedHashMap<>();
+        dailyReport.put("enabled", dailyReportEnabled);
+        dailyReport.put("scheduleType", CRON);
+        dailyReport.put("cron", dailyReportCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.INDUSTRY_DAILY_REPORT",
+                        write(dailyReport),
+                        "行业日报调度（IndustryDailyReportJob，每日 08:00 统计注入模板单次 LLM 生成前一日日报——"
+                                + "数字全部来自统计 SQL，FUSED 跳过次日补，M15 方案 §4.5）"));
         return seeds;
     }
 

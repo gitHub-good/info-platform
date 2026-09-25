@@ -82,3 +82,8 @@ pipeline:
   # 快照逻辑改由单测直接调 HeatSnapshotService.snapshotAll / HeatCalculator 验证（零 LLM 零外呼）。
   heat-snapshot:
     enabled: false
+  # 行业日报 job 在测试环境关闭：种子 job.INDUSTRY_DAILY_REPORT enabled=false → 调度零注册（M15 T124，十一 Job 惯例）；
+  # 生成逻辑改由单测直接调 DailyReportService 验证（LLM 全 Mock 零外呼）。
+  daily-report:
+    enabled: false
+    cron: 0 0 8 * * ?

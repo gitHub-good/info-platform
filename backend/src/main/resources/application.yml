@@ -176,6 +176,10 @@ pipeline:
   heat-snapshot:
     enabled: true
     interval-millis: 1800000
+  # 行业日报 Job（T124）：每日 08:00 可配 CRON，前一日统计注入模板单次 LLM（调度键 job.INDUSTRY_DAILY_REPORT）
+  daily-report:
+    enabled: true
+    cron: 0 0 8 * * ?
 
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED

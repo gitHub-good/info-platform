@@ -88,6 +88,10 @@ public enum ErrorCode {
 
     /** 管道查询/配置参数非法（M15 热度榜 window、下钻 type、行业名非申万枚举等，400） */
     PIPELINE_CONFIG_INVALID(30076, "管道查询参数非法", 400),
+    /** 行业日报已成功生成，拒绝重试（幂等红线：SUCCESS 只读，409，M15 T124 方案 §4.8） */
+    INDUSTRY_REPORT_ALREADY_SUCCESS(30077, "该日日报已成功生成，无需重试", 409),
+    /** 行业日报不存在（404，M15 T124 方案 §4.8） */
+    INDUSTRY_REPORT_NOT_FOUND(30078, "该日日报不存在", 404),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

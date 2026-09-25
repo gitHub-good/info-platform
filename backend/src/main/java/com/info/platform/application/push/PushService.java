@@ -5,6 +5,7 @@ import com.info.platform.domain.common.UserRepository;
 import com.info.platform.domain.push.AnomalyDetectedEvent;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
+import com.info.platform.domain.push.IndustryReportReadyEvent;
 import com.info.platform.domain.push.NotificationEvent;
 import com.info.platform.domain.push.PipelineFusedEvent;
 import com.info.platform.domain.push.PushRecord;
@@ -279,6 +280,34 @@ public class PushService {
                         "单用户广播推送异常 userId={} type={}: {}", user.getId(), pushType, e.toString(), e);
             }
         }
+    }
+
+    /**
+     * 行业日报生成完成推送（M15 T124 Should，方案 §4.5 步骤 5）：{@code @Async @EventListener} 消费 {@link
+     * IndustryReportReadyEvent}（DailyReportService SUCCESS 落库后发布），广播全量用户。异常兜底记 ERROR 不上抛（异步监听器纪律）。
+     */
+    @Async("pushAsyncExecutor")
+    @EventListener
+    public void onIndustryReportReady(IndustryReportReadyEvent event) {
+        try {
+            handleIndustryReportReady(event);
+        } catch (Exception e) {
+            log.error("行业日报推送处理异常 date={}: {}", event.reportDate(), e.toString(), e);
+        }
+    }
+
+    /** 行业日报推送编排（包内可见，单测直调绕过 @Async 代理）：refId 含覆盖日（每日一条天然幂等）。 */
+    void handleIndustryReportReady(IndustryReportReadyEvent event) {
+        String refId = "industry_report:" + event.reportDate();
+        String content =
+                event.narrativeDegraded()
+                        ? String.format(
+                                "[行业日报] %s 日报已生成（纯统计版：AI 叙述暂不可用），数字与事件精选来自统计，可回看详情。",
+                                event.reportDate())
+                        : String.format(
+                                "[行业日报] %s 行业日报已生成：昨日行业统计、Top5 行业点评与事件精选可回看。", event.reportDate());
+        broadcast(PushType.INDUSTRY_REPORT, refId, content);
+        log.info("行业日报推送完成 refId={} degraded={}", refId, event.narrativeDegraded());
     }
 
     /** 源告警文案：源名/失败摘要/持续时长（REQ 故事 3 场景 1 字段要求）。 */

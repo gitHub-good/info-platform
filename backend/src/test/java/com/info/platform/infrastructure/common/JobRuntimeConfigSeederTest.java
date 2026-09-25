@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllTenJobKeys() {
+    void seeds_carriesAllElevenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 9 键不被增补挤占（INDUSTRY_HEAT_SNAPSHOT 第 10 键追加在尾部，M15 T123 / ADR-0046）
+        // 纯增量守卫：既有 10 键不被增补挤占（INDUSTRY_DAILY_REPORT 第 11 键追加在尾部，M15 T124 / ADR-0046）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -63,7 +63,8 @@ class JobRuntimeConfigSeederTest {
                         "job.RETENTION_CLEANUP",
                         "job.SOURCE_POLL",
                         "job.NEWS_PIPELINE",
-                        "job.INDUSTRY_HEAT_SNAPSHOT");
+                        "job.INDUSTRY_HEAT_SNAPSHOT",
+                        "job.INDUSTRY_DAILY_REPORT");
     }
 
     // ---- NEWS_PIPELINE 种子（T121，M15 / ADR-0046）----
@@ -130,6 +131,39 @@ class JobRuntimeConfigSeederTest {
         assertThat(seed.json())
                 .contains("\"enabled\":false")
                 .contains("\"intervalMillis\":1800000");
+    }
+
+    // ---- INDUSTRY_DAILY_REPORT 种子（T124，M15 / ADR-0046 裁决 4：第 11 键）----
+
+    private RuntimeConfigSeed dailyReportSeed(boolean enabled, String cron) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "dailyReportEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "dailyReportCron", cron);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.INDUSTRY_DAILY_REPORT"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.INDUSTRY_DAILY_REPORT 种子"));
+    }
+
+    @Test
+    void seeds_dailyReport_productionDefaults_enabledCron0800Daily() {
+        // 生产默认：每日 08:00（晨读时点；FUSED 跳过次日补，方案 §4.5）
+        RuntimeConfigSeed seed = dailyReportSeed(true, "0 0 8 * * ?");
+
+        assertThat(seed.configKey()).isEqualTo("job.INDUSTRY_DAILY_REPORT");
+        assertThat(seed.description()).contains("IndustryDailyReportJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 0 8 * * ?\"");
+    }
+
+    @Test
+    void seeds_dailyReport_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：pipeline.daily-report.enabled=false → 种子停用 → 调度零注册（十一 Job 惯例）
+        RuntimeConfigSeed seed = dailyReportSeed(false, "0 0 8 * * ?");
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"cron\":\"0 0 8 * * ?\"");
     }
 
     // ---- SOURCE_POLL 种子（T103，M13 / ADR-0040）----

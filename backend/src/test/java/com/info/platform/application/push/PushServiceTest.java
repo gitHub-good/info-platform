@@ -746,4 +746,58 @@ class PushServiceTest {
         assertThat(payload.getValue().content()).contains("1830000").contains("2000000");
         verify(pushRepository).update(any(PushRecord.class));
     }
+
+    // ---- T124：行业日报完成提醒广播（IndustryReportReadyEvent → INDUSTRY_REPORT(9)，方案 §4.5 步骤 5） ----
+
+    @Test
+    void handleIndustryReportReady_broadcastsReportNoticeToAllUsers() throws Exception {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        service.handleIndustryReportReady(
+                new com.info.platform.domain.push.IndustryReportReadyEvent(
+                        "2026-09-22", false, FIXED_CLOCK.instant()));
+
+        // push_record：类型 INDUSTRY_REPORT(9)、幂等键含覆盖日（每日一条天然节流）
+        ArgumentCaptor<PushRecord> saved = ArgumentCaptor.forClass(PushRecord.class);
+        verify(pushRepository).saveIfAbsent(saved.capture());
+        assertThat(saved.getValue().getPushType()).isEqualTo(PushType.INDUSTRY_REPORT);
+        assertThat(saved.getValue().getIdempotencyKey())
+                .isEqualTo(USER_ID + ":9:industry_report:2026-09-22");
+        // SSE 载荷：type=industry_report、content 含覆盖日（前端通知面板跳日报详情）
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().type()).isEqualTo("industry_report");
+        assertThat(payload.getValue().content()).contains("2026-09-22");
+        verify(pushRepository).update(any(PushRecord.class));
+    }
+
+    @Test
+    void handleIndustryReportReady_degradedReport_contentMarksStatsOnly() throws Exception {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        service.handleIndustryReportReady(
+                new com.info.platform.domain.push.IndustryReportReadyEvent(
+                        "2026-09-22", true, FIXED_CLOCK.instant()));
+
+        // 降级版通知如实标注「纯统计版」（不误导晨读——叙述缺失可见）
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().content()).contains("统计");
+    }
 }

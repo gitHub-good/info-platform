@@ -46,7 +46,8 @@ class PromptPlaceholderRegistryTest {
                                     mock(PromptTemplateService.class),
                                     mock(BriefContentCodec.class)),
                             classifyProvider(),
-                            extractProvider()));
+                            extractProvider(),
+                            dailyReportProvider()));
 
     /** 场景 5（行业归类）供给方：全部依赖 mock（注册表只读 provided()，不触发调用）。 */
     private static com.info.platform.application.analysis.ClassificationService classifyProvider() {
@@ -78,16 +79,34 @@ class PromptPlaceholderRegistryTest {
                 new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
+    /** 场景 7（行业日报）供给方：全部依赖 mock（注册表只读 provided()，不触发调用，M15 T124）。 */
+    private static com.info.platform.application.analysis.DailyReportService dailyReportProvider() {
+        return new com.info.platform.application.analysis.DailyReportService(
+                mock(com.info.platform.domain.analysis.DailyReportRepository.class),
+                mock(com.info.platform.domain.analysis.HeatSnapshotRepository.class),
+                mock(com.info.platform.application.analysis.PipelineGuardService.class),
+                new com.info.platform.application.analysis.PipelineSettings(
+                        mock(com.info.platform.application.common.RuntimeConfigService.class),
+                        new com.fasterxml.jackson.databind.ObjectMapper()),
+                mock(LlmGateway.class),
+                mock(PromptTemplateService.class),
+                mock(org.springframework.context.ApplicationEventPublisher.class),
+                new com.fasterxml.jackson.databind.ObjectMapper(),
+                Clock.systemUTC());
+    }
+
     @Test
-    void aggregates_sixScenarios_withExpectedCounts() {
-        // Act + Assert：注册表 35 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）+ 2（场景5 行业归类，M15 T121）
-        // + 3（场景6 事件提取 today/batchSize/items，M15 T122）
+    void aggregates_sevenScenarios_withExpectedCounts() {
+        // Act + Assert：注册表 38 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）+ 2（场景5 行业归类，M15 T121）
+        // + 3（场景6 事件提取 today/batchSize/items，M15 T122）+ 3（场景7 行业日报
+        // reportDate/industryStats/topEvents，M15 T124）
         assertThat(registry.byBriefType(BriefType.STOCK)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.EVENT_ATTRIBUTION)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.POLICY)).hasSize(7);
         assertThat(registry.byBriefType(BriefType.DAILY_RECOMMEND)).hasSize(6);
         assertThat(registry.byBriefType(BriefType.L1_CLASSIFY)).hasSize(2);
         assertThat(registry.byBriefType(BriefType.L2_EXTRACT)).hasSize(3);
+        assertThat(registry.byBriefType(BriefType.INDUSTRY_DAILY)).hasSize(3);
         assertThat(registry.all()).containsOnlyKeys(BriefType.values());
     }
 
