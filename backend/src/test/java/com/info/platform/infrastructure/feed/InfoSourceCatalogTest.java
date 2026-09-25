@@ -25,7 +25,7 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        // M13 试点三源 + M14 T110 批次一一级 JSON 四源（种子顺序即展示顺序）
+        // M13 试点三源 + M14 T110 批次一一级 JSON 四源 + T111 官方 HTML 三源（种子顺序即展示顺序；T112 报纸三源随后）
         assertThat(codes)
                 .containsExactly(
                         "mw_topstories",
@@ -34,7 +34,10 @@ class InfoSourceCatalogTest {
                         "em_fastnews_7x24",
                         "ths_push_stock",
                         "thepaper_hotnews",
-                        "em_macro_indicators");
+                        "em_macro_indicators",
+                        "ndrc_policy",
+                        "csrc_news",
+                        "stats_release");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -42,8 +45,8 @@ class InfoSourceCatalogTest {
     }
 
     @Test
-    void presets_containsM14BatchOneJsonSources_sevenPresetsTotal() {
-        // M14 T110（REQ-20260925-11 拍板一）：批次一一级 JSON 四源入目录，累计 7 预置源
+    void presets_containsM14BatchOneJsonSources_tenPresetsTotal() {
+        // M14 T110 一级 JSON 四源 + T111 官方三源入目录（T112 报纸三源随后，REQ 累计 13 源口径）
         var codes =
                 InfoSourceCatalog.presets().stream()
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
@@ -54,8 +57,42 @@ class InfoSourceCatalogTest {
                         "em_fastnews_7x24",
                         "ths_push_stock",
                         "thepaper_hotnews",
-                        "em_macro_indicators");
-        assertThat(codes).hasSize(7);
+                        "em_macro_indicators",
+                        "ndrc_policy",
+                        "csrc_news",
+                        "stats_release");
+        assertThat(codes).hasSize(10);
+    }
+
+    @Test
+    void presets_containsM14BatchOneHtmlSources_presetChannelCursorNone() {
+        // T111 三源：preset 通道（HTML 列表适配在代码内）+ cursorType=NONE（增量靠唯一索引，日期粒度过粗的裁量见
+        // ADR-0044）+ 官方频控 60min（REQ 频段 30~60 上限）
+        var htmlCodes =
+                InfoSourceCatalog.presets().stream()
+                        .filter(p -> p.adapterType() == AdapterType.PRESET)
+                        .toList();
+        assertThat(htmlCodes)
+                .extracting(InfoSourceCatalog.PresetEntry::sourceCode)
+                .containsExactly(
+                        "sina_zhibo_7x24",
+                        "em_macro_indicators",
+                        "ndrc_policy",
+                        "csrc_news",
+                        "stats_release");
+        for (String code : new String[] {"ndrc_policy", "csrc_news", "stats_release"}) {
+            var entry =
+                    htmlCodes.stream()
+                            .filter(p -> p.sourceCode().equals(code))
+                            .findFirst()
+                            .orElseThrow();
+            var config = codec.parse(entry.configJson());
+            assertThat(config.effectiveCursorType().name())
+                    .as("%s cursorType", code)
+                    .isEqualTo("NONE");
+            assertThat(entry.adapterRef()).as("%s adapter_ref", code).isNotBlank();
+            assertThat(entry.intervalMinutes()).as("%s 官方源频控 30~60", code).isBetween(30, 60);
+        }
     }
 
     @Test

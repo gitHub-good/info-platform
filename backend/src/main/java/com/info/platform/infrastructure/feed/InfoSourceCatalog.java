@@ -6,13 +6,15 @@ import java.util.List;
 /**
  * 预置源目录（M13 T100，方案 §4.6/§3.4）：预置源<b>单一事实源</b>（对齐 SourceProviders/DataSourceDefaults 惯例）。
  *
- * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 T110 批次一一级 JSON 四源入目录（累计 7 预置）； M14+ 每批新增源 =
- * 本目录加行， {@code InfoSourceSeeder} seed-if-absent 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots
- * 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集）。
+ * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 T110 批次一一级 JSON 四源 + T111/T112 官方与报纸 HTML
+ * 六源入目录（累计 13 预置，REQ 累计源数口径）； M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
+ * 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集）。
  *
  * <p>合规预检留档（T106 复核）：MarketWatch robots 403 → RFC 9309 无 robots 即无限制（落地复核注记）；金十/新浪 7×24 无 robots。
  * M14 T110 复核：np-weblist/news.10jqka/cache.thepaper robots 404、datacenter-web robots 为 JSON 错误页 →
- * 均按无限制。
+ * 均按无限制。M14 T111/T112 复核（2026-09-25 实测，ADR-0044）：ndrc robots 403（WAF 拒读）→ 无限制留档；csrc robots 302 跳
+ * HTML → 无 robots 文件；stats/stcn robots 404 → 无限制；yicai 禁 /api/、/search（/news/ 列表不涉）； 21jingji 通配
+ * Allow 但显式禁 AI 训练爬虫（聚合展示不涉，M15 管道前复核条款）。
  */
 public final class InfoSourceCatalog {
 
@@ -191,6 +193,62 @@ public final class InfoSourceCatalog {
                     {"cursorType":"NONE"}""",
                     60);
 
+    /**
+     * 发改委政策发布（M14 T111，拍板一 #4）：预置 adapter（{@code ndrcPolicyAdapter}），xxgk/zcfb/fzggwl 列表页 HTML
+     * 解析口径与解读条目保留见适配器类注释（2026-09-25 预检实测，ADR-0044）。
+     *
+     * <p>robots：ndrc.gov.cn robots 本身 403（WAF 拒读）→ 按 RFC 9309「无 robots 文件 = 无限制」口径处理并留档（REQ 场景 5
+     * 必检项落地复核）。频控 60min（REQ 官方频段 30~60 上限，日级源礼貌抓取）。
+     */
+    private static final PresetEntry NDRC_POLICY =
+            new PresetEntry(
+                    "ndrc_policy",
+                    "国家发展改革委·政策发布",
+                    "政策",
+                    AdapterType.PRESET,
+                    "ndrcPolicyAdapter",
+                    "https://www.ndrc.gov.cn/xxgk/zcfb/fzggwl/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    60);
+
+    /**
+     * 证监会要闻（M14 T111，拍板一 #5）：预置 adapter（{@code csrcNewsAdapter}）。端点为<b>首页要闻 tab 块</b>——普查
+     * common_list.shtml 实测冻结于 2021-12（生成时间戳与条目均停更）、现行 common_xq_list.shtml 服务端渲染为空列表，
+     * 首页块为唯一服务端渲染新鲜窗口（现行结构对照结论见 ADR-0044）。
+     *
+     * <p>robots：302 跳 HTML 页（非 robots 文件）→ 按「无 robots 文件 = 无限制」处理并留档。频控 60min（首页 221KB 大页礼貌抓取）。
+     */
+    private static final PresetEntry CSRC_NEWS =
+            new PresetEntry(
+                    "csrc_news",
+                    "中国证监会·要闻",
+                    "政策",
+                    AdapterType.PRESET,
+                    "csrcNewsAdapter",
+                    "https://www.csrc.gov.cn/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    60);
+
+    /**
+     * 统计局最新发布（M14 T111，拍板一 #9，Should）：预置 adapter（{@code statsGovReleaseAdapter}），sj/zxfb 列表页
+     * 三响应式锚点取舍与日期墙钟口径见适配器类注释（2026-09-25 预检实测，ADR-0044）。
+     *
+     * <p>robots：stats.gov.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」。频控 60min（REQ 锁定清单）。
+     */
+    private static final PresetEntry STATS_RELEASE =
+            new PresetEntry(
+                    "stats_release",
+                    "国家统计局·最新发布",
+                    "宏观",
+                    AdapterType.PRESET,
+                    "statsGovReleaseAdapter",
+                    "https://www.stats.gov.cn/sj/zxfb/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    60);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -200,6 +258,9 @@ public final class InfoSourceCatalog {
                 EM_FASTNEWS,
                 THS_PUSH,
                 THEPAPER_HOTNEWS,
-                EM_MACRO_INDICATORS);
+                EM_MACRO_INDICATORS,
+                NDRC_POLICY,
+                CSRC_NEWS,
+                STATS_RELEASE);
     }
 }
