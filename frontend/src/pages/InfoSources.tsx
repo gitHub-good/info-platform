@@ -81,6 +81,24 @@ function typeBadgeOf(adapterType: InfoSourceCardView['adapterType']): {
   }
 }
 
+/** AI 管道排除档位徽章（M15 T125：L2 不深度分析 / ALL AI 全排除；NONE 不渲染）。 */
+function aiExclusionBadgeOf(level: InfoSourceCardView['config']['aiExclusion']): {
+  label: string;
+  className: string;
+} | null {
+  switch (level) {
+    case 'L2':
+      return {
+        label: '不深度分析',
+        className: 'bg-violet-500/15 text-violet-400',
+      };
+    case 'ALL':
+      return { label: 'AI 全排除', className: 'bg-rose-500/15 text-rose-400' };
+    default:
+      return null;
+  }
+}
+
 /** 最近一轮轮询徽章矩阵（UI §4.2：成功/抓取中/失败/退避中/暂未抓取）。 */
 function statusBadgeOf(
   card: InfoSourceCardView,
@@ -580,6 +598,7 @@ function SourceCard({
   const code = source.sourceCode;
   const type = typeBadgeOf(source.adapterType);
   const status = statusBadgeOf(source, nowMillis, polling);
+  const aiExclusion = aiExclusionBadgeOf(source.config.aiExclusion);
   const [feedback, setFeedback] = useState<{ state: SaveFeedbackState; msg: string; label: string }>(
     { state: 'idle', msg: '', label: '' },
   );
@@ -641,6 +660,24 @@ function SourceCard({
           >
             {status.text}
           </Badge>
+          {aiExclusion ? (
+            <Badge
+              className={aiExclusion.className}
+              title="该源条目不参与对应层级的 AI 分析（采集与资讯流不受影响）"
+              data-testid={`info-source-ai-exclusion-${code}`}
+            >
+              {aiExclusion.label}
+            </Badge>
+          ) : null}
+          {source.config.staleSince ? (
+            <Badge
+              className="bg-amber-500/15 text-amber-400"
+              title="连续多日零净入库，自动标记；恢复入库后自动解除"
+              data-testid={`info-source-stale-${code}`}
+            >
+              疑似停更 {source.config.staleSince}
+            </Badge>
+          ) : null}
           <span className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
             启用
             <Switch

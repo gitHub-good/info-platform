@@ -341,19 +341,30 @@ export function FeedDashboard() {
                               {formatTime(row.lastAttemptAt)}
                             </td>
                             <td className="px-3 py-2">
-                              <Badge
-                                className={status.className}
-                                data-testid={`dashboard-source-status-${row.sourceCode}`}
-                                title={
-                                  row.consecutiveFailures > 0
-                                    ? `连续失败 ${row.consecutiveFailures} 轮${
-                                        row.backoffUntil ? ` · ${formatTime(row.backoffUntil)} 后重试` : ''
-                                      }`
-                                    : undefined
-                                }
-                              >
-                                {status.text}
-                              </Badge>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <Badge
+                                  className={status.className}
+                                  data-testid={`dashboard-source-status-${row.sourceCode}`}
+                                  title={
+                                    row.consecutiveFailures > 0
+                                      ? `连续失败 ${row.consecutiveFailures} 轮${
+                                          row.backoffUntil ? ` · ${formatTime(row.backoffUntil)} 后重试` : ''
+                                        }`
+                                      : undefined
+                                  }
+                                >
+                                  {status.text}
+                                </Badge>
+                                {row.staleSince ? (
+                                  <Badge
+                                    className="bg-amber-500/15 text-amber-400"
+                                    title="连续多日零净入库，自动标记（M15 T128）；恢复入库后自动解除"
+                                    data-testid={`dashboard-source-stale-${row.sourceCode}`}
+                                  >
+                                    疑似停更 {row.staleSince}
+                                  </Badge>
+                                ) : null}
+                              </div>
                             </td>
                             <td
                               className="max-w-[220px] truncate px-3 py-2 text-xs text-muted-foreground"

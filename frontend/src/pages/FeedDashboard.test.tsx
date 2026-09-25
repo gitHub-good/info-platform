@@ -42,6 +42,7 @@ function rowOf(overrides: Partial<FeedDashboardView['sources'][number]> = {}) {
     lastRoundDetail: 'new=2; dup=0; pages=1; backfill=none',
     runState: 'ok' as const,
     abnormal: false,
+    staleSince: null,
     ...overrides,
   };
 }
@@ -323,5 +324,19 @@ describe('FeedDashboard 抓取大盘页（T116）', () => {
     await vi.advanceTimersByTimeAsync(31_000);
 
     expect(screen.getByTestId('dashboard-stat-today-new')).toHaveTextContent('48');
+  });
+
+  it('M15 T128 增量：源维度行 staleSince 非空显示「疑似停更」徽章（含起始日），null 不渲染', async () => {
+    const view = fullView();
+    view.sources[1] = rowOf({ staleSince: '2026-09-15' });
+    vi.stubGlobal('fetch', vi.fn(async () => ok(view)));
+
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-source-row-jin10_flash');
+    const badge = screen.getByTestId('dashboard-source-stale-jin10_flash');
+    expect(badge).toHaveTextContent('疑似停更');
+    expect(badge).toHaveTextContent('2026-09-15');
+    expect(screen.queryByTestId('dashboard-source-stale-mw_topstories')).toBeNull();
   });
 });

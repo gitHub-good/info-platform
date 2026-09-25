@@ -207,6 +207,35 @@ describe('SSE 连接生命周期（useNotificationStream）', () => {
     expect(screen.getByText('SH600519')).toBeInTheDocument();
     expect(screen.getByText(/日涨跌幅 5\.00%/)).toBeInTheDocument();
   });
+
+  it('M15 新事件类型入列：industry_report / pipeline_fused 命名事件进入面板并显示中文徽章', async () => {
+    const { renderBell } = setupEnvironment();
+    renderBell();
+    fireEvent.click(screen.getByTestId('notification-bell'));
+
+    MockEventSource.instances[0].dispatch(
+      'industry_report',
+      anomalyPayload({ type: 'industry_report', subjectId: null, subjectCode: null, refId: '2' }),
+      '201',
+    );
+    MockEventSource.instances[0].dispatch(
+      'pipeline_fused',
+      anomalyPayload({
+        type: 'pipeline_fused',
+        subjectId: null,
+        subjectCode: null,
+        refId: null,
+        content: '管道成本达日预算 90%，已熔断',
+      }),
+      '202',
+    );
+
+    expect(await screen.findByTestId('notification-item-201')).toBeInTheDocument();
+    expect(screen.getByTestId('notification-item-202')).toBeInTheDocument();
+    expect(screen.getByText('行业日报')).toBeInTheDocument();
+    expect(screen.getByText('管道熔断')).toBeInTheDocument();
+    expect(screen.getByText(/已熔断/)).toBeInTheDocument();
+  });
 });
 
 describe('通知铃铛与面板交互', () => {

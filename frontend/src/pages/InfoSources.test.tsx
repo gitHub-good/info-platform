@@ -42,6 +42,8 @@ function cardOf(overrides: Partial<InfoSourceCardView> = {}): InfoSourceCardView
       pageSize: null,
       cursorType: 'NONE',
       cursorField: null,
+      aiExclusion: 'NONE',
+      staleSince: null,
     },
     intervalMinutes: 15,
     enabled: true,
@@ -625,5 +627,46 @@ describe('InfoSources 资讯源管理页（M13 T105）', () => {
       expect(screen.getByTestId('info-source-status-t105mine')).toHaveTextContent('抓取中…'),
     );
     expect(screen.queryByTestId('info-source-feedback-t105mine')).not.toBeInTheDocument();
+  });
+
+  it('M15 增量徽章：aiExclusion L2「不深度分析」/ ALL「AI 全排除」，NONE 不渲染', async () => {
+    const view = fullView();
+    const jin10 = view.groups.flatMap((g) => g.sources).find((s) => s.sourceCode === 'jin10_flash');
+    if (jin10) jin10.config = { ...jin10.config, aiExclusion: 'ALL' };
+    view.groups[0].sources.push(
+      cardOf({
+        id: 21,
+        sourceCode: 'cailianshe21',
+        name: '21财经',
+        category: '媒体',
+        config: { ...cardOf().config, aiExclusion: 'L2' },
+      }),
+    );
+    const store = makeStore({ view });
+    renderPage(store);
+
+    await screen.findByTestId('info-source-card-cailianshe21');
+    expect(screen.getByTestId('info-source-ai-exclusion-cailianshe21')).toHaveTextContent(
+      '不深度分析',
+    );
+    expect(screen.getByTestId('info-source-ai-exclusion-jin10_flash')).toHaveTextContent(
+      'AI 全排除',
+    );
+    // NONE 档不渲染徽章（存量源零视觉噪音）
+    expect(screen.queryByTestId('info-source-ai-exclusion-t105mine')).toBeNull();
+  });
+
+  it('M15 增量徽章：staleSince 非空显示「疑似停更」+ 起始日期，null 不渲染', async () => {
+    const view = fullView();
+    const mw = view.groups.flatMap((g) => g.sources).find((s) => s.sourceCode === 'mw_topstories');
+    if (mw) mw.config = { ...mw.config, staleSince: '2026-09-15' };
+    const store = makeStore({ view });
+    renderPage(store);
+
+    await screen.findByTestId('info-source-card-mw_topstories');
+    const badge = screen.getByTestId('info-source-stale-mw_topstories');
+    expect(badge).toHaveTextContent('疑似停更');
+    expect(badge).toHaveTextContent('2026-09-15');
+    expect(screen.queryByTestId('info-source-stale-t105mine')).toBeNull();
   });
 });

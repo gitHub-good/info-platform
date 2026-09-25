@@ -10,6 +10,9 @@ export type InfoSourceCursorType = 'ID' | 'TIME' | 'NONE';
 /** 新增/编辑开放类型（预置通道不可自建，蓝图裁决 1）。 */
 export type CreatableAdapterType = 'rss' | 'json_api';
 
+/** AI 管道排除档位（info_source.config.aiExclusion 线格式，M15 T125：NONE 不排除 / L2 不深度分析 / ALL 全排除）。 */
+export type AiExclusionLevel = 'NONE' | 'L2' | 'ALL';
+
 /** 源配置视图（info_source.config 线格式；rss 缺省映射为空表）。 */
 export interface InfoSourceConfigView {
   listPath: string | null;
@@ -21,6 +24,10 @@ export interface InfoSourceConfigView {
   pageSize: number | null;
   cursorType: InfoSourceCursorType;
   cursorField: string | null;
+  /** AI 管道排除档位（M15 T125 徽章数据面；请求面不可写）。 */
+  aiExclusion: AiExclusionLevel;
+  /** 疑似停更标记起始日（M15 T128 徽章数据面；null = 未标记；Job 独占写）。 */
+  staleSince: string | null;
 }
 
 export interface InfoSourceItemMappingView {

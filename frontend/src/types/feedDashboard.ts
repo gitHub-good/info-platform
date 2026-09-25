@@ -44,6 +44,8 @@ export interface FeedDashboardSourceRow {
   lastRoundDetail: string | null;
   runState: 'ok' | 'fail' | 'backoff' | 'disabled' | 'pending';
   abnormal: boolean;
+  /** 疑似停更标记起始日（M15 T128 徽章数据面；null = 未标记）。 */
+  staleSince: string | null;
 }
 
 /** 近期失败列表行（origin：event=旁路事件 / state=运行态现态）。 */
