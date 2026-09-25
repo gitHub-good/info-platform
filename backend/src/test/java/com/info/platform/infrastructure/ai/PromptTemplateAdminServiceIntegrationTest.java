@@ -39,7 +39,7 @@ import org.springframework.test.context.ActiveProfiles;
  * 外层，服务事务独立提交/回滚），验证「任何操作后每场景恒有且仅有一个 status=1」与冲突回滚零变更。
  *
  * <p>冲突回滚场景用 @SpyBean 模拟并发竞争的过期读（findAllByBriefType 返回不含冲突行的旧清单），生成器据此产出已存在版本 → UNIQUE 兜底 30070 →
- * 服务事务回滚。@AfterEach 恢复 V8/V14 种子态并 reset spy（共享内存库跨类可见，防污染）。
+ * 服务事务回滚。@AfterEach 恢复 V8/V14/V21 种子态并 reset spy（共享内存库跨类可见，防污染）。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -64,7 +64,7 @@ class PromptTemplateAdminServiceIntegrationTest {
 
     @SpyBean private PromptTemplateRepository promptTemplateRepository;
 
-    /** V8/V14 播种态快照（首个用例前捕获一次；物理删除也能整体复原）。 */
+    /** V8/V14/V21 播种态快照（首个用例前捕获一次；物理删除也能整体复原）。 */
     private static List<PromptTemplatePO> seedSnapshot;
 
     @BeforeEach
@@ -100,29 +100,29 @@ class PromptTemplateAdminServiceIntegrationTest {
 
     @Test
     void create_savesNewVersionAndKeepsSingleActiveInvariant() {
-        // Arrange：种子 STOCK v1.0 激活
+        // Arrange：种子 STOCK v1.1 激活（V21 播种，v1.0 已置废）
         PromptTemplate before =
                 promptTemplateRepository.findActiveByBriefType(BriefType.STOCK).orElseThrow();
 
-        // Act：保存即激活（MINOR）
+        // Act：保存即激活（MINOR）——既有版本 {v1.0, v1.1} → v1.2
         var result =
                 adminService.create(
                         new CreateCommand(BriefType.STOCK, null, NEW_TEMPLATE, null, Set.of()));
 
-        // Assert：新版本 v1.1 激活、旧版置废、恒一行 status=1、下一次生成直查即用新值
-        assertThat(result.version()).isEqualTo("v1.1");
+        // Assert：新版本 v1.2 激活、旧版置废、恒一行 status=1、下一次生成直查即用新值
+        assertThat(result.version()).isEqualTo("v1.2");
         assertThat(result.status()).isEqualTo("ACTIVE");
-        assertThat(result.deactivatedVersion()).isEqualTo("v1.0");
+        assertThat(result.deactivatedVersion()).isEqualTo("v1.1");
         PromptTemplate activeNow =
                 promptTemplateRepository.findActiveByBriefType(BriefType.STOCK).orElseThrow();
-        assertThat(activeNow.getVersion()).isEqualTo("v1.1");
+        assertThat(activeNow.getVersion()).isEqualTo("v1.2");
         assertThat(activeNow.getTemplate()).isEqualTo(NEW_TEMPLATE);
         List<PromptTemplate> rows = promptTemplateRepository.findAllByBriefType(BriefType.STOCK);
-        assertThat(rows).hasSize(2);
+        assertThat(rows).hasSize(3);
         assertThat(rows.stream().filter(PromptTemplate::isActive)).hasSize(1);
         assertThat(
                         rows.stream()
-                                .filter(t -> "v1.0".equals(t.getVersion()))
+                                .filter(t -> "v1.1".equals(t.getVersion()))
                                 .findFirst()
                                 .orElseThrow())
                 .satisfies(t -> assertThat(t.isActive()).isFalse());
@@ -131,8 +131,8 @@ class PromptTemplateAdminServiceIntegrationTest {
 
     @Test
     void create_uniqueConflictRollsBack_priorActiveUntouched() {
-        // Arrange：预埋 v1.1 置废行（模拟另一并发请求已创建）+ spy 过期读（版本清单不含 v1.1）
-        seedRow(BriefType.STOCK, "v1.1", 0);
+        // Arrange：预埋 v1.2 置废行（模拟另一并发请求已创建）+ spy 过期读（版本清单只剩 v1.0）
+        seedRow(BriefType.STOCK, "v1.2", 0);
         doReturn(
                         promptTemplateRepository.findAllByBriefType(BriefType.STOCK).stream()
                                 .filter(t -> "v1.0".equals(t.getVersion()))
@@ -140,7 +140,7 @@ class PromptTemplateAdminServiceIntegrationTest {
                 .when(promptTemplateRepository)
                 .findAllByBriefType(BriefType.STOCK);
 
-        // Act：生成器据过期清单产出 v1.1 → 插入撞 UNIQUE → 30070 + 事务回滚
+        // Act：生成器据过期清单产出 v1.1 → 插入撞 UNIQUE（V21 已播种 v1.1）→ 30070 + 事务回滚
         assertThatThrownBy(
                         () ->
                                 adminService.create(
@@ -156,19 +156,19 @@ class PromptTemplateAdminServiceIntegrationTest {
                                 assertThat(((BusinessException) ex).getErrorCode())
                                         .isEqualTo(ErrorCode.PROMPT_TEMPLATE_VERSION_CONFLICT));
 
-        // Assert：回滚零变更——旧激活继续生效、预埋行未被顶掉、行数不变（经 mapper 读，绕开 spy 过期读桩）
+        // Assert：回滚零变更——旧激活（V21 的 v1.1）继续生效、预埋行未被顶掉、行数不变（经 mapper 读，绕开 spy 过期读桩）
         PromptTemplate active =
                 promptTemplateRepository.findActiveByBriefType(BriefType.STOCK).orElseThrow();
-        assertThat(active.getVersion()).isEqualTo("v1.0");
+        assertThat(active.getVersion()).isEqualTo("v1.1");
         List<PromptTemplatePO> stockRows =
                 promptTemplateMapper.selectList(
                         new LambdaQueryWrapper<PromptTemplatePO>()
                                 .eq(PromptTemplatePO::getBriefType, BriefType.STOCK.code()));
-        assertThat(stockRows).hasSize(2);
+        assertThat(stockRows).hasSize(3);
         assertThat(stockRows.stream().filter(po -> po.getStatus() == 1)).hasSize(1);
         assertThat(
                         stockRows.stream()
-                                .filter(po -> "v1.1".equals(po.getVersion()))
+                                .filter(po -> "v1.2".equals(po.getVersion()))
                                 .findFirst()
                                 .orElseThrow())
                 .satisfies(po -> assertThat(po.getStatus()).isZero());
@@ -176,30 +176,30 @@ class PromptTemplateAdminServiceIntegrationTest {
 
     @Test
     void activate_rollsBackToOldVersion_singleActiveMaintained_andIdempotent() {
-        // Arrange：先创建 v1.1（保存即激活）
+        // Arrange：先创建 v1.2（保存即激活）
         adminService.create(new CreateCommand(BriefType.STOCK, null, NEW_TEMPLATE, null, Set.of()));
-        Long v10Id =
+        Long v11Id =
                 promptTemplateRepository.findAllByBriefType(BriefType.STOCK).stream()
-                        .filter(t -> "v1.0".equals(t.getVersion()))
+                        .filter(t -> "v1.1".equals(t.getVersion()))
                         .findFirst()
                         .orElseThrow()
                         .getId();
 
-        // Act：回滚激活 v1.0
-        var rolledBack = adminService.activate(v10Id);
+        // Act：回滚激活 v1.1（V21 播种版）
+        var rolledBack = adminService.activate(v11Id);
 
         // Assert：唯一激活不变量 + 回执
-        assertThat(rolledBack.version()).isEqualTo("v1.0");
-        assertThat(rolledBack.deactivatedVersion()).isEqualTo("v1.1");
+        assertThat(rolledBack.version()).isEqualTo("v1.1");
+        assertThat(rolledBack.deactivatedVersion()).isEqualTo("v1.2");
         assertThat(
                         promptTemplateRepository.findAllByBriefType(BriefType.STOCK).stream()
                                 .filter(PromptTemplate::isActive))
                 .hasSize(1)
                 .first()
-                .satisfies(t -> assertThat(t.getVersion()).isEqualTo("v1.0"));
+                .satisfies(t -> assertThat(t.getVersion()).isEqualTo("v1.1"));
 
         // Act + Assert：重复激活自身 → 幂等（无被顶版本）
-        var again = adminService.activate(v10Id);
+        var again = adminService.activate(v11Id);
         assertThat(again.deactivatedVersion()).isNull();
         assertThat(
                         promptTemplateRepository.findAllByBriefType(BriefType.STOCK).stream()
@@ -209,7 +209,7 @@ class PromptTemplateAdminServiceIntegrationTest {
 
     @Test
     void delete_guardsActiveVersion_butRemovesRetiredPhysically() {
-        // Arrange：v1.0 激活 + 新建 v1.1（旧版置废）
+        // Arrange：v1.1 激活（V21 播种）+ 新建 v1.2（旧版置废）
         adminService.create(new CreateCommand(BriefType.STOCK, null, NEW_TEMPLATE, null, Set.of()));
         Long activeId =
                 promptTemplateRepository
@@ -316,20 +316,20 @@ class PromptTemplateAdminServiceIntegrationTest {
             pool.shutdownNow();
         }
 
-        // Assert：胜者 v1.1 激活；败者零残留（v1.1 恰一行、唯一激活不变量、v1.0 置废）——经 mapper 断言绕开 spy 读桩
-        assertThat(winner.version()).isEqualTo("v1.1");
+        // Assert：胜者 v1.2 激活；败者零残留（v1.2 恰一行、唯一激活不变量、旧版置废）——经 mapper 断言绕开 spy 读桩
+        assertThat(winner.version()).isEqualTo("v1.2");
         assertThat(winner.status()).isEqualTo("ACTIVE");
         List<PromptTemplatePO> stockRows =
                 promptTemplateMapper.selectList(
                         new LambdaQueryWrapper<PromptTemplatePO>()
                                 .eq(PromptTemplatePO::getBriefType, BriefType.STOCK.code()));
-        assertThat(stockRows).hasSize(2);
+        assertThat(stockRows).hasSize(3);
         assertThat(stockRows.stream().map(PromptTemplatePO::getVersion))
-                .containsExactlyInAnyOrder("v1.0", "v1.1");
+                .containsExactlyInAnyOrder("v1.0", "v1.1", "v1.2");
         assertThat(stockRows.stream().filter(po -> po.getStatus() == 1)).hasSize(1);
         assertThat(
                         stockRows.stream()
-                                .filter(po -> "v1.1".equals(po.getVersion()))
+                                .filter(po -> "v1.2".equals(po.getVersion()))
                                 .findFirst()
                                 .orElseThrow())
                 .satisfies(po -> assertThat(po.getStatus()).isEqualTo(1));
