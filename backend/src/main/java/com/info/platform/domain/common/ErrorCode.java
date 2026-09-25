@@ -92,6 +92,8 @@ public enum ErrorCode {
     INDUSTRY_REPORT_ALREADY_SUCCESS(30077, "该日日报已成功生成，无需重试", 409),
     /** 行业日报不存在（404，M15 T124 方案 §4.8） */
     INDUSTRY_REPORT_NOT_FOUND(30078, "该日日报不存在", 404),
+    /** 事件流筛选参数非法（type/industry/importance/direction 非法枚举、limit 越界，msg 字段级，400，M15 T127 方案 §4.8） */
+    EVENT_FILTER_INVALID(30079, "事件流筛选参数非法", 400),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

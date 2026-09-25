@@ -9,6 +9,7 @@ import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.Importance;
 import java.sql.PreparedStatement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +70,30 @@ public class EventItemRepositoryImpl implements EventItemRepository {
                             nullableInstant(rs.getString("created_at")),
                             nullableInstant(rs.getString("updated_at")));
 
+    /** 事件流卡片行（EVENT_ROW 复用 + news 标题/链接 join 列，列别名避让 e.* 标签）。 */
+    private static final RowMapper<EventItemRepository.EventStreamItem> STREAM_ROW =
+            (rs, rowNum) ->
+                    new EventItemRepository.EventStreamItem(
+                            EVENT_ROW.mapRow(rs, rowNum),
+                            rs.getString("news_title"),
+                            rs.getString("news_url"));
+
+    private static final String FIND_STREAM_SQL =
+            """
+            SELECT e.*, ni.title AS news_title, ni.url AS news_url
+              FROM event_item e
+              JOIN news_item ni ON ni.id = e.news_id
+             WHERE 1 = 1
+            """;
+
+    private static final String COUNT_STREAM_SQL =
+            """
+            SELECT COUNT(*)
+              FROM event_item e
+              JOIN news_item ni ON ni.id = e.news_id
+             WHERE 1 = 1
+            """;
+
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
@@ -112,6 +137,51 @@ public class EventItemRepositoryImpl implements EventItemRepository {
                 "SELECT * FROM event_item WHERE id IN (" + placeholders + ")",
                 EVENT_ROW,
                 ids.toArray());
+    }
+
+    @Override
+    public List<EventItemRepository.EventStreamItem> findStreamItems(
+            EventItemRepository.EventStreamFilter filter, Long beforeId, int limit) {
+        StringBuilder sql = new StringBuilder(FIND_STREAM_SQL);
+        List<Object> args = new ArrayList<>();
+        appendStreamFilters(sql, args, filter);
+        if (beforeId != null) {
+            sql.append(" AND e.id < ?");
+            args.add(beforeId);
+        }
+        sql.append(" ORDER BY e.id DESC LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), STREAM_ROW, args.toArray());
+    }
+
+    @Override
+    public long countStreamItems(EventItemRepository.EventStreamFilter filter) {
+        StringBuilder sql = new StringBuilder(COUNT_STREAM_SQL);
+        List<Object> args = new ArrayList<>();
+        appendStreamFilters(sql, args, filter);
+        Long count = jdbcTemplate.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0 : count;
+    }
+
+    /** 四维筛选拼装（null 维度跳过；行业 = affected JSON 引号定界 LIKE，防「非银金融」子串误配）。 */
+    private static void appendStreamFilters(
+            StringBuilder sql, List<Object> args, EventItemRepository.EventStreamFilter filter) {
+        if (filter.eventType() != null) {
+            sql.append(" AND e.event_type = ?");
+            args.add(filter.eventType().name());
+        }
+        if (filter.industry() != null) {
+            sql.append(" AND e.affected_industries LIKE ?");
+            args.add("%\"" + filter.industry() + "\"%");
+        }
+        if (filter.importance() != null) {
+            sql.append(" AND e.importance = ?");
+            args.add(filter.importance().name());
+        }
+        if (filter.direction() != null) {
+            sql.append(" AND e.direction = ?");
+            args.add(filter.direction().name());
+        }
     }
 
     // —— JSON 列编解码 ——

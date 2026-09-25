@@ -115,6 +115,21 @@ class JwtAuthFilterTest {
     }
 
     @Test
+    void eventsPath_requiresToken_t127() throws Exception {
+        // T127 事件流接口不在白名单：缺 token → 401/1003（不进下游）——新端点零新匿名面
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/events");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        boolean[] forwarded = {false};
+        FilterChain chain = (r, s) -> forwarded[0] = true;
+
+        filter.doFilter(req, res, chain);
+
+        assertThat(forwarded[0]).isFalse();
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(bodyCode(res)).isEqualTo(1003);
+    }
+
+    @Test
     void malformedAuthorizationHeader_returns401AndCode1003() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/subjects/1/detail");
         req.addHeader("Authorization", "Basic xyz"); // 非 Bearer
