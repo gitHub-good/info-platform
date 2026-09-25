@@ -128,7 +128,7 @@ class SourceConfigValidatorTest {
     void validateCommon_jsonApiRequiresTitleMapping() {
         // json_api 无映射 → 拒绝（映射必填字段，蓝图故事 1 场景 2 可诊断）
         SourceConfig noMapping =
-                new SourceConfig("", null, null, List.of(), null, null, null, null, null);
+                new SourceConfig("", null, null, List.of(), null, null, null, null, null, null);
         InfoSource source =
                 InfoSource.create(
                         "t100_vj",
@@ -152,6 +152,7 @@ class SourceConfigValidatorTest {
                         null,
                         null,
                         List.of(mapping("title", "title", "to_string")),
+                        null,
                         null,
                         null,
                         null,
@@ -184,6 +185,7 @@ class SourceConfigValidatorTest {
                         null,
                         null,
                         null,
+                        null,
                         null);
         InfoSource source =
                 InfoSource.create(
@@ -211,6 +213,7 @@ class SourceConfigValidatorTest {
                         null,
                         null,
                         List.of(mapping(" ", "title", "to_string")),
+                        null,
                         null,
                         null,
                         null,
@@ -247,6 +250,7 @@ class SourceConfigValidatorTest {
                         null,
                         null,
                         null,
+                        null,
                         null);
         InfoSource source =
                 InfoSource.create(
@@ -275,6 +279,7 @@ class SourceConfigValidatorTest {
                         null,
                         null,
                         null,
+                        null,
                         null);
         InfoSource ok =
                 InfoSource.create(
@@ -296,7 +301,7 @@ class SourceConfigValidatorTest {
         // cursorType=ID 但未声明 cursorField → 拒绝
         SourceConfig noField =
                 new SourceConfig(
-                        null, null, null, List.of(), null, null, null, CursorType.ID, null);
+                        null, null, null, List.of(), null, null, null, CursorType.ID, null, null);
         InfoSource source =
                 InfoSource.create(
                         "t100_vc",
@@ -324,7 +329,8 @@ class SourceConfigValidatorTest {
                         null,
                         null,
                         CursorType.NONE,
-                        "externalId");
+                        "externalId",
+                        null);
         InfoSource source2 =
                 InfoSource.create(
                         "t100_vc2",
@@ -346,7 +352,7 @@ class SourceConfigValidatorTest {
     void validateCommon_numericBounds() {
         // maxItems 1~200 / pageSize 1~100
         SourceConfig over =
-                new SourceConfig(null, null, null, List.of(), null, 500, null, null, null);
+                new SourceConfig(null, null, null, List.of(), null, 500, null, null, null, null);
         InfoSource source =
                 InfoSource.create(
                         "t100_vn",
@@ -364,7 +370,7 @@ class SourceConfigValidatorTest {
                 .hasMessageContaining("maxItems");
 
         SourceConfig pageSizeBad =
-                new SourceConfig(null, null, null, List.of(), null, null, 0, null, null);
+                new SourceConfig(null, null, null, List.of(), null, null, 0, null, null, null);
         InfoSource source2 =
                 InfoSource.create(
                         "t100_vn2",
@@ -380,5 +386,63 @@ class SourceConfigValidatorTest {
         assertThatThrownBy(() -> validator.validateCommon(source2))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("pageSize");
+    }
+
+    @Test
+    void validateCommon_urlTemplateValidWithPlaceholder_passes() {
+        // M14 T110（澎湃口径）：模板须 http(s) 开头且含 {externalId} 占位——合法形态通过
+        SourceConfig config =
+                new SourceConfig(
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null,
+                        "https://www.example.com/newsDetail_forward_{externalId}");
+        InfoSource source = rssSource(config, 15);
+
+        assertThatCode(() -> validator.validateCommon(source)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void validateCommon_urlTemplateInvalid_rejectedFieldLevel() {
+        // 非 http(s) 开头 / 缺 {externalId} 占位 → 字段级 30072
+        SourceConfig badScheme =
+                new SourceConfig(
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null,
+                        "ftp://example.com/{externalId}");
+        assertThatThrownBy(() -> validator.validateCommon(rssSource(badScheme, 15)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("urlTemplate")
+                .hasMessageContaining("http(s)");
+
+        SourceConfig noPlaceholder =
+                new SourceConfig(
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null,
+                        "https://example.com/detail");
+        assertThatThrownBy(() -> validator.validateCommon(rssSource(noPlaceholder, 15)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("urlTemplate")
+                .hasMessageContaining("{externalId}");
     }
 }

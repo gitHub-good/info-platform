@@ -95,7 +95,8 @@ class FeedIngestServiceIntegrationTest {
                                 null,
                                 null,
                                 CursorType.ID,
-                                "externalId"),
+                                "externalId",
+                                null),
                         5,
                         true,
                         false);
@@ -220,7 +221,7 @@ class FeedIngestServiceIntegrationTest {
                 null,
                 null,
                 new SourceConfig(
-                        null, null, null, null, null, 3, null, CursorType.ID, "externalId"),
+                        null, null, null, null, null, 3, null, CursorType.ID, "externalId", null),
                 null,
                 null);
         infoSourceRepository.save(source);

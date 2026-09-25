@@ -56,6 +56,7 @@
 | ADR-0040 | 分钟级多源调度：SOURCE_POLL 聚合 ManagedJob（tick 现读启用源热生效/全局并发上限 4/指数退避封顶 60min/断流补抓深翻 truncated 显性化；否决每源一 Job 与 Quartz 新调度器；REQ-20260925-10 / V2.0-M13） | 已决 |
 | ADR-0041 | FeedFetcher 端口返回 FetchResult 携带补抓截断信号（truncated 只有引擎知道——条目列表无法推断触顶；实现级精化不改变契约语义；REQ-20260925-10 / V2.0-M13 T101） | 已决 |
 | ADR-0042 | 试点源实测字段口径与引擎容错三则（金十 data 嵌套映射点分导航 + 标题回落 + 包装空格漂移首边界截取；目录常量按 2026-09-25 实测对齐；REQ-20260925-10 / V2.0-M13 T106） | 已决 |
+| ADR-0043 | 批次一一级 JSON 四源实测修正与引擎微扩展两则（epoch_millis_to_iso + urlTemplate；东财 7×24 参数演进对齐/同花顺 UTF-8 判定/澎湃频道端点 404 按「要闻·含财经」接 hotNews/东财宏观 preset 序列条目化 cursorType=NONE；REQ-20260925-11 / V2.0-M14 T110） | 已决 |
 
 ## 🔍 关联调研
 

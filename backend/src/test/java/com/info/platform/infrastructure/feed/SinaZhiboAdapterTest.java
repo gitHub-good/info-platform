@@ -41,7 +41,16 @@ class SinaZhiboAdapterTest {
                 SinaZhiboAdapter.BEAN_NAME,
                 ENDPOINT,
                 new SourceConfig(
-                        null, null, null, null, null, null, null, CursorType.ID, "externalId"),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        CursorType.ID,
+                        "externalId",
+                        null),
                 5,
                 true,
                 true);

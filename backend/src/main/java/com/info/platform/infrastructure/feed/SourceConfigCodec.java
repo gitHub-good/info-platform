@@ -60,7 +60,8 @@ public class SourceConfigCodec {
                 root.path("maxItems").isNumber() ? root.path("maxItems").asInt() : null,
                 root.path("pageSize").isNumber() ? root.path("pageSize").asInt() : null,
                 CursorType.from(root.path("cursorType").asText(null)),
-                root.path("cursorField").asText(null));
+                root.path("cursorField").asText(null),
+                root.path("urlTemplate").asText(null));
     }
 
     /** 序列化（null 配置 → "{}"；键序固定）。 */
@@ -94,6 +95,7 @@ public class SourceConfigCodec {
         }
         doc.put("cursorType", config.effectiveCursorType().name());
         putIfNotBlank(doc, "cursorField", config.cursorField());
+        putIfNotBlank(doc, "urlTemplate", config.urlTemplate());
         try {
             return MAPPER.writeValueAsString(doc);
         } catch (JsonProcessingException e) {

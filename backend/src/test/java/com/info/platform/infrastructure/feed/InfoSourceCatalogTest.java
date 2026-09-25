@@ -25,12 +25,37 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        assertThat(codes).containsExactly("mw_topstories", "jin10_flash", "sina_zhibo_7x24");
+        // M13 试点三源 + M14 T110 批次一一级 JSON 四源（种子顺序即展示顺序）
+        assertThat(codes)
+                .containsExactly(
+                        "mw_topstories",
+                        "jin10_flash",
+                        "sina_zhibo_7x24",
+                        "em_fastnews_7x24",
+                        "ths_push_stock",
+                        "thepaper_hotnews",
+                        "em_macro_indicators");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
-                .containsExactlyInAnyOrder(
-                        AdapterType.RSS, AdapterType.JSON_API, AdapterType.PRESET);
+                .contains(AdapterType.RSS, AdapterType.JSON_API, AdapterType.PRESET);
+    }
+
+    @Test
+    void presets_containsM14BatchOneJsonSources_sevenPresetsTotal() {
+        // M14 T110（REQ-20260925-11 拍板一）：批次一一级 JSON 四源入目录，累计 7 预置源
+        var codes =
+                InfoSourceCatalog.presets().stream()
+                        .map(InfoSourceCatalog.PresetEntry::sourceCode)
+                        .toList();
+
+        assertThat(codes)
+                .contains(
+                        "em_fastnews_7x24",
+                        "ths_push_stock",
+                        "thepaper_hotnews",
+                        "em_macro_indicators");
+        assertThat(codes).hasSize(7);
     }
 
     @Test

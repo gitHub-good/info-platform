@@ -217,6 +217,9 @@ public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFet
             summary = null;
         }
         String url = str(mapped.get("url"));
+        if (url == null) {
+            url = synthesizeUrl(source.getConfig().urlTemplate(), externalId);
+        }
         String author = str(mapped.get("author"));
         Instant publishedAt = null;
         Object rawPublishedAt = mapped.get("publishedAt");
@@ -238,6 +241,20 @@ public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFet
         return source.getConfig().mappings().stream()
                 .map(m -> new FieldMapping(m.source(), m.target(), Transform.from(m.transform())))
                 .toList();
+    }
+
+    /**
+     * URL 合成（M14 T110，澎湃口径）：源侧条目无直链字段时按 {@code {externalId}} 占位替换——映射已产出 url 或 externalId
+     * 缺失则不合成（url 留空走「title+externalId 过滤线」）。模板白名单校验归保存侧（须 http(s) 开头）。
+     */
+    private static String synthesizeUrl(String urlTemplate, String externalId) {
+        if (urlTemplate == null
+                || urlTemplate.isBlank()
+                || externalId == null
+                || externalId.isBlank()) {
+            return null;
+        }
+        return urlTemplate.replace("{externalId}", externalId);
     }
 
     /** 已见判定（与 RssFeedFetcher 同口径：ID 数值 / TIME 时间；解析失败视作未见）。 */

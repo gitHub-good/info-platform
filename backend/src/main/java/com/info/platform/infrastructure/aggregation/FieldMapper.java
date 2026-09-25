@@ -157,6 +157,8 @@ public class FieldMapper {
                 return toIsoDatetime(value);
             case EPOCH_SECONDS_TO_ISO:
                 return epochSecondsToIso(value);
+            case EPOCH_MILLIS_TO_ISO:
+                return epochMillisToIso(value);
             case STRIP_HTML:
                 return stripHtml(value);
             default:
@@ -237,19 +239,29 @@ public class FieldMapper {
 
     /** M13 {@code epoch_seconds_to_iso}：Unix 秒（数字/字符串）→ ISO-8601 UTC 秒。 */
     private static String epochSecondsToIso(Object value) {
-        long seconds;
+        return java.time.Instant.ofEpochSecond(epochLong(value, "EPOCH_SECONDS_TO_ISO")).toString();
+    }
+
+    /**
+     * M14 T110 {@code epoch_millis_to_iso}：Unix 毫秒（数字/字符串）→ ISO-8601 UTC（澎湃 {@code pubTimeLong}）。
+     */
+    private static String epochMillisToIso(Object value) {
+        return java.time.Instant.ofEpochMilli(epochLong(value, "EPOCH_MILLIS_TO_ISO")).toString();
+    }
+
+    /** Unix 时刻数值抽取（数字/可解析字符串，其余类型抛转换异常）。 */
+    private static long epochLong(Object value, String transform) {
         if (value instanceof Number number) {
-            seconds = number.longValue();
-        } else if (value instanceof String string) {
-            try {
-                seconds = Long.parseLong(string.trim());
-            } catch (NumberFormatException e) {
-                throw new FieldMappingException("EPOCH_SECONDS_TO_ISO 转换失败: " + string, e);
-            }
-        } else {
-            throw new FieldMappingException("EPOCH_SECONDS_TO_ISO 不支持的类型: " + value.getClass());
+            return number.longValue();
         }
-        return java.time.Instant.ofEpochSecond(seconds).toString();
+        if (value instanceof String string) {
+            try {
+                return Long.parseLong(string.trim());
+            } catch (NumberFormatException e) {
+                throw new FieldMappingException(transform + " 转换失败: " + string, e);
+            }
+        }
+        throw new FieldMappingException(transform + " 不支持的类型: " + value.getClass());
     }
 
     /** M13 {@code strip_html}：HTML 片段抽纯文本（jsoup {@code .text()}，richtext 源清洗）。 */

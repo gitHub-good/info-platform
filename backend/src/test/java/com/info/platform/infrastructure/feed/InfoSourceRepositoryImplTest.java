@@ -123,7 +123,8 @@ class InfoSourceRepositoryImplTest {
                                 30,
                                 20,
                                 com.info.platform.domain.feed.CursorType.ID,
-                                "externalId"),
+                                "externalId",
+                                null),
                         5,
                         true,
                         false);

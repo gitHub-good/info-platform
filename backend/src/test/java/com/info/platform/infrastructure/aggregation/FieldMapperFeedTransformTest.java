@@ -115,10 +115,66 @@ class FieldMapperFeedTransformTest {
     }
 
     @Test
+    void epochMillis_stringAndNumber_bothConverted() {
+        // M14 T110（澎湃 pubTimeLong 口径）：Unix 毫秒数字/字符串 → ISO-8601 UTC
+        long millis = 1790280720106L;
+        String expected = Instant.ofEpochMilli(millis).toString();
+
+        Map<String, Object> fromNumber =
+                mapper.map(
+                        Map.of("pubTimeLong", 1790280720106L),
+                        List.of(
+                                new FieldMapping(
+                                        "pubTimeLong", "t", Transform.EPOCH_MILLIS_TO_ISO)));
+        Map<String, Object> fromString =
+                mapper.map(
+                        Map.of("pubTimeLong", "1790280720106"),
+                        List.of(
+                                new FieldMapping(
+                                        "pubTimeLong", "t", Transform.EPOCH_MILLIS_TO_ISO)));
+
+        assertThat(fromNumber.get("t")).isEqualTo(expected);
+        assertThat(fromString.get("t")).isEqualTo(expected);
+    }
+
+    @Test
+    void epochMillis_garbage_throwsFieldMappingException() {
+        assertThatThrownBy(
+                        () ->
+                                mapper.map(
+                                        Map.of("pubTimeLong", "not-a-number"),
+                                        List.of(
+                                                new FieldMapping(
+                                                        "pubTimeLong",
+                                                        "t",
+                                                        Transform.EPOCH_MILLIS_TO_ISO))))
+                .isInstanceOf(FieldMappingException.class)
+                .hasMessageContaining("EPOCH_MILLIS_TO_ISO");
+    }
+
+    @Test
+    void epochSeconds_untouchedByMillisTransform_precisionKept() {
+        // 秒/毫秒两 transform 各司其职：同一毫秒值经秒转换得到 5 万年外时刻（防误用回归锚点）
+        long millis = 1790280720106L;
+        Map<String, Object> asSeconds =
+                mapper.map(
+                        Map.of("t", millis),
+                        List.of(new FieldMapping("t", "x", Transform.EPOCH_SECONDS_TO_ISO)));
+        Map<String, Object> asMillis =
+                mapper.map(
+                        Map.of("t", millis),
+                        List.of(new FieldMapping("t", "y", Transform.EPOCH_MILLIS_TO_ISO)));
+
+        assertThat(asSeconds.get("x")).isNotEqualTo(asMillis.get("y"));
+        assertThat(asMillis.get("y")).isEqualTo(Instant.ofEpochMilli(millis).toString());
+    }
+
+    @Test
     void transformFrom_wireNames_parseCaseInsensitive() {
         assertThat(Transform.from("to_iso_datetime")).isEqualTo(Transform.TO_ISO_DATETIME);
         assertThat(Transform.from("epoch_seconds_to_iso"))
                 .isEqualTo(Transform.EPOCH_SECONDS_TO_ISO);
+        assertThat(Transform.from("epoch_millis_to_iso")).isEqualTo(Transform.EPOCH_MILLIS_TO_ISO);
         assertThat(Transform.from("strip_html")).isEqualTo(Transform.STRIP_HTML);
         assertThat(Transform.from(" ")).isEqualTo(Transform.NONE);
     }

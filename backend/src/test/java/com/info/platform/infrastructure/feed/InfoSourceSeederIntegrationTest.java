@@ -14,8 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子三源落库、幂等重跑零新增、 运行态行随种子初始化（错峰
- * next_due_at ∈ [now, now+interval]）。共享内存库 + Flyway V22 建表，直连断言。
+ * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子落库（M13 三源 + M14 T110 批次一四源 = 7 预置源）、
+ * 幂等重跑零新增、 运行态行随种子初始化（错峰 next_due_at ∈ [now, now+interval]）。共享内存库 + Flyway V22 建表，直连断言。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -28,9 +28,18 @@ class InfoSourceSeederIntegrationTest {
     @Autowired private SourcePollStateRepository stateRepository;
 
     @Test
-    void bootSeedsThreePresetSources_withPollStateRows() {
-        // 启动（ApplicationReadyEvent）已种：三源齐备且均为预置、启用、未软删
-        for (String code : new String[] {"mw_topstories", "jin10_flash", "sina_zhibo_7x24"}) {
+    void bootSeedsAllPresetSources_withPollStateRows() {
+        // 启动（ApplicationReadyEvent）已种：目录全部预置源齐备且均为预置、启用、未软删
+        for (String code :
+                new String[] {
+                    "mw_topstories",
+                    "jin10_flash",
+                    "sina_zhibo_7x24",
+                    "em_fastnews_7x24",
+                    "ths_push_stock",
+                    "thepaper_hotnews",
+                    "em_macro_indicators"
+                }) {
             Optional<InfoSource> found = infoSourceRepository.findBySourceCode(code);
             assertThat(found).as("预置源缺失: %s", code).isPresent();
             InfoSource source = found.orElseThrow();

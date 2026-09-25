@@ -27,7 +27,7 @@ public class SourceConfigValidator {
     private static final Set<AdapterType> CREATE_ALLOWED_TYPES =
             Set.of(AdapterType.RSS, AdapterType.JSON_API);
 
-    /** transform 线格式白名单（既有五值 + M13 三扩展，方案 §4.3）。 */
+    /** transform 线格式白名单（既有五值 + M13 三扩展 + M14 T110 epoch_millis_to_iso）。 */
     private static final Set<String> ALLOWED_TRANSFORMS =
             Set.of(
                     "none",
@@ -37,6 +37,7 @@ public class SourceConfigValidator {
                     "to_iso_date",
                     "to_iso_datetime",
                     "epoch_seconds_to_iso",
+                    "epoch_millis_to_iso",
                     "strip_html");
 
     /** headers 白名单（UA/Referer；config 禁止存放密钥，方案 §5）。 */
@@ -85,6 +86,7 @@ public class SourceConfigValidator {
         validateHeaders(config, problems);
         validateNumericBounds(config, problems);
         validateCursorDeclaration(config, problems);
+        validateUrlTemplate(config, problems);
     }
 
     private static void validateEndpoint(String endpoint, List<String> problems) {
@@ -92,6 +94,20 @@ public class SourceConfigValidator {
                 && !endpoint.startsWith("http://")
                 && !endpoint.startsWith("https://")) {
             problems.add("endpoint: 须为 http(s) URL，当前值 " + endpoint);
+        }
+    }
+
+    /** URL 合成模板（M14 T110）：声明即须 http(s) 开头且含 {@code {externalId}} 占位（否则合不成条目直链）。 */
+    private static void validateUrlTemplate(SourceConfig config, List<String> problems) {
+        String template = config.urlTemplate();
+        if (template == null || template.isBlank()) {
+            return;
+        }
+        if (!template.startsWith("http://") && !template.startsWith("https://")) {
+            problems.add("urlTemplate: 须为 http(s) URL 模板，当前值 " + template);
+        }
+        if (!template.contains("{externalId}")) {
+            problems.add("urlTemplate: 须含 {externalId} 占位符，当前值 " + template);
         }
     }
 

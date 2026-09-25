@@ -20,6 +20,8 @@ import java.util.Objects;
  * @param pageSize 深翻补抓时每页条数（null = 缺省 {@link #DEFAULT_PAGE_SIZE}）
  * @param cursorType 游标类型（null = {@link CursorType#NONE}）
  * @param cursorField 游标取值字段（映射后目标字段名；cursorType ≠ NONE 时必填）
+ * @param urlTemplate 条目 URL 合成模板（json_api 可选，M14 T110）：源侧条目无直链字段时按 {@code {externalId}} 占位符合成（如澎湃
+ *     {@code newsDetail_forward_{externalId}}）；映射已产出 url 时不覆盖
  */
 public record SourceConfig(
         String listPath,
@@ -30,7 +32,8 @@ public record SourceConfig(
         Integer maxItems,
         Integer pageSize,
         CursorType cursorType,
-        String cursorField) {
+        String cursorField,
+        String urlTemplate) {
 
     /** 单轮入库上限缺省（方案 §4.3：默认 50）。 */
     public static final int DEFAULT_MAX_ITEMS = 50;
@@ -50,7 +53,7 @@ public record SourceConfig(
     /** 空配置（缺省值全走 effective* 取值方法）。 */
     public static SourceConfig empty() {
         return new SourceConfig(
-                null, null, null, List.of(), Map.of(), null, null, CursorType.NONE, null);
+                null, null, null, List.of(), Map.of(), null, null, CursorType.NONE, null, null);
     }
 
     /** 生效单轮入库上限（null 取缺省）。 */

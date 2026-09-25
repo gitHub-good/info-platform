@@ -88,7 +88,7 @@ class RssFeedFetcherTest {
                 null,
                 "https://example.com/rss.xml",
                 new SourceConfig(
-                        null, null, null, null, null, null, null, cursorType, "externalId"),
+                        null, null, null, null, null, null, null, cursorType, "externalId", null),
                 30,
                 true,
                 false);
@@ -234,6 +234,7 @@ class RssFeedFetcherTest {
                                 null,
                                 null,
                                 CursorType.NONE,
+                                null,
                                 null),
                         30,
                         true,

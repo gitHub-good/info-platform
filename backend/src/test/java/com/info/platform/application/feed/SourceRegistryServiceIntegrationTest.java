@@ -275,7 +275,8 @@ class SourceRegistryServiceIntegrationTest {
                                         10,
                                         null,
                                         CursorType.ID,
-                                        "externalId")));
+                                        "externalId",
+                                        null)));
 
         assertThat(updated.name()).isEqualTo("编辑后");
         assertThat(updated.category()).isEqualTo("媒体");

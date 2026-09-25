@@ -49,7 +49,8 @@ class JsonApiFeedFetcherTest {
                 null,
                 null,
                 cursorType,
-                "externalId");
+                "externalId",
+                null);
     }
 
     private static InfoSource jsonSource(SourceConfig config) {
@@ -105,6 +106,7 @@ class JsonApiFeedFetcherTest {
                         null,
                         null,
                         CursorType.NONE,
+                        null,
                         null);
         InfoSource source = jsonSource(config);
 
@@ -133,6 +135,7 @@ class JsonApiFeedFetcherTest {
                         null,
                         null,
                         CursorType.NONE,
+                        null,
                         null);
         InfoSource source = jsonSource(config);
 
@@ -162,6 +165,7 @@ class JsonApiFeedFetcherTest {
                         null,
                         null,
                         CursorType.NONE,
+                        null,
                         null);
         InfoSource source = jsonSource(config);
 
@@ -186,6 +190,7 @@ class JsonApiFeedFetcherTest {
                         null,
                         null,
                         CursorType.NONE,
+                        null,
                         null);
         InfoSource source = jsonSource(config);
 
@@ -246,7 +251,8 @@ class JsonApiFeedFetcherTest {
                         null,
                         null,
                         CursorType.ID,
-                        "externalId");
+                        "externalId",
+                        null);
 
         List<RawFeedItem> items =
                 fetcher.parse(body, jsonSource(config), FetchContext.firstPage(null)).items();
