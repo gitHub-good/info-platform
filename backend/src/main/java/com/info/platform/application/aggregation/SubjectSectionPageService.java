@@ -129,6 +129,37 @@ public class SubjectSectionPageService {
                 sourceOf(result));
     }
 
+    /**
+     * 新闻分区「加载更多」取数（M12 T92，方案 §4.1.3）：单请求 = 单源页过滤命中 + hasMore 耗尽信号，绕缓存直调源。 端点不接受
+     * size（出现即 400，接口层 {@code SubjectSectionPageController} 拒绝）——源页大小是运维配置 {@code newsPageSize}。
+     *
+     * @param subjectId 标的内部主键
+     * @param page 源页码（≥1；接口层已校验）
+     * @return 新闻分区页视图（失败/超时为降级态，不抛 HTTP 错）
+     * @throws BusinessException 30001 标的不存在
+     */
+    public NewsPageView news(Long subjectId, int page) {
+        Subject subject = resolveSubject(subjectId);
+        int pageSize = sectionPageSettings.newsPageSize();
+        long startedAt = System.currentTimeMillis();
+        SourceResult result = fetchSectionPage(SourceCode.NEWS, subject, page, pageSize);
+        log.debug(
+                "新闻分区子端点取数 subjectId={} page={} pageSize={} status={} costMs={}",
+                subjectId,
+                page,
+                pageSize,
+                result == null ? "timeout" : result.getStatus(),
+                System.currentTimeMillis() - startedAt);
+        Long echoSize = longOf(result, "size");
+        return new NewsPageView(
+                itemsOf(result),
+                page,
+                echoSize == null ? pageSize : echoSize.intValue(),
+                Boolean.TRUE.equals(valueOf(result, "hasMore")),
+                statusOf(result),
+                sourceOf(result));
+    }
+
     /** 标的解析（404 口径与聚合端点同源）。 */
     private Subject resolveSubject(Long subjectId) {
         return subjectRepository

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.info.platform.application.aggregation.AnnouncementPageView;
 import com.info.platform.application.aggregation.EventPageView;
+import com.info.platform.application.aggregation.NewsPageView;
 import com.info.platform.application.aggregation.SubjectSectionPageService;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -207,6 +208,53 @@ class SubjectSectionPageControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page").value(50))
                 .andExpect(jsonPath("$.data.sourceStatus").value("missing"));
+    }
+
+    // ---- M12 T92：新闻分区「加载更多」 ----
+
+    @Test
+    void news_returns200WithLoadMoreContract() throws Exception {
+        when(sectionPageService.news(1L, 2))
+                .thenReturn(
+                        new NewsPageView(
+                                List.of(
+                                        Map.of(
+                                                "externalId", "sinacn-doc9",
+                                                "title", "贵州茅台相关新闻",
+                                                "publishedAt", "2026-09-21T10:00:00",
+                                                "url", "https://news.sina.com.cn/c/2026/doc9.shtml")),
+                                2,
+                                20,
+                                true,
+                                "ok",
+                                "新浪财经新闻"));
+
+        mockMvc.perform(get("/api/v1/subjects/1/news?page=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items[0].externalId").value("sinacn-doc9"))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
+                .andExpect(jsonPath("$.data.sourceStatus").value("ok"))
+                .andExpect(jsonPath("$.data.source").value("新浪财经新闻"));
+    }
+
+    @Test
+    void news_missingPage_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/1/news"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value("page 不能为空"));
+    }
+
+    @Test
+    void news_sizePresent_returns400() throws Exception {
+        // 契约 §4.1.3：news 端点不接受 size——出现即 400（源页大小是运维配置）
+        mockMvc.perform(get("/api/v1/subjects/1/news?page=1&size=20"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value("size 仅公告/事件端点可用"));
     }
 
     // ---- 404 ----

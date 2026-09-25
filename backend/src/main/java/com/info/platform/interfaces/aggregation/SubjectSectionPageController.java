@@ -2,7 +2,10 @@ package com.info.platform.interfaces.aggregation;
 
 import com.info.platform.application.aggregation.AnnouncementPageView;
 import com.info.platform.application.aggregation.EventPageView;
+import com.info.platform.application.aggregation.NewsPageView;
 import com.info.platform.application.aggregation.SubjectSectionPageService;
+import com.info.platform.domain.common.BusinessException;
+import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.PageQuery;
 import com.info.platform.interfaces.common.Result;
 import org.slf4j.Logger;
@@ -37,6 +40,9 @@ public class SubjectSectionPageController {
 
     private static final String ANNOUNCE_OVER_LIMIT_MESSAGE =
             "page 超过上限 " + ANNOUNCE_MAX_PAGE + "，更多历史公告请走源站";
+
+    /** 新闻子端点拒 size 参数的契约 msg（方案 §4.1.3：源页大小是运维配置，不属调用方自由度）。 */
+    private static final String NEWS_SIZE_REJECTED_MESSAGE = "size 仅公告/事件端点可用";
 
     private final SubjectSectionPageService sectionPageService;
 
@@ -76,5 +82,24 @@ public class SubjectSectionPageController {
                 resolvedPage,
                 resolvedSize);
         return Result.ok(sectionPageService.events(subjectId, resolvedPage, resolvedSize));
+    }
+
+    /**
+     * 新闻分区「加载更多」（M12 T92，方案 §4.1.3）：page = 源页码（必填）；<b>不接受 size</b>——出现即 400
+     * 「size 仅公告/事件端点可用」（源页大小是运维配置 newsPageSize，不属调用方自由度）。
+     */
+    @GetMapping("/{subjectId}/news")
+    public Result<NewsPageView> news(
+            @PathVariable Long subjectId,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
+        int resolvedPage =
+                PageQuery.requirePage(page, PageQuery.MAX_PAGE, "page 超过上限 " + PageQuery.MAX_PAGE);
+        if (size != null) {
+            throw new BusinessException(
+                    ErrorCode.PARAM_INVALID, NEWS_SIZE_REJECTED_MESSAGE);
+        }
+        log.debug("新闻分区子端点请求 subjectId={} page={}", subjectId, resolvedPage);
+        return Result.ok(sectionPageService.news(subjectId, resolvedPage));
     }
 }

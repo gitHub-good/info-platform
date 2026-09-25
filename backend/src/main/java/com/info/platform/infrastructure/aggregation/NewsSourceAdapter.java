@@ -1,6 +1,7 @@
 package com.info.platform.infrastructure.aggregation;
 
 import com.info.platform.domain.aggregation.SourceCode;
+import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.infrastructure.common.CircuitBreaker;
 import com.info.platform.infrastructure.common.ResilienceRunner;
@@ -74,11 +75,15 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
-     * 模板层 map 步骤用：整张 data map（{@code {"items":[...]}}）的 items 列表原样透传。 逐条字段映射在 {@link #doFetch} 内用
-     * {@link #itemMapping} 完成。
+     * 模板层 map 步骤用：整张 data map（{@code {"items":[...], "size":N, "hasMore":B}}）的 items 列表与分页元数据 原样透传。
+     * 逐条字段映射在 {@link #doFetch} 内用 {@link #itemMapping} 完成。M12 T92 增 size（源页大小回显）/hasMore（源页耗尽信号）
+     * 两键——FieldMapper 白名单语义：缺失/null 键不产出。
      */
     private static final List<FieldMapping> ITEMS_PASSTHROUGH =
-            List.of(new FieldMapping("items", "items", Transform.NONE));
+            List.of(
+                    new FieldMapping("items", "items", Transform.NONE),
+                    new FieldMapping("size", "size", Transform.NONE),
+                    new FieldMapping("hasMore", "hasMore", Transform.NONE));
 
     private final SinaNewsClient client;
     private final FieldMapper fieldMapper;
@@ -135,6 +140,48 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
         }
         Map<String, Object> data = Map.of("items", List.copyOf(hits));
         return Optional.of(new RawFetch(data, sourceLabel(), Instant.now()));
+    }
+
+    /**
+     * 分区子端点分页取数（M12 T92，方案 §4.1.3/ADR-0037 决策 2/D4）：单请求 = 单源页过滤命中 + {@code hasMore}
+     * 源页耗尽信号——后端契约<b>无状态</b>，「新增」判定归前端（累积 externalId 集合）。
+     *
+     * <p>语义细则：{@code items} = 该源页经 {@link #isRelevant} 过滤后的命中条目（可为空——无命中但源页有条目仍
+     * OK，hasMore 按源页满否如实）；空源页/流耗尽 → OK + 空列表 + {@code hasMore:false}（耗尽信号是有效数据，非
+     * MISSING）；{@code hasMore} = 本源页条数 == 源页大小且非空。{@code size} 参数忽略——源页大小是运维配置
+     * {@code newsPageSize}，不属调用方自由度（data 附 {@code size} 回显生效值）。
+     */
+    @Override
+    public SourceResult fetchPage(Subject subject, int page, int size) {
+        return runGuarded(subject, () -> doFetchPage(subject, page));
+    }
+
+    private Optional<RawFetch> doFetchPage(Subject subject, int page) throws Exception {
+        int pageSize = client.newsPageSize();
+        Optional<List<Map<String, Object>>> rawList = client.fetchRollNews(page);
+        if (rawList.isEmpty()) {
+            // 空源页/流耗尽：OK + items:[] + hasMore:false（停止信号；非 MISSING——契约 §4.1.3）
+            return Optional.of(pageData(List.of(), pageSize, false));
+        }
+        String subjectName = subject.getName();
+        String stockCode = resolveStockCode(subject);
+        List<Map<String, Object>> hits = new ArrayList<>();
+        for (Map<String, Object> raw : rawList.get()) {
+            if (isRelevant(raw, subjectName, stockCode)) {
+                Map<String, Object> flat = normalizeCtime(raw);
+                Map<String, Object> mapped = fieldMapper.map(flat, itemMapping);
+                hits.add(Collections.unmodifiableMap(new LinkedHashMap<>(mapped)));
+            }
+        }
+        boolean hasMore = rawList.get().size() == pageSize;
+        return Optional.of(pageData(List.copyOf(hits), pageSize, hasMore));
+    }
+
+    private RawFetch pageData(List<Map<String, Object>> items, int pageSize, boolean hasMore) {
+        return new RawFetch(
+                Map.of("items", items, "size", pageSize, "hasMore", hasMore),
+                sourceLabel(),
+                Instant.now());
     }
 
     /**

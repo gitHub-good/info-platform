@@ -129,11 +129,24 @@ public class SinaNewsClient {
     }
 
     /**
-     * 取财经滚动新闻全市场流（原始 {@code result.data[]}，未过滤个股）。
+     * 取财经滚动新闻全市场流第 1 页（原始 {@code result.data[]}，未过滤个股）。
      *
      * @return 原始新闻列表；{@code result.data} 为空/null 时返回 {@link Optional#empty()}（→ MISSING）
      */
     public Optional<List<Map<String, Object>>> fetchRollNews() {
+        return fetchRollNews(PAGE_INDEX_FIRST);
+    }
+
+    /**
+     * 取财经滚动新闻全市场流指定页（M12 T92：page 参数化，「加载更多」源页深翻）。
+     *
+     * <p>深翻实测（2026-09-22，方案 §1.2 实测 1）：page=1/2/3/50 均 200×20 条，ctime 跨页倒序衔接、无重叠；
+     * page=1 偶发慢（一次实测 6.5s）由既有 2s 超时护栏 + 失败负缓存兜底。
+     *
+     * @param page 源页码（≥1；首屏固定 1，新闻分区「加载更多」由子端点透传）
+     * @return 原始新闻列表；{@code result.data} 为空/null 时返回 {@link Optional#empty()}（流耗尽/异常返回）
+     */
+    public Optional<List<Map<String, Object>>> fetchRollNews(int page) {
         String newsUrl = RuntimeParams.of(configCenter, SourceCode.NEWS, "newsUrl", this.newsUrl);
         int pageId = RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsPageId", this.pageId);
         int lid = RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsLid", this.lid);
@@ -141,8 +154,8 @@ public class SinaNewsClient {
                 RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsPageSize", this.pageSize);
         String referer =
                 RuntimeParams.of(configCenter, SourceCode.NEWS, "newsReferer", this.referer);
-        String url = buildUrl(newsUrl, pageId, lid, pageSize);
-        log.debug("新浪新闻请求 lid={} pageSize={}", lid, pageSize);
+        String url = buildUrl(newsUrl, pageId, lid, pageSize, page);
+        log.debug("新浪新闻请求 lid={} page={} pageSize={}", lid, page, pageSize);
         Map<String, Object> root =
                 restClient
                         .get()
@@ -153,6 +166,14 @@ public class SinaNewsClient {
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Object>>() {});
         return extractList(root);
+    }
+
+    /**
+     * 当前生效源页大小（运行时 {@code newsPageSize}，LIVE 级）——新闻子端点 {@code size} 回显与 {@code hasMore}
+     * 口径共用（本源页条数 == 源页大小且非空 = 源页未耗尽）。
+     */
+    public int newsPageSize() {
+        return RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsPageSize", this.pageSize);
     }
 
     /** 导航 {@code root.result.data[]}；任一层缺失/空数组返回 {@link Optional#empty()}（→ MISSING）。 */
@@ -178,12 +199,12 @@ public class SinaNewsClient {
         return news.isEmpty() ? Optional.empty() : Optional.of(news);
     }
 
-    private String buildUrl(String newsUrl, int pageId, int lid, int pageSize) {
+    private String buildUrl(String newsUrl, int pageId, int lid, int pageSize, int page) {
         return UriComponentsBuilder.fromUriString(newsUrl)
                 .queryParam("pageid", pageId)
                 .queryParam("lid", lid)
                 .queryParam("num", pageSize)
-                .queryParam("page", PAGE_INDEX_FIRST)
+                .queryParam("page", page)
                 .build()
                 .toUriString();
     }

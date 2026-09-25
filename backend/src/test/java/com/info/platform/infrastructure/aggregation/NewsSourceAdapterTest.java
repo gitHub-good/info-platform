@@ -349,11 +349,115 @@ class NewsSourceAdapterTest {
         }
     }
 
+    // ---- M12 T92：fetchPage「加载更多」源页深翻 ----
+
+    @Test
+    void fetchPage_pageTwo_passesSourcePageAndFiltersHits() {
+        // Arrange：page=2 源页深翻（实测口径：page 参数进 URL）；20 条满页中每 10 条出一条命中
+        String json = newsPageJson(20, 10);
+        SourceResult result =
+                fetchPageWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        2,
+                        server ->
+                                server.expect(requestTo(containsString("page=2")))
+                                        .andExpect(requestTo(containsString("num=20")))
+                                        .andExpect(method(HttpMethod.GET))
+                                        .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
+
+        // Assert：OK + 过滤命中 2 条 + hasMore=true（源页满）+ size 回显源页大小
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat(result.getSource()).isEqualTo("新浪财经新闻");
+        assertThat((List<?>) result.getData().get("items")).hasSize(2);
+        assertThat(result.getData().get("hasMore")).isEqualTo(true);
+        assertThat(result.getData().get("size")).isEqualTo(20);
+    }
+
+    @Test
+    void fetchPage_partialSourcePage_hasMoreFalse() {
+        // Arrange：源页返回不满页（5 条 < 20）→ 流接近耗尽，hasMore=false
+        String json = newsPageJson(5, 10);
+        SourceResult result =
+                fetchPageWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        2,
+                        server ->
+                                server.expect(requestTo(containsString("page=2")))
+                                        .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat(result.getData().get("hasMore")).isEqualTo(false);
+    }
+
+    @Test
+    void fetchPage_noHitsButFullPage_okWithHasMoreTrue() {
+        // Arrange：满页 20 条但无该标的命中 → items:[] + hasMore 按源页满否如实（前端续探下一源页）
+        String json = newsIrrelevantPageJson(20);
+        SourceResult result =
+                fetchPageWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        3,
+                        server ->
+                                server.expect(requestTo(containsString("page=3")))
+                                        .andRespond(withSuccess(json, MediaType.APPLICATION_JSON)));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) result.getData().get("items")).isEmpty();
+        assertThat(result.getData().get("hasMore")).isEqualTo(true);
+    }
+
+    @Test
+    void fetchPage_emptySourcePage_okEmptyWithHasMoreFalse() {
+        // Arrange：空源页/流耗尽（result.data 空数组）→ OK + items:[] + hasMore:false（停止信号，非 MISSING）
+        SourceResult result =
+                fetchPageWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        50,
+                        server ->
+                                server.expect(requestTo(containsString("page=50")))
+                                        .andRespond(
+                                                withSuccess(
+                                                        "{\"result\":{\"data\":[]}}",
+                                                        MediaType.APPLICATION_JSON)));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) result.getData().get("items")).isEmpty();
+        assertThat(result.getData().get("hasMore")).isEqualTo(false);
+    }
+
+    @Test
+    void fetchPage_http500_degradesToMissingNotHttpError() {
+        // Arrange：新浪深翻失败 → runGuarded 弹性降级 MISSING（不抛出；前端保留当前内容 + 重试）
+        SourceResult result =
+                fetchPageWithMockResponse(
+                        subjectWithSecid("1.600519"),
+                        2,
+                        server ->
+                                server.expect(requestTo(containsString("page=2")))
+                                        .andRespond(withServerError()));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+        assertThat(result.getData()).isEmpty();
+    }
+
     // ---- helpers ----
+
+    /** M12 T92：fetchPage（绕缓存路径）——响应 setter 同款，走 adapter.fetchPage(subject, page, 20)。 */
+    private SourceResult fetchPageWithMockResponse(
+            Subject subject, int page, Consumer<MockRestServiceServer> responseSetter) {
+        return fetchWithAction(subject, adapter -> adapter.fetchPage(subject, page, 20), responseSetter);
+    }
 
     /** 构造绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */
     private SourceResult fetchWithMockResponse(
             Subject subject, Consumer<MockRestServiceServer> responseSetter) {
+        return fetchWithAction(subject, adapter -> adapter.fetch(subject), responseSetter);
+    }
+
+    private SourceResult fetchWithAction(
+            Subject subject,
+            java.util.function.Function<NewsSourceAdapter, SourceResult> action,
+            Consumer<MockRestServiceServer> responseSetter) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         SinaNewsClient client =
@@ -361,9 +465,43 @@ class NewsSourceAdapterTest {
         NewsSourceAdapter adapter =
                 new NewsSourceAdapter(cache, fieldMapper, runner, breaker, client);
         responseSetter.accept(server);
-        SourceResult result = adapter.fetch(subject);
+        SourceResult result = action.apply(adapter);
         server.verify();
         return result;
+    }
+
+    /** 源页夹具：count 条新闻，每 hitEvery 条出一条命中（标题含标的名），满页判定由条数驱动。 */
+    private static String newsPageJson(int count, int hitEvery) {
+        StringBuilder data = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                data.append(',');
+            }
+            String title = i % hitEvery == 0 ? "贵州茅台第" + i + "条相关报道" : "无关新闻标题" + i;
+            data.append(
+                    """
+                    {"docid":"p2doc%d","title":"%s","ctime":"1716768000",
+                     "intro":"...","url":"https://news.sina.com.cn/c/2026/doc%d.shtml",
+                     "media_name":"证券日报","keywords":"市场,滚动"}"""
+                            .formatted(i, title, i));
+        }
+        return "{\"result\":{\"data\":[" + data + "]}}";
+    }
+
+    /** 全无关条目源页夹具（无命中场景）。 */
+    private static String newsIrrelevantPageJson(int count) {
+        StringBuilder data = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                data.append(',');
+            }
+            data.append(
+                    """
+                    {"docid":"irdoc%d","title":"无关新闻标题%d","ctime":"1716768000",
+                     "url":"https://news.sina.com.cn/c/2026/i%d.shtml","keywords":"市场"}"""
+                            .formatted(i, i, i));
+        }
+        return "{\"result\":{\"data\":[" + data + "]}}";
     }
 
     private static Map<String, Object> raw(String title, String keywords) {

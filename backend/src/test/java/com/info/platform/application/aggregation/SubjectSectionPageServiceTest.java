@@ -41,6 +41,8 @@ class SubjectSectionPageServiceTest {
 
     private final SourceAdapter eventAdapter = Mockito.mock(SourceAdapter.class);
 
+    private final SourceAdapter newsAdapter = Mockito.mock(SourceAdapter.class);
+
     /** 同一 Subject 实例贯穿 stub 与断言（Subject 无 equals，Mockito 按引用匹配参数）。 */
     private final Subject subject = subject();
 
@@ -72,10 +74,15 @@ class SubjectSectionPageServiceTest {
         return eventAdapter;
     }
 
+    private SourceAdapter newsAdapter() {
+        Mockito.when(newsAdapter.sourceCode()).thenReturn(SourceCode.NEWS);
+        return newsAdapter;
+    }
+
     private SubjectSectionPageService service() {
         return new SubjectSectionPageService(
                 subjectRepository,
-                List.of(announceAdapter(), eventAdapter()),
+                List.of(announceAdapter(), eventAdapter(), newsAdapter()),
                 syncExecutor,
                 settings,
                 sectionPageSettings);
@@ -215,6 +222,54 @@ class SubjectSectionPageServiceTest {
         assertThat(view.sourceStatus()).isEqualTo("missing");
         assertThat(view.items()).isEmpty();
         assertThat(view.total()).isZero();
+    }
+
+    // ---- 新闻（T92）· 加载更多 ----
+
+    @Test
+    void news_okResult_mapsViewWithSizeAndHasMoreFromSourcePage() {
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject));
+        when(newsAdapter.fetchPage(subject, 2, 20))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.NEWS,
+                                1L,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.of(
+                                                        "externalId", "sinacn-doc1",
+                                                        "title", "贵州茅台相关新闻")),
+                                        "size",
+                                        20,
+                                        "hasMore",
+                                        true),
+                                "新浪财经新闻",
+                                Instant.now()));
+
+        NewsPageView view = service().news(1L, 2);
+
+        assertThat(view.items()).hasSize(1);
+        assertThat(view.page()).isEqualTo(2); // 源页码回显
+        assertThat(view.size()).isEqualTo(20); // 源页大小回显（运维配置）
+        assertThat(view.hasMore()).isTrue(); // 源页未耗尽
+        assertThat(view.sourceStatus()).isEqualTo("ok");
+        assertThat(view.source()).isEqualTo("新浪财经新闻");
+    }
+
+    @Test
+    void news_sourceFailed_returnsDegradedViewWithConfigPageSizeEcho() {
+        // 降级：data 无 size/hasMore → size 回退运行时 newsPageSize、hasMore=false
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject));
+        when(newsAdapter.fetchPage(subject, 2, 20))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, 1L, "新浪财经新闻"));
+
+        NewsPageView view = service().news(1L, 2);
+
+        assertThat(view.sourceStatus()).isEqualTo("missing");
+        assertThat(view.items()).isEmpty();
+        assertThat(view.size()).isEqualTo(20);
+        assertThat(view.hasMore()).isFalse();
     }
 
     // ---- 异常（公告与事件共用编排骨架，以公告为代表） ----
