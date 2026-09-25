@@ -10,8 +10,8 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * InfoSourceCatalog 单测（T100，方案 §3.4/§4.6）：M13 试点三源齐备（覆盖 rss/json_api/preset 三通道）、source_code 唯一、 预置参数合法
- *（种子行能过实体构造与 config 校验——预置目录即白名单合规闸）。
+ * InfoSourceCatalog 单测（T100，方案 §3.4/§4.6）：M13 试点三源齐备（覆盖 rss/json_api/preset 三通道）、source_code 唯一、
+ * 预置参数合法 （种子行能过实体构造与 config 校验——预置目录即白名单合规闸）。
  */
 class InfoSourceCatalogTest {
 
@@ -25,8 +25,7 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        assertThat(codes).containsExactly(
-                "mw_topstories", "jin10_flash", "sina_zhibo_7x24");
+        assertThat(codes).containsExactly("mw_topstories", "jin10_flash", "sina_zhibo_7x24");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))

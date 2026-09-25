@@ -6,15 +6,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 
 /**
- * InfoSource 实体单测（T100，ADR-0038）：频控红线 1~60 分钟在构造/编辑两路径把守；preset/adapter_ref 一致性； 软删语义（停用 +
- * 可恢复）。AAA 结构。
+ * InfoSource 实体单测（T100，ADR-0038）：频控红线 1~60 分钟在构造/编辑两路径把守；preset/adapter_ref 一致性； 软删语义（停用 + 可恢复）。AAA
+ * 结构。
  */
 class InfoSourceTest {
 
     private static InfoSource rssSource(int intervalMinutes) {
         return InfoSource.create(
-                "t100_demo", "演示源", "媒体", AdapterType.RSS, null,
-                "https://example.com/rss", SourceConfig.empty(), intervalMinutes, true, false);
+                "t100_demo",
+                "演示源",
+                "媒体",
+                AdapterType.RSS,
+                null,
+                "https://example.com/rss",
+                SourceConfig.empty(),
+                intervalMinutes,
+                true,
+                false);
     }
 
     @Test
@@ -45,16 +53,31 @@ class InfoSourceTest {
         assertThatThrownBy(
                         () ->
                                 InfoSource.create(
-                                        " ", "名", "媒体", AdapterType.RSS, null,
-                                        "https://example.com/rss", SourceConfig.empty(), 15, true,
+                                        " ",
+                                        "名",
+                                        "媒体",
+                                        AdapterType.RSS,
+                                        null,
+                                        "https://example.com/rss",
+                                        SourceConfig.empty(),
+                                        15,
+                                        true,
                                         false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("sourceCode");
         assertThatThrownBy(
                         () ->
                                 InfoSource.create(
-                                        "t100_x", "名", "媒体", AdapterType.RSS, null, "  ",
-                                        SourceConfig.empty(), 15, true, false))
+                                        "t100_x",
+                                        "名",
+                                        "媒体",
+                                        AdapterType.RSS,
+                                        null,
+                                        "  ",
+                                        SourceConfig.empty(),
+                                        15,
+                                        true,
+                                        false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("endpoint");
     }
@@ -65,8 +88,15 @@ class InfoSourceTest {
         assertThatThrownBy(
                         () ->
                                 InfoSource.create(
-                                        "t100_p1", "预置", "快讯", AdapterType.PRESET, null,
-                                        "https://example.com/api", SourceConfig.empty(), 5, true,
+                                        "t100_p1",
+                                        "预置",
+                                        "快讯",
+                                        AdapterType.PRESET,
+                                        null,
+                                        "https://example.com/api",
+                                        SourceConfig.empty(),
+                                        5,
+                                        true,
                                         true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("adapter_ref");
@@ -74,9 +104,16 @@ class InfoSourceTest {
         assertThatThrownBy(
                         () ->
                                 InfoSource.create(
-                                        "t100_p2", "混装", "快讯", AdapterType.RSS,
-                                        "someAdapterBean", "https://example.com/rss",
-                                        SourceConfig.empty(), 5, true, false))
+                                        "t100_p2",
+                                        "混装",
+                                        "快讯",
+                                        AdapterType.RSS,
+                                        "someAdapterBean",
+                                        "https://example.com/rss",
+                                        SourceConfig.empty(),
+                                        5,
+                                        true,
+                                        false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("仅 preset");
     }

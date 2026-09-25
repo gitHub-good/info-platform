@@ -229,8 +229,7 @@ public class FieldMapper {
                 throw new FieldMappingException("EPOCH_SECONDS_TO_ISO 转换失败: " + string, e);
             }
         } else {
-            throw new FieldMappingException(
-                    "EPOCH_SECONDS_TO_ISO 不支持的类型: " + value.getClass());
+            throw new FieldMappingException("EPOCH_SECONDS_TO_ISO 不支持的类型: " + value.getClass());
         }
         return java.time.Instant.ofEpochSecond(seconds).toString();
     }

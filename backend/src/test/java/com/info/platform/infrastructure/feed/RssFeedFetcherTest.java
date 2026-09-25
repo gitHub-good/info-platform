@@ -24,8 +24,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * RssFeedFetcher 单测（T101，方案 §4.3）：fixture XML 零外呼——标准 RSS 2.0 / Atom / 脏数据防御 / 游标止步与补抓截断 / headers 透传（Mock
- * server 拦截，不触真实网络）。
+ * RssFeedFetcher 单测（T101，方案 §4.3）：fixture XML 零外呼——标准 RSS 2.0 / Atom / 脏数据防御 / 游标止步与补抓截断 / headers
+ * 透传（Mock server 拦截，不触真实网络）。
  */
 class RssFeedFetcherTest {
 
@@ -81,10 +81,17 @@ class RssFeedFetcherTest {
 
     private static InfoSource rssSource(CursorType cursorType) {
         return InfoSource.create(
-                "t101_rss", "RSS 源", "国际", AdapterType.RSS, null,
+                "t101_rss",
+                "RSS 源",
+                "国际",
+                AdapterType.RSS,
+                null,
                 "https://example.com/rss.xml",
-                new SourceConfig(null, null, null, null, null, null, null, cursorType, "externalId"),
-                30, true, false);
+                new SourceConfig(
+                        null, null, null, null, null, null, null, cursorType, "externalId"),
+                30,
+                true,
+                false);
     }
 
     @Test
@@ -136,7 +143,8 @@ class RssFeedFetcherTest {
                 """;
         InfoSource source = rssSource(CursorType.NONE);
 
-        List<RawFeedItem> items = fetcher.parse(dirty, source, FetchContext.firstPage(null)).items();
+        List<RawFeedItem> items =
+                fetcher.parse(dirty, source, FetchContext.firstPage(null)).items();
 
         // 不可解析 pubDate → publishedAt null（缺时间指纹取抓取日，不致命）
         assertThat(items.get(0).publishedAt()).isNull();
@@ -166,8 +174,7 @@ class RssFeedFetcherTest {
         InfoSource source = rssSource(CursorType.ID);
 
         // 已见数值游标 2001：仅返回更新的一条（2002），遇已见止（ID 数值比较）
-        FetchResult result =
-                fetcher.parse(NUMERIC_GUID_RSS, source, new FetchContext("2001", 1));
+        FetchResult result = fetcher.parse(NUMERIC_GUID_RSS, source, new FetchContext("2001", 1));
 
         assertThat(result.items()).hasSize(1);
         assertThat(result.items().get(0).externalId()).isEqualTo("2002");
@@ -180,8 +187,7 @@ class RssFeedFetcherTest {
 
         // 已见 09:31:00Z：全部条目 ≤ 已见 → 空
         FetchResult result =
-                fetcher.parse(
-                        RSS_XML, source, new FetchContext("2026-09-21T09:31:00Z", 1));
+                fetcher.parse(RSS_XML, source, new FetchContext("2026-09-21T09:31:00Z", 1));
 
         assertThat(result.items()).isEmpty();
     }
@@ -206,19 +212,32 @@ class RssFeedFetcherTest {
                 .andExpect(header("User-Agent", "Mozilla/5.0 test"))
                 .andExpect(header("Referer", "https://example.com"))
                 .andRespond(withSuccess(RSS_XML, MediaType.APPLICATION_XML));
-        RssFeedFetcher httpFetcher =
-                new RssFeedFetcher(
-                        builder.build());
+        RssFeedFetcher httpFetcher = new RssFeedFetcher(builder.build());
         InfoSource source =
                 InfoSource.create(
-                        "t101_http", "HTTP 源", "国际", AdapterType.RSS, null,
+                        "t101_http",
+                        "HTTP 源",
+                        "国际",
+                        AdapterType.RSS,
+                        null,
                         "https://example.com/rss.xml",
                         new SourceConfig(
-                                null, null, null, null,
-                                Map.of("User-Agent", "Mozilla/5.0 test", "Referer",
+                                null,
+                                null,
+                                null,
+                                null,
+                                Map.of(
+                                        "User-Agent",
+                                        "Mozilla/5.0 test",
+                                        "Referer",
                                         "https://example.com"),
-                                null, null, CursorType.NONE, null),
-                        30, true, false);
+                                null,
+                                null,
+                                CursorType.NONE,
+                                null),
+                        30,
+                        true,
+                        false);
 
         List<RawFeedItem> items = httpFetcher.fetch(source, FetchContext.firstPage(null)).items();
 

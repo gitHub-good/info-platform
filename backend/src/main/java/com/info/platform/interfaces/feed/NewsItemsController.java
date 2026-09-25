@@ -13,10 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 统一资讯流接口（M13 T104，方案 §4.5）：{@code GET /api/v1/news-items}（Bearer JWT）。
  *
- * <p><b>同端点双模式</b>（M9 / ADR-0035 惯例）：{@code page} 参数出现即页码模式（{items, total, page, size}）； 缺席走游标模式（{items,
- * nextBeforeId}，{@code beforeId} 续取 + {@code limit} 默认 20、1~50 越界 400 拒绝不截断）。 两模式均支持 {@code sourceId}
- * 源过滤；默认排除软删源条目（join info_source）。参数校验经 {@link PageQuery} 共用件（page/cursor 互斥、size 缺省与上限），
- * limit 为游标模式专属（与 page 同现 400——契约确定性优先）。
+ * <p><b>同端点双模式</b>（M9 / ADR-0035 惯例）：{@code page} 参数出现即页码模式（{items, total, page, size}）；
+ * 缺席走游标模式（{items, nextBeforeId}，{@code beforeId} 续取 + {@code limit} 默认 20、1~50 越界 400 拒绝不截断）。
+ * 两模式均支持 {@code sourceId} 源过滤；默认排除软删源条目（join info_source）。参数校验经 {@link PageQuery} 共用件（page/cursor
+ * 互斥、size 缺省与上限）， limit 为游标模式专属（与 page 同现 400——契约确定性优先）。
  */
 @RestController
 @RequestMapping("/api/v1/news-items")
@@ -46,11 +46,9 @@ public class NewsItemsController {
         PageQuery pageQuery = PageQuery.resolve(page, size, beforeId);
         if (pageQuery != null) {
             rejectLimitInPageMode(limit);
-            return Result.ok(
-                    queryService.listPaged(sourceId, pageQuery.page(), pageQuery.size()));
+            return Result.ok(queryService.listPaged(sourceId, pageQuery.page(), pageQuery.size()));
         }
-        return Result.ok(
-                queryService.listCursor(sourceId, beforeId, resolvedLimit(limit)));
+        return Result.ok(queryService.listCursor(sourceId, beforeId, resolvedLimit(limit)));
     }
 
     /** limit 归一化：缺席取缺省 20；1~50 越界 400 拒绝不截断（对齐 size 口径）。 */
@@ -70,8 +68,7 @@ public class NewsItemsController {
 
     private static void rejectLimitInPageMode(Integer limit) {
         if (limit != null) {
-            throw new BusinessException(
-                    ErrorCode.PARAM_INVALID, "limit 仅游标模式可用（页码模式请使用 size）");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "limit 仅游标模式可用（页码模式请使用 size）");
         }
     }
 }

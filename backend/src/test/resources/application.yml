@@ -66,3 +66,9 @@ logging:
   level:
     org.springframework: WARN
     com.info.platform: DEBUG
+
+# 资讯源轮询 job 在测试环境关闭：种子 job.SOURCE_POLL enabled=false → 调度零注册（M13 T103，八 Job 惯例）；
+# 轮询逻辑改由单测直接调 SourceSchedulingService.tick / FeedIngestService.poll 验证（fake fetcher，不真实外呼）。
+source:
+  poll:
+    enabled: false

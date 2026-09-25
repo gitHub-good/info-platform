@@ -15,8 +15,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * InfoSourceRepository 集成测试（T100，V22 info_source 表）：insertIfAbsent 幂等（UNIQUE(source_code)）、 findActive 过滤
- * enabled/deleted、save 插入/更新双路径。测试行用 t100r_ 前缀隔离并在 @AfterEach 清理（共享内存库不污染种子行）。
+ * InfoSourceRepository 集成测试（T100，V22 info_source 表）：insertIfAbsent 幂等（UNIQUE(source_code)）、
+ * findActive 过滤 enabled/deleted、save 插入/更新双路径。测试行用 t100r_ 前缀隔离并在 @AfterEach 清理（共享内存库不污染种子行）。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -36,8 +36,16 @@ class InfoSourceRepositoryImplTest {
 
     private static InfoSource newSource(String code, boolean enabled) {
         return InfoSource.create(
-                code, "测试源-" + code, "媒体", AdapterType.RSS, null,
-                "https://example.com/" + code + ".xml", null, 15, enabled, false);
+                code,
+                "测试源-" + code,
+                "媒体",
+                AdapterType.RSS,
+                null,
+                "https://example.com/" + code + ".xml",
+                null,
+                15,
+                enabled,
+                false);
     }
 
     @Test
@@ -64,7 +72,8 @@ class InfoSourceRepositoryImplTest {
         deleted.markDeleted();
         repository.save(deleted);
 
-        List<String> codes = repository.findActive().stream().map(InfoSource::getSourceCode).toList();
+        List<String> codes =
+                repository.findActive().stream().map(InfoSource::getSourceCode).toList();
 
         assertThat(codes).contains("t100r_active");
         assertThat(codes).doesNotContain("t100r_disabled", "t100r_deleted");
@@ -95,19 +104,29 @@ class InfoSourceRepositoryImplTest {
     void save_configRoundTrip_keepsMappingsAndCursorDeclaration() {
         InfoSource source =
                 InfoSource.create(
-                        "t100r_cfg", "配置源", "快讯", AdapterType.JSON_API, null,
+                        "t100r_cfg",
+                        "配置源",
+                        "快讯",
+                        AdapterType.JSON_API,
+                        null,
                         "https://example.com/api",
                         new com.info.platform.domain.feed.SourceConfig(
-                                "", "var x=", ";",
+                                "",
+                                "var x=",
+                                ";",
                                 List.of(
                                         new com.info.platform.domain.feed.SourceConfig.ItemMapping(
                                                 "id", "externalId", "to_string"),
                                         new com.info.platform.domain.feed.SourceConfig.ItemMapping(
                                                 "time", "publishedAt", "to_iso_datetime")),
                                 java.util.Map.of("User-Agent", "Mozilla/5.0"),
-                                30, 20,
-                                com.info.platform.domain.feed.CursorType.ID, "externalId"),
-                        5, true, false);
+                                30,
+                                20,
+                                com.info.platform.domain.feed.CursorType.ID,
+                                "externalId"),
+                        5,
+                        true,
+                        false);
         repository.save(source);
 
         Optional<InfoSource> reloaded = repository.findBySourceCode("t100r_cfg");

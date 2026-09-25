@@ -13,8 +13,8 @@ import org.springframework.stereotype.Service;
 /**
  * 统一资讯流查询服务（M13 T104，方案 §4.5 GET /api/v1/news-items）。
  *
- * <p>默认排除软删源条目（join 语义在仓储层）；条目视图补源展示名（sourceCode/sourceName，页面渲染用）； 游标模式 nextBeforeId =
- * 末条 id（满页才有续页信号）。
+ * <p>默认排除软删源条目（join 语义在仓储层）；条目视图补源展示名（sourceCode/sourceName，页面渲染用）； 游标模式 nextBeforeId = 末条
+ * id（满页才有续页信号）。
  */
 @Service
 public class NewsItemsQueryService {
@@ -32,8 +32,7 @@ public class NewsItemsQueryService {
     public NewsItemsCursorView listCursor(Long sourceId, Long beforeId, int limit) {
         List<FeedItem> items = itemRepository.findLatest(sourceId, beforeId, limit);
         Map<Long, InfoSource> sources = sourceDisplayMap();
-        Long nextBeforeId =
-                items.size() == limit ? items.get(items.size() - 1).id() : null;
+        Long nextBeforeId = items.size() == limit ? items.get(items.size() - 1).id() : null;
         return new NewsItemsCursorView(
                 items.stream().map(item -> toView(item, sources)).toList(), nextBeforeId);
     }

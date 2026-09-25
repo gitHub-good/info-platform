@@ -7,8 +7,8 @@ import java.util.Objects;
 /**
  * 资讯源配置值对象（{@code info_source.config} JSON 文档的领域视图，M13 T100，方案 §4.3）。
  *
- * <p>领域层纯净：JSON 序列化/反序列化归基础设施层 {@code SourceConfigCodec}，本类只承载结构与缺省值； 结构校验归应用层
- * {@code SourceConfigValidator}（错误码 30072）。{@code transform} 保存线格式字符串（如 {@code to_iso_datetime}）， 由引擎侧经
+ * <p>领域层纯净：JSON 序列化/反序列化归基础设施层 {@code SourceConfigCodec}，本类只承载结构与缺省值； 结构校验归应用层 {@code
+ * SourceConfigValidator}（错误码 30072）。{@code transform} 保存线格式字符串（如 {@code to_iso_datetime}）， 由引擎侧经
  * {@code Transform.from} 解析——领域层不依赖基础设施层的枚举。
  *
  * @param listPath json_api 专用：条目数组点分路径（空/null = 根数组；rss/preset 忽略）

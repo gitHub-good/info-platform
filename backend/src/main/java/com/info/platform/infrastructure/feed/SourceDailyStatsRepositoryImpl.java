@@ -2,8 +2,6 @@ package com.info.platform.infrastructure.feed;
 
 import com.info.platform.domain.feed.SourceDailyStats;
 import com.info.platform.domain.feed.SourceDailyStatsRepository;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,8 +11,8 @@ import org.springframework.stereotype.Repository;
 /**
  * {@link SourceDailyStatsRepository} 端口的 SQLite 实现（M13 T100，方案 §3.5）。
  *
- * <p>{@link #increment} 走 SQLite UPSERT（{@code ON CONFLICT DO UPDATE} 原子自增，UNIQUE(source_id, stat_date) 幂等锚点）；
- * stat_date 为 Asia/Shanghai yyyy-MM-dd（运营心智本地日，由调用方换算）。
+ * <p>{@link #increment} 走 SQLite UPSERT（{@code ON CONFLICT DO UPDATE} 原子自增，UNIQUE(source_id,
+ * stat_date) 幂等锚点）； stat_date 为 Asia/Shanghai yyyy-MM-dd（运营心智本地日，由调用方换算）。
  */
 @Repository
 public class SourceDailyStatsRepositoryImpl implements SourceDailyStatsRepository {

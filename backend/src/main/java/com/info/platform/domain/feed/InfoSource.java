@@ -6,8 +6,8 @@ import java.util.Objects;
 /**
  * 资讯源实体（{@code info_source} 表，M13 T100，ADR-0038）。
  *
- * <p>预置源与用户通用源统一行模型；频控红线（{@code interval_minutes} 1~60）在构造期把守（实体即规则的单一事实源，
- * 页面/种子/引擎三处共用）；结构级 config 校验（映射/headers/游标声明）归应用层 {@code SourceConfigValidator}。
+ * <p>预置源与用户通用源统一行模型；频控红线（{@code interval_minutes} 1~60）在构造期把守（实体即规则的单一事实源， 页面/种子/引擎三处共用）；结构级 config
+ * 校验（映射/headers/游标声明）归应用层 {@code SourceConfigValidator}。
  *
  * <p>生命周期：预置源无删除入口只有启停与参数编辑（蓝图裁决 1）；通用源删除 = 停用 + 软删（历史条目保留）。
  */
@@ -97,8 +97,20 @@ public class InfoSource {
             boolean enabled,
             boolean preset) {
         return new InfoSource(
-                null, sourceCode, name, category, adapterType, adapterRef, endpoint, config,
-                intervalMinutes, enabled, preset, false, null, null);
+                null,
+                sourceCode,
+                name,
+                category,
+                adapterType,
+                adapterRef,
+                endpoint,
+                config,
+                intervalMinutes,
+                enabled,
+                preset,
+                false,
+                null,
+                null);
     }
 
     /** 从持久化数据重建实体（基础设施层回读时用）。 */
@@ -118,8 +130,20 @@ public class InfoSource {
             Instant createdAt,
             Instant updatedAt) {
         return new InfoSource(
-                id, sourceCode, name, category, adapterType, adapterRef, endpoint, config,
-                intervalMinutes, enabled, preset, deleted, createdAt, updatedAt);
+                id,
+                sourceCode,
+                name,
+                category,
+                adapterType,
+                adapterRef,
+                endpoint,
+                config,
+                intervalMinutes,
+                enabled,
+                preset,
+                deleted,
+                createdAt,
+                updatedAt);
     }
 
     /** 编辑可变字段（name/category/endpoint/config/interval/enabled，PATCH 下一 tick 生效）。 */
@@ -143,8 +167,7 @@ public class InfoSource {
             this.config = config;
         }
         if (intervalMinutes != null) {
-            if (intervalMinutes < MIN_INTERVAL_MINUTES
-                    || intervalMinutes > MAX_INTERVAL_MINUTES) {
+            if (intervalMinutes < MIN_INTERVAL_MINUTES || intervalMinutes > MAX_INTERVAL_MINUTES) {
                 throw new IllegalArgumentException(
                         "intervalMinutes 须在 "
                                 + MIN_INTERVAL_MINUTES

@@ -3,7 +3,6 @@ package com.info.platform.infrastructure.feed;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -24,8 +23,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * JsonApiFeedFetcher 单测（T102，方案 §4.3）：金十 JS 包装剥离 / 标准 JSON 根数组 / listPath 点分导航 / 缺失字段容错 /
- * ID 游标止步与补抓深翻（Mock server 拦截 page 参数，零外呼）。
+ * JsonApiFeedFetcher 单测（T102，方案 §4.3）：金十 JS 包装剥离 / 标准 JSON 根数组 / listPath 点分导航 / 缺失字段容错 / ID
+ * 游标止步与补抓深翻（Mock server 拦截 page 参数，零外呼）。
  */
 class JsonApiFeedFetcherTest {
 
@@ -55,8 +54,16 @@ class JsonApiFeedFetcherTest {
 
     private static InfoSource jsonSource(SourceConfig config) {
         return InfoSource.create(
-                "t102_json", "JSON 源", "快讯", AdapterType.JSON_API, null,
-                "https://www.example.com/api.json", config, 5, true, false);
+                "t102_json",
+                "JSON 源",
+                "快讯",
+                AdapterType.JSON_API,
+                null,
+                "https://www.example.com/api.json",
+                config,
+                5,
+                true,
+                false);
     }
 
     private final JsonApiFeedFetcher fetcher = new JsonApiFeedFetcher(RestClient.builder().build());
@@ -82,16 +89,23 @@ class JsonApiFeedFetcherTest {
 
     @Test
     void parse_standardRootArray_noWrapper() {
-        String body = """
+        String body =
+                """
                 [{"id":2,"title":"b","time":"2026-09-22 09:31"},{"id":1,"title":"a","time":"2026-09-22 09:20"}]\
                 """;
         SourceConfig config =
                 new SourceConfig(
-                        null, null, null,
+                        null,
+                        null,
+                        null,
                         List.of(
                                 new SourceConfig.ItemMapping("id", "externalId", "to_string"),
                                 new SourceConfig.ItemMapping("title", "title", "to_string")),
-                        null, null, null, CursorType.NONE, null);
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null);
         InfoSource source = jsonSource(config);
 
         List<RawFeedItem> items = fetcher.parse(body, source, FetchContext.firstPage(null)).items();
@@ -109,11 +123,17 @@ class JsonApiFeedFetcherTest {
                 """;
         SourceConfig config =
                 new SourceConfig(
-                        "result.data", null, null,
+                        "result.data",
+                        null,
+                        null,
                         List.of(
                                 new SourceConfig.ItemMapping("id", "externalId", "to_string"),
                                 new SourceConfig.ItemMapping("title", "title", "to_string")),
-                        null, null, null, CursorType.NONE, null);
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null);
         InfoSource source = jsonSource(config);
 
         List<RawFeedItem> items = fetcher.parse(body, source, FetchContext.firstPage(null)).items();
@@ -124,18 +144,25 @@ class JsonApiFeedFetcherTest {
 
     @Test
     void parse_missingFields_degradedNotFatal() {
-        String body = """
+        String body =
+                """
                 [{"id":3},{"title":"无 id 条目"},{"time":"2026-09-22 09:31"}]\
                 """;
         SourceConfig config =
                 new SourceConfig(
-                        null, null, null,
+                        null,
+                        null,
+                        null,
                         List.of(
                                 new SourceConfig.ItemMapping("id", "externalId", "to_string"),
-                                new SourceConfig.ItemMapping("time", "publishedAt",
-                                        "to_iso_datetime"),
+                                new SourceConfig.ItemMapping(
+                                        "time", "publishedAt", "to_iso_datetime"),
                                 new SourceConfig.ItemMapping("title", "title", "to_string")),
-                        null, null, null, CursorType.NONE, null);
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null);
         InfoSource source = jsonSource(config);
 
         List<RawFeedItem> items = fetcher.parse(body, source, FetchContext.firstPage(null)).items();
@@ -151,13 +178,21 @@ class JsonApiFeedFetcherTest {
     void parse_listPathMiss_throwsFeedFetchException() {
         SourceConfig config =
                 new SourceConfig(
-                        "result.items", null, null,
+                        "result.items",
+                        null,
+                        null,
                         List.of(new SourceConfig.ItemMapping("id", "externalId", "to_string")),
-                        null, null, null, CursorType.NONE, null);
+                        null,
+                        null,
+                        null,
+                        CursorType.NONE,
+                        null);
         InfoSource source = jsonSource(config);
 
         assertThatThrownBy(
-                        () -> fetcher.parse("{\"result\":{}}", source, FetchContext.firstPage(null)))
+                        () ->
+                                fetcher.parse(
+                                        "{\"result\":{}}", source, FetchContext.firstPage(null)))
                 .isInstanceOf(FeedFetchException.class)
                 .hasMessageContaining("listPath");
     }
@@ -167,7 +202,9 @@ class JsonApiFeedFetcherTest {
         InfoSource source = jsonSource(jin10Config(CursorType.NONE));
 
         assertThatThrownBy(
-                        () -> fetcher.parse("not-json-at-all", source, FetchContext.firstPage(null)))
+                        () ->
+                                fetcher.parse(
+                                        "not-json-at-all", source, FetchContext.firstPage(null)))
                 .isInstanceOf(FeedFetchException.class);
     }
 

@@ -5,8 +5,8 @@ import java.util.List;
 /**
  * 抓取统计日 rollup 仓储端口（{@code source_daily_stats}，M13 T100，方案 §3.5）。
  *
- * <p>唯一写入面是 {@link #increment}（每轮原子自增当日行，UNIQUE(source_id, stat_date) 幂等锚点）； 读取面供大盘数据面（T105
- * stats 端点）按日窗聚合。
+ * <p>唯一写入面是 {@link #increment}（每轮原子自增当日行，UNIQUE(source_id, stat_date) 幂等锚点）； 读取面供大盘数据面（T105 stats
+ * 端点）按日窗聚合。
  */
 public interface SourceDailyStatsRepository {
 

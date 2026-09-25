@@ -27,11 +27,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * 通用 JSON API 引擎（M13 T102，方案 §4.3）：GET endpoint（config.headers 透传 UA/Referer）→ 可选剥离 JS 包装
- * （stripPrefix/stripSuffix，金十 {@code var newest=[...];}）→ Jackson 解析 → {@code listPath} 点分导航到条目数组（空 = 根数组）→
- * 逐条 FieldMapper 白名单映射（{@code itemMapping} 必填，保存时校验）。
+ * （stripPrefix/stripSuffix，金十 {@code var newest=[...];}）→ Jackson 解析 → {@code listPath} 点分导航到条目数组（空
+ * = 根数组）→ 逐条 FieldMapper 白名单映射（{@code itemMapping} 必填，保存时校验）。
  *
- * <p>深翻补抓：pages&gt;1 时按 {@code page=n} 查询参数逐页取数（通用翻页约定，源侧特例走 preset 通道）； newest-first 迭代遇已见条目止；触页上限仍未确认追平 →
- * {@code truncated=true}（ADR-0041）。
+ * <p>深翻补抓：pages&gt;1 时按 {@code page=n} 查询参数逐页取数（通用翻页约定，源侧特例走 preset 通道）； newest-first
+ * 迭代遇已见条目止；触页上限仍未确认追平 → {@code truncated=true}（ADR-0041）。
  */
 @Component
 public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFetcher {
@@ -172,8 +172,10 @@ public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFet
         }
         if (!array.isArray()) {
             throw new FeedFetchException(
-                    "listPath 未命中条目数组（" + (listPath == null || listPath.isBlank() ? "根" : listPath)
-                            + "）: " + source.getSourceCode());
+                    "listPath 未命中条目数组（"
+                            + (listPath == null || listPath.isBlank() ? "根" : listPath)
+                            + "）: "
+                            + source.getSourceCode());
         }
         return array;
     }

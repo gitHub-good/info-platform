@@ -78,7 +78,10 @@ public class SourcePollStateRepositoryImpl implements SourcePollStateRepository 
     @Override
     public boolean insertIfAbsent(Long sourceId, Instant nextDueAt, Instant now) {
         return jdbcTemplate.update(
-                        INSERT_IGNORE_SQL, sourceId, nextDueAt.toString(), now.toString(),
+                        INSERT_IGNORE_SQL,
+                        sourceId,
+                        nextDueAt.toString(),
+                        now.toString(),
                         now.toString())
                 > 0;
     }

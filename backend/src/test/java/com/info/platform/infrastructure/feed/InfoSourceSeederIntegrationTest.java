@@ -58,8 +58,7 @@ class InfoSourceSeederIntegrationTest {
 
         assertThat(infoSourceRepository.findAll()).hasSize(before);
         // 幂等重跑不覆盖存量行（DB 为权威）：运行态行不被重置
-        InfoSource mw =
-                infoSourceRepository.findBySourceCode("mw_topstories").orElseThrow();
+        InfoSource mw = infoSourceRepository.findBySourceCode("mw_topstories").orElseThrow();
         assertThat(stateRepository.findBySourceId(mw.getId())).isPresent();
     }
 }

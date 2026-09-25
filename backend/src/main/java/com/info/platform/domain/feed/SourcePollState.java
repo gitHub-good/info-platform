@@ -5,8 +5,8 @@ import java.time.Instant;
 /**
  * 源轮询运行态值对象（{@code source_poll_state} 表，1:1 info_source，M13 T100）。
  *
- * <p>配置行（info_source，低频编辑、页面域）与高频运行态（本表，调度器每轮写）分离。 到期判定 {@code now ≥
- * max(next_due_at, backoff_until)}；{@code consecutive_failures} 驱动指数退避（成功清零）。
+ * <p>配置行（info_source，低频编辑、页面域）与高频运行态（本表，调度器每轮写）分离。 到期判定 {@code now ≥ max(next_due_at,
+ * backoff_until)}；{@code consecutive_failures} 驱动指数退避（成功清零）。
  *
  * @param sourceId = info_source.id（1:1，无自增主键）
  * @param lastAttemptAt 最近尝试时刻

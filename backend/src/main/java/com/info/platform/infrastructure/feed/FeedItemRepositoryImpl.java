@@ -49,8 +49,8 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
                         INSERT_IGNORE_SQL,
                         new BatchPreparedStatementSetter() {
                             @Override
-                            public void setValues(
-                                    java.sql.PreparedStatement ps, int i) throws SQLException {
+                            public void setValues(java.sql.PreparedStatement ps, int i)
+                                    throws SQLException {
                                 FeedItem item = items.get(i);
                                 ps.setLong(1, item.sourceId());
                                 ps.setString(2, item.externalId());

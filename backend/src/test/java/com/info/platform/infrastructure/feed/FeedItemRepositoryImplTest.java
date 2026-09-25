@@ -3,9 +3,9 @@ package com.info.platform.infrastructure.feed;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.info.platform.domain.feed.AdapterType;
+import com.info.platform.domain.feed.FeedFingerprint;
 import com.info.platform.domain.feed.FeedItem;
 import com.info.platform.domain.feed.FeedItemRepository;
-import com.info.platform.domain.feed.FeedFingerprint;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.InfoSourceRepository;
 import java.time.Instant;
@@ -49,34 +49,62 @@ class FeedItemRepositoryImplTest {
         jdbcTemplate.update(
                 "DELETE FROM news_item WHERE source_id IN "
                         + "(SELECT id FROM info_source WHERE source_code LIKE 't104_%')");
-        jdbcTemplate.update("DELETE FROM source_poll_state WHERE source_id IN "
-                + "(SELECT id FROM info_source WHERE source_code LIKE 't104_%')");
+        jdbcTemplate.update(
+                "DELETE FROM source_poll_state WHERE source_id IN "
+                        + "(SELECT id FROM info_source WHERE source_code LIKE 't104_%')");
         jdbcTemplate.update("DELETE FROM info_source WHERE source_code LIKE 't104_%'");
     }
 
     private Long newSource(String code) {
         InfoSource source =
                 InfoSource.create(
-                        code, code, "快讯", AdapterType.RSS, null,
-                        "https://example.com/" + code, null, 15, true, false);
+                        code,
+                        code,
+                        "快讯",
+                        AdapterType.RSS,
+                        null,
+                        "https://example.com/" + code,
+                        null,
+                        15,
+                        true,
+                        false);
         infoSourceRepository.save(source);
         return source.getId();
     }
 
     private FeedItem newItem(long sourceId, String externalId, String title, String fingerprint) {
         return FeedItem.newOf(
-                sourceId, externalId, title, "摘要-" + title, "https://example.com/n/" + title,
-                "作者", publishedAt, fetchedAt, fingerprint);
+                sourceId,
+                externalId,
+                title,
+                "摘要-" + title,
+                "https://example.com/n/" + title,
+                "作者",
+                publishedAt,
+                fetchedAt,
+                fingerprint);
     }
 
     @Test
     void insertIgnoreBatch_duplicateExternalIdSameSource_ignored() {
         List<FeedItem> batch =
                 List.of(
-                        newItem(sourceA, "e1", "标题一", FeedFingerprint.fingerprint("标题一", publishedAt)),
-                        newItem(sourceA, "e2", "标题二", FeedFingerprint.fingerprint("标题二", publishedAt)),
+                        newItem(
+                                sourceA,
+                                "e1",
+                                "标题一",
+                                FeedFingerprint.fingerprint("标题一", publishedAt)),
+                        newItem(
+                                sourceA,
+                                "e2",
+                                "标题二",
+                                FeedFingerprint.fingerprint("标题二", publishedAt)),
                         // 同源同 external_id（e1）不同标题 → 源内唯一索引拦截
-                        newItem(sourceA, "e1", "标题一改", FeedFingerprint.fingerprint("标题一改", publishedAt)));
+                        newItem(
+                                sourceA,
+                                "e1",
+                                "标题一改",
+                                FeedFingerprint.fingerprint("标题一改", publishedAt)));
 
         int inserted = itemRepository.insertIgnoreBatch(batch);
 
@@ -92,11 +120,13 @@ class FeedItemRepositoryImplTest {
     void insertIgnoreBatch_duplicateFingerprintCrossSource_ignored() {
         String fingerprint = FeedFingerprint.fingerprint("跨源同稿", publishedAt);
 
-        int first = itemRepository.insertIgnoreBatch(
-                List.of(newItem(sourceA, "a1", "跨源同稿", fingerprint)));
+        int first =
+                itemRepository.insertIgnoreBatch(
+                        List.of(newItem(sourceA, "a1", "跨源同稿", fingerprint)));
         // 源 B 转载同稿（external_id 不同、指纹相同）→ 全局指纹索引拦截，计 dup
-        int second = itemRepository.insertIgnoreBatch(
-                List.of(newItem(sourceB, "b1", "跨源同稿", fingerprint)));
+        int second =
+                itemRepository.insertIgnoreBatch(
+                        List.of(newItem(sourceB, "b1", "跨源同稿", fingerprint)));
 
         assertThat(first).isEqualTo(1);
         assertThat(second).isZero();
@@ -109,15 +139,29 @@ class FeedItemRepositoryImplTest {
         // external_id NULL 不受源内唯一约束；不同标题指纹不同 → 共存
         List<FeedItem> batch =
                 List.of(
-                        newItem(sourceA, null, "无ID甲", FeedFingerprint.fingerprint("无ID甲", publishedAt)),
-                        newItem(sourceA, null, "无ID乙", FeedFingerprint.fingerprint("无ID乙", publishedAt)));
+                        newItem(
+                                sourceA,
+                                null,
+                                "无ID甲",
+                                FeedFingerprint.fingerprint("无ID甲", publishedAt)),
+                        newItem(
+                                sourceA,
+                                null,
+                                "无ID乙",
+                                FeedFingerprint.fingerprint("无ID乙", publishedAt)));
 
         int inserted = itemRepository.insertIgnoreBatch(batch);
 
         assertThat(inserted).isEqualTo(2);
         // 同标题 NULL id 重复 → 指纹兜底拦截
-        int reinserted = itemRepository.insertIgnoreBatch(
-                List.of(newItem(sourceA, null, "无ID甲", FeedFingerprint.fingerprint("无ID甲", publishedAt))));
+        int reinserted =
+                itemRepository.insertIgnoreBatch(
+                        List.of(
+                                newItem(
+                                        sourceA,
+                                        null,
+                                        "无ID甲",
+                                        FeedFingerprint.fingerprint("无ID甲", publishedAt))));
         assertThat(reinserted).isZero();
     }
 
@@ -125,8 +169,16 @@ class FeedItemRepositoryImplTest {
     void insertIgnoreBatch_rerunSameBatch_idempotent() {
         List<FeedItem> batch =
                 List.of(
-                        newItem(sourceA, "x1", "幂等一", FeedFingerprint.fingerprint("幂等一", publishedAt)),
-                        newItem(sourceA, "x2", "幂等二", FeedFingerprint.fingerprint("幂等二", publishedAt)));
+                        newItem(
+                                sourceA,
+                                "x1",
+                                "幂等一",
+                                FeedFingerprint.fingerprint("幂等一", publishedAt)),
+                        newItem(
+                                sourceA,
+                                "x2",
+                                "幂等二",
+                                FeedFingerprint.fingerprint("幂等二", publishedAt)));
 
         assertThat(itemRepository.insertIgnoreBatch(batch)).isEqualTo(2);
         assertThat(itemRepository.insertIgnoreBatch(batch)).isZero();
@@ -137,11 +189,35 @@ class FeedItemRepositoryImplTest {
         Instant t = Instant.parse("2026-09-22T02:00:00Z");
         itemRepository.insertIgnoreBatch(
                 List.of(
-                        FeedItem.newOf(sourceA, "n1", "旧", null, null, null, t, t,
+                        FeedItem.newOf(
+                                sourceA,
+                                "n1",
+                                "旧",
+                                null,
+                                null,
+                                null,
+                                t,
+                                t,
                                 FeedFingerprint.fingerprint("旧", t)),
-                        FeedItem.newOf(sourceA, "n2", "新A", null, null, null, t, t,
+                        FeedItem.newOf(
+                                sourceA,
+                                "n2",
+                                "新A",
+                                null,
+                                null,
+                                null,
+                                t,
+                                t,
                                 FeedFingerprint.fingerprint("新A", t)),
-                        FeedItem.newOf(sourceB, "n3", "新B", null, null, null, t, t,
+                        FeedItem.newOf(
+                                sourceB,
+                                "n3",
+                                "新B",
+                                null,
+                                null,
+                                null,
+                                t,
+                                t,
                                 FeedFingerprint.fingerprint("新B", t))));
 
         // 全局 newest-first（id DESC）
@@ -165,7 +241,14 @@ class FeedItemRepositoryImplTest {
             itemRepository.insertIgnoreBatch(
                     List.of(
                             FeedItem.newOf(
-                                    sourceA, "p" + i, "第" + i + "条", null, null, null, t, t,
+                                    sourceA,
+                                    "p" + i,
+                                    "第" + i + "条",
+                                    null,
+                                    null,
+                                    null,
+                                    t,
+                                    t,
                                     FeedFingerprint.fingerprint("第" + i + "条", t))));
         }
 
@@ -182,9 +265,25 @@ class FeedItemRepositoryImplTest {
         Instant t = Instant.parse("2026-09-22T04:00:00Z");
         itemRepository.insertIgnoreBatch(
                 List.of(
-                        FeedItem.newOf(sourceA, "d1", "保留条目", null, null, null, t, t,
+                        FeedItem.newOf(
+                                sourceA,
+                                "d1",
+                                "保留条目",
+                                null,
+                                null,
+                                null,
+                                t,
+                                t,
                                 FeedFingerprint.fingerprint("保留条目", t)),
-                        FeedItem.newOf(sourceB, "d2", "软删源条目", null, null, null, t, t,
+                        FeedItem.newOf(
+                                sourceB,
+                                "d2",
+                                "软删源条目",
+                                null,
+                                null,
+                                null,
+                                t,
+                                t,
                                 FeedFingerprint.fingerprint("软删源条目", t))));
         // sourceB 软删：历史条目保留在库，但默认流/计数排除（join info_source）
         jdbcTemplate.update("UPDATE info_source SET deleted = 1 WHERE id = ?", sourceB);
@@ -197,7 +296,9 @@ class FeedItemRepositoryImplTest {
         // 行未物理删除（历史数据保留语义）
         Integer rows =
                 jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM news_item WHERE source_id = ?", Integer.class, sourceB);
+                        "SELECT COUNT(*) FROM news_item WHERE source_id = ?",
+                        Integer.class,
+                        sourceB);
         assertThat(rows).isEqualTo(1);
     }
 }

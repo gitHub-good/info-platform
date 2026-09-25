@@ -14,22 +14,30 @@ import org.springframework.stereotype.Component;
 /**
  * 资讯源配置校验器（M13 T100，方案 §4.5「配置错误可诊断」——蓝图故事 1 场景 2）。
  *
- * <p>保存前后端双校验的后端单点：类型白名单/URL/映射结构/headers 白名单/游标声明/数值边界，失败抛 30072（msg 字段级，多问题以 "；
- * " 连接）。频控 1~60 由实体构造期把守（领域规则单一事实源，此处不重复）。robots 硬校验（30075）在注册服务保存路径叠加（T105）。
+ * <p>保存前后端双校验的后端单点：类型白名单/URL/映射结构/headers 白名单/游标声明/数值边界，失败抛 30072（msg 字段级，多问题以 "； " 连接）。频控 1~60
+ * 由实体构造期把守（领域规则单一事实源，此处不重复）。robots 硬校验（30075）在注册服务保存路径叠加（T105）。
  *
- * <p>transform 白名单为线格式契约（与 {@code field-mapping/*.json} 同名空间 + M13 新增三值），引擎侧 {@code Transform.from} 为运行期解析兜底。
+ * <p>transform 白名单为线格式契约（与 {@code field-mapping/*.json} 同名空间 + M13 新增三值），引擎侧 {@code Transform.from}
+ * 为运行期解析兜底。
  */
 @Component
 public class SourceConfigValidator {
 
     /** 页面新增向导开放的通道（蓝图裁决 1：HTML 站点走开发侧预置通道）。 */
-    private static final Set<AdapterType> CREATE_ALLOWED_TYPES = Set.of(AdapterType.RSS, AdapterType.JSON_API);
+    private static final Set<AdapterType> CREATE_ALLOWED_TYPES =
+            Set.of(AdapterType.RSS, AdapterType.JSON_API);
 
     /** transform 线格式白名单（既有五值 + M13 三扩展，方案 §4.3）。 */
     private static final Set<String> ALLOWED_TRANSFORMS =
             Set.of(
-                    "none", "to_string", "to_long", "to_decimal", "to_iso_date",
-                    "to_iso_datetime", "epoch_seconds_to_iso", "strip_html");
+                    "none",
+                    "to_string",
+                    "to_long",
+                    "to_decimal",
+                    "to_iso_date",
+                    "to_iso_datetime",
+                    "epoch_seconds_to_iso",
+                    "strip_html");
 
     /** headers 白名单（UA/Referer；config 禁止存放密钥，方案 §5）。 */
     private static final Set<String> ALLOWED_HEADER_NAMES = Set.of("user-agent", "referer");
@@ -119,11 +127,23 @@ public class SourceConfigValidator {
     private static void validateNumericBounds(SourceConfig config, List<String> problems) {
         if (config.maxItems() != null
                 && (config.maxItems() < MAX_ITEMS_MIN || config.maxItems() > MAX_ITEMS_MAX)) {
-            problems.add("maxItems: 须在 " + MAX_ITEMS_MIN + "~" + MAX_ITEMS_MAX + "，当前值 " + config.maxItems());
+            problems.add(
+                    "maxItems: 须在 "
+                            + MAX_ITEMS_MIN
+                            + "~"
+                            + MAX_ITEMS_MAX
+                            + "，当前值 "
+                            + config.maxItems());
         }
         if (config.pageSize() != null
                 && (config.pageSize() < PAGE_SIZE_MIN || config.pageSize() > PAGE_SIZE_MAX)) {
-            problems.add("pageSize: 须在 " + PAGE_SIZE_MIN + "~" + PAGE_SIZE_MAX + "，当前值 " + config.pageSize());
+            problems.add(
+                    "pageSize: 须在 "
+                            + PAGE_SIZE_MIN
+                            + "~"
+                            + PAGE_SIZE_MAX
+                            + "，当前值 "
+                            + config.pageSize());
         }
     }
 

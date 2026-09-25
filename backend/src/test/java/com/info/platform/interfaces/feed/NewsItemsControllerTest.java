@@ -1,6 +1,5 @@
 package com.info.platform.interfaces.feed;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -20,8 +19,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * NewsItemsController 切片测试（T104，方案 §4.5 + M9 双模式分派）：游标模式（beforeId/limit 默认 20 ≤50）与页码模式（page/size/total）互斥校验
- * + sourceId 过滤透传。standalone MockMvc，service mock。
+ * NewsItemsController 切片测试（T104，方案 §4.5 + M9 双模式分派）：游标模式（beforeId/limit 默认 20
+ * ≤50）与页码模式（page/size/total）互斥校验 + sourceId 过滤透传。standalone MockMvc，service mock。
  */
 class NewsItemsControllerTest {
 
@@ -39,8 +38,16 @@ class NewsItemsControllerTest {
 
     private static NewsItemView view(long id, String title) {
         return new NewsItemView(
-                id, 7L, "t104_src", "测试源", title, "摘要", "https://example.com/n", "作者",
-                "2026-09-22T01:31:00Z", "2026-09-22T01:31:30Z");
+                id,
+                7L,
+                "t104_src",
+                "测试源",
+                title,
+                "摘要",
+                "https://example.com/n",
+                "作者",
+                "2026-09-22T01:31:00Z",
+                "2026-09-22T01:31:30Z");
     }
 
     @Test
@@ -62,10 +69,11 @@ class NewsItemsControllerTest {
         when(queryService.listCursor(eq(7L), eq(100L), eq(5)))
                 .thenReturn(new NewsItemsCursorView(List.of(view(99, "x")), null));
 
-        mockMvc.perform(get("/api/v1/news-items")
-                        .param("sourceId", "7")
-                        .param("beforeId", "100")
-                        .param("limit", "5"))
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("sourceId", "7")
+                                .param("beforeId", "100")
+                                .param("limit", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.nextBeforeId").doesNotExist());

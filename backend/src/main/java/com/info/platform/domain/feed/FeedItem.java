@@ -38,7 +38,18 @@ public record FeedItem(
             Instant fetchedAt,
             String fingerprint) {
         return new FeedItem(
-                null, sourceId, externalId, title, summary, url, author, publishedAt, fetchedAt,
-                fingerprint, STATUS_NORMAL, null, null);
+                null,
+                sourceId,
+                externalId,
+                title,
+                summary,
+                url,
+                author,
+                publishedAt,
+                fetchedAt,
+                fingerprint,
+                STATUS_NORMAL,
+                null,
+                null);
     }
 }

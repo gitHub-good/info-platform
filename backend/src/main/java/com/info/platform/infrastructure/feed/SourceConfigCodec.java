@@ -33,7 +33,8 @@ public class SourceConfigCodec {
         try {
             root = MAPPER.readTree(json);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("info_source.config 非法 JSON: " + e.getOriginalMessage(), e);
+            throw new IllegalStateException(
+                    "info_source.config 非法 JSON: " + e.getOriginalMessage(), e);
         }
         if (!root.isObject()) {
             throw new IllegalStateException("info_source.config 须为 JSON 对象");
@@ -96,7 +97,8 @@ public class SourceConfigCodec {
         try {
             return MAPPER.writeValueAsString(doc);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("info_source.config 序列化失败: " + e.getOriginalMessage(), e);
+            throw new IllegalStateException(
+                    "info_source.config 序列化失败: " + e.getOriginalMessage(), e);
         }
     }
 

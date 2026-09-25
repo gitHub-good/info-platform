@@ -3,8 +3,8 @@ package com.info.platform.domain.feed;
 /**
  * 资讯源适配通道类型（M13 T100，ADR-0038）。
  *
- * <p>持久化为 {@code info_source.adapter_type} 小写下划线文本（{@link #wireCode()}）； 页面新增向导只开放
- * {@link #RSS}/{@link #JSON_API}（蓝图裁决 1），{@link #HTML_TEMPLATE} 仅预留枚举值不实现（V3 候选）。
+ * <p>持久化为 {@code info_source.adapter_type} 小写下划线文本（{@link #wireCode()}）； 页面新增向导只开放 {@link
+ * #RSS}/{@link #JSON_API}（蓝图裁决 1），{@link #HTML_TEMPLATE} 仅预留枚举值不实现（V3 候选）。
  */
 public enum AdapterType {
 

@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllSevenJobKeys() {
+    void seeds_carriesAllEightJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 6 键不被 RETENTION_CLEANUP 增补挤占（第 7 键追加在尾部）
+        // 纯增量守卫：既有 7 键不被 SOURCE_POLL 增补挤占（第 8 键追加在尾部，M13 T103 / ADR-0040）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -60,7 +60,40 @@ class JobRuntimeConfigSeederTest {
                         "job.PUSH_RETRY",
                         "job.DAILY_RECOMMEND",
                         "job.SUBJECT_SYNC",
-                        "job.RETENTION_CLEANUP");
+                        "job.RETENTION_CLEANUP",
+                        "job.SOURCE_POLL");
+    }
+
+    // ---- SOURCE_POLL 种子（T103，M13 / ADR-0040）----
+
+    private RuntimeConfigSeed sourcePollSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "sourcePollEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "sourcePollIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.SOURCE_POLL"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.SOURCE_POLL 种子"));
+    }
+
+    @Test
+    void seeds_sourcePoll_productionDefaults_enabledFixedDelay60s() {
+        RuntimeConfigSeed seed = sourcePollSeed(true, 60000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.SOURCE_POLL");
+        assertThat(seed.description()).contains("SourcePollJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":60000");
+    }
+
+    @Test
+    void seeds_sourcePoll_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：source.poll.enabled=false → 种子停用 → JobScheduler 零注册（八 Job 惯例）
+        RuntimeConfigSeed seed = sourcePollSeed(false, 60000L);
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"intervalMillis\":60000");
     }
 
     // ---- RETENTION_CLEANUP 种子（T71，M10 技术方案增补 §4.1）----

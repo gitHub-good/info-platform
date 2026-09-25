@@ -67,8 +67,8 @@ public class InfoSourceRepositoryImpl implements InfoSourceRepository {
 
     @Override
     public List<InfoSource> findAll() {
-        return mapper.selectList(
-                        new LambdaQueryWrapper<InfoSourcePO>().orderByAsc(InfoSourcePO::getId))
+        return mapper
+                .selectList(new LambdaQueryWrapper<InfoSourcePO>().orderByAsc(InfoSourcePO::getId))
                 .stream()
                 .map(this::toEntity)
                 .toList();
@@ -88,7 +88,8 @@ public class InfoSourceRepositoryImpl implements InfoSourceRepository {
         po.setCreatedAt(now.toString());
         po.setUpdatedAt(now.toString());
         mapper.insert(po);
-        source.assignPersisted(po.getId(), Instant.parse(po.getCreatedAt()), Instant.parse(po.getUpdatedAt()));
+        source.assignPersisted(
+                po.getId(), Instant.parse(po.getCreatedAt()), Instant.parse(po.getUpdatedAt()));
         return source;
     }
 
@@ -99,7 +100,8 @@ public class InfoSourceRepositoryImpl implements InfoSourceRepository {
         po.setCreatedAt(
                 source.getCreatedAt() == null ? now.toString() : source.getCreatedAt().toString());
         mapper.updateById(po);
-        source.assignPersisted(po.getId(), Instant.parse(po.getCreatedAt()), Instant.parse(po.getUpdatedAt()));
+        source.assignPersisted(
+                po.getId(), Instant.parse(po.getCreatedAt()), Instant.parse(po.getUpdatedAt()));
         return source;
     }
 
@@ -125,7 +127,12 @@ public class InfoSourceRepositoryImpl implements InfoSourceRepository {
             source.assignPersisted(null, now, now);
             // 回填自增 id（INSERT OR IGNORE 拿不到主键，按唯一键回查）
             findBySourceCode(source.getSourceCode())
-                    .ifPresent(persisted -> source.assignPersisted(persisted.getId(), persisted.getCreatedAt(), persisted.getUpdatedAt()));
+                    .ifPresent(
+                            persisted ->
+                                    source.assignPersisted(
+                                            persisted.getId(),
+                                            persisted.getCreatedAt(),
+                                            persisted.getUpdatedAt()));
         }
         return inserted > 0;
     }

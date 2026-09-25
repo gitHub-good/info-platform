@@ -8,8 +8,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
 /**
  * info_source 表的持久化对象（M13 T100，V22）。
  *
- * <p>{@code config} 为 JSON 文档文本（经 {@link SourceConfigCodec} 与领域 {@code SourceConfig} 互转）； {@code enabled}
- * /{@code is_preset}/{@code deleted} 为 TINYINT 0/1；时间戳整秒 ISO-8601 UTC 文本。
+ * <p>{@code config} 为 JSON 文档文本（经 {@link SourceConfigCodec} 与领域 {@code SourceConfig} 互转）； {@code
+ * enabled} /{@code is_preset}/{@code deleted} 为 TINYINT 0/1；时间戳整秒 ISO-8601 UTC 文本。
  */
 @TableName("info_source")
 public class InfoSourcePO {

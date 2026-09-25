@@ -65,7 +65,9 @@ public class InfoSourceSeeder {
             if (infoSourceRepository.insertIfAbsent(source)) {
                 Instant now = clock.instant();
                 stateRepository.insertIfAbsent(
-                        source.getId(), staggeredNextDue(entry.sourceCode(), entry.intervalMinutes(), now), now);
+                        source.getId(),
+                        staggeredNextDue(entry.sourceCode(), entry.intervalMinutes(), now),
+                        now);
                 seeded++;
             }
         }

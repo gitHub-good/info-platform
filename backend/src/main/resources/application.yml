@@ -156,3 +156,11 @@ retention:
 
 # LLM 模型参数（provider/模型/单价/预算/超时/缓存 TTL 等）不在本文件——页面配置为唯一真相（runtime_config DB 持久化，
 # 首启由 LlmDefaults 代码内置缺省播种，ADR-0017/0020）；API key 环境变量（DEEPSEEK_API_KEY 等）仍为一等来源（ADR-0018）。
+
+# 资讯源轮询（M13 T103，ADR-0040）：job.SOURCE_POLL 种子来源（ManagedJob 第 8 键，FIXED_DELAY tick）。
+# tick 默认 60s（可配 15000~300000，页面热切换启停立即/间隔自下一周期）；源级频控/错峰/退避/补抓见 SourceSchedulingService。
+# 源清单与配置不入本文件——info_source 表行内 config 为唯一真相（ADR-0038，首启由 InfoSourceCatalog 种子补齐）。
+source:
+  poll:
+    enabled: true
+    interval-millis: 60000

@@ -6,7 +6,6 @@ import com.info.platform.domain.feed.FetchContext;
 import com.info.platform.domain.feed.FetchResult;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.RawFeedItem;
-import com.info.platform.domain.feed.SourceConfig;
 import com.info.platform.infrastructure.aggregation.FieldMapper;
 import com.info.platform.infrastructure.aggregation.FieldMapping;
 import com.info.platform.infrastructure.aggregation.Transform;
@@ -34,9 +33,10 @@ import org.springframework.web.client.RestClientException;
 /**
  * 通用 RSS 2.0/Atom 引擎（M13 T101，方案 §4.3：jsoup XML parser，零新依赖——GovPolicyClient 先例）。
  *
- * <p>RSS 2.0 取 {@code channel/item}（title/link/guid 或 dc:identifier/pubDate 或 dc:date/description/author）； Atom 取
- * {@code feed/entry}（title/link[@href 优先 rel=alternate]/id/updated 或 published/summary）。默认映射固定； {@code
- * config.itemMapping} 提供则按目标字段覆盖（复用 FieldMapper 白名单语义，源字段 = RSS 本地标签名）。
+ * <p>RSS 2.0 取 {@code channel/item}（title/link/guid 或 dc:identifier/pubDate 或
+ * dc:date/description/author）； Atom 取 {@code feed/entry}（title/link[@href 优先
+ * rel=alternate]/id/updated 或 published/summary）。默认映射固定； {@code config.itemMapping} 提供则按目标字段覆盖（复用
+ * FieldMapper 白名单语义，源字段 = RSS 本地标签名）。
  *
  * <p>脏数据防御：单条字段缺失/日期不可解析降级为 null 不致命；整体非 RSS/Atom 结构抛 {@link FeedFetchException}（含源定位）。
  * 游标止步：newest-first 迭代遇已见条目止；RSS 单文档无法深翻——pages&gt;1 且始终未见已见条目时 {@code truncated=true}
@@ -80,7 +80,11 @@ public class RssFeedFetcher implements com.info.platform.domain.feed.FeedFetcher
             body = spec.retrieve().body(String.class);
         } catch (RestClientException e) {
             throw new FeedFetchException(
-                    "RSS 取数失败 " + source.getSourceCode() + " " + source.getEndpoint() + ": "
+                    "RSS 取数失败 "
+                            + source.getSourceCode()
+                            + " "
+                            + source.getEndpoint()
+                            + ": "
                             + e.getMessage(),
                     e);
         }
@@ -110,7 +114,9 @@ public class RssFeedFetcher implements com.info.platform.domain.feed.FeedFetcher
         for (Element entry : entries) {
             RawFeedItem item = atom ? atomItem(entry, source) : rssItem(entry, source);
             if (hasCursor
-                    && isSeen(item.cursorValue(), context.cursorValue(),
+                    && isSeen(
+                            item.cursorValue(),
+                            context.cursorValue(),
                             source.getConfig().effectiveCursorType())) {
                 seenKnownItem = true;
                 break;

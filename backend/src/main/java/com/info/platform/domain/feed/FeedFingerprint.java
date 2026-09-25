@@ -14,8 +14,8 @@ import java.util.Locale;
  *
  * <p>归一化规则（逐条可测，§4.2）：①NFKC 规范化（全角标点/数字 → 半角、兼容组合分解如 ①→1）； ②删除全部空白字符（{@code
  * [\s\u3000]}，含标题中间空格——中文标题空格无语义；英文词距不参与判同的保守取舍由 casefold+去空白共同吸收， 误合并风险由「+日期」边界兜底）；③ASCII
- * casefold（英文源 MarketWatch 与转载同题）； ④拼接定界符 {@code #} + published_date（Asia/Shanghai yyyy-MM-dd——源缺时间由调用方回落抓取日；
- * 跨日同题不合并，保守方向宁漏并勿错并）；⑤SHA-256 十六进制小写。
+ * casefold（英文源 MarketWatch 与转载同题）； ④拼接定界符 {@code #} + published_date（Asia/Shanghai
+ * yyyy-MM-dd——源缺时间由调用方回落抓取日； 跨日同题不合并，保守方向宁漏并勿错并）；⑤SHA-256 十六进制小写。
  */
 public final class FeedFingerprint {
 

@@ -48,8 +48,7 @@ class FieldMapperFeedTransformTest {
                                         Map.of("time", "09/22 09:31"),
                                         List.of(
                                                 new FieldMapping(
-                                                        "time", "t",
-                                                        Transform.TO_ISO_DATETIME))))
+                                                        "time", "t", Transform.TO_ISO_DATETIME))))
                 .isInstanceOf(FieldMappingException.class)
                 .hasMessageContaining("TO_ISO_DATETIME");
     }
@@ -62,15 +61,11 @@ class FieldMapperFeedTransformTest {
         Map<String, Object> fromString =
                 mapper.map(
                         Map.of("ctime", "1748275048"),
-                        List.of(
-                                new FieldMapping(
-                                        "ctime", "t", Transform.EPOCH_SECONDS_TO_ISO)));
+                        List.of(new FieldMapping("ctime", "t", Transform.EPOCH_SECONDS_TO_ISO)));
         Map<String, Object> fromNumber =
                 mapper.map(
                         Map.of("ctime", 1748275048L),
-                        List.of(
-                                new FieldMapping(
-                                        "ctime", "t", Transform.EPOCH_SECONDS_TO_ISO)));
+                        List.of(new FieldMapping("ctime", "t", Transform.EPOCH_SECONDS_TO_ISO)));
 
         assertThat(fromString.get("t")).isEqualTo(expected);
         assertThat(fromNumber.get("t")).isEqualTo(expected);
@@ -84,7 +79,8 @@ class FieldMapperFeedTransformTest {
                                         Map.of("ctime", "not-a-number"),
                                         List.of(
                                                 new FieldMapping(
-                                                        "ctime", "t",
+                                                        "ctime",
+                                                        "t",
                                                         Transform.EPOCH_SECONDS_TO_ISO))))
                 .isInstanceOf(FieldMappingException.class)
                 .hasMessageContaining("EPOCH_SECONDS_TO_ISO");
