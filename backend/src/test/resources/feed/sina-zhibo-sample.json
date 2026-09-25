@@ -1,0 +1,38 @@
+{
+  "result": {
+    "status": {
+      "code": 0,
+      "msg": "OK"
+    },
+    "data": {
+      "feed": {
+        "list": [
+          {
+            "id": 5113475,
+            "rich_text": "加拿大国家银行将回购最高达22.5亿加元的股票。",
+            "create_time": "2026-09-25 18:31:05",
+            "docurl": "https://finance.sina.cn/7x24/2026-09-25/detail-iniszvzv7665883.d.html",
+            "is_delete": 0,
+            "type": 0
+          },
+          {
+            "id": 5113474,
+            "rich_text": "加拿大国民银行宣布拟启动常规发行人招标。",
+            "create_time": "2026-09-25 18:30:36",
+            "docurl": "https://finance.sina.cn/7x24/2026-09-25/detail-iniszvzv7665754.d.html",
+            "is_delete": 0,
+            "type": 0
+          },
+          {
+            "id": 5113473,
+            "rich_text": "现货白银突破65美元/盎司，日内涨1.83%。",
+            "create_time": "2026-09-25 18:23:11",
+            "docurl": "https://finance.sina.cn/7x24/2026-09-25/detail-iniszvzx4436175.d.html",
+            "is_delete": 0,
+            "type": 0
+          }
+        ]
+      }
+    }
+  }
+}

@@ -225,6 +225,61 @@ class JsonApiFeedFetcherTest {
     }
 
     @Test
+    void parse_realJin10Shape_titleFallbackKeepsContentOnlyFlashes() {
+        // 真实金十形态（2026-09-25 外呼复核，ADR-0042）：正文嵌 data 子对象，中文快讯 data.title 空
+        String body =
+                """
+                var newest=[                {"id":20260925182244445800,"time":"2026-09-25 18:22:44","data":{"title":"","content":"现货白银向上触及65美元/盎司，日内涨1.81%。"}},                {"id":20260925182109549800,"time":"2026-09-25 18:21:09","data":{"title":"Iraq cuts Basra crude prices","content":"Iraq's state oil marketer offered cargoes at discounted prices."}}];                """;
+        SourceConfig config =
+                new SourceConfig(
+                        "",
+                        "var newest=",
+                        ";",
+                        List.of(
+                                new SourceConfig.ItemMapping("id", "externalId", "to_string"),
+                                new SourceConfig.ItemMapping(
+                                        "time", "publishedAt", "to_iso_datetime"),
+                                new SourceConfig.ItemMapping("data.title", "title", "to_string"),
+                                new SourceConfig.ItemMapping(
+                                        "data.content", "summary", "strip_html")),
+                        null,
+                        null,
+                        null,
+                        CursorType.ID,
+                        "externalId");
+
+        List<RawFeedItem> items =
+                fetcher.parse(body, jsonSource(config), FetchContext.firstPage(null)).items();
+
+        // 中文快讯：title 空以 content 补位（标题回落），summary 置空
+        assertThat(items).hasSize(2);
+        assertThat(items.get(0).title()).contains("现货白银");
+        assertThat(items.get(0).summary()).isNull();
+        // 英文快讯：题文分立
+        assertThat(items.get(1).title()).contains("Iraq cuts Basra");
+        assertThat(items.get(1).summary()).contains("discounted prices");
+        // 北京 18:22:44 → UTC 10:22:44
+        assertThat(items.get(0).publishedAt()).isEqualTo(Instant.parse("2026-09-25T10:22:44Z"));
+    }
+
+    @Test
+    void parse_jin10WrapperWhitespaceDrift_stillStripped() {
+        // 2026-09-25 实测形态：var newest = [...]（= 两侧空格）——精确前缀不命中，回落首个 [ 截取（ADR-0042）
+        String body =
+                """
+                var newest = [{"id":3001,"time":"2026-09-25 18:22:44","title":"空格漂移包装"},\
+                {"id":3000,"time":"2026-09-25 18:20:00","title":"第二条"}];
+                """;
+        InfoSource source = jsonSource(jin10Config(CursorType.ID));
+
+        List<RawFeedItem> items = fetcher.parse(body, source, FetchContext.firstPage(null)).items();
+
+        assertThat(items).hasSize(2);
+        assertThat(items.get(0).externalId()).isEqualTo("3001");
+        assertThat(items.get(0).title()).isEqualTo("空格漂移包装");
+    }
+
+    @Test
     void fetch_backfillPages_pageParamAppendedAndTruncationFlagged() {
         // 深翻 2 页：page=1 与 page=2 各返回一条未见条目（游标 0），全程未见已见条目 → truncated
         RestClient.Builder builder = RestClient.builder();

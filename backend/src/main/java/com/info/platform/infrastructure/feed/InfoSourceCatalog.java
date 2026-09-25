@@ -39,7 +39,13 @@ public final class InfoSourceCatalog {
                     {"cursorType":"TIME","cursorField":"publishedAt"}""",
                     30);
 
-    /** 金十数据快讯：JS 包装 JSON（{@code var newest=[...];}），ID 数值游标，5min（方案 §4.3 配置示例原型）。 */
+    /**
+     * 金十数据快讯：JS 包装 JSON（{@code var newest=[...];}），ID 数值游标，5min。
+     *
+     * <p>字段口径经 2026-09-25 真实外呼复核（ADR-0042）：快讯正文嵌于 {@code data} 子对象（{@code data.title} 常空、{@code
+     * data.content} 为正文——普查样本的顶层 {@code title/important_title} 不存在）；映射走点分导航 + 引擎标题回落（title 空以
+     * summary 补位），中文快讯出题、英文快讯题文分立。
+     */
     private static final PresetEntry JIN10_FLASH =
             new PresetEntry(
                     "jin10_flash",
@@ -53,13 +59,18 @@ public final class InfoSourceCatalog {
                     "itemMapping":[\
                     {"source":"id","target":"externalId","transform":"to_string"},\
                     {"source":"time","target":"publishedAt","transform":"to_iso_datetime"},\
-                    {"source":"title","target":"title","transform":"to_string"},\
-                    {"source":"important_title","target":"summary","transform":"strip_html"}],\
+                    {"source":"data.title","target":"title","transform":"to_string"},\
+                    {"source":"data.content","target":"summary","transform":"strip_html"}],\
                     "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://www.jin10.com"},\
                     "cursorType":"ID","cursorField":"externalId"}""",
                     5);
 
-    /** 新浪财经 7×24：预置 adapter（richtext 清洗 + id 数值游标），5min；M14「升级新浪源」的前置通道。 */
+    /**
+     * 新浪财经 7×24：预置 adapter（richtext 清洗 + id 数值游标），5min；M14「升级新浪源」的前置通道。
+     *
+     * <p>字段口径经 2026-09-25 真实外呼复核（ADR-0042）：{@code rich_text}（普查记 richtext）/ {@code create_time}
+     * 墙钟（普查记 ctime epoch）/{@code docurl}；解析全在 {@code SinaZhiboAdapter} 代码内。
+     */
     private static final PresetEntry SINA_ZHIBO =
             new PresetEntry(
                     "sina_zhibo_7x24",

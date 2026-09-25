@@ -111,16 +111,34 @@ public class FieldMapper {
         Objects.requireNonNull(config, "config 必填");
         Map<String, Object> mapped = new LinkedHashMap<>();
         for (FieldMapping m : config) {
-            if (!raw.containsKey(m.source())) {
-                continue;
-            }
-            Object value = raw.get(m.source());
+            Object value = resolveSource(raw, m.source());
             if (value == null) {
                 continue;
             }
             mapped.put(m.target(), applyTransform(value, m.transform()));
         }
         return Map.copyOf(mapped);
+    }
+
+    /**
+     * 源字段取值：无点号 = 顶层键（既有六源口径不变）；含点号 = 嵌套 Map 逐级导航（M13 T106，ADR-0042—— 金十快讯 title/content 嵌于 {@code
+     * data} 子对象）。任一级缺失/非 Map = 目标字段不产出（与顶层缺失同语义）。
+     */
+    private static Object resolveSource(Map<String, Object> raw, String source) {
+        if (!source.contains(".")) {
+            return raw.get(source);
+        }
+        Object current = raw;
+        for (String segment : source.split("\\.")) {
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+            current = map.get(segment);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
     }
 
     private Object applyTransform(Object value, Transform transform) {

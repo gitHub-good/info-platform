@@ -140,18 +140,37 @@ public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFet
         }
     }
 
-    /** 包装剥离：stripPrefix/stripSuffix 配置化（先剥后解析；未配置则原样）。 */
+    /**
+     * 包装剥离：stripPrefix/stripSuffix 配置化（先剥后解析；未配置则原样）。
+     *
+     * <p>空白漂移容错（M13 T106 实测发现，ADR-0042）：金十包装实为 {@code var newest = [...]}（{@code =} 两侧带空格）， 与普查样本
+     * {@code var newest=[...]} 存在空格漂移——精确前缀未命中时回落「定位首个 {@code [}/{@code {}」截取（声明了 stripPrefix
+     * 才启用），任意 `var xxx =` 形态包装均可剥。
+     */
     private static String stripWrapper(String body, SourceConfig config) {
         String payload = body.trim();
         String prefix = config.stripPrefix();
-        if (prefix != null && !prefix.isBlank() && payload.startsWith(prefix)) {
-            payload = payload.substring(prefix.length());
+        if (prefix != null && !prefix.isBlank()) {
+            if (payload.startsWith(prefix)) {
+                payload = payload.substring(prefix.length());
+            } else if (!payload.startsWith("[") && !payload.startsWith("{")) {
+                payload = cutToFirstJsonBoundary(payload);
+            }
         }
         String suffix = config.stripSuffix();
+        payload = payload.trim();
         if (suffix != null && !suffix.isBlank() && payload.endsWith(suffix)) {
             payload = payload.substring(0, payload.length() - suffix.length());
         }
         return payload.trim();
+    }
+
+    /** 回落剥离：定位首个 {@code [} 或 {@code {}（包装体任意 JS 赋值形态；找不到原样返回由解析层报错）。 */
+    private static String cutToFirstJsonBoundary(String payload) {
+        int arrayAt = payload.indexOf('[');
+        int objectAt = payload.indexOf('{');
+        int cut = arrayAt < 0 ? objectAt : objectAt < 0 ? arrayAt : Math.min(arrayAt, objectAt);
+        return cut < 0 ? payload : payload.substring(cut);
     }
 
     /** Jackson 解析 + listPath 点分导航到条目数组（空/null = 根数组）。 */
@@ -180,7 +199,12 @@ public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFet
         return array;
     }
 
-    /** 单条白名单映射：FieldMapper 按目标字段产出（缺失字段不产出 → null 透传，title 过滤归摄取层）。 */
+    /**
+     * 单条白名单映射：FieldMapper 按目标字段产出（缺失字段不产出 → null 透传，title 过滤归摄取层）。
+     *
+     * <p>标题回落（M13 T106，ADR-0042）：快讯类 JSON 源常见标题/正文分体且标题常空（金十中文快讯仅 content 有文）—— title 空而 summary
+     * 非空时以 summary 补位标题，避免整源被 §4.2「title 非空」过滤清空。
+     */
     private RawFeedItem mapEntry(JsonNode entry, InfoSource source) {
         Map<String, Object> raw =
                 objectMapper.convertValue(entry, new TypeReference<Map<String, Object>>() {});
@@ -188,6 +212,10 @@ public class JsonApiFeedFetcher implements com.info.platform.domain.feed.FeedFet
         String externalId = str(mapped.get("externalId"));
         String title = str(mapped.get("title"));
         String summary = str(mapped.get("summary"));
+        if (title == null && summary != null) {
+            title = summary;
+            summary = null;
+        }
         String url = str(mapped.get("url"));
         String author = str(mapped.get("author"));
         Instant publishedAt = null;

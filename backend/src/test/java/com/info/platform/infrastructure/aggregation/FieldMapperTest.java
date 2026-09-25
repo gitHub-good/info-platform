@@ -42,6 +42,36 @@ class FieldMapperTest {
     }
 
     @Test
+    void map_dotPathSource_navigatesNestedMaps() {
+        // Arrange：金十快讯实口径（ADR-0042）——title/content 嵌于 data 子对象
+        List<FieldMapping> config =
+                List.of(
+                        new FieldMapping("data.title", "title", Transform.TO_STRING),
+                        new FieldMapping("data.content", "summary", Transform.TO_STRING),
+                        new FieldMapping("id", "externalId", Transform.TO_STRING));
+        Map<String, Object> inner = new LinkedHashMap<>();
+        inner.put("title", "");
+        inner.put("content", "现货白银突破65美元/盎司");
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("id", "20260925182244445800");
+        raw.put("data", inner);
+
+        // Act
+        Map<String, Object> mapped = fieldMapper.map(raw, config);
+
+        // Assert：嵌套导航命中 + 顶层键口径不变 + 缺失路径不产出
+        assertThat(mapped.get("title")).isEqualTo("");
+        assertThat(mapped.get("summary")).isEqualTo("现货白银突破65美元/盎司");
+        assertThat(mapped.get("externalId")).isEqualTo("20260925182244445800");
+        assertThat(mapped).doesNotContainKey("absent");
+
+        // 中间层级非 Map / 任一级缺失：目标字段不产出（与顶层缺失同语义）
+        Map<String, Object> broken = Map.of("data", "not-a-map");
+        assertThat(fieldMapper.map(broken, config)).doesNotContainKeys("title", "summary");
+        assertThat(fieldMapper.map(Map.of(), config)).isEmpty();
+    }
+
+    @Test
     void map_appliesTransformsAndDropsUnmatchedFields() {
         // Arrange
         List<FieldMapping> config =

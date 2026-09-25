@@ -1,9 +1,16 @@
 package com.info.platform.infrastructure.feed;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.info.platform.domain.feed.RobotsPolicyChecker.RobotsVerdict;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 
 /**
  * RobotsPolicyClient 判读单测（T105，普查 §1.1 / RFC 9309 子集）：robots 文本评估纯函数 fixture 全覆盖（通配组 / 前缀命中 / 空
@@ -94,6 +101,60 @@ class RobotsPolicyClientTest {
 
         assertThat(verdict.allowed()).isFalse();
         assertThat(verdict.note()).contains("/flash");
+    }
+
+    @Test
+    void check_robots200WithDisallow_verdictBlocksEndpoint() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://www.example.com/robots.txt"))
+                .andRespond(withSuccess("User-agent: *\nDisallow: /flash\n", MediaType.TEXT_PLAIN));
+        RobotsPolicyClient client = new RobotsPolicyClient(builder.build());
+
+        RobotsVerdict verdict = client.check("https://www.example.com/flash_newest.js");
+
+        assertThat(verdict.allowed()).isFalse();
+        assertThat(verdict.note()).contains("Disallow: /flash");
+        server.verify();
+    }
+
+    @Test
+    void check_robots404_treatedAsUnrestricted() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://www.example.com/robots.txt"))
+                .andRespond(withStatus(org.springframework.http.HttpStatus.NOT_FOUND));
+        RobotsPolicyClient client = new RobotsPolicyClient(builder.build());
+
+        RobotsVerdict verdict = client.check("https://www.example.com/any");
+
+        assertThat(verdict.allowed()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void check_robotsUnreachable_fallsBackToAllowedWithNote() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://down.example.com/robots.txt"))
+                .andRespond(withServerError());
+        RobotsPolicyClient client = new RobotsPolicyClient(builder.build());
+
+        RobotsVerdict verdict = client.check("https://down.example.com/x");
+
+        assertThat(verdict.allowed()).isTrue();
+        assertThat(verdict.note()).contains("无限制");
+        server.verify();
+    }
+
+    @Test
+    void check_nonAbsoluteEndpoint_skipsFetchAsAllowed() {
+        RobotsPolicyClient client = new RobotsPolicyClient(RestClient.builder().build());
+
+        RobotsVerdict verdict = client.check("not-a-url");
+
+        assertThat(verdict.allowed()).isTrue();
+        assertThat(verdict.note()).contains("URL 校验");
     }
 
     @Test
