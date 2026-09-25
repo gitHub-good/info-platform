@@ -408,7 +408,7 @@ class PolicySourceAdapterTest {
             Subject subject, Consumer<MockRestServiceServer> responseSetter) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GovPolicyClient client = new GovPolicyClient(builder, POLICY_URL, REFERER);
+        GovPolicyClient client = new GovPolicyClient(builder, POLICY_URL, 30, REFERER);
         PolicySourceAdapter adapter =
                 new PolicySourceAdapter(cache, fieldMapper, runner, breaker, client);
         responseSetter.accept(server);

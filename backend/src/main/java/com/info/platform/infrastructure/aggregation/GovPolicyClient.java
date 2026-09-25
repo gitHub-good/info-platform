@@ -6,8 +6,10 @@ import com.info.platform.infrastructure.common.DataSourceDefaults;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.jsoup.Jsoup;
@@ -17,6 +19,7 @@ import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -96,6 +99,17 @@ public class GovPolicyClient {
                     + " Safari/537.36";
 
     /**
+     * JSON 载体 URL 后缀（M12 T93 分支判据）：{@code policyUrl} 以 {@code .json} 结尾（不区分大小写）走 JSON 分支—— 「最新政策」页
+     * HTML 列表为 AJAX 空壳（2026-09-22 实测，方案 §1.2 实测 3），真实数据在静态 {@code ZUIXINZHENGCE.json}（1100 条，
+     * TITLE/URL/DOCRELPUBTIME，按时间倒序）。页面手改回 HTML URL 即回退（热生效，两分支输出同款 raw 契约）。
+     */
+    static final String JSON_URL_SUFFIX = ".json";
+
+    /** JSON 截取条数回落（运行时键 {@code policyMaxItems}，1~100 校验器约束）。 */
+    private static final int DEFAULT_MAX_ITEMS =
+            DataSourceDefaults.paramInt(SourceCode.POLICY, "policyMaxItems", 30);
+
+    /**
      * 「最新政策」列表项选择器（2026-09-21 实测唯一命中）。全页仅一处 {@code div class="list fl"}， 其下 {@code > ul > li}
      * 为政策条目。gov.cn 改版可能导致此选择器失效——失效时 parsePolicies 返回空（→ MISSING， 不阻断），建议同步更新 Spike-1 §6.6。
      */
@@ -103,6 +117,7 @@ public class GovPolicyClient {
 
     private final RestClient restClient;
     private final String policyUrl;
+    private final int maxItems;
     private final String referer;
 
     /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
@@ -112,20 +127,29 @@ public class GovPolicyClient {
     /** Spring 装配构造（ADR-0032）：回落值取 {@link DataSourceDefaults} 代码内置缺省（原 yml adapter 段迁移）。 */
     @Autowired
     public GovPolicyClient(RestClient.Builder restClientBuilder) {
-        this(restClientBuilder, DEFAULT_POLICY_URL, DEFAULT_REFERER);
+        this(restClientBuilder, DEFAULT_POLICY_URL, DEFAULT_MAX_ITEMS, DEFAULT_REFERER);
     }
 
     /** 全参构造（纯构造单测指定回落值）。 */
-    public GovPolicyClient(RestClient.Builder restClientBuilder, String policyUrl, String referer) {
+    public GovPolicyClient(
+            RestClient.Builder restClientBuilder,
+            String policyUrl,
+            int maxItems,
+            String referer) {
         this.restClient = restClientBuilder.build();
         this.policyUrl = policyUrl;
+        this.maxItems = maxItems;
         this.referer = referer;
     }
 
     /**
-     * 取 gov.cn 政策列表页最近若干条政策（原始 title/url/pubDate，未做发文单位切分与行业关联）。
+     * 取 gov.cn 政策最近若干条（原始 title/url/pubDate，未做发文单位切分与行业关联；M12 T93 双分支）。
      *
-     * @return 原始政策列表；HTML 为空/无列表项返回 {@link Optional#empty()}（→ MISSING）
+     * <p>{@code policyUrl} 以 {@code .json} 结尾 → JSON 分支（静态 {@code ZUIXINZHENGCE.json}，截取前 {@code
+     * policyMaxItems} 条，输出与 HTML 分支<b>同款 raw 契约</b>——{@link PolicySourceAdapter} 行业过滤/单位切分零改动）；
+     * 否则走既有 Jsoup HTML 分支（页面手改回 HTML URL 即回退，热生效）。
+     *
+     * @return 原始政策列表；响应为空/无条目返回 {@link Optional#empty()}（→ MISSING）
      * @throws java.io.IOException Jsoup 读流解析失败（网络/编码异常，由调用方 doFetch 经弹性降级）
      */
     public Optional<List<Map<String, Object>>> fetchPolicies() throws java.io.IOException {
@@ -133,7 +157,12 @@ public class GovPolicyClient {
                 RuntimeParams.of(configCenter, SourceCode.POLICY, "policyUrl", this.policyUrl);
         String referer =
                 RuntimeParams.of(configCenter, SourceCode.POLICY, "policyReferer", this.referer);
-        log.debug("gov.cn 政策请求 url={}", policyUrl);
+        int maxItems =
+                RuntimeParams.intOf(configCenter, SourceCode.POLICY, "policyMaxItems", this.maxItems);
+        if (policyUrl.toLowerCase(Locale.ROOT).endsWith(JSON_URL_SUFFIX)) {
+            return fetchJsonPolicies(policyUrl, referer, maxItems);
+        }
+        log.debug("gov.cn 政策请求（HTML）url={}", policyUrl);
         byte[] body =
                 restClient
                         .get()
@@ -145,6 +174,58 @@ public class GovPolicyClient {
                         // 读 byte[] 交 Jsoup 按 meta 自动检测 charset（gov.cn 响应头无 charset，见类 Javadoc）
                         .body(byte[].class);
         return parsePolicies(body, policyUrl);
+    }
+
+    /**
+     * JSON 分支（M12 T93，方案 §4.3.4）：GET 静态 JSON 数组 → 截取前 maxItems 条 → 逐条转 raw map
+     * {@code {title: TITLE, url: URL, pubDate: DOCRELPUBTIME}}。
+     *
+     * <p>实测契约（2026-09-22，方案 §1.2 实测 4）：JSON 数组 1100 条、字段 {@code TITLE/SUB_TITLE/URL（绝对链）/DOCRELPUBTIME（yyyy-MM-dd）}、
+     * 按时间倒序——截前 N 条即最新 N 条。字段缺失/空标题的条目跳过（白名单语义）；解析为空 → empty（→ MISSING 不阻断）。
+     * JSON 结构变更（大写字段改版）→ 解析空 → MISSING，HTML 分支保留为页面级回退。
+     */
+    private Optional<List<Map<String, Object>>> fetchJsonPolicies(
+            String policyUrl, String referer, int maxItems) {
+        log.debug("gov.cn 政策请求（JSON）url={} maxItems={}", policyUrl, maxItems);
+        List<Map<String, Object>> entries =
+                restClient
+                        .get()
+                        .uri(policyUrl)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("User-Agent", USER_AGENT)
+                        .header("Referer", referer)
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {});
+        return parseJsonPolicies(entries, maxItems);
+    }
+
+    /**
+     * JSON 数组 → raw 政策条目（package-private static 供直接喂数据单测，实测样本结构见方案附录 C）。 条目缺
+     * TITLE/URL 或空值跳过；截取前 maxItems 条<b>有效</b>条目；全空返回 empty。
+     */
+    static Optional<List<Map<String, Object>>> parseJsonPolicies(
+            List<Map<String, Object>> entries, int maxItems) {
+        if (entries == null || entries.isEmpty()) {
+            return Optional.empty();
+        }
+        List<Map<String, Object>> policies = new ArrayList<>(Math.min(maxItems, entries.size()));
+        for (Map<String, Object> entry : entries) {
+            if (policies.size() >= maxItems) {
+                break;
+            }
+            Object title = entry.get("TITLE");
+            Object url = entry.get("URL");
+            Object pubDate = entry.get("DOCRELPUBTIME");
+            if (title == null || title.toString().isBlank() || url == null || url.toString().isBlank()) {
+                continue;
+            }
+            Map<String, Object> policy = new LinkedHashMap<>();
+            policy.put("title", title.toString().trim());
+            policy.put("url", url.toString().trim());
+            policy.put("pubDate", pubDate == null ? "" : pubDate.toString().trim());
+            policies.add(Collections.unmodifiableMap(policy));
+        }
+        return policies.isEmpty() ? Optional.empty() : Optional.of(List.copyOf(policies));
     }
 
     /**
