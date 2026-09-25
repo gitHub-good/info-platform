@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.info.platform.application.aggregation.AnnouncementPageView;
+import com.info.platform.application.aggregation.EventPageView;
 import com.info.platform.application.aggregation.SubjectSectionPageService;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -141,6 +142,71 @@ class SubjectSectionPageControllerTest {
         mockMvc.perform(get("/api/v1/subjects/1/announcements?page=1&size=51"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.msg").value("size 超过上限 50"));
+    }
+
+    // ---- M12 T91：事件分区分页 ----
+
+    @Test
+    void events_returns200WithPageContract() throws Exception {
+        when(sectionPageService.events(Mockito.eq(1L), Mockito.eq(2), isNull()))
+                .thenReturn(
+                        new EventPageView(
+                                List.of(
+                                        Map.of(
+                                                "anomalyType", "PRICE_CHANGE",
+                                                "changePct", 5.2,
+                                                "currentPrice", 1680.0,
+                                                "triggerTime", "2026-09-20T02:00:00Z",
+                                                "detail", "日涨跌幅 5.2% 触发阈值")),
+                                2,
+                                10,
+                                37L,
+                                "ok",
+                                "事件监控"));
+
+        mockMvc.perform(get("/api/v1/subjects/1/events?page=2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items[0].anomalyType").value("PRICE_CHANGE"))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.total").value(37))
+                .andExpect(jsonPath("$.data.sourceStatus").value("ok"))
+                .andExpect(jsonPath("$.data.source").value("事件监控"));
+    }
+
+    @Test
+    void events_missingPage_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/1/events"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value("page 不能为空"));
+    }
+
+    @Test
+    void events_pageBelowOne_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/1/events?page=0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("page 至少为 1"));
+    }
+
+    @Test
+    void events_sizeOverFifty_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/subjects/1/events?page=1&size=51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.msg").value("size 超过上限 50"));
+    }
+
+    @Test
+    void events_pageHasNoUpperBoundFive_likeAnnounce() throws Exception {
+        // 事件无 5 页上限（本地数据翻完即止）：page=50 合法（PageQuery MAX_PAGE 口径内）
+        when(sectionPageService.events(1L, 50, null))
+                .thenReturn(new EventPageView(List.of(), 50, 10, 0L, "missing", "事件监控"));
+
+        mockMvc.perform(get("/api/v1/subjects/1/events?page=50"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(50))
+                .andExpect(jsonPath("$.data.sourceStatus").value("missing"));
     }
 
     // ---- 404 ----

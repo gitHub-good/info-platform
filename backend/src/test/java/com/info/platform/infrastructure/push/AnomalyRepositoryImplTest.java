@@ -174,4 +174,65 @@ class AnomalyRepositoryImplTest {
         assertThat(anomalyRepository.countTriggeredSince(T1)).isEqualTo(2);
         assertThat(anomalyRepository.countTriggeredSince(T2.plusSeconds(1))).isZero();
     }
+
+    // ---- M12 T91：7 天窗 count + 窗口内分页（事件分区分页，方案 §4.2 端口扩展 3） ----
+
+    private static final long OTHER_SUBJECT_ID = 8888L;
+
+    @Test
+    void countRecentBySubject_windowScoped_excludesOtherSubjectsAndBefore() {
+        // Arrange：本标的 3 条（T1/T2 在窗内）+ 另一标的 1 条 + 本标的窗前 1 条
+        anomalyRepository.save(newRecord(T1, new BigDecimal("5.00")));
+        anomalyRepository.save(newRecord(T2, new BigDecimal("4.00")));
+        anomalyRepository.save(
+                AnomalyRecord.create(
+                        OTHER_SUBJECT_ID,
+                        AnomalyType.PRICE_CHANGE,
+                        new BigDecimal("9.00"),
+                        new BigDecimal("1680.50"),
+                        T2,
+                        "他标记录"));
+        anomalyRepository.save(newRecord(T1.minusSeconds(1), new BigDecimal("1.00")));
+
+        // Act / Assert：窗界=since 含边界（>=），他标的不计、窗前不计
+        assertThat(anomalyRepository.countRecentBySubject(SUBJECT_ID, T1)).isEqualTo(2);
+        assertThat(anomalyRepository.countRecentBySubject(SUBJECT_ID, T2)).isEqualTo(1);
+        assertThat(anomalyRepository.countRecentBySubject(SUBJECT_ID, T2.plusSeconds(1))).isZero();
+        assertThat(anomalyRepository.countRecentBySubject(OTHER_SUBJECT_ID, T1)).isEqualTo(1);
+    }
+
+    @Test
+    void findRecentPage_ordersDescAndPaginates() {
+        // Arrange：5 条递增时间记录（save 顺序入表，验证倒序翻页衔接无重叠）
+        Instant base = T1;
+        for (int i = 1; i <= 5; i++) {
+            anomalyRepository.save(newRecord(base.plusSeconds(i * 60L), BigDecimal.valueOf(i)));
+        }
+
+        // Act
+        List<AnomalyRecord> pageOne = anomalyRepository.findRecentPage(SUBJECT_ID, base, 0, 2);
+        List<AnomalyRecord> pageTwo = anomalyRepository.findRecentPage(SUBJECT_ID, base, 2, 2);
+        List<AnomalyRecord> outOfBounds = anomalyRepository.findRecentPage(SUBJECT_ID, base, 10, 2);
+
+        // Assert：trigger_time 倒序翻页衔接无重叠，越界页空列表
+        assertThat(pageOne)
+                .extracting(AnomalyRecord::getTriggerTime)
+                .containsExactly(base.plusSeconds(300L), base.plusSeconds(240L));
+        assertThat(pageTwo)
+                .extracting(AnomalyRecord::getTriggerTime)
+                .containsExactly(base.plusSeconds(180L), base.plusSeconds(120L));
+        assertThat(outOfBounds).isEmpty();
+    }
+
+    @Test
+    void findRecentPage_windowScoped_excludesRecordsBeforeSince() {
+        // Arrange：窗前 1 条 + 窗内 1 条
+        anomalyRepository.save(newRecord(T1.minusSeconds(1), new BigDecimal("1.00")));
+        anomalyRepository.save(newRecord(T2, new BigDecimal("4.00")));
+
+        // Act / Assert：窗界内只取窗内记录（与 countRecentBySubject 同窗口同口径）
+        List<AnomalyRecord> records = anomalyRepository.findRecentPage(SUBJECT_ID, T1, 0, 10);
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).getTriggerTime()).isEqualTo(T2);
+    }
 }

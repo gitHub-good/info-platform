@@ -39,6 +39,9 @@ public class SubjectSectionPageService {
     /** 公告子端点页码上限（产品裁决：详情页分区是概览+近期重点，深回溯走源站；外呼放大 5 页封顶）。 */
     static final int ANNOUNCE_MAX_PAGE = 5;
 
+    /** 事件子端点页大小缺省（原 EventSourceAdapter.MAX_ITEMS=10 语义升级为页大小，方案 §4.1.2）。 */
+    static final int EVENT_DEFAULT_SIZE = 10;
+
     private final SubjectRepository subjectRepository;
     private final Map<SourceCode, SourceAdapter> adapters;
     private final Executor executor;
@@ -91,6 +94,37 @@ public class SubjectSectionPageService {
                 longOf(result, "total"),
                 Boolean.TRUE.equals(valueOf(result, "paginationSupported")),
                 stringOf(valueOf(result, "moreUrl")),
+                statusOf(result),
+                sourceOf(result));
+    }
+
+    /**
+     * 事件分区分页取数（M12 T91，方案 §4.1.2）：本地 7 天窗 count + LIMIT/OFFSET 切片，零外呼。
+     *
+     * @param subjectId 标的内部主键
+     * @param page 页码（≥1，无 5 页上限——本地数据翻完即止）
+     * @param size 页大小（接口层已校验 1~50；null = 缺省 10）
+     * @return 事件分区页视图（空窗/失败/超时为降级态，不抛 HTTP 错）
+     * @throws BusinessException 30001 标的不存在
+     */
+    public EventPageView events(Long subjectId, int page, Integer size) {
+        Subject subject = resolveSubject(subjectId);
+        int resolvedSize = size == null ? EVENT_DEFAULT_SIZE : size;
+        long startedAt = System.currentTimeMillis();
+        SourceResult result = fetchSectionPage(SourceCode.EVENT, subject, page, resolvedSize);
+        log.debug(
+                "事件分区子端点取数 subjectId={} page={} size={} status={} costMs={}",
+                subjectId,
+                page,
+                resolvedSize,
+                result == null ? "timeout" : result.getStatus(),
+                System.currentTimeMillis() - startedAt);
+        Long total = longOf(result, "total");
+        return new EventPageView(
+                itemsOf(result),
+                page,
+                resolvedSize,
+                total == null ? 0L : total,
                 statusOf(result),
                 sourceOf(result));
     }

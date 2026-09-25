@@ -109,6 +109,31 @@ public class AnomalyRepositoryImpl implements AnomalyRepository {
                         .ge(AnomalyRecordPO::getTriggerTime, since.toString()));
     }
 
+    // ---- M12 T91：事件分区分页（7 天窗 count + 窗口内 LIMIT/OFFSET，方案 §4.2 端口扩展 3） ----
+
+    @Override
+    public long countRecentBySubject(Long subjectId, Instant since) {
+        // 落 idx_anomaly_subject_time(subject_id, trigger_time) 范围扫描（与 existsByBusinessKey 同索引）
+        return anomalyMapper.selectCount(
+                new LambdaQueryWrapper<AnomalyRecordPO>()
+                        .eq(AnomalyRecordPO::getSubjectId, subjectId)
+                        .ge(AnomalyRecordPO::getTriggerTime, since.toString()));
+    }
+
+    @Override
+    public List<AnomalyRecord> findRecentPage(
+            Long subjectId, Instant since, int offset, int limit) {
+        List<AnomalyRecordPO> pos =
+                anomalyMapper.selectList(
+                        new LambdaQueryWrapper<AnomalyRecordPO>()
+                                .eq(AnomalyRecordPO::getSubjectId, subjectId)
+                                .ge(AnomalyRecordPO::getTriggerTime, since.toString())
+                                .orderByDesc(AnomalyRecordPO::getTriggerTime)
+                                // ADR-0035 从简口径：LIMIT/OFFSET 直拼（offset 上限由 PageQuery MAX_PAGE 封顶）
+                                .last("LIMIT " + limit + " OFFSET " + offset));
+        return toEntities(pos);
+    }
+
     private List<AnomalyRecord> toEntities(List<AnomalyRecordPO> pos) {
         if (pos == null || pos.isEmpty()) {
             return Collections.emptyList();

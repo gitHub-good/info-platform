@@ -8,7 +8,6 @@ import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.SourceAdapter;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
-import com.info.platform.domain.aggregation.SourceStatus;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectCode;
 import com.info.platform.domain.aggregation.SubjectRepository;
@@ -21,16 +20,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
- * SubjectSectionPageService 编排单测（M12 T90）：公告分区分页取数编排。
+ * SubjectSectionPageService 编排单测（M12 T90/T91）：公告/事件分区分页取数编排。
  *
  * <p>覆盖：主路径（fetchPage OK → 视图逐字段：items/total/paginationSupported/moreUrl/sourceStatus/source；page/size
- * 回显 + 缺省页大小取运行时 announcePageSize）/ 边界（size 显式值透传、越界页空条目仍 ok）/ 异常（标的不存在 30001、 源 MISSING 降级态、
- * 护栏超时 timeout 态、未装配 adapter 降级）。SourceAdapter 用 Mockito 替身控制 SourceResult 形态； 同步执行器保证确定性，
- * 超时场景用延迟执行器。
+ * 回显 + 缺省页大小取端点语义缺省）/ 边界（size 显式值透传、越界页空条目仍 ok）/ 异常（标的不存在 30001、 源 MISSING 降级态、护栏超时
+ * timeout 态、未装配 adapter 降级）。SourceAdapter 用 Mockito 替身控制 SourceResult 形态（同一 Subject 实例贯穿
+ * stub——Subject 无 equals 按引用匹配）；同步执行器保证确定性，超时场景用异步执行器。
  */
 class SubjectSectionPageServiceTest {
 
@@ -38,17 +39,13 @@ class SubjectSectionPageServiceTest {
 
     private final SourceAdapter announceAdapter = Mockito.mock(SourceAdapter.class);
 
-    /** 构造即注册 sourceCode（路由 map 键控；mock 缺省 null 会令 toUnmodifiableMap NPE）。 */
-    private SourceAdapter announceAdapter() {
-        Mockito.when(announceAdapter.sourceCode()).thenReturn(SourceCode.ANNOUNCE);
-        return announceAdapter;
-    }
-
-    /** 同步执行器：supplyAsync 内联执行，测试确定性。 */
-    private final Executor syncExecutor = Runnable::run;
+    private final SourceAdapter eventAdapter = Mockito.mock(SourceAdapter.class);
 
     /** 同一 Subject 实例贯穿 stub 与断言（Subject 无 equals，Mockito 按引用匹配参数）。 */
     private final Subject subject = subject();
+
+    /** 同步执行器：supplyAsync 内联执行，测试确定性。 */
+    private final Executor syncExecutor = Runnable::run;
 
     private final AggregationRuntimeSettings settings = () -> 2000L;
 
@@ -64,16 +61,27 @@ class SubjectSectionPageServiceTest {
         }
     };
 
+    /** 构造即注册 sourceCode（路由 map 键控；mock 缺省 null 会令 toUnmodifiableMap NPE）。 */
+    private SourceAdapter announceAdapter() {
+        Mockito.when(announceAdapter.sourceCode()).thenReturn(SourceCode.ANNOUNCE);
+        return announceAdapter;
+    }
+
+    private SourceAdapter eventAdapter() {
+        Mockito.when(eventAdapter.sourceCode()).thenReturn(SourceCode.EVENT);
+        return eventAdapter;
+    }
+
     private SubjectSectionPageService service() {
         return new SubjectSectionPageService(
                 subjectRepository,
-                List.of(announceAdapter()),
+                List.of(announceAdapter(), eventAdapter()),
                 syncExecutor,
                 settings,
                 sectionPageSettings);
     }
 
-    // ---- 主路径 ----
+    // ---- 公告（T90）· 主路径 ----
 
     @Test
     void announcements_okResult_mapsViewFieldsWithDefaults() {
@@ -108,7 +116,7 @@ class SubjectSectionPageServiceTest {
         assertThat(view.source()).isEqualTo("东方财富公告");
     }
 
-    // ---- 边界 ----
+    // ---- 公告（T90）· 边界 ----
 
     @Test
     void announcements_explicitSizePassesThrough() {
@@ -148,13 +156,84 @@ class SubjectSectionPageServiceTest {
         assertThat(view.total()).isEqualTo(1074L);
     }
 
-    // ---- 异常 ----
+    // ---- 事件（T91）· 主路径 ----
+
+    @Test
+    void events_okResult_mapsViewFieldsWithDefaultSize() {
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject));
+        when(eventAdapter.fetchPage(subject, 1, 10))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.EVENT,
+                                1L,
+                                Map.of(
+                                        "items",
+                                        List.of(Map.of("anomalyType", "PRICE_CHANGE")),
+                                        "total",
+                                        37L),
+                                "事件监控",
+                                Instant.now()));
+
+        EventPageView view = service().events(1L, 1, null);
+
+        assertThat(view.items()).hasSize(1);
+        assertThat(view.page()).isEqualTo(1);
+        assertThat(view.size()).isEqualTo(10); // 缺省 10（原 MAX_ITEMS 语义升级为页大小）
+        assertThat(view.total()).isEqualTo(37L); // 窗内精确 count
+        assertThat(view.sourceStatus()).isEqualTo("ok");
+        assertThat(view.source()).isEqualTo("事件监控");
+    }
+
+    @Test
+    void events_explicitSizeAndPageTwoPassedThrough() {
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject));
+        when(eventAdapter.fetchPage(subject, 2, 25))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.EVENT,
+                                1L,
+                                Map.of("items", List.of(), "total", 37L),
+                                "事件监控",
+                                Instant.now()));
+
+        EventPageView view = service().events(1L, 2, 25);
+
+        assertThat(view.page()).isEqualTo(2);
+        assertThat(view.size()).isEqualTo(25);
+        Mockito.verify(eventAdapter).fetchPage(subject, 2, 25);
+    }
+
+    @Test
+    void events_emptyWindow_returnsMissingWithZeroTotal() {
+        // 空窗：MISSING + total=0（维持聚合页现状 missing 兜底语义，前端不渲染分页条）
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject));
+        when(eventAdapter.fetchPage(subject, 1, 10))
+                .thenReturn(SourceResult.missing(SourceCode.EVENT, 1L, "事件监控"));
+
+        EventPageView view = service().events(1L, 1, null);
+
+        assertThat(view.sourceStatus()).isEqualTo("missing");
+        assertThat(view.items()).isEmpty();
+        assertThat(view.total()).isZero();
+    }
+
+    // ---- 异常（公告与事件共用编排骨架，以公告为代表） ----
 
     @Test
     void announcements_subjectNotFound_throws30001() {
         when(subjectRepository.findById(999L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service().announcements(999L, 1, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SUBJECT_NOT_FOUND);
+    }
+
+    @Test
+    void events_subjectNotFound_throws30001() {
+        when(subjectRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().events(999L, 1, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.SUBJECT_NOT_FOUND);
@@ -186,9 +265,8 @@ class SubjectSectionPageServiceTest {
                             Thread.sleep(500);
                             return okEmptyPageResult();
                         });
-        java.util.concurrent.ExecutorService asyncExec =
-                java.util.concurrent.Executors.newThreadPerTaskExecutor(
-                        Thread.ofVirtual().factory());
+        ExecutorService asyncExec =
+                Executors.newThreadPerTaskExecutor(Thread.ofVirtual().factory());
         try {
             SubjectSectionPageService service =
                     new SubjectSectionPageService(

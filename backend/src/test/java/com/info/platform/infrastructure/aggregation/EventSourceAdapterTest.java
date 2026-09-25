@@ -112,10 +112,12 @@ class EventSourceAdapterTest {
         // Act
         SourceResult result = adapter.fetch(subject(1L));
 
-        // Assert：OK + 过期记录被滤掉 + 字段逐项映射 + 可空字段（changePct/currentPrice/detail）缺省不产出
+        // Assert：OK + 过期记录被滤掉 + trigger_time 倒序（SQL 窗口口径，M12 T91 起）+ 字段逐项映射
+        // + 可空字段（changePct/currentPrice/detail）缺省不产出
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
         assertThat(result.getSourceCode()).isEqualTo(SourceCode.EVENT);
         assertThat(result.getSource()).isEqualTo("事件监控");
+        assertThat(result.getData().get("total")).isEqualTo(2L); // 窗内精确 count
 
         Object itemsObj = result.getData().get("items");
         assertThat(itemsObj).isInstanceOf(List.class);
@@ -123,19 +125,20 @@ class EventSourceAdapterTest {
         List<Map<String, Object>> items = (List<Map<String, Object>>) itemsObj;
         assertThat(items).hasSize(2);
 
+        // 倒序：更晚触发的 EVENT 记录在前
         Map<String, Object> first = items.get(0);
-        assertThat(first.get("anomalyType")).isEqualTo("PRICE_CHANGE");
-        assertThat((BigDecimal) first.get("changePct"))
-                .isEqualByComparingTo(new BigDecimal("3.25"));
-        assertThat((BigDecimal) first.get("currentPrice"))
-                .isEqualByComparingTo(new BigDecimal("1680.50"));
-        assertThat(first.get("triggerTime")).isEqualTo(recent.toString());
-        assertThat(first.get("detail")).isEqualTo("日涨跌幅 3.25% 触发阈值 3.0%");
+        assertThat(first.get("anomalyType")).isEqualTo("EVENT");
+        assertThat(first).doesNotContainKeys("changePct", "currentPrice", "detail");
+        assertThat(first.get("triggerTime")).isEqualTo(recent.plusSeconds(60).toString());
 
         Map<String, Object> second = items.get(1);
-        assertThat(second.get("anomalyType")).isEqualTo("EVENT");
-        assertThat(second).doesNotContainKeys("changePct", "currentPrice", "detail");
-        assertThat(second.get("triggerTime")).isEqualTo(recent.plusSeconds(60).toString());
+        assertThat(second.get("anomalyType")).isEqualTo("PRICE_CHANGE");
+        assertThat((BigDecimal) second.get("changePct"))
+                .isEqualByComparingTo(new BigDecimal("3.25"));
+        assertThat((BigDecimal) second.get("currentPrice"))
+                .isEqualByComparingTo(new BigDecimal("1680.50"));
+        assertThat(second.get("triggerTime")).isEqualTo(recent.toString());
+        assertThat(second.get("detail")).isEqualTo("日涨跌幅 3.25% 触发阈值 3.0%");
     }
 
     // ---- 边界 ----
@@ -249,26 +252,132 @@ class EventSourceAdapterTest {
         assertThat(items).hasSize(10);
     }
 
-    // ---- 异常 ----
+    // ---- M12 T91：SQL 窗口 + count + 分页取数 ----
 
     @Test
-    void fetch_repositoryThrows_degradesToMissing() {
-        // Arrange：本地读表异常（如 DB 不可用）→ 模板弹性降级 MISSING，不外抛、不阻断
+    void doFetch_attachesWindowTotal_beyondTruncatedItems() {
+        // Arrange：15 条窗内 + 1 条过期 → 首屏 items 截取 10，total=15（窗内精确 count，解除静默截断）
+        Instant base = Instant.now().minus(Duration.ofMinutes(5));
+        List<AnomalyRecord> records =
+                IntStream.rangeClosed(1, 16)
+                        .mapToObj(
+                                i ->
+                                        AnomalyRecord.reconstruct(
+                                                (long) i,
+                                                1L,
+                                                AnomalyType.PRICE_CHANGE,
+                                                BigDecimal.valueOf(i),
+                                                null,
+                                                i == 16
+                                                        ? Instant.now().minus(Duration.ofDays(30))
+                                                        : base.minusSeconds(i * 60L),
+                                                "记录" + i,
+                                                false,
+                                                base,
+                                                base))
+                        .toList();
+        EventSourceAdapter adapter = newAdapter(new FakeAnomalyRepository(records));
+
+        SourceResult result = adapter.fetch(subject(1L));
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) result.getData().get("items")).hasSize(10);
+        assertThat(result.getData().get("total")).isEqualTo(15L); // 过期记录不入窗
+    }
+
+    @Test
+    void fetchPage_pageTwo_returnsSecondSliceWithWindowTotal() {
+        // Arrange：15 条窗内记录，page=2 size=10 → 第 11~15 条（trigger_time 倒序）+ total=15
+        Instant base = Instant.now().minus(Duration.ofMinutes(5));
+        List<AnomalyRecord> records =
+                IntStream.rangeClosed(1, 15)
+                        .mapToObj(
+                                i ->
+                                        AnomalyRecord.reconstruct(
+                                                (long) i,
+                                                1L,
+                                                AnomalyType.PRICE_CHANGE,
+                                                BigDecimal.valueOf(i),
+                                                null,
+                                                base.minusSeconds(i * 60L),
+                                                "记录" + i,
+                                                false,
+                                                base,
+                                                base))
+                        .toList();
+        EventSourceAdapter adapter = newAdapter(new FakeAnomalyRepository(records));
+
+        SourceResult result = adapter.fetchPage(subject(1L), 2, 10);
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        List<?> items = (List<?>) result.getData().get("items");
+        assertThat(items).hasSize(5);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> typedItems = (List<Map<String, Object>>) items;
+        assertThat(typedItems.get(0)).containsEntry("detail", "记录11");
+        assertThat(typedItems.get(4)).containsEntry("detail", "记录15");
+        assertThat(result.getData().get("total")).isEqualTo(15L);
+    }
+
+    @Test
+    void fetchPage_outOfBoundsPage_returnsEmptyItemsWithHonestTotal() {
+        // Arrange：15 条窗内，page=5（越界）→ 200 空列表 + total 如实（沿 ADR-0035 越界页语义）
+        Instant base = Instant.now().minus(Duration.ofMinutes(5));
+        List<AnomalyRecord> records =
+                IntStream.rangeClosed(1, 15)
+                        .mapToObj(
+                                i ->
+                                        AnomalyRecord.reconstruct(
+                                                (long) i,
+                                                1L,
+                                                AnomalyType.PRICE_CHANGE,
+                                                null,
+                                                null,
+                                                base.minusSeconds(i * 60L),
+                                                null,
+                                                false,
+                                                base,
+                                                base))
+                        .toList();
+        EventSourceAdapter adapter = newAdapter(new FakeAnomalyRepository(records));
+
+        SourceResult result = adapter.fetchPage(subject(1L), 5, 10);
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) result.getData().get("items")).isEmpty();
+        assertThat(result.getData().get("total")).isEqualTo(15L);
+    }
+
+    @Test
+    void fetchPage_emptyWindow_returnsMissing() {
+        // Arrange：7 天窗内无记录（空窗）→ MISSING（维持聚合页现状 missing 兜底语义，前端不渲染分页条）
+        EventSourceAdapter adapter = newAdapter(new FakeAnomalyRepository(List.of()));
+
+        SourceResult result = adapter.fetchPage(subject(1L), 1, 10);
+
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
+        assertThat(result.getData()).isEmpty();
+    }
+
+    @Test
+    void fetchPage_repositoryThrows_degradesToMissing() {
+        // Arrange：本地读表异常（如 DB 不可用）→ runGuarded 弹性降级 MISSING，不外抛、不阻断
         EventSourceAdapter adapter =
                 newAdapter(
                         new FakeAnomalyRepository(List.of()) {
                             @Override
-                            public List<AnomalyRecord> findBySubjectId(Long subjectId) {
+                            public long countRecentBySubject(Long subjectId, Instant since) {
                                 throw new IllegalStateException("DB 不可用(测试)");
                             }
                         });
 
-        // Act
-        SourceResult result = adapter.fetch(subject(1L));
+        SourceResult pageResult = adapter.fetchPage(subject(1L), 1, 10);
+        SourceResult fetchResult = adapter.fetch(subject(1L));
 
-        // Assert
-        assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
-        assertThat(result.getData()).isEmpty();
+        assertThat(pageResult.getStatus()).isEqualTo(SourceStatus.MISSING);
+        assertThat(pageResult.getData()).isEmpty();
+        assertThat(fetchResult.getStatus()).isEqualTo(SourceStatus.MISSING);
+        assertThat(fetchResult.getData()).isEmpty();
     }
 
     // ---- helpers ----
@@ -292,7 +401,7 @@ class EventSourceAdapterTest {
                 Instant.parse("2026-09-20T00:00:00Z"));
     }
 
-    /** AnomalyRepository 端口手写 Fake：仅 findBySubjectId 返回构造数据，写路径不支持（本 adapter 只读）。 */
+    /** AnomalyRepository 端口手写 Fake：读路径按 7 天窗内存过滤/分页（与 SQL 窗口同口径），写路径不支持（本 adapter 只读）。 */
     private static class FakeAnomalyRepository implements AnomalyRepository {
 
         private final List<AnomalyRecord> records;
@@ -325,6 +434,24 @@ class EventSourceAdapterTest {
         @Override
         public long countTriggeredSince(Instant since) {
             throw new UnsupportedOperationException("Fake 不支持概览计数");
+        }
+
+        @Override
+        public long countRecentBySubject(Long subjectId, Instant since) {
+            return records.stream()
+                    .filter(record -> !record.getTriggerTime().isBefore(since))
+                    .count();
+        }
+
+        @Override
+        public List<AnomalyRecord> findRecentPage(
+                Long subjectId, Instant since, int offset, int limit) {
+            return records.stream()
+                    .filter(record -> !record.getTriggerTime().isBefore(since))
+                    .sorted(java.util.Comparator.comparing(AnomalyRecord::getTriggerTime).reversed())
+                    .skip(offset)
+                    .limit(limit)
+                    .toList();
         }
     }
 

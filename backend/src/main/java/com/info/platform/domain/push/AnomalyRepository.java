@@ -51,4 +51,21 @@ public interface AnomalyRepository {
 
     /** 按标的查异动历史，按触发时间降序。 */
     List<AnomalyRecord> findBySubjectId(Long subjectId);
+
+    /**
+     * 7 天窗内按标的精确 count：{@code trigger_time >= since}（M12 T91 事件分区分页，方案 §4.2 端口扩展 3）。
+     *
+     * <p>边界转 ISO-8601 整秒文本后字典序比较，落在索引 {@code idx_anomaly_subject_time} 上做范围扫描 ——与页切片
+     * {@link #findRecentPage} 同窗口同口径（窗界=请求时刻-7d，由调用方现算）；count 与切片非同快照的微错位接受
+     * （ADR-0035 同款已知限制）。
+     */
+    long countRecentBySubject(Long subjectId, Instant since);
+
+    /**
+     * 窗口内分页取数：{@code trigger_time >= since}，按 {@code trigger_time} 倒序 LIMIT/OFFSET（ADR-0035 从简口径）。
+     *
+     * @param offset 偏移量（(page-1)×size，由调用方换算）
+     * @param limit 页大小（1~50，接口层已校验）
+     */
+    List<AnomalyRecord> findRecentPage(Long subjectId, Instant since, int offset, int limit);
 }

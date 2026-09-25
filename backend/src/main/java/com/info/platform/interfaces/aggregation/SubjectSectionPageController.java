@@ -1,6 +1,7 @@
 package com.info.platform.interfaces.aggregation;
 
 import com.info.platform.application.aggregation.AnnouncementPageView;
+import com.info.platform.application.aggregation.EventPageView;
 import com.info.platform.application.aggregation.SubjectSectionPageService;
 import com.info.platform.interfaces.common.PageQuery;
 import com.info.platform.interfaces.common.Result;
@@ -18,6 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>{@code GET /api/v1/subjects/{subjectId}/announcements?page=&size=} — 公告分区分页（page 必填 1~5，超限 400
  * 「更多历史公告请走源站」；size 可选 1~50，缺省 = 运行时 announcePageSize）。一请求=一分区（分区独立翻页三约束①），
  * 取数绕 SourceCache 直调源（决策 2），sourceStatus 三态与聚合口径同源（约束③）。
+ *
+ * <p>{@code GET /api/v1/subjects/{subjectId}/events?page=&size=} — 事件分区分页（T91，方案 §4.1.2）：page 必填 ≥1（无 5
+ * 页上限——本地 7 天窗数据翻完即止）；size 可选 1~50，缺省 10；total 为窗内精确 count。
  *
  * <p>参数校验经 {@link PageQuery} 共用件（page≥1 / size 1~50 越界 400 拒绝不截断）；标的不存在 → 30001（404）； 源失败/超时 →
  * 200 + 降级态（不是 HTTP 错误，方案 §4.1.5）。
@@ -55,5 +59,22 @@ public class SubjectSectionPageController {
                 resolvedPage,
                 resolvedSize);
         return Result.ok(sectionPageService.announcements(subjectId, resolvedPage, resolvedSize));
+    }
+
+    /** 事件分区分页（M12 T91，方案 §4.1.2）：page≥1 无 5 页上限（本地数据翻完即止）。 */
+    @GetMapping("/{subjectId}/events")
+    public Result<EventPageView> events(
+            @PathVariable Long subjectId,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
+        int resolvedPage =
+                PageQuery.requirePage(page, PageQuery.MAX_PAGE, "page 超过上限 " + PageQuery.MAX_PAGE);
+        Integer resolvedSize = PageQuery.requireSizeIfPresent(size);
+        log.debug(
+                "事件分区子端点请求 subjectId={} page={} size={}",
+                subjectId,
+                resolvedPage,
+                resolvedSize);
+        return Result.ok(sectionPageService.events(subjectId, resolvedPage, resolvedSize));
     }
 }
