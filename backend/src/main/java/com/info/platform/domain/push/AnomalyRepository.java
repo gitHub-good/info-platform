@@ -55,9 +55,8 @@ public interface AnomalyRepository {
     /**
      * 7 天窗内按标的精确 count：{@code trigger_time >= since}（M12 T91 事件分区分页，方案 §4.2 端口扩展 3）。
      *
-     * <p>边界转 ISO-8601 整秒文本后字典序比较，落在索引 {@code idx_anomaly_subject_time} 上做范围扫描 ——与页切片
-     * {@link #findRecentPage} 同窗口同口径（窗界=请求时刻-7d，由调用方现算）；count 与切片非同快照的微错位接受
-     * （ADR-0035 同款已知限制）。
+     * <p>边界转 ISO-8601 整秒文本后字典序比较，落在索引 {@code idx_anomaly_subject_time} 上做范围扫描 ——与页切片 {@link
+     * #findRecentPage} 同窗口同口径（窗界=请求时刻-7d，由调用方现算）；count 与切片非同快照的微错位接受 （ADR-0035 同款已知限制）。
      */
     long countRecentBySubject(Long subjectId, Instant since);
 

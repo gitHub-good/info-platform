@@ -146,10 +146,10 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
      * 分区子端点分页取数（M12 T92，方案 §4.1.3/ADR-0037 决策 2/D4）：单请求 = 单源页过滤命中 + {@code hasMore}
      * 源页耗尽信号——后端契约<b>无状态</b>，「新增」判定归前端（累积 externalId 集合）。
      *
-     * <p>语义细则：{@code items} = 该源页经 {@link #isRelevant} 过滤后的命中条目（可为空——无命中但源页有条目仍
-     * OK，hasMore 按源页满否如实）；空源页/流耗尽 → OK + 空列表 + {@code hasMore:false}（耗尽信号是有效数据，非
-     * MISSING）；{@code hasMore} = 本源页条数 == 源页大小且非空。{@code size} 参数忽略——源页大小是运维配置
-     * {@code newsPageSize}，不属调用方自由度（data 附 {@code size} 回显生效值）。
+     * <p>语义细则：{@code items} = 该源页经 {@link #isRelevant} 过滤后的命中条目（可为空——无命中但源页有条目仍 OK，hasMore
+     * 按源页满否如实）；空源页/流耗尽 → OK + 空列表 + {@code hasMore:false}（耗尽信号是有效数据，非 MISSING）；{@code hasMore} =
+     * 本源页条数 == 源页大小且非空。{@code size} 参数忽略——源页大小是运维配置 {@code newsPageSize}，不属调用方自由度（data 附 {@code
+     * size} 回显生效值）。
      */
     @Override
     public SourceResult fetchPage(Subject subject, int page, int size) {

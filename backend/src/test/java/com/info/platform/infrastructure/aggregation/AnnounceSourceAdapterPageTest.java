@@ -37,11 +37,10 @@ import org.springframework.web.client.RestClient;
 
 /**
  * AnnounceSourceAdapter 分页取数单测（M12 T90，REQ-20260925-09）：{@code fetchPage} 绕缓存直调源（page_index 透传 +
- * total_hits 透出）+ 巨潮降级分页语义 + 越界页 200 空列表不触发兜底 + 首屏 {@code doFetch} 附带分页元数据（sectionPagination
- * 提取口径）。
+ * total_hits 透出）+ 巨潮降级分页语义 + 越界页 200 空列表不触发兜底 + 首屏 {@code doFetch} 附带分页元数据（sectionPagination 提取口径）。
  *
- * <p>行为测试用 {@link MockRestServiceServer}（结构 {@code data.list[]}，2026-09-22 深翻实测：page_index=1/2/3/5/6 均
- * 200×10 条、total_hits=1074 各页恒定、notice_date 跨页倒序衔接）。巨潮降级形态对齐 {@code
+ * <p>行为测试用 {@link MockRestServiceServer}（结构 {@code data.list[]}，2026-09-22
+ * 深翻实测：page_index=1/2/3/5/6 均 200×10 条、total_hits=1074 各页恒定、notice_date 跨页倒序衔接）。巨潮降级形态对齐 {@code
  * AnnounceSourceAdapterFallbackTest} 夹具（orgId 表 + POST 查询）；东财/巨潮两 client 各绑独立 mock server，期望按 URL
  * 区分各自注册、各自 verify。
  */
@@ -97,13 +96,20 @@ class AnnounceSourceAdapterPageTest {
     void fetchPage_eastMoney_passesPageIndexAndSize_exposesTotalAndMoreUrl() {
         // Arrange：page=2、size=10 透传（page_index=2 & page_size=10 进 URL，2026-09-22 实测口径）
         SourceResult result =
-                fetchPage(2, 10, (east, cninfo) -> east.expect(requestTo(containsString("stock_list=600519")))
-                        .andExpect(requestTo(containsString("page_index=2")))
-                        .andExpect(requestTo(containsString("page_size=10")))
-                        .andExpect(requestTo(containsString("sr=-1")))
-                        .andExpect(method(HttpMethod.GET))
-                        .andExpect(header("User-Agent", containsString("Mozilla")))
-                        .andRespond(withSuccess(eastPageJson(2, 10, 1074, 2), MediaType.APPLICATION_JSON)));
+                fetchPage(
+                        2,
+                        10,
+                        (east, cninfo) ->
+                                east.expect(requestTo(containsString("stock_list=600519")))
+                                        .andExpect(requestTo(containsString("page_index=2")))
+                                        .andExpect(requestTo(containsString("page_size=10")))
+                                        .andExpect(requestTo(containsString("sr=-1")))
+                                        .andExpect(method(HttpMethod.GET))
+                                        .andExpect(header("User-Agent", containsString("Mozilla")))
+                                        .andRespond(
+                                                withSuccess(
+                                                        eastPageJson(2, 10, 1074, 2),
+                                                        MediaType.APPLICATION_JSON)));
 
         // Assert：OK + total_hits 透出 + paginationSupported=true + moreUrl 东财源站出口
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
@@ -120,8 +126,15 @@ class AnnounceSourceAdapterPageTest {
     void fetchPage_outOfBoundsPage_returnsOkEmptyItemsWithTotal_noCninfoFallback() {
         // Arrange：越界页（page 合法但超出源总页数）——东财返回 list=[] 且 total_hits=1074
         SourceResult result =
-                fetchPage(5, 10, (east, cninfo) -> east.expect(requestTo(containsString("page_index=5")))
-                        .andRespond(withSuccess(eastPageJson(5, 10, 1074, 0), MediaType.APPLICATION_JSON)));
+                fetchPage(
+                        5,
+                        10,
+                        (east, cninfo) ->
+                                east.expect(requestTo(containsString("page_index=5")))
+                                        .andRespond(
+                                                withSuccess(
+                                                        eastPageJson(5, 10, 1074, 0),
+                                                        MediaType.APPLICATION_JSON)));
 
         // Assert：200 空列表 + total 如实 + 仍标注可翻页；不触发巨潮兜底（cninfo server verify 已证零请求）
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
@@ -150,9 +163,11 @@ class AnnounceSourceAdapterPageTest {
                                 CNINFO_DETAIL_PREFIX,
                                 ORG_ID_TTL));
         // 两页期望先全部注册再发请求（MockRestServiceServer 语义：期望须先于实际请求声明）
-        eastServer.expect(requestTo(containsString("page_index=1")))
+        eastServer
+                .expect(requestTo(containsString("page_index=1")))
                 .andRespond(withSuccess(eastPageJson(1, 10, 1074, 1), MediaType.APPLICATION_JSON));
-        eastServer.expect(requestTo(containsString("page_index=2")))
+        eastServer
+                .expect(requestTo(containsString("page_index=2")))
                 .andRespond(withSuccess(eastPageJson(2, 10, 1074, 1), MediaType.APPLICATION_JSON));
         SourceResult firstScreen = adapter.fetch(subject());
         SourceResult pageTwo = adapter.fetchPage(subject(), 2, 10);
@@ -161,8 +176,7 @@ class AnnounceSourceAdapterPageTest {
         // Assert：翻页拿到源第 2 页真实数据（若命中首屏快照缓存，会返回第 1 页条目）
         assertThat(firstScreen.getStatus()).isEqualTo(SourceStatus.OK);
         assertThat(pageTwo.getStatus()).isEqualTo(SourceStatus.OK);
-        assertThat(itemsOf(firstScreen).get(0).get("externalId"))
-                .isEqualTo("AN202608141827994407");
+        assertThat(itemsOf(firstScreen).get(0).get("externalId")).isEqualTo("AN202608141827994407");
         assertThat(itemsOf(pageTwo).get(0).get("externalId")).isEqualTo("AN202608141827994406");
     }
 
@@ -172,13 +186,22 @@ class AnnounceSourceAdapterPageTest {
     void fetchPage_eastMoneyFails_cninfoTakesOverPageOne_markedNotSupported() {
         // Arrange：东财 500 → 巨潮接住 page=1（orgId 表 + POST 查询）
         SourceResult result =
-                fetchPage(1, 10, (east, cninfo) -> {
-                    east.expect(requestTo(containsString(EAST_URL))).andRespond(withServerError());
-                    cninfo.expect(requestTo(containsString(CNINFO_STOCK_LIST_URL)))
-                            .andRespond(withSuccess(CNINFO_STOCK_LIST_JSON, MediaType.APPLICATION_JSON));
-                    cninfo.expect(requestTo(containsString(CNINFO_QUERY_URL)))
-                            .andRespond(withSuccess(CNINFO_QUERY_JSON, MediaType.APPLICATION_JSON));
-                });
+                fetchPage(
+                        1,
+                        10,
+                        (east, cninfo) -> {
+                            east.expect(requestTo(containsString(EAST_URL)))
+                                    .andRespond(withServerError());
+                            cninfo.expect(requestTo(containsString(CNINFO_STOCK_LIST_URL)))
+                                    .andRespond(
+                                            withSuccess(
+                                                    CNINFO_STOCK_LIST_JSON,
+                                                    MediaType.APPLICATION_JSON));
+                            cninfo.expect(requestTo(containsString(CNINFO_QUERY_URL)))
+                                    .andRespond(
+                                            withSuccess(
+                                                    CNINFO_QUERY_JSON, MediaType.APPLICATION_JSON));
+                        });
 
         // Assert：巨潮第一页条目 + paginationSupported=false + total 不产出 + moreUrl 巨潮源站出口 + 来源标注备选
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
@@ -195,8 +218,12 @@ class AnnounceSourceAdapterPageTest {
     void fetchPage_eastMoneyFails_cninfoPageBeyondFirst_returnsEmptyWithNotSupported() {
         // Arrange：page=2 时东财恰好失败、巨潮接住 → 空列表 + paginationSupported:false（非错误，前端渲染降级文案）
         SourceResult result =
-                fetchPage(2, 10, (east, cninfo) -> east.expect(requestTo(containsString(EAST_URL)))
-                        .andRespond(withServerError()));
+                fetchPage(
+                        2,
+                        10,
+                        (east, cninfo) ->
+                                east.expect(requestTo(containsString(EAST_URL)))
+                                        .andRespond(withServerError()));
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
         assertThat(result.getData().get("paginationSupported")).isEqualTo(false);
@@ -208,11 +235,15 @@ class AnnounceSourceAdapterPageTest {
     void fetchPage_allProvidersFail_degradesToMissing() {
         // Arrange：东财 500、巨潮 orgId 表 500 → 全链失败走弹性降级 MISSING（不抛出，不阻断）
         SourceResult result =
-                fetchPage(1, 10, (east, cninfo) -> {
-                    east.expect(requestTo(containsString(EAST_URL))).andRespond(withServerError());
-                    cninfo.expect(requestTo(containsString(CNINFO_STOCK_LIST_URL)))
-                            .andRespond(withServerError());
-                });
+                fetchPage(
+                        1,
+                        10,
+                        (east, cninfo) -> {
+                            east.expect(requestTo(containsString(EAST_URL)))
+                                    .andRespond(withServerError());
+                            cninfo.expect(requestTo(containsString(CNINFO_STOCK_LIST_URL)))
+                                    .andRespond(withServerError());
+                        });
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
         assertThat(result.getData()).isEmpty();
@@ -224,8 +255,13 @@ class AnnounceSourceAdapterPageTest {
     void doFetch_firstScreen_carriesPaginationMetadataForSectionPagination() {
         // Arrange：首屏聚合路径（fetch → 缓存包装 doFetch）——data 附带 total/paginationSupported/moreUrl
         SourceResult result =
-                fetchFirstScreen((east, cninfo) -> east.expect(requestTo(containsString("stock_list=600519")))
-                        .andRespond(withSuccess(eastPageJson(1, 3, 1074, 1), MediaType.APPLICATION_JSON)));
+                fetchFirstScreen(
+                        (east, cninfo) ->
+                                east.expect(requestTo(containsString("stock_list=600519")))
+                                        .andRespond(
+                                                withSuccess(
+                                                        eastPageJson(1, 3, 1074, 1),
+                                                        MediaType.APPLICATION_JSON)));
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
         assertThat(result.getData().get("total")).isEqualTo(1074L);
@@ -253,8 +289,14 @@ class AnnounceSourceAdapterPageTest {
                      "columns":[{"column_name":"其他"}]}"""
                             .formatted(7 - i - (pageIndex - 1), i + 1));
         }
-        return "{\"data\":{\"list\":[" + items + "],\"page_index\":" + pageIndex
-                + ",\"page_size\":" + pageSize + ",\"total_hits\":" + totalHits
+        return "{\"data\":{\"list\":["
+                + items
+                + "],\"page_index\":"
+                + pageIndex
+                + ",\"page_size\":"
+                + pageSize
+                + ",\"total_hits\":"
+                + totalHits
                 + "},\"error\":\"\",\"success\":1}";
     }
 
@@ -265,9 +307,10 @@ class AnnounceSourceAdapterPageTest {
 
     /** 绑定东财/巨潮两台 mock server 构造 adapter 并执行 fetchPage（绕缓存路径）。 */
     private SourceResult fetchPage(
-            int page, int size, BiConsumer<MockRestServiceServer, MockRestServiceServer> responses) {
-        return withMockServers(
-                responses, adapter -> adapter.fetchPage(subject(), page, size));
+            int page,
+            int size,
+            BiConsumer<MockRestServiceServer, MockRestServiceServer> responses) {
+        return withMockServers(responses, adapter -> adapter.fetchPage(subject(), page, size));
     }
 
     /** 首屏路径（fetch → 缓存包装 doFetch）。 */

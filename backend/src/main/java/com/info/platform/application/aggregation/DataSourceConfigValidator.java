@@ -73,8 +73,7 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                                     "newsLid",
                                     "newsPageSize",
                                     "newsReferer"),
-                    SourceCode.POLICY,
-                            Set.of("policyUrl", "policyReferer", "policyMaxItems"),
+                    SourceCode.POLICY, Set.of("policyUrl", "policyReferer", "policyMaxItems"),
                     SourceCode.EVENT, Set.of());
 
     /** 备选源开关合法取值（原 yml {@code adapter.quote-source}/{@code adapter.valuation-source} 语义平移）。 */

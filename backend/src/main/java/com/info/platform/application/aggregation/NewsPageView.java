@@ -6,11 +6,11 @@ import java.util.Map;
 /**
  * 新闻分区子端点响应视图（M12 T92，方案 §4.1.3 / ADR-0037 决策 1/D4）。
  *
- * <p>条目字段与聚合路径 {@code SubjectDetail.news[]} 逐字段一致（externalId/title/publishedAt/summary/url/source/keywords——同一
- * adapter 同一 itemMapping 产出，externalId 为前端去重稳定标识）。后端契约<b>无状态</b>：单请求 = 单源页过滤命中 +
- * {@code hasMore} 源页耗尽信号——「新增」判定归前端（累积 externalId 集合是唯一真相）。 无命中但源页有条目 → items
- * 空但 hasMore 按源页满否如实；空源页/流耗尽 → items 空 + hasMore:false。 归 application 层同 {@link
- * AnnouncementPageView} 先例（层间无环约束落位，JSON 契约不变）。
+ * <p>条目字段与聚合路径 {@code SubjectDetail.news[]}
+ * 逐字段一致（externalId/title/publishedAt/summary/url/source/keywords——同一 adapter 同一 itemMapping
+ * 产出，externalId 为前端去重稳定标识）。后端契约<b>无状态</b>：单请求 = 单源页过滤命中 + {@code hasMore} 源页耗尽信号——「新增」判定归前端（累积
+ * externalId 集合是唯一真相）。 无命中但源页有条目 → items 空但 hasMore 按源页满否如实；空源页/流耗尽 → items 空 + hasMore:false。 归
+ * application 层同 {@link AnnouncementPageView} 先例（层间无环约束落位，JSON 契约不变）。
  *
  * @param items 该源页过滤后的命中条目（可为空）
  * @param page 源页码（回显请求值）

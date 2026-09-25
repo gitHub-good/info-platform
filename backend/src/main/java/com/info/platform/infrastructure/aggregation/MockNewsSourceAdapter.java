@@ -18,9 +18,8 @@ import java.util.Optional;
  * 经模板弹性降级后 {@link #onDegraded} 覆写为 {@link SourceResult#failed}（默认返回 MISSING，此处演示 FAILED 语义），
  * 验证「单源异常不阻断其他分区」。
  *
- * <p>M12 T92：{@code fetchPage} 覆写——page=1 返回两条命中 + {@code hasMore:true}；page≥2 空列表 +
- * {@code hasMore:false}（流耗尽信号，PRD 场景 5「mock 下不报错」口径，不模拟真实深翻； 首屏 doFetch 仍走 FAILED
- * 演示路径不受影响）。
+ * <p>M12 T92：{@code fetchPage} 覆写——page=1 返回两条命中 + {@code hasMore:true}；page≥2 空列表 + {@code
+ * hasMore:false}（流耗尽信号，PRD 场景 5「mock 下不报错」口径，不模拟真实深翻； 首屏 doFetch 仍走 FAILED 演示路径不受影响）。
  */
 public class MockNewsSourceAdapter extends AbstractSourceAdapter {
 

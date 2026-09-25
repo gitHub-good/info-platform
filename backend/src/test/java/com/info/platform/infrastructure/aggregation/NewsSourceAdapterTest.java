@@ -445,7 +445,8 @@ class NewsSourceAdapterTest {
     /** M12 T92：fetchPage（绕缓存路径）——响应 setter 同款，走 adapter.fetchPage(subject, page, 20)。 */
     private SourceResult fetchPageWithMockResponse(
             Subject subject, int page, Consumer<MockRestServiceServer> responseSetter) {
-        return fetchWithAction(subject, adapter -> adapter.fetchPage(subject, page, 20), responseSetter);
+        return fetchWithAction(
+                subject, adapter -> adapter.fetchPage(subject, page, 20), responseSetter);
     }
 
     /** 构造绑定 MockRestServiceServer 的客户端；响应由 setter 设置。 */

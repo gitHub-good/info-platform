@@ -174,8 +174,7 @@ public final class DataSourceDefaults {
             case POLICY -> {
                 // M12 T93（方案 §1.2 实测 3/4）：zuixin HTML 列表为 AJAX 空壳，缺省改指静态 ZUIXINZHENGCE.json
                 // （存量 DB 行经 V20 条件迁移对齐；页面手改回 HTML URL 即回退，GovPolicyClient 双分支兼容）
-                params.put(
-                        "policyUrl", "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json");
+                params.put("policyUrl", "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json");
                 params.put("policyMaxItems", 30);
                 params.put("policyReferer", "https://www.gov.cn/");
             }

@@ -125,8 +125,7 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
     }
 
     /**
-     * 取数守护骨架（M12 ADR-0037 决策 2 从 fetchFresh 提取）：熔断闸门 → 超时/重试取数动作 → 事件旁路 → 字段映射 → 返回，
-     * <b>不读写缓存</b>。
+     * 取数守护骨架（M12 ADR-0037 决策 2 从 fetchFresh 提取）：熔断闸门 → 超时/重试取数动作 → 事件旁路 → 字段映射 → 返回， <b>不读写缓存</b>。
      *
      * <p>{@link #fetchFresh}（首屏聚合，外层另包 SourceCache）与各子类 {@code fetchPage}（分区翻页，绕缓存直调源）共用本骨架——
      * 三态语义（ok/missing/failed/timeout）与降级不阻断原则由<b>同一段代码产出</b>，口径一致性由构造保证（ADR-0037 理由第 3 条）。

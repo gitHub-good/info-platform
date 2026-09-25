@@ -29,7 +29,9 @@ public class SectionPageSettingsImpl implements SectionPageSettings {
                 .paramInt(
                         "announcePageSize",
                         DataSourceDefaults.paramInt(
-                                SourceCode.ANNOUNCE, "announcePageSize", DEFAULT_ANNOUNCE_PAGE_SIZE));
+                                SourceCode.ANNOUNCE,
+                                "announcePageSize",
+                                DEFAULT_ANNOUNCE_PAGE_SIZE));
     }
 
     @Override

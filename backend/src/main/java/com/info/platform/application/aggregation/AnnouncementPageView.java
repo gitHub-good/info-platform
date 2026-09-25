@@ -7,9 +7,9 @@ import java.util.Map;
  * 公告分区子端点响应视图（M12 T90，方案 §4.1.1 / ADR-0037 决策 1）。
  *
  * <p>条目字段与聚合路径 {@code SubjectDetail.announcements[]} 逐字段一致（title/publishedAt/category/url——同一
- * adapter 同一 itemMapping 产出）；page/size 如实回显（越界页同样 200 + 空列表 + total 如实）； 巨潮生效（东财失败降级）时
- * {@code paginationSupported=false} + {@code total=null}，{@code moreUrl} 恒透出（源站列表出口）。 失败/超时 → 200 +
- * {@code sourceStatus: failed/timeout} + 空列表（分区降级不阻断，前端保留当前内容 + 重试）。
+ * adapter 同一 itemMapping 产出）；page/size 如实回显（越界页同样 200 + 空列表 + total 如实）； 巨潮生效（东财失败降级）时 {@code
+ * paginationSupported=false} + {@code total=null}，{@code moreUrl} 恒透出（源站列表出口）。 失败/超时 → 200 + {@code
+ * sourceStatus: failed/timeout} + 空列表（分区降级不阻断，前端保留当前内容 + 重试）。
  *
  * <p>归 application 层（同 {@code PolicyPagedView} 先例——{@code SubjectSectionPageService} 直返、接口层零映射）；
  * 方案附录 A 原列 interfaces 层，因 application→interfaces 依赖会与既有 interfaces→application 成环

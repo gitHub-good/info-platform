@@ -86,7 +86,8 @@ public class MockEventSourceAdapter extends AbstractSourceAdapter {
 
     private static RawFetch pageFetch(List<Map<String, Object>> items, long total) {
         return new RawFetch(
-                Map.of("items", List.copyOf(items), "total", total), sourceLabelOfMock(),
+                Map.of("items", List.copyOf(items), "total", total),
+                sourceLabelOfMock(),
                 Instant.now());
     }
 

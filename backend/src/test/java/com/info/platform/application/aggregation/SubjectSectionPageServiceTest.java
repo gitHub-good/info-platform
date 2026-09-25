@@ -28,10 +28,11 @@ import org.mockito.Mockito;
 /**
  * SubjectSectionPageService 编排单测（M12 T90/T91）：公告/事件分区分页取数编排。
  *
- * <p>覆盖：主路径（fetchPage OK → 视图逐字段：items/total/paginationSupported/moreUrl/sourceStatus/source；page/size
- * 回显 + 缺省页大小取端点语义缺省）/ 边界（size 显式值透传、越界页空条目仍 ok）/ 异常（标的不存在 30001、 源 MISSING 降级态、护栏超时
- * timeout 态、未装配 adapter 降级）。SourceAdapter 用 Mockito 替身控制 SourceResult 形态（同一 Subject 实例贯穿
- * stub——Subject 无 equals 按引用匹配）；同步执行器保证确定性，超时场景用异步执行器。
+ * <p>覆盖：主路径（fetchPage OK →
+ * 视图逐字段：items/total/paginationSupported/moreUrl/sourceStatus/source；page/size 回显 + 缺省页大小取端点语义缺省）/
+ * 边界（size 显式值透传、越界页空条目仍 ok）/ 异常（标的不存在 30001、 源 MISSING 降级态、护栏超时 timeout 态、未装配 adapter
+ * 降级）。SourceAdapter 用 Mockito 替身控制 SourceResult 形态（同一 Subject 实例贯穿 stub——Subject 无 equals
+ * 按引用匹配）；同步执行器保证确定性，超时场景用异步执行器。
  */
 class SubjectSectionPageServiceTest {
 
@@ -51,17 +52,18 @@ class SubjectSectionPageServiceTest {
 
     private final AggregationRuntimeSettings settings = () -> 2000L;
 
-    private final SectionPageSettings sectionPageSettings = new SectionPageSettings() {
-        @Override
-        public int announcePageSize() {
-            return 10;
-        }
+    private final SectionPageSettings sectionPageSettings =
+            new SectionPageSettings() {
+                @Override
+                public int announcePageSize() {
+                    return 10;
+                }
 
-        @Override
-        public int newsPageSize() {
-            return 20;
-        }
-    };
+                @Override
+                public int newsPageSize() {
+                    return 20;
+                }
+            };
 
     /** 构造即注册 sourceCode（路由 map 键控；mock 缺省 null 会令 toUnmodifiableMap NPE）。 */
     private SourceAdapter announceAdapter() {
@@ -347,11 +349,7 @@ class SubjectSectionPageServiceTest {
         // 防御：未装配 ANNOUNCE adapter（配置面异常）→ 降级态而非抛出
         SubjectSectionPageService service =
                 new SubjectSectionPageService(
-                        subjectRepository,
-                        List.of(),
-                        syncExecutor,
-                        settings,
-                        sectionPageSettings);
+                        subjectRepository, List.of(), syncExecutor, settings, sectionPageSettings);
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject));
 
         AnnouncementPageView view = service.announcements(1L, 1, null);

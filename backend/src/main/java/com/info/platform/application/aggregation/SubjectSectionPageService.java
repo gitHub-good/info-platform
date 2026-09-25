@@ -24,10 +24,10 @@ import org.springframework.stereotype.Service;
 /**
  * 分区子端点取数服务（M12 T90~T92，方案 §4.3 / ADR-0037 决策 2）。
  *
- * <p>「看更多」翻页取数编排：resolveSubject（404 口径与聚合同源）→ 委派 {@link SourceAdapter#fetchPage}（绕过
- * SourceCache 直调源，三态语义与聚合同一段 runGuarded 骨架产出）→ 组装分区页视图。超时护栏复用
- * {@code aggregation.global} 总超时（{@link AggregationRuntimeSettings}，与 {@link AggregationService} 同口径）—— 超时/异常不抛
- * HTTP 错，按分区降级态返回（sourceStatus=timeout/failed + 空列表，前端保留当前内容 + 重试）。
+ * <p>「看更多」翻页取数编排：resolveSubject（404 口径与聚合同源）→ 委派 {@link SourceAdapter#fetchPage}（绕过 SourceCache
+ * 直调源，三态语义与聚合同一段 runGuarded 骨架产出）→ 组装分区页视图。超时护栏复用 {@code aggregation.global} 总超时（{@link
+ * AggregationRuntimeSettings}，与 {@link AggregationService} 同口径）—— 超时/异常不抛 HTTP
+ * 错，按分区降级态返回（sourceStatus=timeout/failed + 空列表，前端保留当前内容 + 重试）。
  *
  * <p>页大小缺省按端点语义解析（公告 = 运行时 {@code announcePageSize}；显式值边界校验在接口层 PageQuery）。
  */
@@ -74,8 +74,7 @@ public class SubjectSectionPageService {
      * @return 公告分区页视图（失败/超时为降级态，不抛 HTTP 错）
      * @throws BusinessException 30001 标的不存在
      */
-    public AnnouncementPageView announcements(
-            Long subjectId, int page, Integer size) {
+    public AnnouncementPageView announcements(Long subjectId, int page, Integer size) {
         Subject subject = resolveSubject(subjectId);
         int resolvedSize = size == null ? sectionPageSettings.announcePageSize() : size;
         long startedAt = System.currentTimeMillis();
@@ -130,8 +129,8 @@ public class SubjectSectionPageService {
     }
 
     /**
-     * 新闻分区「加载更多」取数（M12 T92，方案 §4.1.3）：单请求 = 单源页过滤命中 + hasMore 耗尽信号，绕缓存直调源。 端点不接受
-     * size（出现即 400，接口层 {@code SubjectSectionPageController} 拒绝）——源页大小是运维配置 {@code newsPageSize}。
+     * 新闻分区「加载更多」取数（M12 T92，方案 §4.1.3）：单请求 = 单源页过滤命中 + hasMore 耗尽信号，绕缓存直调源。 端点不接受 size（出现即 400，接口层
+     * {@code SubjectSectionPageController} 拒绝）——源页大小是运维配置 {@code newsPageSize}。
      *
      * @param subjectId 标的内部主键
      * @param page 源页码（≥1；接口层已校验）
@@ -168,18 +167,18 @@ public class SubjectSectionPageService {
     }
 
     /**
-     * 超时护栏下执行分区分页取数：总超时读 {@code aggregation.global}（与聚合详情同口径）； 超时返回 null（调用方按
-     * sourceStatus=timeout 组装降级视图），异常按 failed（fetchPage 契约上不抛，防御性兜底）。
+     * 超时护栏下执行分区分页取数：总超时读 {@code aggregation.global}（与聚合详情同口径）； 超时返回 null（调用方按 sourceStatus=timeout
+     * 组装降级视图），异常按 failed（fetchPage 契约上不抛，防御性兜底）。
      */
-    private SourceResult fetchSectionPage(
-            SourceCode code, Subject subject, int page, int size) {
+    private SourceResult fetchSectionPage(SourceCode code, Subject subject, int page, int size) {
         SourceAdapter adapter = adapters.get(code);
         if (adapter == null) {
             log.warn("未装配 {} SourceAdapter，分区分页整体降级 sourceCode={}", code, code);
             return null;
         }
         CompletableFuture<SourceResult> future =
-                CompletableFuture.supplyAsync(() -> adapter.fetchPage(subject, page, size), executor);
+                CompletableFuture.supplyAsync(
+                        () -> adapter.fetchPage(subject, page, size), executor);
         try {
             return future.get(runtimeSettings.detailTimeoutMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException te) {

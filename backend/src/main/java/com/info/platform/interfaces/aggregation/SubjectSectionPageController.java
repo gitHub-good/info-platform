@@ -20,14 +20,14 @@ import org.springframework.web.bind.annotation.RestController;
  * 标的详情分区子端点（M12 REQ-20260925-09，方案 §4.1 / ADR-0037 决策 1）。
  *
  * <p>{@code GET /api/v1/subjects/{subjectId}/announcements?page=&size=} — 公告分区分页（page 必填 1~5，超限 400
- * 「更多历史公告请走源站」；size 可选 1~50，缺省 = 运行时 announcePageSize）。一请求=一分区（分区独立翻页三约束①），
- * 取数绕 SourceCache 直调源（决策 2），sourceStatus 三态与聚合口径同源（约束③）。
+ * 「更多历史公告请走源站」；size 可选 1~50，缺省 = 运行时 announcePageSize）。一请求=一分区（分区独立翻页三约束①）， 取数绕 SourceCache 直调源（决策
+ * 2），sourceStatus 三态与聚合口径同源（约束③）。
  *
- * <p>{@code GET /api/v1/subjects/{subjectId}/events?page=&size=} — 事件分区分页（T91，方案 §4.1.2）：page 必填 ≥1（无 5
- * 页上限——本地 7 天窗数据翻完即止）；size 可选 1~50，缺省 10；total 为窗内精确 count。
+ * <p>{@code GET /api/v1/subjects/{subjectId}/events?page=&size=} — 事件分区分页（T91，方案 §4.1.2）：page 必填
+ * ≥1（无 5 页上限——本地 7 天窗数据翻完即止）；size 可选 1~50，缺省 10；total 为窗内精确 count。
  *
- * <p>参数校验经 {@link PageQuery} 共用件（page≥1 / size 1~50 越界 400 拒绝不截断）；标的不存在 → 30001（404）； 源失败/超时 →
- * 200 + 降级态（不是 HTTP 错误，方案 §4.1.5）。
+ * <p>参数校验经 {@link PageQuery} 共用件（page≥1 / size 1~50 越界 400 拒绝不截断）；标的不存在 → 30001（404）； 源失败/超时 → 200
+ * + 降级态（不是 HTTP 错误，方案 §4.1.5）。
  */
 @RestController
 @RequestMapping("/api/v1/subjects")
@@ -59,11 +59,7 @@ public class SubjectSectionPageController {
         int resolvedPage =
                 PageQuery.requirePage(page, ANNOUNCE_MAX_PAGE, ANNOUNCE_OVER_LIMIT_MESSAGE);
         Integer resolvedSize = PageQuery.requireSizeIfPresent(size);
-        log.debug(
-                "公告分区子端点请求 subjectId={} page={} size={}",
-                subjectId,
-                resolvedPage,
-                resolvedSize);
+        log.debug("公告分区子端点请求 subjectId={} page={} size={}", subjectId, resolvedPage, resolvedSize);
         return Result.ok(sectionPageService.announcements(subjectId, resolvedPage, resolvedSize));
     }
 
@@ -76,17 +72,13 @@ public class SubjectSectionPageController {
         int resolvedPage =
                 PageQuery.requirePage(page, PageQuery.MAX_PAGE, "page 超过上限 " + PageQuery.MAX_PAGE);
         Integer resolvedSize = PageQuery.requireSizeIfPresent(size);
-        log.debug(
-                "事件分区子端点请求 subjectId={} page={} size={}",
-                subjectId,
-                resolvedPage,
-                resolvedSize);
+        log.debug("事件分区子端点请求 subjectId={} page={} size={}", subjectId, resolvedPage, resolvedSize);
         return Result.ok(sectionPageService.events(subjectId, resolvedPage, resolvedSize));
     }
 
     /**
-     * 新闻分区「加载更多」（M12 T92，方案 §4.1.3）：page = 源页码（必填）；<b>不接受 size</b>——出现即 400
-     * 「size 仅公告/事件端点可用」（源页大小是运维配置 newsPageSize，不属调用方自由度）。
+     * 新闻分区「加载更多」（M12 T92，方案 §4.1.3）：page = 源页码（必填）；<b>不接受 size</b>——出现即 400 「size
+     * 仅公告/事件端点可用」（源页大小是运维配置 newsPageSize，不属调用方自由度）。
      */
     @GetMapping("/{subjectId}/news")
     public Result<NewsPageView> news(
@@ -96,8 +88,7 @@ public class SubjectSectionPageController {
         int resolvedPage =
                 PageQuery.requirePage(page, PageQuery.MAX_PAGE, "page 超过上限 " + PageQuery.MAX_PAGE);
         if (size != null) {
-            throw new BusinessException(
-                    ErrorCode.PARAM_INVALID, NEWS_SIZE_REJECTED_MESSAGE);
+            throw new BusinessException(ErrorCode.PARAM_INVALID, NEWS_SIZE_REJECTED_MESSAGE);
         }
         log.debug("新闻分区子端点请求 subjectId={} page={}", subjectId, resolvedPage);
         return Result.ok(sectionPageService.news(subjectId, resolvedPage));

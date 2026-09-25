@@ -28,9 +28,7 @@ public record SubjectDetail(
         Map<String, String> sourceStatus,
         SectionPagination sectionPagination) {
 
-    /**
-     * 既有 9 参构造（M12 前形态）：sectionPagination 缺省 null——存量消费方/测试零改动； 聚合服务组装时显式传附加键。
-     */
+    /** 既有 9 参构造（M12 前形态）：sectionPagination 缺省 null——存量消费方/测试零改动； 聚合服务组装时显式传附加键。 */
     public SubjectDetail(
             SubjectInfo subject,
             Map<String, Object> quote,
@@ -41,8 +39,17 @@ public record SubjectDetail(
             List<Map<String, Object>> policies,
             List<Map<String, Object>> events,
             Map<String, String> sourceStatus) {
-        this(subject, quote, finance, valuation, announcements, news, policies, events,
-                sourceStatus, null);
+        this(
+                subject,
+                quote,
+                finance,
+                valuation,
+                announcements,
+                news,
+                policies,
+                events,
+                sourceStatus,
+                null);
     }
 
     /** 标的基本信息（subject_master 投影，不含外部代码等内部映射字段）。 */

@@ -159,8 +159,8 @@ public class EastMoneyAnnounceClient {
     /**
      * 取某 6 位证券代码指定页公告（显式页大小，分区子端点请求方页大小口径），透出 {@code total_hits} 总数（M12 T90）。
      *
-     * <p>条目为空但 {@code total_hits > 0} 时仍返回 present（越界页语义：如实回显空页 + 总数，交上层区分处理—— 与
-     * {@link #fetchAnnouncements} 的「空即 empty」口径不同，后者供首屏聚合走降级链）。
+     * <p>条目为空但 {@code total_hits > 0} 时仍返回 present（越界页语义：如实回显空页 + 总数，交上层区分处理—— 与 {@link
+     * #fetchAnnouncements} 的「空即 empty」口径不同，后者供首屏聚合走降级链）。
      *
      * @param stockCode 6 位证券代码；非 secid
      * @param pageIndex 页码（≥1）
@@ -207,7 +207,12 @@ public class EastMoneyAnnounceClient {
     /** 导航 {@code root.data.list}；任一层缺失/空数组返回 {@link Optional#empty()}（→ MISSING）。 */
     @SuppressWarnings("unchecked")
     private static Optional<List<Map<String, Object>>> extractList(Map<String, Object> root) {
-        return extractPage(root).flatMap(page -> page.items().isEmpty() ? Optional.empty() : Optional.of(page.items()));
+        return extractPage(root)
+                .flatMap(
+                        page ->
+                                page.items().isEmpty()
+                                        ? Optional.empty()
+                                        : Optional.of(page.items()));
     }
 
     /**

@@ -3,8 +3,8 @@ package com.info.platform.infrastructure.aggregation;
 import com.info.platform.domain.aggregation.FallbackChains;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceProvider;
-import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceProviders;
+import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.infrastructure.common.CircuitBreaker;
@@ -180,10 +180,10 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     /**
      * 分区子端点分页取数（M12 T90，ADR-0037 决策 2）：绕过 SourceCache 直调源，走降级链与 {@code fetch} 同骨架。
      *
-     * <p>语义细则（方案 §4.1.1/§4.3.1）：东财生效 → 指定页条目 + {@code total_hits} 总数 + {@code paginationSupported:true}；
-     * 越界页（page 合法但超出源总页数）→ 200 空列表 + total 如实（<b>不触发</b>巨潮兜底——东财成功返回）； 东财失败走巨潮 →
-     * page=1 返回巨潮第一页 + {@code paginationSupported:false} + total 不产出；page&gt;1 巨潮接住 → 空列表 +
-     * {@code paginationSupported:false}（前端渲染降级文案）。moreUrl 恒透出（按生效 provider 构造源站列表出口）。
+     * <p>语义细则（方案 §4.1.1/§4.3.1）：东财生效 → 指定页条目 + {@code total_hits} 总数 + {@code
+     * paginationSupported:true}； 越界页（page 合法但超出源总页数）→ 200 空列表 + total 如实（<b>不触发</b>巨潮兜底——东财成功返回）；
+     * 东财失败走巨潮 → page=1 返回巨潮第一页 + {@code paginationSupported:false} + total 不产出；page&gt;1 巨潮接住 → 空列表
+     * + {@code paginationSupported:false}（前端渲染降级文案）。moreUrl 恒透出（按生效 provider 构造源站列表出口）。
      */
     @Override
     public SourceResult fetchPage(Subject subject, int page, int size) {
@@ -238,8 +238,8 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     }
 
     /**
-     * 东财路径·首屏第一页（label 按链位标注）：条目空（无公告/代码不存在/源空响应）→ empty（→ 尝试下一级 / MISSING，
-     * 既有 ISSUE-A 语义不变）；有条目则附带分页元数据（total=total_hits / paginationSupported=true / moreUrl）。
+     * 东财路径·首屏第一页（label 按链位标注）：条目空（无公告/代码不存在/源空响应）→ empty（→ 尝试下一级 / MISSING， 既有 ISSUE-A
+     * 语义不变）；有条目则附带分页元数据（total=total_hits / paginationSupported=true / moreUrl）。
      */
     private Optional<RawFetch> fetchFromEastMoney(Subject subject, String label) {
         String stockCode = resolveStockCode(subject);
@@ -262,8 +262,8 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     }
 
     /**
-     * 东财路径·子端点分页：越界页（条目空但 total_hits&gt;0）→ present 空列表 + total 如实（200 空页，不触发巨潮兜底）；
-     * 条目与总数皆空 → empty（→ 尝试下一级 / MISSING）。
+     * 东财路径·子端点分页：越界页（条目空但 total_hits&gt;0）→ present 空列表 + total 如实（200 空页，不触发巨潮兜底）； 条目与总数皆空 →
+     * empty（→ 尝试下一级 / MISSING）。
      */
     private Optional<RawFetch> fetchPageFromEastMoney(
             Subject subject, String label, int page, int size) {
@@ -309,8 +309,8 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     }
 
     /**
-     * 巨潮路径·子端点分页：page=1 同首屏（第一页条目 + 降级标注）；page&gt;1 → 空列表 + {@code
-     * paginationSupported:false}（方案 §4.1.1：巨潮仅第一页，前端据 false 渲染降级文案，不视为错误）。
+     * 巨潮路径·子端点分页：page=1 同首屏（第一页条目 + 降级标注）；page&gt;1 → 空列表 + {@code paginationSupported:false}（方案
+     * §4.1.1：巨潮仅第一页，前端据 false 渲染降级文案，不视为错误）。
      */
     private Optional<RawFetch> fetchPageFromCninfo(Subject subject, String label, int page) {
         if (page > PAGE_INDEX_FIRST) {
@@ -358,8 +358,8 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     }
 
     /**
-     * 条目列表 + 分页元数据 → RawFetch.data。total/paginationSupported/moreUrl 可空（巨潮无总数、降级无出口），
-     * null 键不放入（FieldMapper 白名单语义下不产出目标键）。
+     * 条目列表 + 分页元数据 → RawFetch.data。total/paginationSupported/moreUrl 可空（巨潮无总数、降级无出口）， null
+     * 键不放入（FieldMapper 白名单语义下不产出目标键）。
      */
     private static RawFetch itemsFetch(
             List<Map<String, Object>> items,

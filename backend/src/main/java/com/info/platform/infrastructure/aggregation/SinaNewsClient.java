@@ -140,8 +140,8 @@ public class SinaNewsClient {
     /**
      * 取财经滚动新闻全市场流指定页（M12 T92：page 参数化，「加载更多」源页深翻）。
      *
-     * <p>深翻实测（2026-09-22，方案 §1.2 实测 1）：page=1/2/3/50 均 200×20 条，ctime 跨页倒序衔接、无重叠；
-     * page=1 偶发慢（一次实测 6.5s）由既有 2s 超时护栏 + 失败负缓存兜底。
+     * <p>深翻实测（2026-09-22，方案 §1.2 实测 1）：page=1/2/3/50 均 200×20 条，ctime 跨页倒序衔接、无重叠； page=1 偶发慢（一次实测
+     * 6.5s）由既有 2s 超时护栏 + 失败负缓存兜底。
      *
      * @param page 源页码（≥1；首屏固定 1，新闻分区「加载更多」由子端点透传）
      * @return 原始新闻列表；{@code result.data} 为空/null 时返回 {@link Optional#empty()}（流耗尽/异常返回）
@@ -169,8 +169,8 @@ public class SinaNewsClient {
     }
 
     /**
-     * 当前生效源页大小（运行时 {@code newsPageSize}，LIVE 级）——新闻子端点 {@code size} 回显与 {@code hasMore}
-     * 口径共用（本源页条数 == 源页大小且非空 = 源页未耗尽）。
+     * 当前生效源页大小（运行时 {@code newsPageSize}，LIVE 级）——新闻子端点 {@code size} 回显与 {@code hasMore} 口径共用（本源页条数
+     * == 源页大小且非空 = 源页未耗尽）。
      */
     public int newsPageSize() {
         return RuntimeParams.intOf(configCenter, SourceCode.NEWS, "newsPageSize", this.pageSize);

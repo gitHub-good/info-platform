@@ -85,8 +85,7 @@ class SubjectSectionPageControllerTest {
     void announcements_sizeExplicitPassedThrough() throws Exception {
         when(sectionPageService.announcements(1L, 1, 25))
                 .thenReturn(
-                        new AnnouncementPageView(
-                                List.of(), 1, 25, 0L, true, null, "ok", "东方财富公告"));
+                        new AnnouncementPageView(List.of(), 1, 25, 0L, true, null, "ok", "东方财富公告"));
 
         mockMvc.perform(get("/api/v1/subjects/1/announcements?page=1&size=25"))
                 .andExpect(status().isOk())
@@ -222,7 +221,8 @@ class SubjectSectionPageControllerTest {
                                                 "externalId", "sinacn-doc9",
                                                 "title", "贵州茅台相关新闻",
                                                 "publishedAt", "2026-09-21T10:00:00",
-                                                "url", "https://news.sina.com.cn/c/2026/doc9.shtml")),
+                                                "url",
+                                                        "https://news.sina.com.cn/c/2026/doc9.shtml")),
                                 2,
                                 20,
                                 true,

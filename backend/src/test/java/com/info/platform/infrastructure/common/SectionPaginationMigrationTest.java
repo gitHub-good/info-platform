@@ -17,12 +17,11 @@ import org.junit.jupiter.api.Test;
 /**
  * V19/V20 条件数据迁移语义测试（M12 REQ-20260925-09，方案 §4.2 / ADR-0037 决策 5）。
  *
- * <p>用<b>独立 SQLite 内存库</b>（cache=shared，哨兵连接保活）+ Flyway 编程式 API 分两段执行：
- * 先 target 到前一版本建表 → JDBC 手工插入「迁移前形态」的 runtime_config 行（种子行/用户已改行）→ 继续迁移触发 V19/V20 →
- * 断言只动缺省值行。U19/U20 为社区版手动回滚脚本（不自动执行），以脚本原文经 JDBC 直执行验证还原语义。
+ * <p>用<b>独立 SQLite 内存库</b>（cache=shared，哨兵连接保活）+ Flyway 编程式 API 分两段执行： 先 target 到前一版本建表 → JDBC
+ * 手工插入「迁移前形态」的 runtime_config 行（种子行/用户已改行）→ 继续迁移触发 V19/V20 → 断言只动缺省值行。U19/U20
+ * 为社区版手动回滚脚本（不自动执行），以脚本原文经 JDBC 直执行验证还原语义。
  *
- * <p>语义红线（ADR-0037）：条件 UPDATE 幂等——仅当现值为旧缺省时改写，用户手改过的行<b>永不触碰</b>（用户意图优先）；
- * 重放安全（同一 SQL 再执行不产生二次变化）。
+ * <p>语义红线（ADR-0037）：条件 UPDATE 幂等——仅当现值为旧缺省时改写，用户手改过的行<b>永不触碰</b>（用户意图优先）； 重放安全（同一 SQL 再执行不产生二次变化）。
  */
 class SectionPaginationMigrationTest {
 
@@ -36,8 +35,7 @@ class SectionPaginationMigrationTest {
     @BeforeEach
     void setUp() throws Exception {
         // 共享内存库：哨兵连接保活，Flyway 与断言连接看到同一份库（与测试 profile 同机制）
-        sentinel =
-                DriverManager.getConnection("jdbc:sqlite:file:m12migr?mode=memory&cache=shared");
+        sentinel = DriverManager.getConnection("jdbc:sqlite:file:m12migr?mode=memory&cache=shared");
     }
 
     @AfterEach
@@ -56,15 +54,14 @@ class SectionPaginationMigrationTest {
                     "datasource.ANNOUNCE",
                     "{\"params\":{\"announceUrl\":\"https://a\",\"announcePageSize\":3}}");
             insertConfigRow(
-                    conn,
-                    "datasource.ANNOUNCE.CUSTOM",
-                    "{\"params\":{\"announcePageSize\":5}}");
+                    conn, "datasource.ANNOUNCE.CUSTOM", "{\"params\":{\"announcePageSize\":5}}");
 
             migrateLatest(conn);
 
             // 种子缺省 3 → 10；键名不同（非 datasource.ANNOUNCE）的行不受影响
             assertThat(paramOf(conn, "datasource.ANNOUNCE", "announcePageSize")).isEqualTo(10);
-            assertThat(paramOf(conn, "datasource.ANNOUNCE.CUSTOM", "announcePageSize")).isEqualTo(5);
+            assertThat(paramOf(conn, "datasource.ANNOUNCE.CUSTOM", "announcePageSize"))
+                    .isEqualTo(5);
         }
     }
 
@@ -113,7 +110,8 @@ class SectionPaginationMigrationTest {
             insertConfigRow(
                     conn,
                     "datasource.POLICY",
-                    "{\"params\":{\"policyUrl\":\"" + OLD_POLICY_URL
+                    "{\"params\":{\"policyUrl\":\""
+                            + OLD_POLICY_URL
                             + "\",\"policyReferer\":\"https://www.gov.cn/\"}}");
 
             migrateLatest(conn);
@@ -195,10 +193,7 @@ class SectionPaginationMigrationTest {
     private static void executeScript(Connection conn, String fileName) throws Exception {
         String sql =
                 new String(
-                        Files.readAllBytes(
-                                Path.of(
-                                        "src/main/resources/db/migration/"
-                                                + fileName)),
+                        Files.readAllBytes(Path.of("src/main/resources/db/migration/" + fileName)),
                         java.nio.charset.StandardCharsets.UTF_8);
         // 去除行注释后按分号切分逐句执行（SQLite JDBC 不接受多语句单次 execute）
         StringBuilder cleaned = new StringBuilder();
@@ -233,7 +228,9 @@ class SectionPaginationMigrationTest {
     private static long paramOf(Connection conn, String key, String name) throws Exception {
         try (PreparedStatement ps =
                 conn.prepareStatement(
-                        "SELECT json_extract(config_value, '$.params." + name + "')"
+                        "SELECT json_extract(config_value, '$.params."
+                                + name
+                                + "')"
                                 + " FROM runtime_config WHERE config_key = ?")) {
             ps.setString(1, key);
             try (ResultSet rs = ps.executeQuery()) {
@@ -243,11 +240,12 @@ class SectionPaginationMigrationTest {
     }
 
     /** 读 config_value JSON 里 params.<name>（字符串口径）；缺失返回 null。 */
-    private static String paramStringOf(Connection conn, String key, String name)
-            throws Exception {
+    private static String paramStringOf(Connection conn, String key, String name) throws Exception {
         try (PreparedStatement ps =
                 conn.prepareStatement(
-                        "SELECT json_extract(config_value, '$.params." + name + "')"
+                        "SELECT json_extract(config_value, '$.params."
+                                + name
+                                + "')"
                                 + " FROM runtime_config WHERE config_key = ?")) {
             ps.setString(1, key);
             try (ResultSet rs = ps.executeQuery()) {

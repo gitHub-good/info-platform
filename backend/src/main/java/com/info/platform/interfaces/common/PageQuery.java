@@ -57,8 +57,8 @@ public final class PageQuery {
     }
 
     /**
-     * 分区子端点必填页码校验（M12 详情分区分页，ADR-0037 决策 1）：page 缺席/小于 1 → 400； 可带端点专属上限（公告
-     * 5 页——超限 msg 引导走源站，外呼放大封顶由此成立）；上限兜底 {@link #MAX_PAGE}（防 offset 溢出）。
+     * 分区子端点必填页码校验（M12 详情分区分页，ADR-0037 决策 1）：page 缺席/小于 1 → 400； 可带端点专属上限（公告 5 页——超限 msg
+     * 引导走源站，外呼放大封顶由此成立）；上限兜底 {@link #MAX_PAGE}（防 offset 溢出）。
      *
      * @param page page 参数；null = 缺席（子端点 page 必填，与列表双模式不同）
      * @param maxPage 端点页码上限（公告 5 / 其余传 {@link #MAX_PAGE}）

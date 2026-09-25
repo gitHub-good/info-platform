@@ -21,8 +21,8 @@ import java.util.Set;
  * <p>返回固定假数据（公告列表，承载于 "items" 键），状态 OK。验证列表型分区经 FieldMapper 透传后由应用层提取。
  *
  * <p>M12 T90：{@code doFetch} 附带分页元数据（total/paginationSupported/moreUrl，与真实 adapter 契约对齐，
- * sectionPagination 首屏总数在 mock 模式下同样可提取）；{@code fetchPage} 覆写为全量条目切片 + total=条数 +
- * {@code paginationSupported:true}（PRD 场景 5「mock 下不报错」口径，不模拟真实深翻）。
+ * sectionPagination 首屏总数在 mock 模式下同样可提取）；{@code fetchPage} 覆写为全量条目切片 + total=条数 + {@code
+ * paginationSupported:true}（PRD 场景 5「mock 下不报错」口径，不模拟真实深翻）。
  */
 public class MockAnnounceSourceAdapter extends AbstractSourceAdapter {
 
@@ -97,10 +97,14 @@ public class MockAnnounceSourceAdapter extends AbstractSourceAdapter {
     private static RawFetch pageFetch(List<Map<String, Object>> items, long total) {
         Map<String, Object> data =
                 Map.of(
-                        "items", List.copyOf(items),
-                        "total", total,
-                        "paginationSupported", true,
-                        "moreUrl", "https://example.com/announcements");
+                        "items",
+                        List.copyOf(items),
+                        "total",
+                        total,
+                        "paginationSupported",
+                        true,
+                        "moreUrl",
+                        "https://example.com/announcements");
         return new RawFetch(data, "公告源(mock)", Instant.now());
     }
 }

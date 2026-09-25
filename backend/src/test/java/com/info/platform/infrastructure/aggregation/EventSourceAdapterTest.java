@@ -448,7 +448,9 @@ class EventSourceAdapterTest {
                 Long subjectId, Instant since, int offset, int limit) {
             return records.stream()
                     .filter(record -> !record.getTriggerTime().isBefore(since))
-                    .sorted(java.util.Comparator.comparing(AnomalyRecord::getTriggerTime).reversed())
+                    .sorted(
+                            java.util.Comparator.comparing(AnomalyRecord::getTriggerTime)
+                                    .reversed())
                     .skip(offset)
                     .limit(limit)
                     .toList();

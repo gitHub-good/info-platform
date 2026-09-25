@@ -132,10 +132,7 @@ public class GovPolicyClient {
 
     /** 全参构造（纯构造单测指定回落值）。 */
     public GovPolicyClient(
-            RestClient.Builder restClientBuilder,
-            String policyUrl,
-            int maxItems,
-            String referer) {
+            RestClient.Builder restClientBuilder, String policyUrl, int maxItems, String referer) {
         this.restClient = restClientBuilder.build();
         this.policyUrl = policyUrl;
         this.maxItems = maxItems;
@@ -158,7 +155,8 @@ public class GovPolicyClient {
         String referer =
                 RuntimeParams.of(configCenter, SourceCode.POLICY, "policyReferer", this.referer);
         int maxItems =
-                RuntimeParams.intOf(configCenter, SourceCode.POLICY, "policyMaxItems", this.maxItems);
+                RuntimeParams.intOf(
+                        configCenter, SourceCode.POLICY, "policyMaxItems", this.maxItems);
         if (policyUrl.toLowerCase(Locale.ROOT).endsWith(JSON_URL_SUFFIX)) {
             return fetchJsonPolicies(policyUrl, referer, maxItems);
         }
@@ -177,12 +175,13 @@ public class GovPolicyClient {
     }
 
     /**
-     * JSON 分支（M12 T93，方案 §4.3.4）：GET 静态 JSON 数组 → 截取前 maxItems 条 → 逐条转 raw map
-     * {@code {title: TITLE, url: URL, pubDate: DOCRELPUBTIME}}。
+     * JSON 分支（M12 T93，方案 §4.3.4）：GET 静态 JSON 数组 → 截取前 maxItems 条 → 逐条转 raw map {@code {title:
+     * TITLE, url: URL, pubDate: DOCRELPUBTIME}}。
      *
-     * <p>实测契约（2026-09-22，方案 §1.2 实测 4）：JSON 数组 1100 条、字段 {@code TITLE/SUB_TITLE/URL（绝对链）/DOCRELPUBTIME（yyyy-MM-dd）}、
-     * 按时间倒序——截前 N 条即最新 N 条。字段缺失/空标题的条目跳过（白名单语义）；解析为空 → empty（→ MISSING 不阻断）。
-     * JSON 结构变更（大写字段改版）→ 解析空 → MISSING，HTML 分支保留为页面级回退。
+     * <p>实测契约（2026-09-22，方案 §1.2 实测 4）：JSON 数组 1100 条、字段 {@code
+     * TITLE/SUB_TITLE/URL（绝对链）/DOCRELPUBTIME（yyyy-MM-dd）}、 按时间倒序——截前 N 条即最新 N
+     * 条。字段缺失/空标题的条目跳过（白名单语义）；解析为空 → empty（→ MISSING 不阻断）。 JSON 结构变更（大写字段改版）→ 解析空 → MISSING，HTML
+     * 分支保留为页面级回退。
      */
     private Optional<List<Map<String, Object>>> fetchJsonPolicies(
             String policyUrl, String referer, int maxItems) {
@@ -200,8 +199,8 @@ public class GovPolicyClient {
     }
 
     /**
-     * JSON 数组 → raw 政策条目（package-private static 供直接喂数据单测，实测样本结构见方案附录 C）。 条目缺
-     * TITLE/URL 或空值跳过；截取前 maxItems 条<b>有效</b>条目；全空返回 empty。
+     * JSON 数组 → raw 政策条目（package-private static 供直接喂数据单测，实测样本结构见方案附录 C）。 条目缺 TITLE/URL 或空值跳过；截取前
+     * maxItems 条<b>有效</b>条目；全空返回 empty。
      */
     static Optional<List<Map<String, Object>>> parseJsonPolicies(
             List<Map<String, Object>> entries, int maxItems) {
@@ -216,7 +215,10 @@ public class GovPolicyClient {
             Object title = entry.get("TITLE");
             Object url = entry.get("URL");
             Object pubDate = entry.get("DOCRELPUBTIME");
-            if (title == null || title.toString().isBlank() || url == null || url.toString().isBlank()) {
+            if (title == null
+                    || title.toString().isBlank()
+                    || url == null
+                    || url.toString().isBlank()) {
                 continue;
             }
             Map<String, Object> policy = new LinkedHashMap<>();

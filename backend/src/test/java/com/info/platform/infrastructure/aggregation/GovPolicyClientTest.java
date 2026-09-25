@@ -19,8 +19,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * GovPolicyClient JSON 分支单测（M12 T93，REQ-20260925-09 / ADR-0037 决策 5）：{@code policyUrl} 指向
- * {@code ZUIXINZHENGCE.json} 时的解析与连通口径 + HTML 分支兼容（页面手改回旧 URL 热回退）。
+ * GovPolicyClient JSON 分支单测（M12 T93，REQ-20260925-09 / ADR-0037 决策 5）：{@code policyUrl} 指向 {@code
+ * ZUIXINZHENGCE.json} 时的解析与连通口径 + HTML 分支兼容（页面手改回旧 URL 热回退）。
  *
  * <p>JSON 样本结构取 2026-09-22 curl 实测（方案 §1.2 实测 4 / 附录 C）：JSON 数组，字段 {@code TITLE / SUB_TITLE /
  * URL（绝对链）/ DOCRELPUBTIME（yyyy-MM-dd）}，按时间倒序，全量 1100 条（样本截取）。 输出须与 HTML 分支<b>同款 raw
@@ -28,8 +28,7 @@ import org.springframework.web.client.RestClient;
  */
 class GovPolicyClientTest {
 
-    private static final String JSON_URL =
-            "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json";
+    private static final String JSON_URL = "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json";
 
     private static final String HTML_URL = "https://www.gov.cn/zhengce/";
 
@@ -61,8 +60,7 @@ class GovPolicyClientTest {
                                 JSON_BODY,
                                 new com.fasterxml.jackson.core.type.TypeReference<
                                         List<Map<String, Object>>>() {});
-        Optional<List<Map<String, Object>>> result =
-                GovPolicyClient.parseJsonPolicies(entries, 30);
+        Optional<List<Map<String, Object>>> result = GovPolicyClient.parseJsonPolicies(entries, 30);
 
         assertThat(result).isPresent();
         List<Map<String, Object>> policies = result.get();
@@ -70,7 +68,8 @@ class GovPolicyClientTest {
         // 同款 raw 契约：TITLE→title、URL→url、DOCRELPUBTIME→pubDate（与 HTML 分支输出一致，adapter 零改动）
         assertThat(policies.get(0))
                 .containsEntry("title", "中共中央办公厅 国务院办公厅印发《关于分类推进高校改革的意见》")
-                .containsEntry("url", "https://www.gov.cn/zhengce/content/202609/content_7081587.htm")
+                .containsEntry(
+                        "url", "https://www.gov.cn/zhengce/content/202609/content_7081587.htm")
                 .containsEntry("pubDate", "2026-09-20");
         assertThat(policies.get(2)).containsEntry("pubDate", "2026-09-17");
     }
@@ -183,7 +182,9 @@ class GovPolicyClientTest {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("TITLE", "政策条目 " + (count - i));
             entry.put("SUB_TITLE", "");
-            entry.put("URL", "https://www.gov.cn/zhengce/content/202609/content_" + (7081587 - i) + ".htm");
+            entry.put(
+                    "URL",
+                    "https://www.gov.cn/zhengce/content/202609/content_" + (7081587 - i) + ".htm");
             entry.put("DOCRELPUBTIME", "2026-09-" + String.format("%02d", 20 - i));
             entries.add(entry);
         }
