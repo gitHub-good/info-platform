@@ -1,19 +1,21 @@
 // 留痕数据保留窗口类型（T73，对齐后端 RetentionConfigFacade / RetentionController 契约 §4.3，M10 技术方案增补）。
 // 时间字段为 ISO-8601 字符串（UTC）；保存即热生效——下一轮清理按新窗口，改大窗口不恢复已删数据（REQ 裁决）。
 
-/** 四窗口字段名（键名与 retention.global 文档字段一致）。 */
+/** 五窗口字段名（键名与 retention.global 文档字段一致；newsItemDays 为 M14 T113 扩键）。 */
 export type RetentionWindowField =
   | 'jobExecutionLogDays'
   | 'dataSourceEventDays'
   | 'llmCallLogDays'
-  | 'readingEventDays';
+  | 'readingEventDays'
+  | 'newsItemDays';
 
-/** 四表保留窗口（天）。 */
+/** 五表保留窗口（天）。 */
 export interface RetentionWindows {
   jobExecutionLogDays: number;
   dataSourceEventDays: number;
   llmCallLogDays: number;
   readingEventDays: number;
+  newsItemDays: number;
 }
 
 /** 单字段护栏（GET limits 每项：下限与默认，来自后端枚举常量）。 */
@@ -29,7 +31,7 @@ export interface RetentionWindowsView {
   updatedAt: string | null;
 }
 
-/** PATCH /retention/windows 请求：四字段全量整体替换 + 可选并发防呆（不符 → 30065/409）。 */
+/** PATCH /retention/windows 请求：五字段全量整体替换 + 可选并发防呆（不符 → 30065/409）。 */
 export interface RetentionWindowsUpdate extends RetentionWindows {
   expectedUpdatedAt?: string;
 }

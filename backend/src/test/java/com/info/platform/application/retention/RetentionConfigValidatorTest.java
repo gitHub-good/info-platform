@@ -43,7 +43,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .doesNotThrowAnyException();
     }
 
@@ -54,7 +54,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
-                                                + "\"llmCallLogDays\":35,\"readingEventDays\":35}"))
+                                                + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30}"))
                 .doesNotThrowAnyException();
     }
 
@@ -65,7 +65,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"readingEventDays\":90}"))
+                                                + "\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -82,7 +82,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":6,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("jobExecutionLogDays")
                 .hasMessageContaining("7");
@@ -90,21 +90,21 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":1,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .hasMessageContaining("dataSourceEventDays")
                 .hasMessageContaining("2");
         assertThatThrownBy(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":34,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":34,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .hasMessageContaining("llmCallLogDays")
                 .hasMessageContaining("35");
         assertThatThrownBy(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":0}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":0,\"newsItemDays\":0}"))
                 .hasMessageContaining("readingEventDays")
                 .hasMessageContaining("35");
     }
@@ -116,19 +116,19 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":\"30\",\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .hasMessageContaining("jobExecutionLogDays");
         assertThatThrownBy(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30.5,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .hasMessageContaining("jobExecutionLogDays");
         assertThatThrownBy(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":true,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .hasMessageContaining("jobExecutionLogDays");
     }
 
@@ -139,7 +139,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":0,\"dataSourceEventDays\":0,"
-                                                + "\"llmCallLogDays\":0,\"readingEventDays\":0}"))
+                                                + "\"llmCallLogDays\":0,\"readingEventDays\":0,\"newsItemDays\":0}"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("; ")
                 .hasMessageContaining("jobExecutionLogDays")
@@ -155,7 +155,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"futureField\":\"x\"}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"futureField\":\"x\"}"))
                 .doesNotThrowAnyException();
     }
 
@@ -166,7 +166,7 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":3650,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .doesNotThrowAnyException();
     }
 }

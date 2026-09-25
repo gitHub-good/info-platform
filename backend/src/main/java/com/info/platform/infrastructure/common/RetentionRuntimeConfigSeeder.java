@@ -11,9 +11,9 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * 留痕窗口种子（{@code retention.global}，T72，M10 技术方案增补 §4.1）：四字段默认窗口取 {@link RetentionLogTable} 枚举
- * defaultDays（30/14/90/90，代码内置默认，ADR-0032 同系列——无 yml 遗留可平移）。seed-if-absent 由配置中心统一执行 （DB 已有键不动，DB
- * 为权威）。
+ * 留痕窗口种子（{@code retention.global}，T72，M10 技术方案增补 §4.1；T113 扩 newsItemDays）：五字段默认窗口取 {@link
+ * RetentionLogTable} 枚举 defaultDays（30/14/90/90/180，代码内置默认，ADR-0032 同系列——无 yml 遗留可平移）。
+ * seed-if-absent 由配置中心统一执行（DB 已有键不动，DB 为权威——存量四字段键缺 newsItemDays 时执行侧字段级回退 180，保存一次即补齐五字段）。
  */
 @Component
 public class RetentionRuntimeConfigSeeder implements RuntimeConfigSeeder {
@@ -34,8 +34,8 @@ public class RetentionRuntimeConfigSeeder implements RuntimeConfigSeeder {
                 new RuntimeConfigSeed(
                         "retention.global",
                         write(doc),
-                        "留痕数据保留窗口（四张留痕表各自保留天数：任务日志/数据源事件/LLM 调用/阅读行为；"
-                                + "下限 7/2/35/35 天，改大=多留，保存即热生效——下一轮清理按新窗口）"));
+                        "留痕数据保留窗口（五张表各自保留天数：任务日志/数据源事件/LLM 调用/阅读行为/资讯条目；"
+                                + "下限 7/2/35/35/30 天，改大=多留，保存即热生效——下一轮清理按新窗口）"));
     }
 
     private String write(Map<String, Object> doc) {

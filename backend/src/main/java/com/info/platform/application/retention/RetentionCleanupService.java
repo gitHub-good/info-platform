@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 留痕清理服务（T71，方案 §4.5）：四张留痕表的过期行分批循环删除 + 统计汇总。
+ * 留痕清理服务（T71，方案 §4.5；T113 扩 news_item）：五张表的过期行分批循环删除 + 统计汇总。
  *
  * <p>执行流（每轮）：① 现读 {@code retention.global} 解析窗口（字段级回退防御）；② 逐表（枚举序固定，明细段序由此确定） cutoff = now −
  * 窗口（整秒截断）后分批循环删至返回值 &lt; 批大小；③ 单表失败 catch 续跑其余表，已删批部分计数仍入明细； ④ 轮末 INFO 单行摘要（行数 + 窗口 + 耗时，运维留档）；⑤
@@ -48,7 +48,7 @@ public class RetentionCleanupService {
     /**
      * 执行一轮清理（定时与手动触发共用入口，由 RetentionCleanupJob 委托）。
      *
-     * @return 合计删除行数与四段明细（供 JobRunStats 上报 SUCCESS 留痕）
+     * @return 合计删除行数与五段明细（供 JobRunStats 上报 SUCCESS 留痕）
      * @throws RetentionCleanupException 存在失败表（其余表已尽力删除，成功侧信息在异常消息）
      */
     public CleanupResult runOnce() {
@@ -77,15 +77,16 @@ public class RetentionCleanupService {
         }
         long total = counts.values().stream().mapToLong(Long::longValue).sum();
         String detail = detailOf(counts);
-        // INFO 摘要四表窗口齐载（D2：readingEventDays 曾缺失，段序=枚举序，方案 §3.2「含窗口与耗时」）
+        // INFO 摘要五表窗口齐载（D2：readingEventDays 曾缺失，段序=枚举序，方案 §3.2「含窗口与耗时」；T113 增 newsItemDays）
         log.info(
-                "留痕清理完成 共删除 {} 行（{}）窗口 {}/{}/{}/{} 天 耗时 {}ms",
+                "留痕清理完成 共删除 {} 行（{}）窗口 {}/{}/{}/{}/{} 天 耗时 {}ms",
                 total,
                 detail,
                 windows.jobExecutionLogDays(),
                 windows.dataSourceEventDays(),
                 windows.llmCallLogDays(),
                 windows.readingEventDays(),
+                windows.newsItemDays(),
                 (System.nanoTime() - startedNanos) / 1_000_000);
         if (!failures.isEmpty()) {
             throw new RetentionCleanupException(detail + " | 失败: " + String.join("; ", failures));
@@ -104,7 +105,7 @@ public class RetentionCleanupService {
         return clock.instant().minus(Duration.ofDays(days)).truncatedTo(ChronoUnit.SECONDS);
     }
 
-    /** 四段明细（段序=枚举序，全表恒四段）：{@code job_execution_log=n1; data_source_event=n2; …}。 */
+    /** 五段明细（段序=枚举序，全表恒五段）：{@code job_execution_log=n1; data_source_event=n2; …; news_item=n5}。 */
     private static String detailOf(Map<RetentionLogTable, Long> counts) {
         return java.util.Arrays.stream(RetentionLogTable.values())
                 .map(table -> table.physicalName() + "=" + counts.getOrDefault(table, 0L))
@@ -114,8 +115,8 @@ public class RetentionCleanupService {
     /**
      * 单轮清理结果（RetentionCleanupJob 经 JobRunStats 上报：processed_count=合计、error_message=明细）。
      *
-     * @param processedCount 四表删除合计
-     * @param detail 四段明细（ADR-0036 §2 固定格式）
+     * @param processedCount 五表删除合计
+     * @param detail 五段明细（ADR-0036 §2 固定格式，T113 起含 news_item 段）
      */
     public record CleanupResult(long processedCount, String detail) {}
 }

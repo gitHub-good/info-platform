@@ -47,7 +47,8 @@ class RetentionControllerTest {
         limits.put("dataSourceEventDays", new FieldLimits(2, 14));
         limits.put("llmCallLogDays", new FieldLimits(35, 90));
         limits.put("readingEventDays", new FieldLimits(35, 90));
-        return new WindowsView(new Windows(30, 14, 90, 90), limits, "2026-09-22T01:00:00Z");
+        limits.put("newsItemDays", new FieldLimits(30, 180));
+        return new WindowsView(new Windows(30, 14, 90, 90, 180), limits, "2026-09-22T01:00:00Z");
     }
 
     @Test
@@ -61,11 +62,14 @@ class RetentionControllerTest {
                 .andExpect(jsonPath("$.data.windows.dataSourceEventDays").value(14))
                 .andExpect(jsonPath("$.data.windows.llmCallLogDays").value(90))
                 .andExpect(jsonPath("$.data.windows.readingEventDays").value(90))
+                .andExpect(jsonPath("$.data.windows.newsItemDays").value(180))
                 .andExpect(jsonPath("$.data.limits.jobExecutionLogDays.min").value(7))
                 .andExpect(jsonPath("$.data.limits.jobExecutionLogDays.default").value(30))
                 .andExpect(jsonPath("$.data.limits.dataSourceEventDays.min").value(2))
                 .andExpect(jsonPath("$.data.limits.llmCallLogDays.min").value(35))
                 .andExpect(jsonPath("$.data.limits.readingEventDays.default").value(90))
+                .andExpect(jsonPath("$.data.limits.newsItemDays.min").value(30))
+                .andExpect(jsonPath("$.data.limits.newsItemDays.default").value(180))
                 .andExpect(jsonPath("$.data.updatedAt").value("2026-09-22T01:00:00Z"));
     }
 
@@ -78,7 +82,7 @@ class RetentionControllerTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
                                         "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,"
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
                                                 + "\"expectedUpdatedAt\":\"2026-09-22T01:00:00Z\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
@@ -99,7 +103,7 @@ class RetentionControllerTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
                                         "{\"jobExecutionLogDays\":0,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001))
                 .andExpect(jsonPath("$.msg").value("jobExecutionLogDays: 须 >= 7"));
@@ -117,7 +121,7 @@ class RetentionControllerTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
                                         "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,"
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
                                                 + "\"expectedUpdatedAt\":\"2026-09-22T00:00:00Z\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(30065));

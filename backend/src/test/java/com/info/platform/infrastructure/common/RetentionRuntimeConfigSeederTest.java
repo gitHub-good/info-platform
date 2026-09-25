@@ -8,9 +8,9 @@ import com.info.platform.application.common.RuntimeConfigSeed;
 import org.junit.jupiter.api.Test;
 
 /**
- * RetentionRuntimeConfigSeeder 单测（T72，M10 技术方案增补 §4.1）：retention.global 种子键形态与默认窗口 （枚举 defaultDays
- * 单一事实源 30/14/90/90）；seed-if-absent 幂等由 RuntimeConfigService.seedIfAbsent 通用机制保证 （DB
- * 已有键不动，已有测试覆盖），此处锁定种子结构与值。
+ * RetentionRuntimeConfigSeeder 单测（T72，M10 技术方案增补 §4.1；T113 扩 newsItemDays）：retention.global
+ * 种子键形态与默认窗口 （枚举 defaultDays 单一事实源 30/14/90/90/180）；seed-if-absent 幂等由
+ * RuntimeConfigService.seedIfAbsent 通用机制保证 （DB 已有键不动，已有测试覆盖），此处锁定种子结构与值。
  */
 class RetentionRuntimeConfigSeederTest {
 
@@ -27,17 +27,21 @@ class RetentionRuntimeConfigSeederTest {
         assertThat(seed.configKey()).isEqualTo("retention.global");
         assertThat(seed.description()).contains("留痕");
         JsonNode doc = objectMapper.readTree(seed.json());
-        // 四字段默认窗口 = 枚举 defaultDays（30/14/90/90，ADR-0032 代码内置默认同系列）
+        // 五字段默认窗口 = 枚举 defaultDays（30/14/90/90/180，ADR-0032 代码内置默认同系列；T113 newsItem=180）
         assertThat(doc.get("jobExecutionLogDays").asInt()).isEqualTo(30);
         assertThat(doc.get("dataSourceEventDays").asInt()).isEqualTo(14);
         assertThat(doc.get("llmCallLogDays").asInt()).isEqualTo(90);
         assertThat(doc.get("readingEventDays").asInt()).isEqualTo(90);
+        assertThat(doc.get("newsItemDays").asInt()).isEqualTo(180);
     }
 
     @Test
     void seeds_singleKey_jsonReserializable() {
         // 单键种子（与每表四键的形态对照：四字段恒同读同写，单文档无部分写中间态）
         assertThat(new RetentionRuntimeConfigSeeder(objectMapper).seeds()).hasSize(1);
-        assertThat(seed().json()).contains("jobExecutionLogDays").contains("readingEventDays");
+        assertThat(seed().json())
+                .contains("jobExecutionLogDays")
+                .contains("readingEventDays")
+                .contains("newsItemDays");
     }
 }

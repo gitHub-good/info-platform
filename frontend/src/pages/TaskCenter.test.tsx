@@ -114,7 +114,7 @@ function fiveJobs(): JobView[] {
   ];
 }
 
-/** 留痕窗口视图（对齐后端 GET /retention/windows 契约：默认窗口 30/14/90/90 + 下限 7/2/35/35）。 */
+/** 留痕窗口视图（对齐后端 GET /retention/windows 契约：默认窗口 30/14/90/90/180 + 下限 7/2/35/35/30；newsItemDays 为 M14 T113 扩键）。 */
 function retentionView() {
   return {
     windows: {
@@ -122,12 +122,14 @@ function retentionView() {
       dataSourceEventDays: 14,
       llmCallLogDays: 90,
       readingEventDays: 90,
+      newsItemDays: 180,
     },
     limits: {
       jobExecutionLogDays: { min: 7, default: 30 },
       dataSourceEventDays: { min: 2, default: 14 },
       llmCallLogDays: { min: 35, default: 90 },
       readingEventDays: { min: 35, default: 90 },
+      newsItemDays: { min: 30, default: 180 },
     },
     updatedAt: '2026-09-22T01:00:00Z',
   };
@@ -465,7 +467,7 @@ describe('TaskCenter 页面（T41）', () => {
 
   // —— RETENTION_CLEANUP 窗口分组（T73，M10 技术方案增补 §3.5：页面载体=任务中心编辑 Dialog） ——
 
-  it('RETENTION_CLEANUP 行渲染 + 编辑 Dialog：GET 预填四窗口 + 含义文案含各表下限', async () => {
+  it('RETENTION_CLEANUP 行渲染 + 编辑 Dialog：GET 预填五窗口 + 含义文案含各表下限', async () => {
     const store = makeStore();
     renderPage(store);
     const user = userEvent.setup();
@@ -474,7 +476,7 @@ describe('TaskCenter 页面（T41）', () => {
 
     await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
 
-    // Dialog 打开即 GET /retention/windows 预填（默认窗口 30/14/90/90）
+    // Dialog 打开即 GET /retention/windows 预填（默认窗口 30/14/90/90/180，T113 增资讯条目）
     await waitFor(() =>
       expect(
         store.fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/retention/windows')),
@@ -484,12 +486,14 @@ describe('TaskCenter 页面（T41）', () => {
     expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-dataSourceEventDays')).toHaveValue('14');
     expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-llmCallLogDays')).toHaveValue('90');
     expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-readingEventDays')).toHaveValue('90');
+    expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-newsItemDays')).toHaveValue('180');
 
     // 含义文案 + 下限提示（REQ 场景 5：口径交前端静态维护，下限来自 GET limits）
     expect(screen.getByText('Job 执行日志保留天数（≥7）')).toBeInTheDocument();
     expect(screen.getByText('数据源事件保留天数（≥2）')).toBeInTheDocument();
     expect(screen.getByText('LLM 调用日志保留天数（≥35）')).toBeInTheDocument();
     expect(screen.getByText('阅读行为保留天数（≥35）')).toBeInTheDocument();
+    expect(screen.getByText('资讯条目保留天数（≥30）')).toBeInTheDocument();
   });
 
   it('窗口低于下限前端拦截不发请求（提交前拦截，对齐后端校验器下限）', async () => {
@@ -524,7 +528,7 @@ describe('TaskCenter 页面（T41）', () => {
     await user.type(windowInput, '45');
     await user.click(screen.getByTestId('task-edit-save-RETENTION_CLEANUP'));
 
-    // 分域提交：调度走 /jobs、窗口走 /retention/windows（四字段全量 + 防呆时间戳）
+    // 分域提交：调度走 /jobs、窗口走 /retention/windows（五字段全量 + 防呆时间戳）
     await waitFor(() =>
       expect(
         store.fetchMock.mock.calls.some(
@@ -542,6 +546,7 @@ describe('TaskCenter 页面（T41）', () => {
           call[1]?.method === 'PATCH' &&
           String(call[1]?.body).includes('"jobExecutionLogDays":45') &&
           String(call[1]?.body).includes('"readingEventDays":90') &&
+          String(call[1]?.body).includes('"newsItemDays":180') &&
           String(call[1]?.body).includes('"expectedUpdatedAt":"2026-09-22T01:00:00Z"'),
       ),
     ).toBe(true);

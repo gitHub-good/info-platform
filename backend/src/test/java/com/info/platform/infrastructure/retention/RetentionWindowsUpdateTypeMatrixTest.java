@@ -16,7 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * PATCH /retention/windows 非法类型矩阵集成测试（D3 回归，PRD 故事 2 场景 3「非整数拒绝」）：四窗口字段按「JSON
+ * PATCH /retention/windows 非法类型矩阵集成测试（D3 回归，PRD 故事 2 场景 3「非整数拒绝」）：五窗口字段按「JSON
  * 整数」严格校验——"14x"/true/14.5/"14" 均须 2001 PARAM_INVALID 字段级「须为整数」且原值保留；null/缺失 2001「必填」；合法整数 14 正常采信。
  *
  * <p>经 Spring 共享 ObjectMapper 做 {@code readValue} 绑定（与 HTTP 层 HttpMessageConverter 同一绑定器同一语义）+ 真实
@@ -38,7 +38,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         facade.update(
                 bind(
                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                + "\"llmCallLogDays\":90,\"readingEventDays\":90}"));
+                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"));
     }
 
     /** 与 HTTP 层同一绑定语义：JSON 文本 → WindowsUpdate 记录。 */
@@ -68,7 +68,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // "14x"（D3 探针用例）：修前 Jackson 绑定 String→Integer 失败直落兜底 50000
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":\"14x\","
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -77,7 +77,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // true（D3 探针用例）：修前 Jackson 绑定 Boolean→Integer 失败直落兜底 50000
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":true,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -86,7 +86,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // 14.5（D3 探针用例）：修前静默截断为 14 采信，违背「非整数拒绝」字面契约
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14.5,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -95,7 +95,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // "14"（字符串数字）：JSON 字符串非 JSON 整数，同口径拒绝（修前会被 Jackson 字符串强转采信）
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":\"14\","
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -104,7 +104,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // null（矩阵完备）：字段级「必填」语义不变（修前修后一致）
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":null,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}",
                 "dataSourceEventDays: 必填");
     }
 
@@ -115,7 +115,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
                 facade.update(
                         bind(
                                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}"));
+                                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"));
 
         assertThat(view.windows().dataSourceEventDays()).isEqualTo(14);
         assertThat(currentWindows().dataSourceEventDays()).isEqualTo(14);

@@ -87,12 +87,13 @@ function userIdsError(raw: string): string | null {
 /** 留痕清理任务键（窗口分组仅该任务显示，对齐 userIds 仅 DAILY_RECOMMEND 的条件渲染先例）。 */
 const RETENTION_JOB_KEY = 'RETENTION_CLEANUP';
 
-/** 四窗口字段元数据：含义文案（REQ 场景 5 口径交前端静态维护）+ 静态下限兜底（GET limits 优先）。 */
+/** 五窗口字段元数据：含义文案（REQ 场景 5 口径交前端静态维护）+ 静态下限兜底（GET limits 优先）。newsItemDays 为 M14 T113 扩键。 */
 const RETENTION_FIELDS: { field: RetentionWindowField; label: string; fallbackMin: number }[] = [
   { field: 'jobExecutionLogDays', label: 'Job 执行日志保留天数', fallbackMin: 7 },
   { field: 'dataSourceEventDays', label: '数据源事件保留天数', fallbackMin: 2 },
   { field: 'llmCallLogDays', label: 'LLM 调用日志保留天数', fallbackMin: 35 },
   { field: 'readingEventDays', label: '阅读行为保留天数', fallbackMin: 35 },
+  { field: 'newsItemDays', label: '资讯条目保留天数', fallbackMin: 30 },
 ];
 
 /** 窗口字段粗校验：整型且 ≥ 下限（对齐后端 RetentionConfigValidator 下限口径）。 */
@@ -204,7 +205,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   );
   const [cron, setCron] = useState(job.cron ?? '');
   const [userIds, setUserIds] = useState(job.userIds ?? '');
-  // 保留窗口四字段（字符串态）+ 加载基线（dirty 比对）+ 下限/默认（GET limits，静态兜底）+ 防呆时间戳
+  // 保留窗口五字段（字符串态）+ 加载基线（dirty 比对）+ 下限/默认（GET limits，静态兜底）+ 防呆时间戳
   const [windows, setWindows] = useState<Record<RetentionWindowField, string> | null>(null);
   const [windowsLoaded, setWindowsLoaded] = useState<Record<RetentionWindowField, string> | null>(
     null,
@@ -236,6 +237,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
           dataSourceEventDays: String(view.windows.dataSourceEventDays),
           llmCallLogDays: String(view.windows.llmCallLogDays),
           readingEventDays: String(view.windows.readingEventDays),
+          newsItemDays: String(view.windows.newsItemDays),
         };
         setWindows(loaded);
         setWindowsLoaded(loaded);
@@ -316,6 +318,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
           dataSourceEventDays: Number(windows?.dataSourceEventDays),
           llmCallLogDays: Number(windows?.llmCallLogDays),
           readingEventDays: Number(windows?.readingEventDays),
+          newsItemDays: Number(windows?.newsItemDays),
           expectedUpdatedAt: windowsUpdatedAt ?? undefined,
         });
         changed.push('windows');

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.info.platform.domain.retention.RetentionLogTable;
 
 /**
- * 留痕保留窗口的类型化视图（T71，方案 §4.2 执行侧防御）：四表各自保留天数。
+ * 留痕保留窗口的类型化视图（T71，方案 §4.2 执行侧防御；T113 扩 newsItemDays）：五表各自保留天数。
  *
  * <p><b>每轮现读</b>：{@link RetentionCleanupService} 在每轮 run() 内读取当前快照解析（用时读取即热生效，改窗口下一轮按新界）。
  * 解析规则（字段级回退，{@link #resolve}）：字段存在且为整型且 ≥ 表下限 → 采信；否则回退该表 {@code defaultDays}
@@ -16,7 +16,8 @@ public record RetentionWindows(
         int jobExecutionLogDays,
         int dataSourceEventDays,
         int llmCallLogDays,
-        int readingEventDays) {
+        int readingEventDays,
+        int newsItemDays) {
 
     /** 全默认窗口（键缺失/文档损坏时的兜底，值取枚举 defaultDays 单一事实源）。 */
     public static RetentionWindows defaults() {
@@ -33,16 +34,18 @@ public record RetentionWindows(
                 dayOf(doc, RetentionLogTable.JOB_EXECUTION_LOG),
                 dayOf(doc, RetentionLogTable.DATA_SOURCE_EVENT),
                 dayOf(doc, RetentionLogTable.LLM_CALL_LOG),
-                dayOf(doc, RetentionLogTable.READING_EVENT));
+                dayOf(doc, RetentionLogTable.READING_EVENT),
+                dayOf(doc, RetentionLogTable.NEWS_ITEM));
     }
 
-    /** 按表取窗口（四表独立判定）。 */
+    /** 按表取窗口（五表独立判定）。 */
     public int of(RetentionLogTable table) {
         return switch (table) {
             case JOB_EXECUTION_LOG -> jobExecutionLogDays;
             case DATA_SOURCE_EVENT -> dataSourceEventDays;
             case LLM_CALL_LOG -> llmCallLogDays;
             case READING_EVENT -> readingEventDays;
+            case NEWS_ITEM -> newsItemDays;
         };
     }
 

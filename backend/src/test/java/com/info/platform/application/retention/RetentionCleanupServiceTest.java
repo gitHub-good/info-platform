@@ -40,7 +40,7 @@ class RetentionCleanupServiceTest {
 
     private static final String DEFAULT_DOC =
             "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                    + "\"llmCallLogDays\":90,\"readingEventDays\":90}";
+                    + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RuntimeConfigService configService = mock(RuntimeConfigService.class);
@@ -75,7 +75,7 @@ class RetentionCleanupServiceTest {
         // Arrange：30/14 交叉窗口 + 40/50（各表窗口互不相同，验证独立判定）
         stubConfig(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                        + "\"llmCallLogDays\":40,\"readingEventDays\":50}");
+                        + "\"llmCallLogDays\":40,\"readingEventDays\":50,\"newsItemDays\":200}");
         when(deleter.deleteExpiredBefore(
                         eq(RetentionLogTable.JOB_EXECUTION_LOG),
                         eq(Instant.parse("2026-08-23T03:30:00Z")),
@@ -104,7 +104,7 @@ class RetentionCleanupServiceTest {
         assertThat(result.processedCount()).isEqualTo(6L);
         assertThat(result.detail())
                 .isEqualTo(
-                        "job_execution_log=2; data_source_event=0; llm_call_log=1; reading_event=3");
+                        "job_execution_log=2; data_source_event=0; llm_call_log=1; reading_event=3; news_item=0");
     }
 
     @Test
@@ -122,7 +122,7 @@ class RetentionCleanupServiceTest {
         assertThat(result.processedCount()).isZero();
         assertThat(result.detail())
                 .isEqualTo(
-                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0");
+                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0; news_item=0");
     }
 
     @Test
@@ -130,7 +130,7 @@ class RetentionCleanupServiceTest {
         // Arrange：job_execution_log 三批 500+500+12（首轮 1.6 万行 ≈32 批的同构缩影）
         stubConfig(
                 "{\"jobExecutionLogDays\":10,\"dataSourceEventDays\":14,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}");
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}");
         Instant cutoff = Instant.parse("2026-09-12T03:30:00Z");
         when(deleter.deleteExpiredBefore(
                         eq(RetentionLogTable.JOB_EXECUTION_LOG), eq(cutoff), eq(500)))
@@ -183,7 +183,7 @@ class RetentionCleanupServiceTest {
         // Arrange：jobExecutionLogDays 被直写为 0（绕过校验器）——执行侧回退 30，dataSourceEventDays=5 照常采信
         stubConfig(
                 "{\"jobExecutionLogDays\":0,\"dataSourceEventDays\":5,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90}");
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":0}");
         when(deleter.deleteExpiredBefore(
                         any(RetentionLogTable.class), any(Instant.class), anyInt()))
                 .thenReturn(0L);
@@ -263,7 +263,7 @@ class RetentionCleanupServiceTest {
         assertThat(second.processedCount()).isZero();
         assertThat(second.detail())
                 .isEqualTo(
-                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0");
+                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0; news_item=0");
     }
 
     @Test
@@ -290,7 +290,7 @@ class RetentionCleanupServiceTest {
         assertThat(summary.getLevel()).isEqualTo(Level.INFO);
         assertThat(summary.getFormattedMessage())
                 .contains("共删除 0 行")
-                .contains("窗口 30/14/90/90 天")
+                .contains("窗口 30/14/90/90/180 天")
                 .contains("耗时 ");
     }
 
@@ -311,7 +311,7 @@ class RetentionCleanupServiceTest {
         // Act：热改为 7 天（无重启、无事件依赖——用时读取即热）
         stubConfig(
                 "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
-                        + "\"llmCallLogDays\":35,\"readingEventDays\":35}");
+                        + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30}");
         service.runOnce();
 
         // Assert：第二轮按新界 7 天判定（改大窗口不复活已删行——REQ 裁决，天然满足）
