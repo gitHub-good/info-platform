@@ -196,13 +196,18 @@ class DeepSeekAdapterTest {
 
     /** 断言请求体与 Bearer 头（response_format=json_object 等，Spike-2 §4.1 契约）。 */
     private void assertDeepSeekRequestBody(MockRestServiceServer server, String expectedModel) {
+        assertDeepSeekRequestBody(server, expectedModel, 8192);
+    }
+
+    private void assertDeepSeekRequestBody(
+            MockRestServiceServer server, String expectedModel, int expectedMaxTokens) {
         server.expect(requestTo(containsString("/chat/completions")))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(jsonPath("$.model", is(expectedModel)))
                 .andExpect(jsonPath("$.response_format.type", is("json_object")))
                 .andExpect(jsonPath("$.messages[0].role", is("system")))
                 .andExpect(jsonPath("$.messages[1].role", is("user")))
-                .andExpect(jsonPath("$.max_tokens", is(2048)))
+                .andExpect(jsonPath("$.max_tokens", is(expectedMaxTokens)))
                 .andExpect(jsonPath("$.stream", is(false)))
                 .andExpect(
                         req ->
