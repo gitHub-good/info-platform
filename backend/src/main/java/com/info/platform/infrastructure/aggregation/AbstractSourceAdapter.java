@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -120,6 +121,20 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
      * DataSourceConfigFacadeImpl} 连通性测试调用，不进对外契约。
      */
     SourceResult fetchFresh(Subject subject) {
+        return runGuarded(subject, () -> doFetch(subject));
+    }
+
+    /**
+     * 取数守护骨架（M12 ADR-0037 决策 2 从 fetchFresh 提取）：熔断闸门 → 超时/重试取数动作 → 事件旁路 → 字段映射 → 返回，
+     * <b>不读写缓存</b>。
+     *
+     * <p>{@link #fetchFresh}（首屏聚合，外层另包 SourceCache）与各子类 {@code fetchPage}（分区翻页，绕缓存直调源）共用本骨架——
+     * 三态语义（ok/missing/failed/timeout）与降级不阻断原则由<b>同一段代码产出</b>，口径一致性由构造保证（ADR-0037 理由第 3 条）。
+     *
+     * @param subject 标的（降级/事件留痕的上下文）
+     * @param fetch 取数动作（返回 empty 表示源无数据 → MISSING；抛异常 → 经弹性降级）
+     */
+    protected SourceResult runGuarded(Subject subject, Callable<Optional<RawFetch>> fetch) {
         SourceCode code = sourceCode();
         Long subjectId = subject.getId();
 
@@ -131,7 +146,7 @@ public abstract class AbstractSourceAdapter implements SourceAdapter {
 
         Optional<RawFetch> raw;
         try {
-            raw = resilienceRunner.run(() -> doFetch(subject), resilienceSpec(), code);
+            raw = resilienceRunner.run(fetch::call, resilienceSpec(), code);
             circuitBreaker.recordSuccess(code);
         } catch (ResilienceException e) {
             circuitBreaker.recordFailure(code);

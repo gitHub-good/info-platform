@@ -80,7 +80,8 @@ class DataSourceRuntimeConfigSeederTest {
 
         assertThat(params.path("announceUrl").asText())
                 .isEqualTo("https://np-anotice-stock.eastmoney.com/api/security/ann");
-        assertThat(params.path("announcePageSize").asInt()).isEqualTo(3);
+        // M12（REQ-20260925-09）：公告分区页码分页，announcePageSize 缺省 3→10（存量 DB 行经 V19 条件迁移对齐）
+        assertThat(params.path("announcePageSize").asInt()).isEqualTo(10);
         assertThat(params.path("announceDetailUrlTemplate").asText())
                 .isEqualTo("https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
         // ADR-0032 补齐：原 yml adapter.eastmoney.announce-referer 迁入 params（T36 时 client 热读但种子缺键）

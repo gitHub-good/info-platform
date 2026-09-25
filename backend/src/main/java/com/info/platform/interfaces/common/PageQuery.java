@@ -57,6 +57,49 @@ public final class PageQuery {
     }
 
     /**
+     * 分区子端点必填页码校验（M12 详情分区分页，ADR-0037 决策 1）：page 缺席/小于 1 → 400； 可带端点专属上限（公告
+     * 5 页——超限 msg 引导走源站，外呼放大封顶由此成立）；上限兜底 {@link #MAX_PAGE}（防 offset 溢出）。
+     *
+     * @param page page 参数；null = 缺席（子端点 page 必填，与列表双模式不同）
+     * @param maxPage 端点页码上限（公告 5 / 其余传 {@link #MAX_PAGE}）
+     * @param overLimitMessage 超上限 msg（仅用于 msg）
+     * @return 归一化页码（≥1 且 ≤maxPage）
+     */
+    public static int requirePage(Integer page, int maxPage, String overLimitMessage) {
+        if (page == null) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "page 不能为空");
+        }
+        if (page < 1) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "page 至少为 1");
+        }
+        if (page > maxPage) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, overLimitMessage);
+        }
+        return page;
+    }
+
+    /**
+     * 分区子端点可选页大小边界校验（M12）：显式传值时 1~50 越界 400 <b>拒绝不截断</b>（复用 {@link #MAX_SIZE} 口径）； 缺席返回
+     * null，缺省值归应用层按端点语义解析（公告 = 运行时 announcePageSize / 事件 = 10——子端点缺省与列表 DEFAULT_SIZE
+     * 语义不同，不在共用件内固化）。
+     *
+     * @param size size 参数；null = 缺席
+     * @return 归一化页大小；缺席返回 null
+     */
+    public static Integer requireSizeIfPresent(Integer size) {
+        if (size == null) {
+            return null;
+        }
+        if (size < 1) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "size 至少为 1");
+        }
+        if (size > MAX_SIZE) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "size 超过上限 " + MAX_SIZE);
+        }
+        return size;
+    }
+
+    /**
      * 解析页码模式参数组（模式判别 + 边界校验）。
      *
      * @param page page 参数；null = 缺席

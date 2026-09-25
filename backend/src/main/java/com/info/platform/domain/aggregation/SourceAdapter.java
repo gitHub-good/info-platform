@@ -19,6 +19,22 @@ public interface SourceAdapter {
      */
     SourceResult fetch(Subject subject);
 
+    /**
+     * 分区子端点分页取数（M12 详情分区分页，ADR-0037 决策 2）：「看更多」翻页路径， <b>绕过 SourceCache 快照缓存直调源</b>（每请求恰好一次外呼，
+     * 首屏聚合缓存不动）。
+     *
+     * <p>三态语义与 {@link #fetch} 同骨架同口径（基础设施层 {@code AbstractSourceAdapter#runGuarded}：熔断→弹性→事件旁路→降级，
+     * 不读写缓存）。默认不支持分页——支持翻页的源（公告/新闻/事件）显式覆写，其余源调用即抛 {@link
+     * UnsupportedOperationException}（fail-fast，不静默退化为第一页）。
+     *
+     * @param subject 标的（含外部代码映射）
+     * @param page 页码（≥1；公告端点另有 5 页产品上限，由接口层校验）
+     * @param size 页大小（新闻源忽略——源页大小是运维配置 {@code newsPageSize}，不属调用方自由度）
+     */
+    default SourceResult fetchPage(Subject subject, int page, int size) {
+        throw new UnsupportedOperationException("源不支持分页取数: " + sourceCode());
+    }
+
     /** 本源标识（六类之一），用作缓存/限频/熔断分区键。 */
     SourceCode sourceCode();
 

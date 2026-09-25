@@ -79,7 +79,7 @@ class CninfoAnnounceClientTest {
                 .andExpect(
                         content().string(org.hamcrest.Matchers.containsString("isHLtitle=false")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("pageNum=1")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("pageSize=3")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("pageSize=10")))
                 .andExpect(header("User-Agent", org.hamcrest.Matchers.containsString("Mozilla")))
                 .andRespond(withSuccess(QUERY_JSON, MediaType.APPLICATION_JSON));
 

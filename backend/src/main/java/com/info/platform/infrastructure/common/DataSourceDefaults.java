@@ -152,7 +152,8 @@ public final class DataSourceDefaults {
             case ANNOUNCE -> {
                 params.put(
                         "announceUrl", "https://np-anotice-stock.eastmoney.com/api/security/ann");
-                params.put("announcePageSize", 3);
+                // M12（REQ-20260925-09）：公告分区页码分页，缺省 3→10（存量 DB 行经 V19 条件迁移对齐，校验收紧 1~50）
+                params.put("announcePageSize", 10);
                 params.put(
                         "announceDetailUrlTemplate",
                         "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf");
@@ -171,7 +172,11 @@ public final class DataSourceDefaults {
                 params.put("newsReferer", "https://finance.sina.com.cn");
             }
             case POLICY -> {
-                params.put("policyUrl", "https://www.gov.cn/zhengce/");
+                // M12 T93（方案 §1.2 实测 3/4）：zuixin HTML 列表为 AJAX 空壳，缺省改指静态 ZUIXINZHENGCE.json
+                // （存量 DB 行经 V20 条件迁移对齐；页面手改回 HTML URL 即回退，GovPolicyClient 双分支兼容）
+                params.put(
+                        "policyUrl", "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json");
+                params.put("policyMaxItems", 30);
                 params.put("policyReferer", "https://www.gov.cn/");
             }
             case EVENT -> {

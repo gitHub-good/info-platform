@@ -109,6 +109,51 @@ class DataSourceConfigValidatorTest {
                 "announcePageSize");
     }
 
+    // ---- M12：announcePageSize 收紧 1~50 / POLICY 白名单增 policyMaxItems 1~100（T90/T93） ----
+
+    @Test
+    void announcePageSize_overFifty_rejected() {
+        // ADR-0037 跟进：升级为子端点页大小缺省后收紧 1~50（对齐 PageQuery MAX_SIZE，防误配大页打爆外呼）
+        assertInvalid(
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":1000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":300,"
+                        + "\"params\":{\"announceUrl\":\"https://a.example.com\",\"announcePageSize\":51}}",
+                "announcePageSize");
+    }
+
+    @Test
+    void announcePageSize_atUpperBound_accepted() {
+        assertThatCode(
+                        () ->
+                                validator.validate(
+                                        "datasource.ANNOUNCE",
+                                        objectMapper.readTree(
+                                                "{\"enabled\":true,\"mode\":\"REAL\","
+                                                        + "\"timeoutMillis\":1000,\"retries\":0,"
+                                                        + "\"cacheTtlSeconds\":300,"
+                                                        + "\"params\":{\"announceUrl\":"
+                                                        + "\"https://a.example.com\","
+                                                        + "\"announcePageSize\":50}}")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void policyMaxItems_withinRange_accepted_outOfRangeRejected() {
+        String base =
+                "{\"enabled\":true,\"mode\":\"REAL\",\"timeoutMillis\":2000,\"retries\":0,"
+                        + "\"cacheTtlSeconds\":600,"
+                        + "\"params\":{\"policyUrl\":\"https://www.gov.cn/zhengce/\","
+                        + "\"policyMaxItems\":%d}}";
+        assertThatCode(
+                        () ->
+                                validator.validate(
+                                        "datasource.POLICY",
+                                        objectMapper.readTree(base.formatted(100))))
+                .doesNotThrowAnyException();
+        assertInvalid("datasource.POLICY", base.formatted(0), "policyMaxItems");
+        assertInvalid("datasource.POLICY", base.formatted(101), "policyMaxItems");
+    }
+
     @Test
     void unknownParamKey_rejected() {
         assertInvalid(

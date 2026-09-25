@@ -454,6 +454,70 @@ class AggregationServiceTest {
         assertThat(quotes.get(0).quote()).isNull();
     }
 
+    // ---- M12：sectionPagination 附加键（T90 公告 / T91 事件） ----
+
+    @Test
+    void getDetail_announceOkWithPaginationMeta_exposesSectionPagination() {
+        // M12（ADR-0037 决策 3）：公告分区 ok 且 data 携带分页元数据 → 附加键透出首屏总数（搭取数便车，零新增外呼）
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        List<SourceAdapter> adapters =
+                List.of(
+                        okAdapter(
+                                SourceCode.ANNOUNCE,
+                                Map.of(
+                                        "items",
+                                        List.of(Map.<String, Object>of("title", "ann1")),
+                                        "total",
+                                        1074L,
+                                        "paginationSupported",
+                                        true,
+                                        "moreUrl",
+                                        "https://data.eastmoney.com/notices/stock/600519.html")),
+                        okAdapter(
+                                SourceCode.EVENT,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.<String, Object>of(
+                                                        "anomalyType", "PRICE_CHANGE")),
+                                        "total",
+                                        37L)));
+        AggregationService service =
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
+
+        SubjectDetail detail = service.getDetail(1L, Set.of(SourceCode.ANNOUNCE, SourceCode.EVENT));
+
+        assertThat(detail.sectionPagination()).isNotNull();
+        assertThat(detail.sectionPagination().announce()).isNotNull();
+        assertThat(detail.sectionPagination().announce().total()).isEqualTo(1074L);
+        assertThat(detail.sectionPagination().announce().paginationSupported()).isTrue();
+        assertThat(detail.sectionPagination().announce().moreUrl())
+                .isEqualTo("https://data.eastmoney.com/notices/stock/600519.html");
+        assertThat(detail.sectionPagination().event()).isNotNull();
+        assertThat(detail.sectionPagination().event().total()).isEqualTo(37L);
+        // 既有键不受附加键影响（items 照常提取）
+        assertThat(detail.announcements()).hasSize(1);
+        assertThat(detail.events()).hasSize(1);
+    }
+
+    @Test
+    void getDetail_noPageableSectionOk_sectionPaginationAbsent() {
+        // 全部分区非 ok 或无分页元数据 → 附加键整体 null（非破坏：前端既有消费方零感知）
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        List<SourceAdapter> adapters =
+                List.of(
+                        okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
+                        missingAdapter(SourceCode.ANNOUNCE),
+                        missingAdapter(SourceCode.EVENT));
+        AggregationService service =
+                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
+
+        SubjectDetail detail = service.getDetail(1L, Set.of());
+
+        assertThat(detail.sectionPagination()).isNull();
+        assertThat(detail.sourceStatus().get("announce")).isEqualTo("missing");
+    }
+
     private static Subject subject(Long id) {
         return subject(id, SubjectType.STOCK);
     }

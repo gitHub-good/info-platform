@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.aggregation;
 import com.info.platform.domain.aggregation.FallbackChains;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceProvider;
+import com.info.platform.domain.aggregation.SourceResult;
 import com.info.platform.domain.aggregation.SourceProviders;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectType;
@@ -97,11 +98,35 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
     private static final String SOURCE_NOUN = "公告";
 
     /**
-     * 模板层 map 步骤用：整张 data map（{@code {"items":[...]}}）的 items 列表原样透传。 逐条字段映射在取数路径内用 {@link
-     * #itemMapping} 完成。
+     * 模板层 map 步骤用：整张 data map（{@code {"items":[...], "total":..., ...}}）的 items 列表与分页元数据 原样透传。
+     * 逐条字段映射在取数路径内用 {@link #itemMapping} 完成。M12 T90 增 total（东财 total_hits）/paginationSupported（巨潮
+     * false）/moreUrl（源站列表出口）三键——首屏聚合路径经 AggregationService 提取进 sectionPagination， 子端点路径由
+     * SubjectSectionPageService 提取进 AnnouncementPageView（FieldMapper 白名单语义：缺失/null 键不产出）。
      */
     private static final List<FieldMapping> ITEMS_PASSTHROUGH =
-            List.of(new FieldMapping("items", "items", Transform.NONE));
+            List.of(
+                    new FieldMapping("items", "items", Transform.NONE),
+                    new FieldMapping("total", "total", Transform.NONE),
+                    new FieldMapping("paginationSupported", "paginationSupported", Transform.NONE),
+                    new FieldMapping("moreUrl", "moreUrl", Transform.NONE));
+
+    /** 源站公告列表出口（moreUrl，东财生效）：按 6 位代码拼个股公告列表页（方案 §4.1.1）。 */
+    private static final String EASTMONEY_LIST_URL_TEMPLATE =
+            "https://data.eastmoney.com/notices/stock/{code}.html";
+
+    /** 源站公告列表出口（moreUrl，巨潮生效）：按 6 位代码拼全文检索页。 */
+    private static final String CNINFO_LIST_URL_TEMPLATE =
+            "https://www.cninfo.com.cn/new/fulltextSearch?notautosubmit=&keyWord={code}";
+
+    /** 分页数据键（items 之外的三键经 {@link #ITEMS_PASSTHROUGH} 透传；可缺——白名单语义不产出）。 */
+    static final String KEY_TOTAL = "total";
+
+    static final String KEY_PAGINATION_SUPPORTED = "paginationSupported";
+
+    static final String KEY_MORE_URL = "moreUrl";
+
+    /** 首页页码（首屏聚合固定第一页）。 */
+    private static final int PAGE_INDEX_FIRST = 1;
 
     private final EastMoneyAnnounceClient client;
     private final CninfoAnnounceClient cninfoClient;
@@ -152,12 +177,42 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
                 (provider, label) -> fetchByProvider(subject, provider, label));
     }
 
-    /** 按 provider 取数（链已按注册表校验/兜底，注册表外 provider 防御性快速失败）。 */
+    /**
+     * 分区子端点分页取数（M12 T90，ADR-0037 决策 2）：绕过 SourceCache 直调源，走降级链与 {@code fetch} 同骨架。
+     *
+     * <p>语义细则（方案 §4.1.1/§4.3.1）：东财生效 → 指定页条目 + {@code total_hits} 总数 + {@code paginationSupported:true}；
+     * 越界页（page 合法但超出源总页数）→ 200 空列表 + total 如实（<b>不触发</b>巨潮兜底——东财成功返回）； 东财失败走巨潮 →
+     * page=1 返回巨潮第一页 + {@code paginationSupported:false} + total 不产出；page&gt;1 巨潮接住 → 空列表 +
+     * {@code paginationSupported:false}（前端渲染降级文案）。moreUrl 恒透出（按生效 provider 构造源站列表出口）。
+     */
+    @Override
+    public SourceResult fetchPage(Subject subject, int page, int size) {
+        return runGuarded(
+                subject,
+                () ->
+                        FallbackChainRunner.fetch(
+                                SOURCE_NOUN,
+                                currentChain(),
+                                (provider, label) ->
+                                        fetchPageByProvider(subject, provider, label, page, size)));
+    }
+
+    /** 按 provider 取数（首屏第一页，页大小走运行时 announcePageSize；链外 provider 防御性快速失败）。 */
     private Optional<RawFetch> fetchByProvider(
             Subject subject, SourceProvider provider, String label) {
         return switch (provider) {
             case EASTMONEY -> fetchFromEastMoney(subject, label);
             case CNINFO -> fetchFromCninfo(subject, label);
+            default -> throw new IllegalArgumentException("公告源未接入 provider: " + provider);
+        };
+    }
+
+    /** 按 provider 分页取数（子端点路径，页大小为调用方显式值）。 */
+    private Optional<RawFetch> fetchPageByProvider(
+            Subject subject, SourceProvider provider, String label, int page, int size) {
+        return switch (provider) {
+            case EASTMONEY -> fetchPageFromEastMoney(subject, label, page, size);
+            case CNINFO -> fetchPageFromCninfo(subject, label, page);
             default -> throw new IllegalArgumentException("公告源未接入 provider: " + provider);
         };
     }
@@ -182,31 +237,59 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
         return FallbackChains.resolve(rawChain, null, PROVIDERS);
     }
 
-    /** 东财路径（既有逻辑，label 按链位标注）：空列表（无公告/代码不存在）→ empty（→ 尝试下一级 / MISSING）。 */
+    /**
+     * 东财路径·首屏第一页（label 按链位标注）：条目空（无公告/代码不存在/源空响应）→ empty（→ 尝试下一级 / MISSING，
+     * 既有 ISSUE-A 语义不变）；有条目则附带分页元数据（total=total_hits / paginationSupported=true / moreUrl）。
+     */
     private Optional<RawFetch> fetchFromEastMoney(Subject subject, String label) {
         String stockCode = resolveStockCode(subject);
         if (stockCode == null) {
             return Optional.empty();
         }
-        Optional<List<Map<String, Object>>> rawList = client.fetchAnnouncements(stockCode);
-        if (rawList.isEmpty()) {
+        Optional<EastMoneyAnnounceClient.AnnouncePage> page =
+                client.fetchAnnouncementPage(stockCode, PAGE_INDEX_FIRST);
+        if (page.isEmpty() || page.get().items().isEmpty()) {
             return Optional.empty();
         }
-        List<Map<String, Object>> items = new ArrayList<>(rawList.get().size());
-        for (Map<String, Object> raw : rawList.get()) {
-            Map<String, Object> flat = flatten(raw);
-            Map<String, Object> item = mappedItem(flat);
-            Object artCode = flat.get("art_code");
-            if (artCode != null) {
-                // url 为构造项（Spike-1 §4.4），非源字段映射，由 art_code 拼详情 PDF 直链。
-                item.put("url", client.detailUrlOf(String.valueOf(artCode)));
-            }
-            items.add(Collections.unmodifiableMap(item));
-        }
-        return Optional.of(itemsFetch(items, label));
+        EastMoneyAnnounceClient.AnnouncePage result = page.get();
+        return Optional.of(
+                itemsFetch(
+                        mappedItems(result.items()),
+                        result.totalHits(),
+                        true,
+                        eastmoneyListUrlOf(stockCode),
+                        label));
     }
 
-    /** 巨潮路径：client 已输出东财 flat 条目 → 同一 itemMapping 逐条映射 → adjunct_url 拼详情直链。 */
+    /**
+     * 东财路径·子端点分页：越界页（条目空但 total_hits&gt;0）→ present 空列表 + total 如实（200 空页，不触发巨潮兜底）；
+     * 条目与总数皆空 → empty（→ 尝试下一级 / MISSING）。
+     */
+    private Optional<RawFetch> fetchPageFromEastMoney(
+            Subject subject, String label, int page, int size) {
+        String stockCode = resolveStockCode(subject);
+        if (stockCode == null) {
+            return Optional.empty();
+        }
+        Optional<EastMoneyAnnounceClient.AnnouncePage> result =
+                client.fetchAnnouncementPage(stockCode, page, size);
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+        EastMoneyAnnounceClient.AnnouncePage announcePage = result.get();
+        if (announcePage.items().isEmpty() && announcePage.totalHits() <= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(
+                itemsFetch(
+                        mappedItems(announcePage.items()),
+                        announcePage.totalHits(),
+                        true,
+                        eastmoneyListUrlOf(stockCode),
+                        label));
+    }
+
+    /** 巨潮路径·首屏：client 已输出东财 flat 条目 → 同一 itemMapping 逐条映射；paginationSupported=false（仅第一页）。 */
     private Optional<RawFetch> fetchFromCninfo(Subject subject, String label) {
         String stockCode = resolveStockCode(subject);
         if (stockCode == null) {
@@ -216,8 +299,53 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
         if (rawList.isEmpty()) {
             return Optional.empty();
         }
-        List<Map<String, Object>> items = new ArrayList<>(rawList.get().size());
-        for (Map<String, Object> flat : rawList.get()) {
+        return Optional.of(
+                itemsFetch(
+                        mappedCninfoItems(rawList.get()),
+                        null,
+                        false,
+                        cninfoListUrlOf(stockCode),
+                        label));
+    }
+
+    /**
+     * 巨潮路径·子端点分页：page=1 同首屏（第一页条目 + 降级标注）；page&gt;1 → 空列表 + {@code
+     * paginationSupported:false}（方案 §4.1.1：巨潮仅第一页，前端据 false 渲染降级文案，不视为错误）。
+     */
+    private Optional<RawFetch> fetchPageFromCninfo(Subject subject, String label, int page) {
+        if (page > PAGE_INDEX_FIRST) {
+            String stockCode = resolveStockCode(subject);
+            return Optional.of(
+                    itemsFetch(
+                            List.of(),
+                            null,
+                            false,
+                            stockCode == null ? null : cninfoListUrlOf(stockCode),
+                            label));
+        }
+        return fetchFromCninfo(subject, label);
+    }
+
+    /** 东财原始条目批量映射（拍平嵌套 → 逐条 itemMapping → art_code 拼详情 PDF 直链）。 */
+    private List<Map<String, Object>> mappedItems(List<Map<String, Object>> rawList) {
+        List<Map<String, Object>> items = new ArrayList<>(rawList.size());
+        for (Map<String, Object> raw : rawList) {
+            Map<String, Object> flat = flatten(raw);
+            Map<String, Object> item = mappedItem(flat);
+            Object artCode = flat.get("art_code");
+            if (artCode != null) {
+                // url 为构造项（Spike-1 §4.4），非源字段映射，由 art_code 拼详情 PDF 直链。
+                item.put("url", client.detailUrlOf(String.valueOf(artCode)));
+            }
+            items.add(Collections.unmodifiableMap(item));
+        }
+        return items;
+    }
+
+    /** 巨潮原始条目批量映射（client 已输出东财 flat 结构 → adjunct_url 拼详情直链）。 */
+    private List<Map<String, Object>> mappedCninfoItems(List<Map<String, Object>> rawList) {
+        List<Map<String, Object>> items = new ArrayList<>(rawList.size());
+        for (Map<String, Object> flat : rawList) {
             Map<String, Object> item = mappedItem(flat);
             Object adjunctUrl = flat.get("adjunct_url");
             if (adjunctUrl != null) {
@@ -226,11 +354,41 @@ public class AnnounceSourceAdapter extends AbstractSourceAdapter {
             }
             items.add(Collections.unmodifiableMap(item));
         }
-        return Optional.of(itemsFetch(items, label));
+        return items;
     }
 
-    private static RawFetch itemsFetch(List<Map<String, Object>> items, String label) {
-        return new RawFetch(Map.of("items", List.copyOf(items)), label, Instant.now());
+    /**
+     * 条目列表 + 分页元数据 → RawFetch.data。total/paginationSupported/moreUrl 可空（巨潮无总数、降级无出口），
+     * null 键不放入（FieldMapper 白名单语义下不产出目标键）。
+     */
+    private static RawFetch itemsFetch(
+            List<Map<String, Object>> items,
+            Long total,
+            Boolean paginationSupported,
+            String moreUrl,
+            String label) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("items", List.copyOf(items));
+        if (total != null) {
+            data.put(KEY_TOTAL, total);
+        }
+        if (paginationSupported != null) {
+            data.put(KEY_PAGINATION_SUPPORTED, paginationSupported);
+        }
+        if (moreUrl != null && !moreUrl.isBlank()) {
+            data.put(KEY_MORE_URL, moreUrl);
+        }
+        return new RawFetch(data, label, Instant.now());
+    }
+
+    /** 东财源站列表出口（moreUrl，方案 §4.1.1 语义细则第 3 条）。 */
+    private static String eastmoneyListUrlOf(String stockCode) {
+        return EASTMONEY_LIST_URL_TEMPLATE.replace("{code}", stockCode);
+    }
+
+    /** 巨潮源站列表出口（moreUrl，巨潮生效时构造）。 */
+    private static String cninfoListUrlOf(String stockCode) {
+        return CNINFO_LIST_URL_TEMPLATE.replace("{code}", stockCode);
     }
 
     /** 单条 flat 原始 map → 规范化条目（{@code eastmoney-announce.json} 逐条映射，两 provider 路径共用）。 */

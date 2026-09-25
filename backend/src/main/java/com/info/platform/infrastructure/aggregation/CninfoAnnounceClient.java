@@ -93,7 +93,7 @@ public class CninfoAnnounceClient {
 
     /** 默认条数回落（运行时复用既有 announcePageSize）。 */
     private static final int DEFAULT_PAGE_SIZE =
-            DataSourceDefaults.paramInt(SourceCode.ANNOUNCE, "announcePageSize", 3);
+            DataSourceDefaults.paramInt(SourceCode.ANNOUNCE, "announcePageSize", 10);
 
     /** 浏览器 UA（防御性携带；实测无 UA 要求）。 */
     private static final String USER_AGENT =

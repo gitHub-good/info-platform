@@ -87,13 +87,21 @@ public class EastMoneyAnnounceClient {
     private static final int PAGE_INDEX_FIRST = 1;
 
     private static final int DEFAULT_PAGE_SIZE =
-            DataSourceDefaults.paramInt(SourceCode.ANNOUNCE, "announcePageSize", 3);
+            DataSourceDefaults.paramInt(SourceCode.ANNOUNCE, "announcePageSize", 10);
 
     private final RestClient restClient;
     private final String announceUrl;
     private final int pageSize;
     private final String detailUrlTemplate;
     private final String referer;
+
+    /**
+     * 一页公告取数结果（M12 T90：{@code data.list} 条目 + {@code total_hits} 总数透出）。
+     *
+     * <p>totalHits 为该股公告总数（实测各页恒定，如 1074）；条目列表可能为空（越界页——page 合法但超出源总页数，
+     * 与「无公告/代码不存在」（totalHits=0）区分，前者如实回显空页 + 总数）。
+     */
+    public record AnnouncePage(List<Map<String, Object>> items, long totalHits) {}
 
     /** 配置中心（T36 热化）：null（纯构造单测）时回落构造期缺省。 */
     @Autowired(required = false)
@@ -125,23 +133,50 @@ public class EastMoneyAnnounceClient {
     }
 
     /**
-     * 取某 6 位证券代码最新若干条公告（原始 {@code data.list}，含嵌套 codes[]/columns[]）。
+     * 取某 6 位证券代码最新一页公告（页大小走运行时 {@code announcePageSize}）。
      *
      * @param stockCode 6 位证券代码，如 {@code 600519}（沪）/ {@code 000001}（深）。非 secid。
      * @return 原始公告列表；{@code data.list} 为空/null 时返回 {@link Optional#empty()}（→ MISSING）
      */
     public Optional<List<Map<String, Object>>> fetchAnnouncements(String stockCode) {
-        String announceUrl =
-                RuntimeParams.of(
-                        configCenter, SourceCode.ANNOUNCE, "announceUrl", this.announceUrl);
+        return fetchAnnouncementPage(stockCode, PAGE_INDEX_FIRST).map(AnnouncePage::items);
+    }
+
+    /**
+     * 取某 6 位证券代码指定页公告（页大小走运行时 {@code announcePageSize}），透出 {@code total_hits} 总数（M12 T90）。
+     *
+     * @param stockCode 6 位证券代码；非 secid
+     * @param pageIndex 页码（≥1；首屏聚合传 1，公告分区翻页透传源原生页码，实测深翻可用）
+     * @return 一页结果（条目 + 总数）；{@code data} 节点缺失/null 返回 {@link Optional#empty()}（→ 降级/MISSING）
+     */
+    public Optional<AnnouncePage> fetchAnnouncementPage(String stockCode, int pageIndex) {
         int pageSize =
                 RuntimeParams.intOf(
                         configCenter, SourceCode.ANNOUNCE, "announcePageSize", this.pageSize);
+        return fetchAnnouncementPage(stockCode, pageIndex, pageSize);
+    }
+
+    /**
+     * 取某 6 位证券代码指定页公告（显式页大小，分区子端点请求方页大小口径），透出 {@code total_hits} 总数（M12 T90）。
+     *
+     * <p>条目为空但 {@code total_hits > 0} 时仍返回 present（越界页语义：如实回显空页 + 总数，交上层区分处理—— 与
+     * {@link #fetchAnnouncements} 的「空即 empty」口径不同，后者供首屏聚合走降级链）。
+     *
+     * @param stockCode 6 位证券代码；非 secid
+     * @param pageIndex 页码（≥1）
+     * @param pageSize 页大小（1~50，接口层已校验）
+     * @return 一页结果（条目 + 总数）；{@code data} 节点缺失/null 返回 {@link Optional#empty()}
+     */
+    public Optional<AnnouncePage> fetchAnnouncementPage(
+            String stockCode, int pageIndex, int pageSize) {
+        String announceUrl =
+                RuntimeParams.of(
+                        configCenter, SourceCode.ANNOUNCE, "announceUrl", this.announceUrl);
         String referer =
                 RuntimeParams.of(
                         configCenter, SourceCode.ANNOUNCE, "announceReferer", this.referer);
-        String url = buildUrl(announceUrl, stockCode, pageSize);
-        log.debug("东财公告请求 stockCode={} pageSize={}", stockCode, pageSize);
+        String url = buildUrl(announceUrl, stockCode, pageIndex, pageSize);
+        log.debug("东财公告请求 stockCode={} pageIndex={} pageSize={}", stockCode, pageIndex, pageSize);
         Map<String, Object> root =
                 restClient
                         .get()
@@ -151,7 +186,7 @@ public class EastMoneyAnnounceClient {
                         .header("Referer", referer)
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Object>>() {});
-        return extractList(root);
+        return extractPage(root);
     }
 
     /**
@@ -172,6 +207,15 @@ public class EastMoneyAnnounceClient {
     /** 导航 {@code root.data.list}；任一层缺失/空数组返回 {@link Optional#empty()}（→ MISSING）。 */
     @SuppressWarnings("unchecked")
     private static Optional<List<Map<String, Object>>> extractList(Map<String, Object> root) {
+        return extractPage(root).flatMap(page -> page.items().isEmpty() ? Optional.empty() : Optional.of(page.items()));
+    }
+
+    /**
+     * 导航 {@code root.data.list + root.data.total_hits}（M12 T90）：data 节点缺失/null → empty（结构异常，交降级链）；
+     * 条目为空但 total_hits&gt;0 → present（越界页语义）；两者皆空 → present（totalHits=0，由调用方判「无公告」）。
+     */
+    @SuppressWarnings("unchecked")
+    private static Optional<AnnouncePage> extractPage(Map<String, Object> root) {
         if (root == null) {
             return Optional.empty();
         }
@@ -180,23 +224,26 @@ public class EastMoneyAnnounceClient {
             return Optional.empty();
         }
         Object list = dataMap.get("list");
-        if (!(list instanceof List<?> items) || items.isEmpty()) {
-            return Optional.empty();
-        }
-        List<Map<String, Object>> result = new ArrayList<>(items.size());
-        for (Object item : items) {
-            if (item instanceof Map<?, ?> map) {
-                result.add((Map<String, Object>) map);
+        List<Map<String, Object>> items = List.of();
+        if (list instanceof List<?> rawItems) {
+            List<Map<String, Object>> parsed = new ArrayList<>(rawItems.size());
+            for (Object item : rawItems) {
+                if (item instanceof Map<?, ?> map) {
+                    parsed.add((Map<String, Object>) map);
+                }
             }
+            items = List.copyOf(parsed);
         }
-        return result.isEmpty() ? Optional.empty() : Optional.of(result);
+        long totalHits =
+                dataMap.get("total_hits") instanceof Number number ? number.longValue() : 0L;
+        return Optional.of(new AnnouncePage(items, totalHits));
     }
 
-    private String buildUrl(String announceUrl, String stockCode, int pageSize) {
+    private String buildUrl(String announceUrl, String stockCode, int pageIndex, int pageSize) {
         return UriComponentsBuilder.fromUriString(announceUrl)
                 .queryParam("sr", SORT_REVERSE)
                 .queryParam("page_size", pageSize)
-                .queryParam("page_index", PAGE_INDEX_FIRST)
+                .queryParam("page_index", pageIndex)
                 .queryParam("ann_type", ANN_TYPE_ALL)
                 .queryParam("client_source", CLIENT_SOURCE_WEB)
                 .queryParam("stock_list", stockCode)

@@ -218,6 +218,8 @@ public class AggregationService {
         List<Map<String, Object>> news = null;
         List<Map<String, Object>> policies = null;
         List<Map<String, Object>> events = null;
+        SubjectDetail.SectionPagination.AnnouncePageMeta announceMeta = null;
+        SubjectDetail.SectionPagination.EventPageMeta eventMeta = null;
 
         for (Map.Entry<SourceCode, CompletableFuture<SourceResult>> entry : futures.entrySet()) {
             SourceCode code = entry.getKey();
@@ -232,10 +234,17 @@ public class AggregationService {
                             case QUOTE -> quote = result.getData();
                             case FINANCE -> finance = result.getData();
                             case VALUATION -> valuation = result.getData();
-                            case ANNOUNCE -> announcements = extractItems(result.getData());
+                            case ANNOUNCE -> {
+                                announcements = extractItems(result.getData());
+                                // M12：首屏分页元数据搭取数便车（total 随快照缓存，方案 §4.1.4）
+                                announceMeta = announceMetaOf(result.getData());
+                            }
                             case NEWS -> news = extractItems(result.getData());
                             case POLICY -> policies = extractItems(result.getData());
-                            case EVENT -> events = extractItems(result.getData());
+                            case EVENT -> {
+                                events = extractItems(result.getData());
+                                eventMeta = eventMetaOf(result.getData());
+                            }
                         }
                     }
                 } catch (Exception ex) {
@@ -249,6 +258,12 @@ public class AggregationService {
                 status = "timeout";
             }
             sourceStatus.put(code.name().toLowerCase(), status);
+        }
+
+        SubjectDetail.SectionPagination sectionPagination = null;
+        if (announceMeta != null || eventMeta != null) {
+            // 附加键仅在有可分页分区时产出（非破坏：无分区 ok 时整体 null，既有消费方零感知）
+            sectionPagination = new SubjectDetail.SectionPagination(announceMeta, eventMeta);
         }
 
         return new SubjectDetail(
@@ -265,7 +280,29 @@ public class AggregationService {
                 news,
                 policies,
                 events,
-                Map.copyOf(sourceStatus));
+                Map.copyOf(sourceStatus),
+                sectionPagination);
+    }
+
+    /** 公告分区首屏分页元数据：adapter data 携带 total/paginationSupported/moreUrl（巨潮/降级路径不携带 → null）。 */
+    private static SubjectDetail.SectionPagination.AnnouncePageMeta announceMetaOf(
+            Map<String, Object> data) {
+        Long total = data.get("total") instanceof Number number ? number.longValue() : null;
+        boolean paginationSupported = Boolean.TRUE.equals(data.get("paginationSupported"));
+        if (total == null && !paginationSupported) {
+            return null;
+        }
+        Object moreUrl = data.get("moreUrl");
+        return new SubjectDetail.SectionPagination.AnnouncePageMeta(
+                total, paginationSupported, moreUrl == null ? null : moreUrl.toString());
+    }
+
+    /** 事件分区首屏总数：adapter data 携带 total（7 天窗 count）；缺失（mock 旧契约/异常）→ null。 */
+    private static SubjectDetail.SectionPagination.EventPageMeta eventMetaOf(
+            Map<String, Object> data) {
+        return data.get("total") instanceof Number number
+                ? new SubjectDetail.SectionPagination.EventPageMeta(number.longValue())
+                : null;
     }
 
     private static String mapStatus(SourceStatus status) {

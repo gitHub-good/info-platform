@@ -53,6 +53,20 @@ public final class RoutingSourceAdapter implements SourceAdapter {
         return current(config).fetch(subject);
     }
 
+    /**
+     * 分区子端点分页取数路由（M12 ADR-0037）：与 {@link #fetch} 同一路由口径（停用 → MISSING 不外调；REAL/MOCK
+     * 按当前快照分发），翻页绕缓存由各内部 adapter 的 fetchPage 实现保证。
+     */
+    @Override
+    public SourceResult fetchPage(Subject subject, int page, int size) {
+        RuntimeDataSource config = configCenter.dataSource(code);
+        if (!config.enabled()) {
+            log.info("数据源已停用，跳过分页取数 sourceCode={} subjectId={}", code, subject.getId());
+            return SourceResult.missing(code, subject.getId(), code.name());
+        }
+        return current(config).fetchPage(subject, page, size);
+    }
+
     @Override
     public SourceCode sourceCode() {
         return code;
