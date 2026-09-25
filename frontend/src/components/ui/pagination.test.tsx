@@ -213,3 +213,112 @@ describe('Pagination 通用分页组件', () => {
     expect(c2.querySelector('nav')).toHaveAttribute('aria-label', '政策列表分页');
   });
 });
+
+// —— 分区轻量形态（M12 T94 可选 Props，UI 设计 §2.2：向后兼容，存量用例零改动） —— #
+
+describe('Pagination 分区轻量形态（M12 T94 可选 Props）', () => {
+  it('不传 onPageSizeChange：不渲染「每页 N 条」选择器（分区页大小恒定）', () => {
+    render(<Pagination page={2} pageSize={10} total={45} onPageChange={vi.fn()} />);
+    expect(screen.getByTestId('pagination-root')).toBeInTheDocument();
+    expect(screen.getByTestId('pagination-page-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('pagination-size')).toBeNull();
+  });
+
+  it('maxPages 显示层封顶：total=1074/pageSize=10 → 仅页码 1~5，总数仍显真值', () => {
+    render(
+      <Pagination
+        page={1}
+        pageSize={10}
+        total={1074}
+        maxPages={5}
+        onPageChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('pagination-total')).toHaveTextContent('共 1074 条');
+    expect(screen.getByTestId('pagination-page-indicator')).toHaveTextContent(
+      '第 1 / 5 页',
+    );
+    for (let n = 1; n <= 5; n++) {
+      expect(screen.getByTestId(`pagination-page-${n}`)).toBeInTheDocument();
+    }
+    expect(screen.queryByTestId('pagination-page-6')).toBeNull();
+    expect(screen.getByTestId('pagination-prev')).toBeDisabled();
+    expect(screen.getByTestId('pagination-next')).toBeEnabled();
+  });
+
+  it('maxPages 封顶末页：下一页禁用；page 越过封顶页时 clamp 收敛到末页', () => {
+    render(
+      <Pagination page={5} pageSize={10} total={1074} maxPages={5} onPageChange={vi.fn()} />,
+    );
+    expect(screen.getByTestId('pagination-page-indicator')).toHaveTextContent(
+      '第 5 / 5 页',
+    );
+    expect(screen.getByTestId('pagination-next')).toBeDisabled();
+
+    cleanup();
+    render(
+      <Pagination page={7} pageSize={10} total={1074} maxPages={5} onPageChange={vi.fn()} />,
+    );
+    expect(screen.getByTestId('pagination-page-indicator')).toHaveTextContent(
+      '第 5 / 5 页',
+    );
+    expect(screen.getByTestId('pagination-page-5')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('totalLabel 覆盖总数文案（事件「共 N 条（近 7 天）」口径贴数字走）', () => {
+    render(
+      <Pagination
+        page={2}
+        pageSize={10}
+        total={37}
+        totalLabel="共 37 条（近 7 天）"
+        onPageChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('pagination-total')).toHaveTextContent(
+      '共 37 条（近 7 天）',
+    );
+  });
+
+  it('testIdPrefix 前缀化全部 testid（同页多条分页条区分；缺省前缀不残留）', () => {
+    render(
+      <Pagination
+        page={2}
+        pageSize={10}
+        total={45}
+        label="事件监控分页"
+        testIdPrefix="event-pagination"
+        onPageChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('event-pagination-root')).toBeInTheDocument();
+    expect(screen.getByTestId('event-pagination-total')).toBeInTheDocument();
+    expect(screen.getByTestId('event-pagination-page-indicator')).toHaveTextContent(
+      '第 2 / 5 页',
+    );
+    expect(screen.getByTestId('event-pagination-prev')).toBeInTheDocument();
+    expect(screen.getByTestId('event-pagination-next')).toBeInTheDocument();
+    expect(screen.getByTestId('event-pagination-page-2')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.queryByTestId('pagination-root')).toBeNull();
+  });
+
+  it('单页精简态（分区）：无翻页按钮、无条数选择器，仍显总数与第 1/1 页', () => {
+    render(
+      <Pagination page={1} pageSize={10} total={6} maxPages={5} onPageChange={vi.fn()} />,
+    );
+    expect(screen.getByTestId('pagination-total')).toHaveTextContent('共 6 条');
+    expect(screen.getByTestId('pagination-page-indicator')).toHaveTextContent(
+      '第 1 / 1 页',
+    );
+    expect(screen.queryByTestId('pagination-prev')).toBeNull();
+    expect(screen.queryByTestId('pagination-next')).toBeNull();
+    expect(screen.queryByTestId('pagination-page-1')).toBeNull();
+    expect(screen.queryByTestId('pagination-size')).toBeNull();
+  });
+});

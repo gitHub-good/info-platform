@@ -2,8 +2,12 @@
 // - total=0 整条隐藏（return null）；单页收敛为精简态（总数 + 第 1/1 页 + 条数，无翻页按钮）。
 // - 页码折叠：总页数 ≤7 全显；>7 时首末页恒显 + 当前页 ±1，差=2 补位、差≥3 插省略号。
 // - 在途禁用由页面 pageLoading 传入 disabled（全控件原生禁用）。
+// M12 T94 分区轻量形态（UI 设计 §2.2）：向后兼容扩 4 个可选 Props——
+// onPageSizeChange 可选（不传不渲染条数选择器）/ maxPages 页数封顶 / totalLabel 总数文案覆盖 /
+// testIdPrefix 前缀化；存量消费方（Policy/JobLog）传参不变、行为零变化。
 // 组成件全部既有（Button + 原生 select + cn），暗色 token 沿用全站基线。
 
+import type { ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from 'cn';
@@ -57,17 +61,26 @@ export interface PaginationProps {
   /** 筛选后总条数（响应 total 字段）。 */
   total: number;
   onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
+  /** 每页条数切换（M12 T94 起可选）：不传即不渲染「每页 N 条」选择器（分区轻量态，页大小恒定）。 */
+  onPageSizeChange?: (size: number) => void;
   /** 在途禁用（页面 pageLoading 传入 → 全控件 disabled）。 */
   disabled?: boolean;
   pageSizeOptions?: readonly number[];
   /** <nav aria-label> 文案，默认「分页」。 */
   label?: string;
+  /** 页数上限封顶（M12 T94，显示层，不动 total 真值；公告分区传 5）。 */
+  maxPages?: number;
+  /** 总数文案覆盖（M12 T94；事件分区传「共 N 条（近 7 天）」，缺省「共 N 条」）。 */
+  totalLabel?: ReactNode;
+  /** testid 前缀（M12 T94；缺省 'pagination' 存量不变，同页多条分页条前缀化区分）。 */
+  testIdPrefix?: string;
 }
 
 /**
  * 列表分页条。纯受控组件：切页/条数只回调，不发请求不存状态；
  * 页码指示与高亮以 min(page, ceil(total/pageSize)) clamp（显示层守卫，UI 设计 §5.3）。
+ * maxPages 只封顶显示层页数（折叠/指示/上下页边界按 effectiveTotalPages），
+ * 「共 N 条」仍显 total 真值（UI 设计 §2.2）。
  */
 export function Pagination({
   page,
@@ -78,14 +91,19 @@ export function Pagination({
   disabled = false,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   label = '分页',
+  maxPages,
+  totalLabel,
+  testIdPrefix = 'pagination',
 }: PaginationProps) {
   if (total <= 0) return null;
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const rawPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = maxPages != null ? Math.min(rawPages, maxPages) : rawPages;
   // 显示层 clamp：total 收缩后 page 可能越界，指示与高亮收敛到末页
   const current = Math.min(Math.max(1, page), totalPages);
   const items = getPaginationItems(current, totalPages);
   const singlePage = totalPages === 1;
+  const tid = (suffix: string) => `${testIdPrefix}-${suffix}`;
 
   const go = (target: number) => {
     if (!disabled && target !== current) onPageChange(target);
@@ -94,16 +112,16 @@ export function Pagination({
   return (
     <nav
       aria-label={label}
-      data-testid="pagination-root"
+      data-testid={tid('root')}
       className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-4"
     >
-      <span className="text-sm text-muted-foreground" data-testid="pagination-total">
-        共 {total} 条
+      <span className="text-sm text-muted-foreground" data-testid={tid('total')}>
+        {totalLabel ?? <>共 {total} 条</>}
       </span>
       <div className="flex flex-wrap items-center gap-1">
         <span
           className="mr-2 text-sm text-muted-foreground"
-          data-testid="pagination-page-indicator"
+          data-testid={tid('page-indicator')}
         >
           第 {current} / {totalPages} 页
         </span>
@@ -113,7 +131,7 @@ export function Pagination({
               variant="ghost"
               size="icon"
               aria-label="上一页"
-              data-testid="pagination-prev"
+              data-testid={tid('prev')}
               disabled={disabled || current <= 1}
               onClick={() => go(current - 1)}
             >
@@ -124,7 +142,7 @@ export function Pagination({
                 <span
                   key={`ellipsis-${idx}`}
                   aria-hidden="true"
-                  data-testid="pagination-ellipsis"
+                  data-testid={tid('ellipsis')}
                   className="px-1 text-muted-foreground select-none"
                 >
                   …
@@ -134,7 +152,7 @@ export function Pagination({
                   key={item}
                   variant={item === current ? 'default' : 'ghost'}
                   aria-current={item === current ? 'page' : undefined}
-                  data-testid={`pagination-page-${item}`}
+                  data-testid={tid(`page-${item}`)}
                   disabled={disabled}
                   onClick={() => go(item)}
                   className="h-8 min-w-8 rounded-[min(var(--radius-md),12px)] px-1.5"
@@ -147,7 +165,7 @@ export function Pagination({
               variant="ghost"
               size="icon"
               aria-label="下一页"
-              data-testid="pagination-next"
+              data-testid={tid('next')}
               disabled={disabled || current >= totalPages}
               onClick={() => go(current + 1)}
             >
@@ -155,30 +173,32 @@ export function Pagination({
             </Button>
           </>
         )}
-        <label className="ml-2 flex items-center gap-1.5 text-sm text-muted-foreground">
-          每页
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              if (!disabled) onPageSizeChange(Number(e.target.value));
-            }}
-            disabled={disabled}
-            aria-label="每页条数"
-            data-testid="pagination-size"
-            className={cn(
-              'h-8 rounded-lg border border-input bg-input/30 px-2 text-sm text-foreground shadow-sm transition-colors',
-              'focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-              'disabled:cursor-not-allowed disabled:opacity-50',
-            )}
-          >
-            {pageSizeOptions.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-          条
-        </label>
+        {onPageSizeChange ? (
+          <label className="ml-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+            每页
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                if (!disabled) onPageSizeChange(Number(e.target.value));
+              }}
+              disabled={disabled}
+              aria-label="每页条数"
+              data-testid={tid('size')}
+              className={cn(
+                'h-8 rounded-lg border border-input bg-input/30 px-2 text-sm text-foreground shadow-sm transition-colors',
+                'focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                'disabled:cursor-not-allowed disabled:opacity-50',
+              )}
+            >
+              {pageSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            条
+          </label>
+        ) : null}
       </div>
     </nav>
   );

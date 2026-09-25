@@ -100,6 +100,8 @@ export interface Announcement {
 /** 新闻条目 */
 export interface NewsItem {
   id?: string;
+  /** 源站稳定标识（docid 级，M12「加载更多」去重判定唯一依据，§7.1-6） */
+  externalId?: string;
   title: string;
   publishedAt: string;
   summary?: string;
@@ -147,6 +149,64 @@ export interface SubjectDetailData {
   /** 事件分区（ADR-0013）：本地 anomaly_event 近期异动/事件 */
   events?: EventItem[] | null;
   sourceStatus: SourceStatusMap;
+  /** M12 §4.1.4 首屏分页元数据（可选附加键，非破坏）：仅对应分区 ok 时出现 */
+  sectionPagination?: SectionPagination | null;
+}
+
+/**
+ * 聚合首屏分页元数据（M12 §4.1.4）：首屏分页条总数搭聚合取数便车透出，
+ * 不发第二次请求；新闻/政策无总数语义永不出现。
+ */
+export interface SectionPagination {
+  /** 公告分区（巨潮降级时 total 为 null / 键不出现，paginationSupported=false） */
+  announce?: {
+    total?: number | null;
+    paginationSupported: boolean;
+    moreUrl?: string | null;
+  } | null;
+  /** 事件分区：7 天窗内精确 count */
+  event?: {
+    total: number;
+  } | null;
+}
+
+/** 公告分区子端点响应（M12 §4.1.1，GET /subjects/{id}/announcements?page=&size=） */
+export interface AnnouncementPageView {
+  items: Announcement[];
+  page: number;
+  size: number;
+  /** 源公告总数（东财 total_hits 透出）；巨潮降级为 null（键不出现） */
+  total?: number | null;
+  /** 本次请求实际生效 provider 是否支持翻页（东财 true / 巨潮 false） */
+  paginationSupported: boolean;
+  /** 源站公告列表出口（按生效 provider 构造；降级无生效 provider 为 null） */
+  moreUrl?: string | null;
+  sourceStatus: SourceStatus;
+  source?: string;
+}
+
+/** 事件分区子端点响应（M12 §4.1.2，GET /subjects/{id}/events?page=&size=） */
+export interface EventPageView {
+  items: EventItem[];
+  page: number;
+  size: number;
+  /** 7 天窗内精确总数（与页切片同窗口同口径） */
+  total: number;
+  sourceStatus: SourceStatus;
+  source?: string;
+}
+
+/** 新闻分区子端点响应（M12 §4.1.3，GET /subjects/{id}/news?page=——不接受 size） */
+export interface NewsPageView {
+  /** 该源页过滤后的命中条目（externalId 为前端去重稳定标识） */
+  items: NewsItem[];
+  page: number;
+  /** 回显源页大小（运维配置 newsPageSize） */
+  size: number;
+  /** 源页未耗尽（本源页条数==源页大小且非空；空页/不满页 false） */
+  hasMore: boolean;
+  sourceStatus: SourceStatus;
+  source?: string;
 }
 
 /** 后端统一响应体 { code, msg, data, traceId } */
