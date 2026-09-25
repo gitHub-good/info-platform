@@ -21,8 +21,8 @@ export function isTerminalStatus(status: BriefStatusCode): boolean {
 
 /** 关键事件条目（content.keyEvents[]）。 */
 export interface BriefKeyEvent {
-  /** 事件描述 */
-  event: string;
+  /** 事件描述（简短标题；v1.0 模板产物可能为 null，解析层/展示层兜底） */
+  event?: string | null;
   /** 影响方向：利好 / 利空 / 中性 */
   impact?: string;
   /** 判断理由 */
@@ -33,16 +33,16 @@ export interface BriefKeyEvent {
 
 /** 事实条目（content.facts[]）—— 幻觉校验 + 事实回链的载体。 */
 export interface BriefFact {
-  /** 人类可读的事实陈述，如「归母净利润同比增长15%」 */
-  claim?: string;
+  /** 人类可读的事实陈述，如「归母净利润同比增长15%」（v1.0 模板产物可能为 null，解析层/展示层兜底） */
+  claim?: string | null;
   /** 指标键，与数据源字段键对齐（如 roe/gross_margin/net_profit） */
   metric?: string;
   /** 数值（可空，定性事实不带数值则不参与幻觉校验） */
   value?: number | null;
-  /** 数据源标识，如 FINANCE/VALUATION */
-  source?: string;
+  /** 数据源标识，如 FINANCE/VALUATION（模型可能自填内部措辞，展示层净化） */
+  source?: string | null;
   /** 原文链接（事实回链，回链率 100%） */
-  sourceUrl?: string;
+  sourceUrl?: string | null;
 }
 
 /** 每日推荐条目（content.topRecommend[]，仅 briefType=4 产出；T29 理由含命中因子可人工标注）。 */

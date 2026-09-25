@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisclaimerBadge } from './DisclaimerBadge';
-import type { BriefContent } from '@/types/aibrief';
+import type { BriefContent, BriefKeyEvent } from '@/types/aibrief';
 
 interface BriefContentCardProps {
   content: BriefContent;
@@ -14,6 +15,15 @@ interface Tendency {
   /** 倾向配色（A 股惯例：涨红跌绿 → 利好红、利空绿、中性灰）。 */
   className: string;
 }
+
+/** 事件标题兜底截断上限（与提示词 v1.1 的 event 10~20 字契约一致）。 */
+const TITLE_MAX_LENGTH = 20;
+
+/** reason 超过该长度才提供「展开/收起」（两行装不下的长理由）。 */
+const REASON_COLLAPSE_THRESHOLD = 60;
+
+/** 事件标题无可合成素材时的泛化标题，保证展示不空。 */
+const GENERIC_EVENT_TITLE = '关键事件';
 
 /**
  * bias / keyEvent.impact 倾向配色。
@@ -36,6 +46,32 @@ function tendencyMeta(t?: string): Tendency | null {
   return null;
 }
 
+/**
+ * 事件标题兜底（v1.0 模板产物 event 可能为 null，id=13 实测）：event 空 → reason
+ * 首句截断 ≤20 字 → 泛化标题。与后端解析兜底同规则，前端再兜一层防直接读存量 JSON。
+ */
+function eventTitle(e: BriefKeyEvent): string {
+  const event = (e.event ?? '').trim();
+  if (event) return event;
+  const reason = (e.reason ?? '').trim();
+  const firstSentence =
+    reason
+      .split(/[。！？!?；;\n]/)
+      .map((s) => s.trim())
+      .find(Boolean) ?? '';
+  if (firstSentence) {
+    return firstSentence.length > TITLE_MAX_LENGTH
+      ? firstSentence.slice(0, TITLE_MAX_LENGTH)
+      : firstSentence;
+  }
+  return GENERIC_EVENT_TITLE;
+}
+
+/** summary 按句读分段（保留句末标点），无句读时整段一句。 */
+function splitSentences(summary: string): string[] {
+  return summary.match(/[^。！？!?；;]+[。！？!?；;]?/g) ?? [summary];
+}
+
 function TendencyBadge({
   tendency,
   testId,
@@ -48,6 +84,71 @@ function TendencyBadge({
     <Badge variant="ghost" className={tendency.className} data-testid={testId}>
       {tendency.label}
     </Badge>
+  );
+}
+
+/** 单条关键事件卡片：兜底标题 + impact 徽章 + reason 两行截断可展开 + 原文链接。 */
+function KeyEventItem({
+  event,
+  index,
+}: {
+  event: BriefKeyEvent;
+  index: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = (event.reason ?? '').trim().length > REASON_COLLAPSE_THRESHOLD;
+  const impact = tendencyMeta(event.impact);
+
+  return (
+    <li
+      className="rounded-lg border border-border/60 p-3"
+      data-testid={`brief-key-event-${index}`}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="text-sm font-semibold"
+          data-testid={`brief-key-event-title-${index}`}
+        >
+          {eventTitle(event)}
+        </span>
+        {impact ? (
+          <TendencyBadge tendency={impact} testId={`brief-key-event-impact-${index}`} />
+        ) : null}
+      </div>
+      {event.reason ? (
+        <p
+          className={`mt-1 text-xs leading-relaxed text-muted-foreground ${
+            expanded ? '' : 'line-clamp-2'
+          }`}
+          data-testid={`brief-key-event-reason-${index}`}
+        >
+          {event.reason}
+        </p>
+      ) : null}
+      <div className="mt-1 flex flex-wrap items-center gap-3">
+        {collapsible ? (
+          <button
+            type="button"
+            className="text-xs text-primary underline"
+            onClick={() => setExpanded((v) => !v)}
+            data-testid={`brief-key-event-toggle-${index}`}
+          >
+            {expanded ? '收起' : '展开'}
+          </button>
+        ) : null}
+        {event.sourceUrl ? (
+          <a
+            href={event.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-primary underline"
+            data-testid={`brief-key-event-link-${index}`}
+          >
+            原文
+          </a>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
@@ -90,7 +191,13 @@ export function BriefContentCard({ content, needVerify }: BriefContentCardProps)
         {content.summary ? (
           <section data-testid="brief-summary">
             <h3 className="mb-1 text-sm font-medium">核心摘要</h3>
-            <p className="text-sm text-muted-foreground">{content.summary}</p>
+            <div className="flex flex-col gap-1.5 text-sm leading-relaxed text-muted-foreground">
+              {splitSentences(content.summary).map((sentence, i) => (
+                <p key={i} data-testid={`brief-summary-sentence-${i}`}>
+                  {sentence}
+                </p>
+              ))}
+            </div>
           </section>
         ) : null}
 
@@ -98,35 +205,9 @@ export function BriefContentCard({ content, needVerify }: BriefContentCardProps)
           <section data-testid="brief-key-events">
             <h3 className="mb-1 text-sm font-medium">关键事件</h3>
             <ul className="flex flex-col gap-2">
-              {keyEvents.map((e, i) => {
-                const impact = tendencyMeta(e.impact);
-                return (
-                  <li
-                    key={i}
-                    className="rounded-md border border-border/60 p-2"
-                    data-testid={`brief-key-event-${i}`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm">{e.event}</span>
-                      {impact ? <TendencyBadge tendency={impact} /> : null}
-                    </div>
-                    {e.reason ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{e.reason}</p>
-                    ) : null}
-                    {e.sourceUrl ? (
-                      <a
-                        href={e.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-block text-xs text-primary underline"
-                        data-testid={`brief-key-event-link-${i}`}
-                      >
-                        原文
-                      </a>
-                    ) : null}
-                  </li>
-                );
-              })}
+              {keyEvents.map((e, i) => (
+                <KeyEventItem key={i} event={e} index={i} />
+              ))}
             </ul>
           </section>
         ) : null}
