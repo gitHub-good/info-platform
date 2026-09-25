@@ -14,9 +14,9 @@ import org.springframework.stereotype.Component;
  * 管道域运行时配置种子（{@code pipeline.*}，M15 T120~T125，方案 §4.8 键表 / ADR-0032 seed-if-absent）。
  *
  * <p>已播种 4 键（有消费方的键先落，防后续批次消费方定形前抢注 DB 权威值）：{@code pipeline.global}（L1 批量参数——T121 消费）、 {@code
- * pipeline.l0}（预筛参数——T120 消费）、{@code pipeline.l2}（事件提取参数——T122 消费）、{@code pipeline.budget}（护栏预算参数——T125
- * 消费）。 {@code pipeline.heat} 随 T123 消费方落地。{@code simhashDistanceMax} 缺省 18 = ADR-0047 实测勘定（方案原文 3 在 20~60 字 CJK
- * 标题上召回失效）。
+ * pipeline.l0}（预筛参数——T120 消费）、{@code pipeline.l2}（事件提取参数——T122 消费）、{@code
+ * pipeline.budget}（护栏预算参数——T125 消费）。 {@code pipeline.heat} 随 T123 消费方落地。{@code simhashDistanceMax}
+ * 缺省 18 = ADR-0047 实测勘定（方案原文 3 在 20~60 字 CJK 标题上召回失效）。
  */
 @Component
 public class PipelineRuntimeConfigSeeder implements RuntimeConfigSeeder {
@@ -94,6 +94,20 @@ public class PipelineRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         write(budget),
                         "管道成本护栏预算（日预算 ¥2=2,000,000 微元/降级 60%/熔断 90%/单条校准初值 1100 微元[附录 A 实测+推算]"
                                 + "/成本口径串，方案 §3.5/§4.6/§4.8）"));
+        Map<String, Object> heat = new LinkedHashMap<>();
+        heat.put("k1", 10.0);
+        heat.put("impHigh", 1.0);
+        heat.put("impMedium", 0.5);
+        heat.put("impLow", 0.25);
+        heat.put("halfLifeHours24", 12.0);
+        heat.put("halfLifeHours7", 48.0);
+        heat.put("snapshotIntervalMinutes", 30);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "pipeline.heat",
+                        write(heat),
+                        "行业热度参数（事件权重 K1=10[裁决 6]/重要度系数 1.0-0.5-0.25/双窗半衰期 12h|48h/快照间隔 30min，"
+                                + "M15 方案 §3.6/§4.8）"));
         return seeds;
     }
 

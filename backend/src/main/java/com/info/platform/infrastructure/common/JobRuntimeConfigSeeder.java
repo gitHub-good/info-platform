@@ -87,6 +87,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${pipeline.news.interval-millis:600000}")
     private long pipelineNewsIntervalMillis;
 
+    /** 行业热度快照开关/tick 间隔（M15 T123：INDUSTRY_HEAT_SNAPSHOT，默认 30min，可配 10~60min，零 LLM）。 */
+    @Value("${pipeline.heat-snapshot.enabled:true}")
+    private boolean heatSnapshotEnabled;
+
+    @Value("${pipeline.heat-snapshot.interval-millis:1800000}")
+    private long heatSnapshotIntervalMillis;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -158,6 +165,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 + "段间独立容错，M15 ADR-0046）",
                         pipelineNewsEnabled,
                         pipelineNewsIntervalMillis));
+        seeds.add(
+                fixedDelay(
+                        "INDUSTRY_HEAT_SNAPSHOT",
+                        "行业热度快照调度（IndustryHeatSnapshotJob，双窗 24h/7d 现算 31 申万行业热度 → 62 行 UPSERT，"
+                                + "零 LLM 护栏不停，M15 方案 §4.5）",
+                        heatSnapshotEnabled,
+                        heatSnapshotIntervalMillis));
         return seeds;
     }
 

@@ -20,8 +20,8 @@ import org.springframework.stereotype.Service;
  * 管道运行参数（应用层，M15 T120/T121，方案 §4.8 {@code pipeline.*} 配置键的消费点）。
  *
  * <p>每次 tick 用时读取（配置中心快照，页面保存即对下一批生效）；键缺失或字段损坏回落代码缺省并记 WARN（不阻断批窗口——旧值/缺省 继续生效，对齐既有降级惯例）。已消费 {@code
- * pipeline.global}（L1 批量参数）、{@code pipeline.l0}（预筛参数）、{@code pipeline.l2}（事件提取参数）、{@code pipeline.budget}（护栏预算参数，
- * T125）四键； {@code pipeline.heat} 随 T123 消费方落地。
+ * pipeline.global}（L1 批量参数）、{@code pipeline.l0}（预筛参数）、{@code pipeline.l2}（事件提取参数）、{@code
+ * pipeline.budget}（护栏预算参数， T125）四键； {@code pipeline.heat} 随 T123 消费方落地。
  */
 @Service
 public class PipelineSettings {
@@ -92,6 +92,42 @@ public class PipelineSettings {
 
     static final String KEY_PIPELINE_BUDGET = "pipeline.budget";
 
+    static final String KEY_PIPELINE_HEAT = "pipeline.heat";
+
+    // —— 热度参数（M15 T123，方案 §3.6/§4.8 pipeline.heat 键） ——
+
+    /** K1 缺省（裁决 6：10——REQ 建议值 3 在故事 2 验收算术下必挂）。 */
+    static final double DEFAULT_HEAT_K1 = 10.0;
+
+    /** 重要度系数缺省（HIGH/MEDIUM/LOW）。 */
+    static final double DEFAULT_IMP_HIGH = 1.0;
+
+    static final double DEFAULT_IMP_MEDIUM = 0.5;
+
+    static final double DEFAULT_IMP_LOW = 0.25;
+
+    /** 双窗半衰期缺省（小时：24h 窗 12 / 7d 窗 48）。 */
+    static final double DEFAULT_HALF_LIFE_H24 = 12.0;
+
+    static final double DEFAULT_HALF_LIFE_D7 = 48.0;
+
+    /** 热度参数组装（HeatCalculator 消费形态；键缺失回落代码缺省）。 */
+    public com.info.platform.domain.analysis.HeatCalculator.HeatParams heatParams() {
+        JsonNode doc = doc(KEY_PIPELINE_HEAT);
+        return new com.info.platform.domain.analysis.HeatCalculator.HeatParams(
+                positiveDoubleOf(doc, "k1", DEFAULT_HEAT_K1),
+                positiveDoubleOf(doc, "impHigh", DEFAULT_IMP_HIGH),
+                positiveDoubleOf(doc, "impMedium", DEFAULT_IMP_MEDIUM),
+                positiveDoubleOf(doc, "impLow", DEFAULT_IMP_LOW),
+                positiveDoubleOf(doc, "halfLifeHours24", DEFAULT_HALF_LIFE_H24),
+                positiveDoubleOf(doc, "halfLifeHours7", DEFAULT_HALF_LIFE_D7));
+    }
+
+    private static double positiveDoubleOf(JsonNode doc, String field, double defaultValue) {
+        double value = doubleOf(doc, field, defaultValue);
+        return value <= 0 ? defaultValue : value;
+    }
+
     // —— 护栏预算参数（M15 T125，方案 §3.5/§4.8 pipeline.budget 键） ——
 
     /** 日预算缺省（¥2/日 = 2,000,000 微元——按实测单条 ¥0.0011 × 632 条/日 ≈ 35% 水位，3 倍放量余量）。 */
@@ -119,7 +155,10 @@ public class PipelineSettings {
     public double degradeRatio() {
         double ratio = doubleOf(budgetDoc(), "degradeRatio", DEFAULT_DEGRADE_RATIO);
         if (ratio <= 0 || ratio >= 1) {
-            log.warn("pipeline.budget.degradeRatio={} 越界（0~1），回落缺省 {}", ratio, DEFAULT_DEGRADE_RATIO);
+            log.warn(
+                    "pipeline.budget.degradeRatio={} 越界（0~1），回落缺省 {}",
+                    ratio,
+                    DEFAULT_DEGRADE_RATIO);
             return DEFAULT_DEGRADE_RATIO;
         }
         return ratio;
@@ -129,7 +168,10 @@ public class PipelineSettings {
     public double fuseRatio() {
         double ratio = doubleOf(budgetDoc(), "fuseRatio", DEFAULT_FUSE_RATIO);
         if (ratio <= 0 || ratio <= degradeRatio() || ratio > 1) {
-            log.warn("pipeline.budget.fuseRatio={} 越界（须 >degradeRatio 且 ≤1），回落缺省 {}", ratio, DEFAULT_FUSE_RATIO);
+            log.warn(
+                    "pipeline.budget.fuseRatio={} 越界（须 >degradeRatio 且 ≤1），回落缺省 {}",
+                    ratio,
+                    DEFAULT_FUSE_RATIO);
             return DEFAULT_FUSE_RATIO;
         }
         return ratio;

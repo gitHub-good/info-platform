@@ -9,8 +9,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * PipelineRuntimeConfigSeeder 单测（T120~T125，方案 §4.8 键表）：pipeline.global/pipeline.l0/pipeline.l2/pipeline.budget
- * 四键结构与缺省值——种子 JSON 与 ImportanceScorer 缺省参数同源（热改回落基准一致，防两处漂移）。AAA 结构。
+ * PipelineRuntimeConfigSeeder 单测（T120~T125，方案 §4.8
+ * 键表）：pipeline.global/pipeline.l0/pipeline.l2/pipeline.budget/pipeline.heat 五键结构与缺省值——种子 JSON 与
+ * ImportanceScorer/HeatCalculator 缺省参数同源（热改回落基准一致，防两处漂移）。AAA 结构。
  */
 class PipelineRuntimeConfigSeederTest {
 
@@ -25,10 +26,15 @@ class PipelineRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesFourPipelineKeys() {
+    void seeds_carriesFivePipelineKeys() {
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
         assertThat(keys)
-                .containsExactly("pipeline.global", "pipeline.l0", "pipeline.l2", "pipeline.budget");
+                .containsExactly(
+                        "pipeline.global",
+                        "pipeline.l0",
+                        "pipeline.l2",
+                        "pipeline.budget",
+                        "pipeline.heat");
     }
 
     @Test
@@ -63,5 +69,22 @@ class PipelineRuntimeConfigSeederTest {
                 .contains("\"fuseRatio\":0.9")
                 .contains("\"calibratedPerItemMicros\":1100")
                 .contains("\"costBasis\":\"cost-v1:initial\"");
+    }
+
+    // ---- T123：pipeline.heat 热度参数键（方案 §3.6/§4.8） ----
+
+    @Test
+    void seed_heat_defaultsAlignWithCalculator() {
+        String json = seedOf("pipeline.heat").json();
+
+        // K1=10（裁决 6）/impCoef 1.0-0.5-0.25/双窗半衰期 12|48——与 HeatCalculator.defaults 同源
+        assertThat(json)
+                .contains("\"k1\":10.0")
+                .contains("\"impHigh\":1.0")
+                .contains("\"impMedium\":0.5")
+                .contains("\"impLow\":0.25")
+                .contains("\"halfLifeHours24\":12.0")
+                .contains("\"halfLifeHours7\":48.0")
+                .contains("\"snapshotIntervalMinutes\":30");
     }
 }

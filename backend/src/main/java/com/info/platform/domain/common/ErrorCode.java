@@ -86,6 +86,9 @@ public enum ErrorCode {
     /** robots.txt 禁止抓取该端点（合规红线硬拦截，400） */
     INFO_SOURCE_ROBOTS_FORBIDDEN(30075, "robots.txt 禁止抓取该端点", 400),
 
+    /** 管道查询/配置参数非法（M15 热度榜 window、下钻 type、行业名非申万枚举等，400） */
+    PIPELINE_CONFIG_INVALID(30076, "管道查询参数非法", 400),
+
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
 

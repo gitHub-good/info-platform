@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllNineJobKeys() {
+    void seeds_carriesAllTenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 8 键不被增补挤占（NEWS_PIPELINE 第 9 键追加在尾部，M15 T121 / ADR-0046）
+        // 纯增量守卫：既有 9 键不被增补挤占（INDUSTRY_HEAT_SNAPSHOT 第 10 键追加在尾部，M15 T123 / ADR-0046）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -62,7 +62,8 @@ class JobRuntimeConfigSeederTest {
                         "job.SUBJECT_SYNC",
                         "job.RETENTION_CLEANUP",
                         "job.SOURCE_POLL",
-                        "job.NEWS_PIPELINE");
+                        "job.NEWS_PIPELINE",
+                        "job.INDUSTRY_HEAT_SNAPSHOT");
     }
 
     // ---- NEWS_PIPELINE 种子（T121，M15 / ADR-0046）----
@@ -95,6 +96,40 @@ class JobRuntimeConfigSeederTest {
         RuntimeConfigSeed seed = newsPipelineSeed(false, 600000L);
 
         assertThat(seed.json()).contains("\"enabled\":false").contains("\"intervalMillis\":600000");
+    }
+
+    // ---- INDUSTRY_HEAT_SNAPSHOT 种子（T123，M15 / ADR-0046 裁决 4：第 10 键）----
+
+    private RuntimeConfigSeed heatSnapshotSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "heatSnapshotEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "heatSnapshotIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.INDUSTRY_HEAT_SNAPSHOT"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.INDUSTRY_HEAT_SNAPSHOT 种子"));
+    }
+
+    @Test
+    void seeds_heatSnapshot_productionDefaults_enabledFixedDelay30min() {
+        RuntimeConfigSeed seed = heatSnapshotSeed(true, 1_800_000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.INDUSTRY_HEAT_SNAPSHOT");
+        assertThat(seed.description()).contains("IndustryHeatSnapshotJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":1800000");
+    }
+
+    @Test
+    void seeds_heatSnapshot_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：pipeline.heat-snapshot.enabled=false → 种子停用 → 调度零注册（十 Job 惯例）
+        RuntimeConfigSeed seed = heatSnapshotSeed(false, 1_800_000L);
+
+        assertThat(seed.json())
+                .contains("\"enabled\":false")
+                .contains("\"intervalMillis\":1800000");
     }
 
     // ---- SOURCE_POLL 种子（T103，M13 / ADR-0040）----
