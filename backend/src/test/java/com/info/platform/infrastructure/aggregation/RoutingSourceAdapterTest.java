@@ -2,6 +2,8 @@ package com.info.platform.infrastructure.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -100,6 +102,52 @@ class RoutingSourceAdapterTest {
                         null,
                         T1));
         configService.reload();
+    }
+
+    // ---- M12：fetchPage 同路由口径（ADR-0037 决策 2） ----
+
+    @Test
+    void fetchPage_mockMode_delegatesToMockAdapter() {
+        when(mockAdapter.fetchPage(any(Subject.class), eq(2), eq(10))).thenReturn(mockResult());
+        Subject subject = subject();
+
+        SourceResult result = routing.fetchPage(subject, 2, 10);
+
+        verify(mockAdapter).fetchPage(subject, 2, 10);
+        verify(realAdapter, never()).fetchPage(any(Subject.class), anyInt(), anyInt());
+        assertThat(result.getSource()).isEqualTo("mock-quote");
+    }
+
+    @Test
+    void fetchPage_realMode_delegatesToRealAdapter() {
+        storeMode(RuntimeDataSource.Mode.REAL);
+        when(realAdapter.fetchPage(any(Subject.class), eq(3), eq(10))).thenReturn(realOk());
+        Subject subject = subject();
+
+        SourceResult result = routing.fetchPage(subject, 3, 10);
+
+        verify(realAdapter).fetchPage(subject, 3, 10);
+        verify(mockAdapter, never()).fetchPage(any(Subject.class), anyInt(), anyInt());
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.OK);
+    }
+
+    @Test
+    void fetchPage_disabled_returnsMissing_withoutCallingAnyAdapter() {
+        repository.save(
+                RuntimeConfig.create(
+                        "datasource.QUOTE",
+                        "{\"enabled\":false,\"mode\":\"REAL\",\"timeoutMillis\":1500,"
+                                + "\"retries\":0,\"cacheTtlSeconds\":5,\"params\":{}}",
+                        null,
+                        T1));
+        configService.reload();
+        Subject subject = subject();
+
+        SourceResult result = routing.fetchPage(subject, 1, 10);
+
+        verify(realAdapter, never()).fetchPage(any(Subject.class), anyInt(), anyInt());
+        verify(mockAdapter, never()).fetchPage(any(Subject.class), anyInt(), anyInt());
+        assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
     }
 
     @Test

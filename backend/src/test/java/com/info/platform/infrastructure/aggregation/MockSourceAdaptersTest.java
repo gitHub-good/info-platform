@@ -121,6 +121,59 @@ class MockSourceAdaptersTest {
         assertThat(result.getSourceCode()).isEqualTo(SourceCode.NEWS);
     }
 
+    // ---- M12：mock fetchPage（PRD 场景 5「mock 下不报错」口径） ----
+
+    @Test
+    void announceAdapter_fetchPage_slicesItemsWithTotal() {
+        MockAnnounceSourceAdapter adapter =
+                new MockAnnounceSourceAdapter(cache, fieldMapper, runner, breaker);
+
+        SourceResult first = adapter.fetchPage(subject(1L), 1, 1);
+        SourceResult second = adapter.fetchPage(subject(1L), 2, 1);
+        SourceResult outOfBounds = adapter.fetchPage(subject(1L), 9, 1);
+
+        assertThat(first.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) first.getData().get("items")).hasSize(1);
+        assertThat(first.getData().get("total")).isEqualTo(2L);
+        assertThat(first.getData().get("paginationSupported")).isEqualTo(true);
+        assertThat(second.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) second.getData().get("items")).hasSize(1);
+        assertThat(outOfBounds.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) outOfBounds.getData().get("items")).isEmpty();
+    }
+
+    @Test
+    void eventAdapter_fetchPage_slicesWindowWithTotal() {
+        MockEventSourceAdapter adapter =
+                new MockEventSourceAdapter(cache, fieldMapper, runner, breaker);
+
+        SourceResult first = adapter.fetchPage(subject(1L), 1, 10);
+        SourceResult outOfBounds = adapter.fetchPage(subject(1L), 2, 10);
+
+        assertThat(first.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) first.getData().get("items")).hasSize(1);
+        assertThat(first.getData().get("total")).isEqualTo(1L);
+        assertThat(outOfBounds.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) outOfBounds.getData().get("items")).isEmpty();
+        assertThat(outOfBounds.getData().get("total")).isEqualTo(1L);
+    }
+
+    @Test
+    void newsAdapter_fetchPage_pageOneHits_beyondFirstEmptyWithHasMoreFalse() {
+        MockNewsSourceAdapter adapter =
+                new MockNewsSourceAdapter(cache, fieldMapper, runner, breaker);
+
+        SourceResult first = adapter.fetchPage(subject(1L), 1, 20);
+        SourceResult second = adapter.fetchPage(subject(1L), 2, 20);
+
+        assertThat(first.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) first.getData().get("items")).hasSize(2);
+        assertThat(first.getData().get("hasMore")).isEqualTo(true);
+        assertThat(second.getStatus()).isEqualTo(SourceStatus.OK);
+        assertThat((List<?>) second.getData().get("items")).isEmpty();
+        assertThat(second.getData().get("hasMore")).isEqualTo(false);
+    }
+
     @Test
     void policyAdapter_returnsEmptyAndDegradesToMissing() {
         MockPolicySourceAdapter adapter =

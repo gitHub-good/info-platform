@@ -49,7 +49,8 @@ public class MockNewsSourceAdapter extends AbstractSourceAdapter {
 
     @Override
     protected List<FieldMapping> mappingConfig() {
-        return List.of();
+        // M12 T92：fetchPage 产出 items/size/hasMore 数据 map，模板层需透传映射（doFetch 抛异常路径不进映射，语义不变）
+        return ITEMS_PASSTHROUGH;
     }
 
     @Override
