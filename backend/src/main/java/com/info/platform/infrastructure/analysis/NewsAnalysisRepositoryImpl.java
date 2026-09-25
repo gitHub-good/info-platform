@@ -114,19 +114,24 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
 
     @Override
     public List<NewsAnalysisRepository.NewsCandidate> findUnanalyzed(
-            String createdBeforeIso, int limit) {
-        // LEFT JOIN 取「入库已过缓冲期仍无 analysis 行」条目；published_at,id 升序 = 近重复主条判定的时间序前提
-        String sql =
-                """
-                SELECT ni.id AS news_id, ni.source_id, ni.title, ni.summary, ni.published_at, ni.created_at
-                  FROM news_item ni
-                  JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
-                  LEFT JOIN news_analysis na ON na.news_id = ni.id
-                 WHERE na.id IS NULL AND ni.created_at <= ?
-                 ORDER BY ni.published_at ASC, ni.id ASC
-                 LIMIT ?
-                """;
-        return jdbcTemplate.query(sql, NEWS_CANDIDATE_ROW, createdBeforeIso, limit);
+            String createdBeforeIso, List<Long> excludeSourceIds, int limit) {
+        // LEFT JOIN 取「入库已过缓冲期仍无 analysis 行」条目；published_at,id 升序 = 近重复主条判定的时间序前提；
+        // aiExclusion=ALL 源不建行（T125，REQ 拍板五-1）
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT ni.id AS news_id, ni.source_id, ni.title, ni.summary, ni.published_at, ni.created_at
+                          FROM news_item ni
+                          JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
+                          LEFT JOIN news_analysis na ON na.news_id = ni.id
+                         WHERE na.id IS NULL AND ni.created_at <= ?
+                        """);
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(createdBeforeIso);
+        appendSourceExclusion(sql, args, excludeSourceIds, "ni.source_id");
+        sql.append(" ORDER BY ni.published_at ASC, ni.id ASC LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), NEWS_CANDIDATE_ROW, args.toArray());
     }
 
     @Override
@@ -146,23 +151,45 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
 
     @Override
     public List<NewsAnalysisRepository.ClassificationCandidate> findPendingForL1(
-            String createdSinceIso, int maxAttempts, int limit) {
-        // 24h 补跑窗口（裁决 5）+ attempts 守卫 + PASS 过滤（NOISE/NEAR_DUP 不进 L1，方案 §6 红线断言面）
-        String sql =
-                """
-                SELECT na.news_id, ni.title, ni.summary, s.name AS source_name,
-                       ni.published_at, ni.fetched_at
-                  FROM news_analysis na
-                  JOIN news_item ni ON ni.id = na.news_id
-                  JOIN info_source s ON s.id = ni.source_id
-                 WHERE na.l0_result = 'PASS'
-                   AND na.l1_status IN ('PENDING', 'FAILED')
-                   AND na.l1_attempts < ?
-                   AND na.created_at >= ?
-                 ORDER BY na.news_id ASC
-                 LIMIT ?
-                """;
-        return jdbcTemplate.query(sql, CLASSIFY_ROW, maxAttempts, createdSinceIso, limit);
+            String createdSinceIso, int maxAttempts, List<Long> excludeSourceIds, int limit) {
+        // 24h 补跑窗口（裁决 5）+ attempts 守卫 + PASS 过滤（NOISE/NEAR_DUP 不进 L1，方案 §6 红线断言面）；
+        // aiExclusion=ALL 源条目不归类（T125——防御性兜底，正常情况 L0 已不建行）
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT na.news_id, ni.title, ni.summary, s.name AS source_name,
+                               ni.published_at, ni.fetched_at
+                          FROM news_analysis na
+                          JOIN news_item ni ON ni.id = na.news_id
+                          JOIN info_source s ON s.id = ni.source_id
+                         WHERE na.l0_result = 'PASS'
+                           AND na.l1_status IN ('PENDING', 'FAILED')
+                           AND na.l1_attempts < ?
+                           AND na.created_at >= ?
+                        """);
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(maxAttempts);
+        args.add(createdSinceIso);
+        appendSourceExclusion(sql, args, excludeSourceIds, "ni.source_id");
+        sql.append(" ORDER BY na.news_id ASC LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), CLASSIFY_ROW, args.toArray());
+    }
+
+    /** 源排除谓词拼接（id 清单绑定参数化，无注入面；空表不加谓词）。 */
+    private static void appendSourceExclusion(
+            StringBuilder sql, List<Object> args, List<Long> excludeSourceIds, String column) {
+        if (excludeSourceIds == null || excludeSourceIds.isEmpty()) {
+            return;
+        }
+        sql.append(" AND ")
+                .append(column)
+                .append(" NOT IN (")
+                .append(
+                        String.join(
+                                ",", java.util.Collections.nCopies(excludeSourceIds.size(), "?")))
+                .append(")");
+        args.addAll(excludeSourceIds);
     }
 
     @Override
@@ -367,6 +394,35 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
     @Override
     public Map<String, Long> countL1ByStatusSince(String createdSinceIso) {
         return countByColumnValue("l1_status", createdSinceIso);
+    }
+
+    @Override
+    public NewsAnalysisRepository.L1SlaStats countL1SlaSince(String createdSinceIso) {
+        // T+30min 口径（方案 §4.10）：DONE 行为分母，classified_at − news_item.fetched_at ≤ 30min 为分子；
+        // SQLite julianday 折算分钟差（ISO-8601 文本字典序/时间序一致，双端同源）
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*) AS done,
+                       SUM(CASE WHEN (julianday(na.classified_at) - julianday(ni.fetched_at)) * 1440 <= 30
+                                 THEN 1 ELSE 0 END) AS within30
+                  FROM news_analysis na
+                  JOIN news_item ni ON ni.id = na.news_id
+                 WHERE na.l1_status = 'DONE' AND na.created_at >= ?
+                """,
+                (rs, rowNum) ->
+                        new NewsAnalysisRepository.L1SlaStats(
+                                rs.getLong("done"), rs.getLong("within30")), // SUM 空集 NULL → 0
+                createdSinceIso);
+    }
+
+    @Override
+    public long countNewsItemsCreatedSince(String createdSinceIso) {
+        Long count =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM news_item WHERE created_at >= ?",
+                        Long.class,
+                        createdSinceIso);
+        return count == null ? 0 : count;
     }
 
     private Map<String, Long> countByColumnValue(String column, String createdSinceIso) {

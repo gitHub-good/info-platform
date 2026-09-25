@@ -9,8 +9,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * PipelineRuntimeConfigSeeder 单测（T120~T125，方案 §4.8 键表）：pipeline.global/pipeline.l0/pipeline.l2
- * 三键结构与缺省值——种子 JSON 与 ImportanceScorer 缺省参数同源（热改回落基准一致，防两处漂移）。AAA 结构。
+ * PipelineRuntimeConfigSeeder 单测（T120~T125，方案 §4.8 键表）：pipeline.global/pipeline.l0/pipeline.l2/pipeline.budget
+ * 四键结构与缺省值——种子 JSON 与 ImportanceScorer 缺省参数同源（热改回落基准一致，防两处漂移）。AAA 结构。
  */
 class PipelineRuntimeConfigSeederTest {
 
@@ -25,9 +25,10 @@ class PipelineRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesThreePipelineKeys() {
+    void seeds_carriesFourPipelineKeys() {
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
-        assertThat(keys).containsExactly("pipeline.global", "pipeline.l0", "pipeline.l2");
+        assertThat(keys)
+                .containsExactly("pipeline.global", "pipeline.l0", "pipeline.l2", "pipeline.budget");
     }
 
     @Test
@@ -47,5 +48,20 @@ class PipelineRuntimeConfigSeederTest {
         for (String trigger : ImportanceScorer.defaults().mediumTriggers()) {
             assertThat(json).contains("\"" + trigger + "\"");
         }
+    }
+
+    // ---- T125：pipeline.budget 护栏预算键（方案 §3.5/§4.8） ----
+
+    @Test
+    void seed_budget_defaultsTwoYuanPerDayWithTwoStageRatios() {
+        String json = seedOf("pipeline.budget").json();
+
+        // ¥2/日 = 2,000,000 微元；60%/90% 两级；校准初值 1100（附录 A 实测+推算）与 cost-v1:initial
+        assertThat(json)
+                .contains("\"dailyBudgetMicros\":2000000")
+                .contains("\"degradeRatio\":0.6")
+                .contains("\"fuseRatio\":0.9")
+                .contains("\"calibratedPerItemMicros\":1100")
+                .contains("\"costBasis\":\"cost-v1:initial\"");
     }
 }

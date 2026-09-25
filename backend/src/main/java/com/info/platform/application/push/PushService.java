@@ -6,6 +6,7 @@ import com.info.platform.domain.push.AnomalyDetectedEvent;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
 import com.info.platform.domain.push.NotificationEvent;
+import com.info.platform.domain.push.PipelineFusedEvent;
 import com.info.platform.domain.push.PushRecord;
 import com.info.platform.domain.push.PushRepository;
 import com.info.platform.domain.push.PushType;
@@ -238,6 +239,34 @@ public class PushService {
         broadcast(
                 alert ? PushType.SOURCE_ALERT : PushType.SOURCE_RECOVERED, refId, contentOf(event));
         log.info("源告警推送完成 source={} kind={} refId={}", event.sourceCode(), event.kind(), refId);
+    }
+
+    /**
+     * 管道熔断告警推送（M15 T125，方案 §4.6）：{@code @Async @EventListener} 消费 {@link
+     * PipelineFusedEvent}（PipelineGuardService 进入 FUSED 态发布，内存节流每 episode 一次），广播全量用户。异常兜底记 ERROR
+     * 不上抛。
+     */
+    @Async("pushAsyncExecutor")
+    @EventListener
+    public void onPipelineFused(PipelineFusedEvent event) {
+        try {
+            handlePipelineFused(event);
+        } catch (Exception e) {
+            log.error("管道熔断告警推送处理异常 cost={}: {}", event.costMicros(), e.toString(), e);
+        }
+    }
+
+    /** 管道熔断告警编排（包内可见，单测直调绕过 @Async 代理）：广播全量用户，refId 含触发时刻（episode 间幂等键不误吞）。 */
+    void handlePipelineFused(PipelineFusedEvent event) {
+        String refId = "pipeline_fused:" + event.occurredAt();
+        broadcast(
+                PushType.PIPELINE_FUSED,
+                refId,
+                String.format(
+                        "[管道熔断] 当日 AI 管道成本 %d 微元已达预算 %d 微元的 90%%，L1/L2/日报已暂停，"
+                                + "次日自动恢复并补跑 24h 内积压",
+                        event.costMicros(), event.budgetMicros()));
+        log.info("管道熔断告警推送完成 refId={}", refId);
     }
 
     /** 广播推送：全量用户逐个走通用单用户编排（单用户异常不阻断其余）。 */

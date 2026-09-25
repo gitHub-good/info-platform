@@ -8,8 +8,10 @@ import com.info.platform.domain.analysis.L2Status;
 import com.info.platform.domain.analysis.NewsAnalysis;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import com.info.platform.domain.feed.AdapterType;
+import com.info.platform.domain.feed.AiExclusion;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.InfoSourceRepository;
+import com.info.platform.domain.feed.SourceConfig;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -51,13 +53,13 @@ class NewsAnalysisRepositoryImplTest {
         jdbcTemplate.update(
                 "DELETE FROM news_analysis WHERE news_id IN "
                         + "(SELECT id FROM news_item WHERE source_id IN "
-                        + "(SELECT id FROM info_source WHERE source_code LIKE 't120_%'))");
+                        + "(SELECT id FROM info_source WHERE source_code LIKE 't12%'))");
         jdbcTemplate.update(
                 "DELETE FROM news_item WHERE source_id IN "
-                        + "(SELECT id FROM info_source WHERE source_code LIKE 't120_%')");
+                        + "(SELECT id FROM info_source WHERE source_code LIKE 't12%')");
         jdbcTemplate.update(
                 "DELETE FROM source_poll_state WHERE source_id IN "
-                        + "(SELECT id FROM info_source WHERE source_code LIKE 't120_%')");
+                        + "(SELECT id FROM info_source WHERE source_code LIKE 't12%')");
         jdbcTemplate.update("DELETE FROM info_source WHERE source_code LIKE 't120_%'");
     }
 
@@ -141,7 +143,7 @@ class NewsAnalysisRepositoryImplTest {
                 newNews(sourceB, "软删源条目不应出现", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
 
         List<Long> ids =
-                repository.findUnanalyzed(cutoff, 100).stream()
+                repository.findUnanalyzed(cutoff, List.of(), 100).stream()
                         .map(NewsAnalysisRepository.NewsCandidate::newsId)
                         .toList();
 
@@ -158,7 +160,7 @@ class NewsAnalysisRepositoryImplTest {
                 List.of(NewsAnalysis.newForL0(analyzed, L0Result.NOISE, null, "noise:keyword:广告")));
 
         List<Long> ids =
-                repository.findUnanalyzed(Instant.now().toString(), 100).stream()
+                repository.findUnanalyzed(Instant.now().toString(), List.of(), 100).stream()
                         .map(NewsAnalysisRepository.NewsCandidate::newsId)
                         .toList();
 
@@ -210,7 +212,7 @@ class NewsAnalysisRepositoryImplTest {
                         done, "银行", null, null, 0.9, false, null, "v1.0", Instant.now()));
 
         List<Long> ids =
-                repository.findPendingForL1("2026-09-21T00:00:00Z", 3, 100).stream()
+                repository.findPendingForL1("2026-09-21T00:00:00Z", 3, List.of(), 100).stream()
                         .map(NewsAnalysisRepository.ClassificationCandidate::newsId)
                         .toList();
 
@@ -227,7 +229,7 @@ class NewsAnalysisRepositoryImplTest {
         // analysis 行 created_at = 建行时刻（L0 时间）：窗口起点推到未来即排除现存行
         String futureWindowStart = Instant.now().plusSeconds(3600).toString();
         List<Long> ids =
-                repository.findPendingForL1(futureWindowStart, 3, 100).stream()
+                repository.findPendingForL1(futureWindowStart, 3, List.of(), 100).stream()
                         .map(NewsAnalysisRepository.ClassificationCandidate::newsId)
                         .toList();
 
@@ -241,7 +243,7 @@ class NewsAnalysisRepositoryImplTest {
                 List.of(NewsAnalysis.newForL0(newsId, L0Result.PASS, null, null)));
 
         NewsAnalysisRepository.ClassificationCandidate candidate =
-                repository.findPendingForL1("2026-09-21T00:00:00Z", 3, 100).get(0);
+                repository.findPendingForL1("2026-09-21T00:00:00Z", 3, List.of(), 100).get(0);
 
         assertThat(candidate.newsId()).isEqualTo(newsId);
         assertThat(candidate.title()).isEqualTo("渲染字段完整性条目");
@@ -448,5 +450,122 @@ class NewsAnalysisRepositoryImplTest {
                 .containsEntry("SKIP", 2L) // base + 未归类条目（缺省 SKIP，不进配额基数）
                 .containsEntry("EXTRACTED", 1L)
                 .containsEntry("DEFERRED", 1L);
+    }
+
+    // ---- T125：护栏/排除面（SLA 口径 / 净入库计数 / aiExclusion 排除下传） ----
+
+    @Test
+    void countL1SlaSince_doneDenominatorAnd30MinWindow() {
+        // fetched 02:00：29min 内完成（02:29）计分子；31min（02:31）不计；PENDING 不进分母
+        long fast = newNews(sourceA, "SLA 快条目", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        long slow = newNews(sourceA, "SLA 慢条目", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        long pending =
+                newNews(sourceA, "SLA 未完成条目", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        repository.insertIgnoreBatch(
+                List.of(
+                        NewsAnalysis.newForL0(fast, L0Result.PASS, null, null),
+                        NewsAnalysis.newForL0(slow, L0Result.PASS, null, null),
+                        NewsAnalysis.newForL0(pending, L0Result.PASS, null, null)));
+        repository.applyL1Result(
+                new NewsAnalysisRepository.L1Write(
+                        fast,
+                        "银行",
+                        null,
+                        null,
+                        0.9,
+                        false,
+                        null,
+                        "v1.0",
+                        Instant.parse("2026-09-22T02:29:00Z")));
+        repository.applyL1Result(
+                new NewsAnalysisRepository.L1Write(
+                        slow,
+                        "银行",
+                        null,
+                        null,
+                        0.9,
+                        false,
+                        null,
+                        "v1.0",
+                        Instant.parse("2026-09-22T02:31:00Z")));
+
+        NewsAnalysisRepository.L1SlaStats stats =
+                repository.countL1SlaSince("2026-09-21T00:00:00Z");
+
+        assertThat(stats.done()).isEqualTo(2);
+        assertThat(stats.within30Min()).isEqualTo(1);
+    }
+
+    @Test
+    void countNewsItemsCreatedSince_countsIntakeWindow() {
+        long today = newNews(sourceA, "净入库当日条目", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        newNews(sourceA, "净入库昨日条目", "2026-09-20T03:00:00Z", "2026-09-20T02:00:00Z");
+
+        assertThat(repository.countNewsItemsCreatedSince("2026-09-21T16:00:00Z"))
+                .isEqualTo(
+                        jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM news_item WHERE id = ?", Long.class, today));
+    }
+
+    @Test
+    void findUnanalyzed_excludesAllLevelSources() {
+        // aiExclusion=ALL 源条目不建 analysis 行（REQ 拍板五-1：L0 排除面）——启用源（非软删）才能隔离排除语义
+        long allSource = newConfiguredSource("t125_all", AiExclusion.ALL);
+        long excluded =
+                newNews(allSource, "ALL 排除源条目不建行", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        long kept = newNews(sourceA, "正常源条目照常建行", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+
+        List<Long> ids =
+                repository
+                        .findUnanalyzed(Instant.now().toString(), List.of(allSource), 100)
+                        .stream()
+                        .map(NewsAnalysisRepository.NewsCandidate::newsId)
+                        .toList();
+
+        assertThat(ids).contains(kept).doesNotContain(excluded);
+    }
+
+    /** 建带 AI 排除档位配置的启用源（t125_ 前缀走既有清理链）。 */
+    private long newConfiguredSource(String code, AiExclusion level) {
+        InfoSource source =
+                InfoSource.create(
+                        code,
+                        code,
+                        "快讯",
+                        AdapterType.RSS,
+                        null,
+                        "https://example.com/" + code,
+                        new SourceConfig(
+                                null, null, null, null, null, null, null, null, null, null, level),
+                        15,
+                        true,
+                        false);
+        infoSourceRepository.save(source);
+        return source.getId();
+    }
+
+    @Test
+    void findPendingForL1_excludesAllLevelSources() {
+        long allSource = newConfiguredSource("t125_all_l1", AiExclusion.ALL);
+        long excluded =
+                newNews(
+                        allSource,
+                        "ALL 排除源条目不进 L1",
+                        "2026-09-22T03:00:00Z",
+                        "2026-09-22T02:00:00Z");
+        long kept = newNews(sourceA, "正常源条目进 L1", "2026-09-22T03:00:00Z", "2026-09-22T02:00:00Z");
+        repository.insertIgnoreBatch(
+                List.of(
+                        NewsAnalysis.newForL0(excluded, L0Result.PASS, null, null),
+                        NewsAnalysis.newForL0(kept, L0Result.PASS, null, null)));
+
+        List<Long> ids =
+                repository
+                        .findPendingForL1("2026-09-21T00:00:00Z", 3, List.of(allSource), 100)
+                        .stream()
+                        .map(NewsAnalysisRepository.ClassificationCandidate::newsId)
+                        .toList();
+
+        assertThat(ids).containsExactly(kept);
     }
 }

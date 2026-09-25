@@ -34,7 +34,13 @@ public enum RetentionLogTable {
     READING_EVENT("reading_event", "readingEventDays", 90, 35),
 
     /** 资讯统一库（M13 V22；批次源放量写入的存储护栏，默认 180 天下限 30，T113）。 */
-    NEWS_ITEM("news_item", "newsItemDays", 180, 30);
+    NEWS_ITEM("news_item", "newsItemDays", 180, 30),
+
+    /**
+     * 管道逐条状态表（M15 V23；随 news_item 同窗同清——T125 并入 {@code newsItemDays} 键：两表 created_at 同刻落库，
+     * 窗口一致即近似同轮清出，孤儿行窗口差 ≤一轮，ADR-0046 裁决 1 注记）。
+     */
+    NEWS_ANALYSIS("news_analysis", "newsItemDays", 180, 30);
 
     private final String physicalName;
     private final String jsonField;

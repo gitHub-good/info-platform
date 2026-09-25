@@ -24,7 +24,9 @@ public enum PushType {
     /** 源异常告警（M14 T115：连续失败达阈值或退避 ≥30 分钟，SourceAlertEvent 触发，全量用户广播）。 */
     SOURCE_ALERT(6, "source_alert"),
     /** 源恢复通知（M14 T115 Should：告警态源恢复成功抓取时一条，feed.alert.recovered-enabled 可关）。 */
-    SOURCE_RECOVERED(7, "source_recovered");
+    SOURCE_RECOVERED(7, "source_recovered"),
+    /** 管道成本熔断告警（M15 T125：scene 5/6/7 当日成本 ≥90% 日预算，PipelineGuardService 发布，全量用户广播）。 */
+    PIPELINE_FUSED(8, "pipeline_fused");
 
     private final int code;
     private final String eventName;

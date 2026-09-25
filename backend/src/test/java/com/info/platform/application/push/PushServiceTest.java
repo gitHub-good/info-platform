@@ -714,4 +714,36 @@ class PushServiceTest {
                 Instant.parse("2026-09-21T02:00:00Z"),
                 Instant.parse("2026-09-21T02:00:00Z"));
     }
+
+    // ---- T125：管道熔断告警广播（PipelineFusedEvent → PIPELINE_FUSED(8)，方案 §4.6） ----
+
+    @Test
+    void handlePipelineFused_broadcastsFusedAlertToAllUsers() throws Exception {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        service.handlePipelineFused(
+                new com.info.platform.domain.push.PipelineFusedEvent(
+                        1_830_000L, 2_000_000L, FIXED_CLOCK.instant()));
+
+        // push_record：类型 PIPELINE_FUSED(8)、幂等键含触发时刻（episode 间不误吞）
+        ArgumentCaptor<PushRecord> saved = ArgumentCaptor.forClass(PushRecord.class);
+        verify(pushRepository).saveIfAbsent(saved.capture());
+        assertThat(saved.getValue().getPushType()).isEqualTo(PushType.PIPELINE_FUSED);
+        assertThat(saved.getValue().getIdempotencyKey())
+                .isEqualTo(USER_ID + ":8:pipeline_fused:" + FIXED_CLOCK.instant());
+        // SSE 载荷：type=pipeline_fused、content 含成本/预算（横幅三处同源文案）
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().type()).isEqualTo("pipeline_fused");
+        assertThat(payload.getValue().content()).contains("1830000").contains("2000000");
+        verify(pushRepository).update(any(PushRecord.class));
+    }
 }

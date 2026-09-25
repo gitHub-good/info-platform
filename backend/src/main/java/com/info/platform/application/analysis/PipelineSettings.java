@@ -19,9 +19,9 @@ import org.springframework.stereotype.Service;
 /**
  * 管道运行参数（应用层，M15 T120/T121，方案 §4.8 {@code pipeline.*} 配置键的消费点）。
  *
- * <p>每次 tick 用时读取（配置中心快照，页面保存即对下一批生效）；键缺失或字段损坏回落代码缺省并记 WARN（不阻断批窗口——旧值/缺省 继续生效，对齐既有降级惯例）。本批消费
- * {@code pipeline.global}（L1 批量参数）与 {@code pipeline.l0}（预筛参数）两键； {@code pipeline.budget/heat/l2} 随
- * T122/T123/T125 消费方落地。
+ * <p>每次 tick 用时读取（配置中心快照，页面保存即对下一批生效）；键缺失或字段损坏回落代码缺省并记 WARN（不阻断批窗口——旧值/缺省 继续生效，对齐既有降级惯例）。已消费 {@code
+ * pipeline.global}（L1 批量参数）、{@code pipeline.l0}（预筛参数）、{@code pipeline.l2}（事件提取参数）、{@code pipeline.budget}（护栏预算参数，
+ * T125）四键； {@code pipeline.heat} 随 T123 消费方落地。
  */
 @Service
 public class PipelineSettings {
@@ -89,6 +89,68 @@ public class PipelineSettings {
     static final String KEY_PIPELINE_L0 = "pipeline.l0";
 
     static final String KEY_PIPELINE_L2 = "pipeline.l2";
+
+    static final String KEY_PIPELINE_BUDGET = "pipeline.budget";
+
+    // —— 护栏预算参数（M15 T125，方案 §3.5/§4.8 pipeline.budget 键） ——
+
+    /** 日预算缺省（¥2/日 = 2,000,000 微元——按实测单条 ¥0.0011 × 632 条/日 ≈ 35% 水位，3 倍放量余量）。 */
+    static final long DEFAULT_DAILY_BUDGET_MICROS = 2_000_000L;
+
+    /** 降级阈值比例缺省（60%）。 */
+    static final double DEFAULT_DEGRADE_RATIO = 0.6;
+
+    /** 熔断阈值比例缺省（90%）。 */
+    static final double DEFAULT_FUSE_RATIO = 0.9;
+
+    /** 单条成本校准初值（微元 = 附录 A 实测 L1 ¥0.00046 + L2 推算 + 日报摊薄）。 */
+    static final long DEFAULT_CALIBRATED_PER_ITEM_MICROS = 1_100L;
+
+    /** 成本口径版本串初值（校准写入时升版）。 */
+    static final String DEFAULT_COST_BASIS = "cost-v1:initial";
+
+    /** 日预算（微元；热改即时生效——每 tick 现读）。 */
+    public long dailyBudgetMicros() {
+        long budget = longOf(budgetDoc(), "dailyBudgetMicros", DEFAULT_DAILY_BUDGET_MICROS);
+        return budget <= 0 ? DEFAULT_DAILY_BUDGET_MICROS : budget;
+    }
+
+    /** 降级阈值比例（0~1 越界回落 0.6 并 WARN）。 */
+    public double degradeRatio() {
+        double ratio = doubleOf(budgetDoc(), "degradeRatio", DEFAULT_DEGRADE_RATIO);
+        if (ratio <= 0 || ratio >= 1) {
+            log.warn("pipeline.budget.degradeRatio={} 越界（0~1），回落缺省 {}", ratio, DEFAULT_DEGRADE_RATIO);
+            return DEFAULT_DEGRADE_RATIO;
+        }
+        return ratio;
+    }
+
+    /** 熔断阈值比例（0~1 越界回落 0.9 并 WARN）。 */
+    public double fuseRatio() {
+        double ratio = doubleOf(budgetDoc(), "fuseRatio", DEFAULT_FUSE_RATIO);
+        if (ratio <= 0 || ratio <= degradeRatio() || ratio > 1) {
+            log.warn("pipeline.budget.fuseRatio={} 越界（须 >degradeRatio 且 ≤1），回落缺省 {}", ratio, DEFAULT_FUSE_RATIO);
+            return DEFAULT_FUSE_RATIO;
+        }
+        return ratio;
+    }
+
+    /** 单条成本校准值（微元）。 */
+    public long calibratedPerItemMicros() {
+        return longOf(budgetDoc(), "calibratedPerItemMicros", DEFAULT_CALIBRATED_PER_ITEM_MICROS);
+    }
+
+    /** 成本口径版本串。 */
+    public String costBasis() {
+        JsonNode node = budgetDoc() == null ? null : budgetDoc().get("costBasis");
+        return node != null && node.isTextual() && !node.asText().isBlank()
+                ? node.asText()
+                : DEFAULT_COST_BASIS;
+    }
+
+    private JsonNode budgetDoc() {
+        return doc(KEY_PIPELINE_BUDGET);
+    }
 
     private final RuntimeConfigService configService;
 
@@ -263,6 +325,14 @@ public class PipelineSettings {
             return defaultValue;
         }
         return node.asInt();
+    }
+
+    private static long longOf(JsonNode doc, String field, long defaultValue) {
+        JsonNode node = doc == null ? null : doc.get(field);
+        if (node == null || !node.canConvertToLong()) {
+            return defaultValue;
+        }
+        return node.asLong();
     }
 
     private static double doubleOf(JsonNode doc, String field, double defaultValue) {

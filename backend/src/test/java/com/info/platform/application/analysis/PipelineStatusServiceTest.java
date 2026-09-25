@@ -1,119 +1,120 @@
 package com.info.platform.application.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.info.platform.domain.ai.LlmCallLog;
-import com.info.platform.domain.ai.LlmCallLogRepository;
-import com.info.platform.domain.ai.LlmCallStatus;
-import com.info.platform.domain.ai.LlmProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.analysis.GuardLevel;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * PipelineStatusService 单测（T121 基础版，方案 §4.8）：当日三态计数聚合、Asia/Shanghai 日界折算 UTC、成本只计 scene=5
- * SUCCESS、lastTick 透传。全 mock。AAA 结构。
+ * PipelineStatusService 单测（T121 基础版 → T125 完整版，方案 §4.6/§4.8）：护栏面组装（level/预算/阈值/校准值——来自
+ * PipelineGuardService 与 pipeline.budget 缺省）、当日计数（含 L2 三态）、l1RateIn30min 与 l2Coverage 算术（无样本
+ * null）、Asia/Shanghai 日界折算 UTC、lastTick 透传。全 mock。AAA 结构。
  */
 class PipelineStatusServiceTest {
 
     // 2026-09-22 17:30 上海 = 09:30 UTC → 当日零点（上海）= 前一日 16:00 UTC
     private static final Instant NOW = Instant.parse("2026-09-22T09:30:00Z");
 
+    private static final String TODAY_START = "2026-09-21T16:00:00Z";
+
     private NewsAnalysisRepository repository;
-    private LlmCallLogRepository llmCallLogRepository;
     private NewsPipelineService pipelineService;
+    private PipelineGuardService guardService;
     private PipelineStatusService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(NewsAnalysisRepository.class);
-        llmCallLogRepository = mock(LlmCallLogRepository.class);
         pipelineService = mock(NewsPipelineService.class);
+        guardService = mock(PipelineGuardService.class);
+        when(guardService.currentLevel()).thenReturn(GuardLevel.NORMAL);
+        when(guardService.todayCostMicros()).thenReturn(0L);
+        RuntimeConfigService configService = mock(RuntimeConfigService.class);
+        when(configService.read(anyString())).thenReturn(Optional.empty());
+        PipelineSettings settings = new PipelineSettings(configService, new ObjectMapper());
         service =
                 new PipelineStatusService(
                         repository,
-                        llmCallLogRepository,
                         pipelineService,
+                        guardService,
+                        settings,
                         Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    private static LlmCallLog costLog(String sceneKey, LlmCallStatus status, long micros) {
-        LlmCallLog log = LlmCallLog.begin(0L, sceneKey);
-        log.markSuccess(
-                LlmProvider.DEEPSEEK.configName(),
-                "deepseek-flash",
-                new com.info.platform.domain.ai.LlmUsage(100, 50),
-                micros,
-                100L);
-        return log;
-    }
-
     @Test
-    void status_countsAndCostComposed() {
-        // Arrange
-        when(repository.countL0ByResultSince("2026-09-21T16:00:00Z"))
+    void status_fullGuardFaceComposed() {
+        // Arrange：预算键缺省（¥2/日=2,000,000 微元；60%/90% 阈值；校准初值 1100 = 附录 A）
+        when(repository.countL0ByResultSince(TODAY_START))
                 .thenReturn(Map.of("PASS", 620L, "NOISE", 8L, "NEAR_DUP", 12L));
-        when(repository.countL1ByStatusSince("2026-09-21T16:00:00Z"))
+        when(repository.countL1ByStatusSince(TODAY_START))
                 .thenReturn(Map.of("DONE", 600L, "PENDING", 5L, "FAILED", 2L));
-        when(llmCallLogRepository.findCreatedSince(any(Instant.class), anyInt()))
-                .thenReturn(
-                        List.of(
-                                costLog("5", LlmCallStatus.SUCCESS, 9115L),
-                                costLog("5", LlmCallStatus.SUCCESS, 4560L),
-                                costLog("1", LlmCallStatus.SUCCESS, 999_999L), // 非管道 scene 不计
-                                failedLog()));
-        when(pipelineService.lastTick())
-                .thenReturn(
-                        new NewsPipelineService.LastTick(
-                                NOW.minusSeconds(600),
-                                NOW.minusSeconds(540),
-                                "l0=pass:3; l1=done:3"));
+        when(repository.countL2ByStatusSince(TODAY_START))
+                .thenReturn(Map.of("EXTRACTED", 90L, "NO_EVENT", 20L, "DEFERRED", 10L));
+        when(repository.countL1SlaSince(TODAY_START))
+                .thenReturn(new NewsAnalysisRepository.L1SlaStats(600L, 570L));
+        when(guardService.currentLevel()).thenReturn(GuardLevel.DEGRADED);
+        when(guardService.todayCostMicros()).thenReturn(1_350_000L);
 
         // Act
         PipelineStatusView view = service.status();
 
         // Assert
         assertThat(view.jobKey()).isEqualTo("NEWS_PIPELINE");
-        assertThat(view.today().l0Pass()).isEqualTo(620L);
-        assertThat(view.today().l0Noise()).isEqualTo(8L);
-        assertThat(view.today().l0NearDup()).isEqualTo(12L);
-        assertThat(view.today().l1Done()).isEqualTo(600L);
-        assertThat(view.today().l1Pending()).isEqualTo(5L);
-        assertThat(view.today().l1Failed()).isEqualTo(2L);
-        assertThat(view.todayCostMicros()).isEqualTo(9115L + 4560L); // 只计 scene=5 SUCCESS
-        assertThat(view.lastTick().startedAt()).isEqualTo("2026-09-22T09:20:00Z");
-        assertThat(view.lastTick().detail()).isEqualTo("l0=pass:3; l1=done:3");
-    }
-
-    private static LlmCallLog failedLog() {
-        LlmCallLog log = LlmCallLog.begin(0L, "5");
-        log.markFailed("所有 provider 失败", 100L);
-        return log;
+        assertThat(view.level()).isEqualTo(GuardLevel.DEGRADED);
+        assertThat(view.todayCostMicros()).isEqualTo(1_350_000L);
+        assertThat(view.budgetMicros()).isEqualTo(2_000_000L);
+        assertThat(view.degradeAtMicros()).isEqualTo(1_200_000L);
+        assertThat(view.fuseAtMicros()).isEqualTo(1_800_000L);
+        assertThat(view.calibratedPerItemMicros()).isEqualTo(1_100L);
+        assertThat(view.costBasis()).isEqualTo("cost-v1:initial");
     }
 
     @Test
-    void status_missingStatesCountedAsZero() {
+    void status_slaAndCoverageArithmetic() {
+        // l1RateIn30min = 570/600 = 0.95；l2Coverage =
+        // EXTRACTED/(EXTRACTED+NO_EVENT+FAILED+DEFERRED)
+        when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of());
+        when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of("DONE", 600L));
+        when(repository.countL2ByStatusSince(anyString()))
+                .thenReturn(Map.of("EXTRACTED", 90L, "NO_EVENT", 20L, "DEFERRED", 10L));
+        when(repository.countL1SlaSince(anyString()))
+                .thenReturn(new NewsAnalysisRepository.L1SlaStats(600L, 570L));
+
+        PipelineStatusView view = service.status();
+
+        assertThat(view.today().l1RateIn30min()).isEqualTo(0.95);
+        assertThat(view.today().l2Coverage()).isEqualTo(90.0 / 120.0);
+        assertThat(view.today().l2Extracted()).isEqualTo(90L);
+        assertThat(view.today().l2Deferred()).isEqualTo(10L);
+    }
+
+    @Test
+    void status_slaAndCoverageNullWithoutSamples() {
+        // 无 DONE / 无 L2 命中 → 比率 null（P50/P90「无样本 null」先例，可区分 0）
         when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of("PASS", 3L));
         when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of());
-        when(llmCallLogRepository.findCreatedSince(any(Instant.class), anyInt()))
-                .thenReturn(List.of());
+        when(repository.countL2ByStatusSince(anyString())).thenReturn(Map.of());
+        when(repository.countL1SlaSince(anyString()))
+                .thenReturn(new NewsAnalysisRepository.L1SlaStats(0L, 0L));
 
         PipelineStatusView view = service.status();
 
         assertThat(view.today().l0Pass()).isEqualTo(3L);
-        assertThat(view.today().l0Noise()).isZero();
-        assertThat(view.today().l1Done()).isZero();
-        assertThat(view.todayCostMicros()).isZero();
+        assertThat(view.today().l1RateIn30min()).isNull();
+        assertThat(view.today().l2Coverage()).isNull();
+        assertThat(view.today().l2Extracted()).isZero();
         assertThat(view.lastTick()).isNull(); // 未跑过批窗口
     }
 
@@ -123,21 +124,30 @@ class PipelineStatusServiceTest {
         service =
                 new PipelineStatusService(
                         repository,
-                        llmCallLogRepository,
                         pipelineService,
+                        guardService,
+                        settingsOfDefaults(),
                         Clock.fixed(Instant.parse("2026-09-22T16:30:00Z"), ZoneOffset.UTC));
         when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of());
         when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of());
-        when(llmCallLogRepository.findCreatedSince(any(Instant.class), anyInt()))
-                .thenReturn(List.of());
+        when(repository.countL2ByStatusSince(anyString())).thenReturn(Map.of());
+        when(repository.countL1SlaSince(anyString()))
+                .thenReturn(new NewsAnalysisRepository.L1SlaStats(0L, 0L));
 
         service.status();
 
         verifyWindowStart("2026-09-22T16:00:00Z");
     }
 
+    private PipelineSettings settingsOfDefaults() {
+        RuntimeConfigService configService = mock(RuntimeConfigService.class);
+        when(configService.read(anyString())).thenReturn(Optional.empty());
+        return new PipelineSettings(configService, new ObjectMapper());
+    }
+
     private void verifyWindowStart(String expected) {
         org.mockito.Mockito.verify(repository).countL0ByResultSince(expected);
         org.mockito.Mockito.verify(repository).countL1ByStatusSince(expected);
+        org.mockito.Mockito.verify(repository).countL1SlaSince(expected);
     }
 }

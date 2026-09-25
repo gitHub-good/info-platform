@@ -107,6 +107,8 @@ class RetentionWindowsTest {
         assertThat(windows.of(RetentionLogTable.LLM_CALL_LOG)).isEqualTo(40);
         assertThat(windows.of(RetentionLogTable.READING_EVENT)).isEqualTo(50);
         assertThat(windows.of(RetentionLogTable.NEWS_ITEM)).isEqualTo(200);
+        // T125：news_analysis 随 news_item 同窗（newsItemDays 共窗——ADR-0046 裁决 1 注记）
+        assertThat(windows.of(RetentionLogTable.NEWS_ANALYSIS)).isEqualTo(200);
     }
 
     @Test

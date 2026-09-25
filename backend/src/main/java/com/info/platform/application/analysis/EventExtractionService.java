@@ -22,6 +22,7 @@ import com.info.platform.domain.analysis.IndustryCategory;
 import com.info.platform.domain.analysis.L2Status;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import com.info.platform.domain.common.BusinessException;
+import com.info.platform.domain.feed.AiExclusion;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -68,6 +69,7 @@ public class EventExtractionService implements PlaceholderProvider {
     private final LlmGateway llmGateway;
     private final PromptTemplateService promptTemplateService;
     private final SubjectMatcher subjectMatcher;
+    private final AiExclusionResolver exclusionResolver;
     private final PipelineSettings settings;
     private final Clock clock;
     private final ObjectMapper objectMapper;
@@ -78,6 +80,7 @@ public class EventExtractionService implements PlaceholderProvider {
             LlmGateway llmGateway,
             PromptTemplateService promptTemplateService,
             SubjectMatcher subjectMatcher,
+            AiExclusionResolver exclusionResolver,
             PipelineSettings settings,
             Clock clock,
             ObjectMapper objectMapper) {
@@ -86,6 +89,7 @@ public class EventExtractionService implements PlaceholderProvider {
         this.llmGateway = llmGateway;
         this.promptTemplateService = promptTemplateService;
         this.subjectMatcher = subjectMatcher;
+        this.exclusionResolver = exclusionResolver;
         this.settings = settings;
         this.clock = clock;
         this.objectMapper = objectMapper;
@@ -101,7 +105,8 @@ public class EventExtractionService implements PlaceholderProvider {
     public L2Report runL2Window() {
         Instant now = clock.instant();
         String todayStart = todayStartIso(now);
-        List<Long> excludeSourceIds = List.of(); // aiExclusion=L2 源过滤随 T125 接入（查询参数已承载）
+        List<Long> excludeSourceIds =
+                exclusionResolver.excludedSourceIds(AiExclusion.L2); // L2 档源不产事件（照常归类，REQ 拍板五-1）
         List<NewsAnalysisRepository.L2Candidate> candidates =
                 repository.findL2Candidates(
                         todayStart,

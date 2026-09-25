@@ -23,12 +23,15 @@ public interface NewsAnalysisRepository {
     /**
      * 取「入库已过缓冲期仍未有 analysis 行」的 news_item（L0 建行候选，方案 §4.2：X=2min 缓冲避免与摄取事务竞态）。
      *
-     * <p>按 {@code published_at, id} 升序（近重复主条判定要求时间序先行）；排除软删源条目。
+     * <p>按 {@code published_at, id} 升序（近重复主条判定要求时间序先行）；排除软删源与 aiExclusion=ALL 源条目（不建 analysis
+     * 行，T125）。
      *
      * @param createdBeforeIso news_item.created_at 上界（含，ISO-8601 文本 = now−2min）
+     * @param excludeSourceIds 排除源 id 清单（aiExclusion=ALL；空表 = 不排除）
      * @param limit 单 tick 摄取上限（防御性）
      */
-    List<NewsCandidate> findUnanalyzed(String createdBeforeIso, int limit);
+    List<NewsCandidate> findUnanalyzed(
+            String createdBeforeIso, List<Long> excludeSourceIds, int limit);
 
     /**
      * 近重复比较池：24h 窗口内 {@code l0_result='PASS'} 的存量条目（标题 + 发布时间）。
@@ -43,10 +46,11 @@ public interface NewsAnalysisRepository {
      *
      * @param createdSinceIso news_analysis.created_at 下界（含，24h 补跑窗口）
      * @param maxAttempts 当日重试上限（l1_attempts < maxAttempts 才再进批）
+     * @param excludeSourceIds 排除源 id 清单（aiExclusion=ALL；空表 = 不排除，T125）
      * @param limit 单次取数上限
      */
     List<ClassificationCandidate> findPendingForL1(
-            String createdSinceIso, int maxAttempts, int limit);
+            String createdSinceIso, int maxAttempts, List<Long> excludeSourceIds, int limit);
 
     /**
      * L1 结果条件落库（幂等红线）：{@code WHERE news_id=? AND l1_status IN ('PENDING','FAILED')}。
@@ -135,6 +139,18 @@ public interface NewsAnalysisRepository {
 
     /** 当日 L1 三态计数（同上，key = l1_status 枚举名）。 */
     Map<String, Long> countL1ByStatusSince(String createdSinceIso);
+
+    /**
+     * 当日 L1 归类 SLA 口径（方案 §4.10 T+30min）：DONE 行为分母，{@code classified_at − news_item.fetched_at ≤
+     * 30min} 为分子。
+     */
+    L1SlaStats countL1SlaSince(String createdSinceIso);
+
+    /** 当日净入库资讯条数（news_item.created_at ≥ 下界；校准值分母，T125）。 */
+    long countNewsItemsCreatedSince(String createdSinceIso);
+
+    /** T+30min 口径计数（status 端点 l1RateIn30min 数据面）。 */
+    record L1SlaStats(long done, long within30Min) {}
 
     /** L0/近重复候选条目（news_item 投影：标题/摘要/发布时间是两段判定的全部输入）。 */
     record NewsCandidate(

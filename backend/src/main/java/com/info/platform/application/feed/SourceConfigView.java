@@ -16,6 +16,8 @@ import java.util.Map;
  * @param pageSize 深翻每页条数（null = 缺省 20）
  * @param cursorType 游标类型线格式（ID / TIME / NONE）
  * @param cursorField 游标取值字段
+ * @param urlTemplate 条目直链合成模板（M14 T110）
+ * @param aiExclusion AI 管道排除档位线值（NONE/L2/ALL，M15 T125——源管理页「AI 深度分析排除」徽章数据面）
  */
 public record SourceConfigView(
         String listPath,
@@ -26,12 +28,14 @@ public record SourceConfigView(
         Integer maxItems,
         Integer pageSize,
         String cursorType,
-        String cursorField) {
+        String cursorField,
+        String urlTemplate,
+        String aiExclusion) {
 
     /** 单条字段映射视图。 */
     public record ItemMappingView(String source, String target, String transform) {}
 
-    /** 领域对象 → 视图（游标类型取生效值，NONE 显式可见）。 */
+    /** 领域对象 → 视图（游标类型取生效值，NONE 显式可见；aiExclusion 取生效档位，NONE 显式可见——源管理页徽章数据面）。 */
     public static SourceConfigView from(SourceConfig config) {
         return new SourceConfigView(
                 config.listPath(),
@@ -44,6 +48,8 @@ public record SourceConfigView(
                 config.maxItems(),
                 config.pageSize(),
                 config.effectiveCursorType().name(),
-                config.cursorField());
+                config.cursorField(),
+                config.urlTemplate(),
+                config.effectiveAiExclusion().name());
     }
 }

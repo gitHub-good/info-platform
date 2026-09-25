@@ -22,6 +22,9 @@ import java.util.Objects;
  * @param cursorField 游标取值字段（映射后目标字段名；cursorType ≠ NONE 时必填）
  * @param urlTemplate 条目 URL 合成模板（json_api 可选，M14 T110）：源侧条目无直链字段时按 {@code {externalId}} 占位符合成（如澎湃
  *     {@code newsDetail_forward_{externalId}}）；映射已产出 url 时不覆盖
+ * @param aiExclusion AI 管道排除档位（M15 T125，REQ 拍板五-1）：null/{@link AiExclusion#NONE} 缺省全参与；{@code L2}
+ *     深度分析排除（照常归类不产事件）； {@code ALL} 全管道排除（不建 analysis 行）——线值白名单校验归 {@code
+ *     SourceConfigValidator}（30072）
  */
 public record SourceConfig(
         String listPath,
@@ -33,10 +36,37 @@ public record SourceConfig(
         Integer pageSize,
         CursorType cursorType,
         String cursorField,
-        String urlTemplate) {
+        String urlTemplate,
+        AiExclusion aiExclusion) {
 
     /** 单轮入库上限缺省（方案 §4.3：默认 50）。 */
     public static final int DEFAULT_MAX_ITEMS = 50;
+
+    /** 兼容构造（M13/M14 既有调用面：无 AI 排除档位即缺省 {@link AiExclusion#NONE}）。 */
+    public SourceConfig(
+            String listPath,
+            String stripPrefix,
+            String stripSuffix,
+            List<ItemMapping> itemMapping,
+            Map<String, String> headers,
+            Integer maxItems,
+            Integer pageSize,
+            CursorType cursorType,
+            String cursorField,
+            String urlTemplate) {
+        this(
+                listPath,
+                stripPrefix,
+                stripSuffix,
+                itemMapping,
+                headers,
+                maxItems,
+                pageSize,
+                cursorType,
+                cursorField,
+                urlTemplate,
+                null);
+    }
 
     /** 深翻每页条数缺省（方案 §4.3：默认 20）。 */
     public static final int DEFAULT_PAGE_SIZE = 20;
@@ -53,7 +83,22 @@ public record SourceConfig(
     /** 空配置（缺省值全走 effective* 取值方法）。 */
     public static SourceConfig empty() {
         return new SourceConfig(
-                null, null, null, List.of(), Map.of(), null, null, CursorType.NONE, null, null);
+                null,
+                null,
+                null,
+                List.of(),
+                Map.of(),
+                null,
+                null,
+                CursorType.NONE,
+                null,
+                null,
+                null);
+    }
+
+    /** 生效 AI 排除档位（null 视作 {@link AiExclusion#NONE}）。 */
+    public AiExclusion effectiveAiExclusion() {
+        return aiExclusion == null ? AiExclusion.NONE : aiExclusion;
     }
 
     /** 生效单轮入库上限（null 取缺省）。 */

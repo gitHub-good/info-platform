@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.feed.AdapterType;
+import com.info.platform.domain.feed.AiExclusion;
 import com.info.platform.domain.feed.CursorType;
 import com.info.platform.domain.feed.FeedFetcher;
 import com.info.platform.domain.feed.FeedFingerprint;
@@ -660,5 +661,90 @@ class SourceRegistryServiceIntegrationTest {
                                                 "测试源", "自建", AdapterType.RSS, null, 5, true, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("endpoint");
+    }
+
+    // ---- T125：aiExclusion 档位（REQ 拍板五-1 两分支承载面） ----
+
+    @Test
+    void update_aiExclusionL2_persistedAndEchoed() {
+        // L2 档：照常归类、照常计热度资讯量、不产事件——源管理页徽章数据面回显
+        InfoSourceCardView created =
+                service.create(command("T125 AI Exclude Me", "https://example.com/ai.xml"));
+        extraCleanupCodes.add(created.sourceCode());
+
+        SourceConfig l2Config =
+                new SourceConfig(
+                        null, null, null, null, null, null, null, null, null, null, AiExclusion.L2);
+        InfoSourceCardView updated =
+                service.update(
+                        created.id(),
+                        new SourceRegistryService.UpdateCommand(
+                                null, null, null, null, null, null, l2Config));
+
+        assertThat(updated.config().aiExclusion()).isEqualTo("L2");
+        assertThat(
+                        infoSourceRepository
+                                .findById(created.id())
+                                .orElseThrow()
+                                .getConfig()
+                                .effectiveAiExclusion())
+                .isEqualTo(AiExclusion.L2);
+
+        // 摘除（NONE）→ 恢复全参与
+        SourceConfig noneConfig =
+                new SourceConfig(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        AiExclusion.NONE);
+        InfoSourceCardView restored =
+                service.update(
+                        created.id(),
+                        new SourceRegistryService.UpdateCommand(
+                                null, null, null, null, null, null, noneConfig));
+        assertThat(restored.config().aiExclusion()).isEqualTo("NONE");
+    }
+
+    @Test
+    void update_aiExclusionAll_persistedForPipelineExclusion() {
+        // ALL 档：全管道排除（L0 不建 analysis 行）——变更控制专用档位同样可持久化与回显
+        InfoSourceCardView created =
+                service.create(command("T125 AI All Exclude", "https://example.com/ai-all.xml"));
+        extraCleanupCodes.add(created.sourceCode());
+
+        SourceConfig allConfig =
+                new SourceConfig(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        AiExclusion.ALL);
+        InfoSourceCardView updated =
+                service.update(
+                        created.id(),
+                        new SourceRegistryService.UpdateCommand(
+                                null, null, null, null, null, null, allConfig));
+
+        assertThat(updated.config().aiExclusion()).isEqualTo("ALL");
+        assertThat(
+                        infoSourceRepository
+                                .findById(created.id())
+                                .orElseThrow()
+                                .getConfig()
+                                .effectiveAiExclusion())
+                .isEqualTo(AiExclusion.ALL);
     }
 }

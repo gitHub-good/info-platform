@@ -3,6 +3,7 @@ package com.info.platform.infrastructure.feed;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.domain.feed.AiExclusion;
 import com.info.platform.domain.feed.CursorType;
 import com.info.platform.domain.feed.SourceConfig;
 import java.util.ArrayList;
@@ -61,7 +62,8 @@ public class SourceConfigCodec {
                 root.path("pageSize").isNumber() ? root.path("pageSize").asInt() : null,
                 CursorType.from(root.path("cursorType").asText(null)),
                 root.path("cursorField").asText(null),
-                root.path("urlTemplate").asText(null));
+                root.path("urlTemplate").asText(null),
+                AiExclusion.fromName(root.path("aiExclusion").asText(null)));
     }
 
     /** 序列化（null 配置 → "{}"；键序固定）。 */
@@ -96,6 +98,10 @@ public class SourceConfigCodec {
         doc.put("cursorType", config.effectiveCursorType().name());
         putIfNotBlank(doc, "cursorField", config.cursorField());
         putIfNotBlank(doc, "urlTemplate", config.urlTemplate());
+        // NONE/缺省不落键：存量配置 JSON 字节级不变（M13/M14 回归面），排除档位变更留 updated_at 痕迹
+        if (config.aiExclusion() != null && config.aiExclusion() != AiExclusion.NONE) {
+            doc.put("aiExclusion", config.aiExclusion().name());
+        }
         try {
             return MAPPER.writeValueAsString(doc);
         } catch (JsonProcessingException e) {

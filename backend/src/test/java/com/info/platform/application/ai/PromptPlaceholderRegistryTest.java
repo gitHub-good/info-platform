@@ -70,6 +70,7 @@ class PromptPlaceholderRegistryTest {
                 mock(LlmGateway.class),
                 mock(PromptTemplateService.class),
                 mock(com.info.platform.application.analysis.SubjectMatcher.class),
+                mock(com.info.platform.application.analysis.AiExclusionResolver.class),
                 new com.info.platform.application.analysis.PipelineSettings(
                         mock(com.info.platform.application.common.RuntimeConfigService.class),
                         new com.fasterxml.jackson.databind.ObjectMapper()),

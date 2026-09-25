@@ -7,6 +7,7 @@ import com.info.platform.domain.analysis.NearDuplicateDetector.Verdict;
 import com.info.platform.domain.analysis.NewsAnalysis;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import com.info.platform.domain.analysis.NoiseRuleEngine;
+import com.info.platform.domain.feed.AiExclusion;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -30,12 +31,17 @@ public class L0PrefilterService {
 
     private final NewsAnalysisRepository repository;
     private final PipelineSettings settings;
+    private final AiExclusionResolver exclusionResolver;
     private final Clock clock;
 
     public L0PrefilterService(
-            NewsAnalysisRepository repository, PipelineSettings settings, Clock clock) {
+            NewsAnalysisRepository repository,
+            PipelineSettings settings,
+            AiExclusionResolver exclusionResolver,
+            Clock clock) {
         this.repository = repository;
         this.settings = settings;
+        this.exclusionResolver = exclusionResolver;
         this.clock = clock;
     }
 
@@ -48,7 +54,11 @@ public class L0PrefilterService {
         String createdBefore =
                 clock.instant().minus(Duration.ofMinutes(settings.l0BufferMinutes())).toString();
         List<NewsAnalysisRepository.NewsCandidate> candidates =
-                repository.findUnanalyzed(createdBefore, PipelineSettings.L0_INTAKE_CAP_PER_TICK);
+                repository.findUnanalyzed(
+                        createdBefore,
+                        exclusionResolver.excludedSourceIds(
+                                AiExclusion.ALL), // 不建 analysis 行（REQ 拍板五-1）
+                        PipelineSettings.L0_INTAKE_CAP_PER_TICK);
         if (candidates.isEmpty()) {
             return new L0Report(0, 0, 0);
         }

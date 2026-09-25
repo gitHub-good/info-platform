@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -31,6 +32,7 @@ import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.analysis.L2Status;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
+import com.info.platform.domain.feed.AiExclusion;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -57,6 +59,7 @@ class EventExtractionServiceTest {
     private LlmGateway llmGateway;
     private PromptTemplateService promptTemplateService;
     private SubjectMatcher subjectMatcher;
+    private AiExclusionResolver exclusionResolver;
     private EventExtractionService service;
 
     @BeforeEach
@@ -67,6 +70,8 @@ class EventExtractionServiceTest {
         promptTemplateService = mock(PromptTemplateService.class);
         subjectMatcher = mock(SubjectMatcher.class);
         when(subjectMatcher.match(anyString(), anyString())).thenReturn(List.of());
+        exclusionResolver = mock(AiExclusionResolver.class);
+        when(exclusionResolver.excludedSourceIds(any())).thenReturn(List.of());
         RuntimeConfigService configService = mock(RuntimeConfigService.class);
         when(configService.read(anyString())).thenReturn(Optional.empty());
         PipelineSettings settings = new PipelineSettings(configService, new ObjectMapper());
@@ -77,6 +82,7 @@ class EventExtractionServiceTest {
                         llmGateway,
                         promptTemplateService,
                         subjectMatcher,
+                        exclusionResolver,
                         settings,
                         Clock.fixed(NOW, ZoneId.of("Asia/Shanghai")),
                         new ObjectMapper());
@@ -405,7 +411,8 @@ class EventExtractionServiceTest {
 
     @Test
     void runL2Window_excludedSourceFilteredByRepository() {
-        // 排除清单（aiExclusion=L2 源，T125 承载）原样下传仓储查询
+        // 排除清单（aiExclusion=L2 源，T125 承载）原样下传仓储查询：L2 档源不产事件（照常归类照常计热度资讯量）
+        when(exclusionResolver.excludedSourceIds(AiExclusion.L2)).thenReturn(List.of(21L, 22L));
         when(repository.findL2Candidates(anyString(), anyString(), anyInt(), anyList(), anyInt()))
                 .thenReturn(List.of());
         when(repository.countL1DoneSince(anyString())).thenReturn(0L);
@@ -413,7 +420,8 @@ class EventExtractionServiceTest {
         service.runL2Window();
 
         verify(repository)
-                .findL2Candidates(anyString(), anyString(), anyInt(), anyList(), anyInt());
+                .findL2Candidates(
+                        anyString(), anyString(), anyInt(), eq(List.of(21L, 22L)), anyInt());
     }
 
     @Test

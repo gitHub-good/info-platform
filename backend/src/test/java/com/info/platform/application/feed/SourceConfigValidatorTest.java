@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.feed.AdapterType;
+import com.info.platform.domain.feed.AiExclusion;
 import com.info.platform.domain.feed.CursorType;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.SourceConfig;
@@ -444,5 +445,32 @@ class SourceConfigValidatorTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("urlTemplate")
                 .hasMessageContaining("{externalId}");
+    }
+
+    // ---- T125：aiExclusion 白名单（方案 §4.4/§4.8，非法线值 30072 字段级——回归见 InfoSourceControllerTest PATCH 用例）
+    // ----
+
+    @Test
+    void validateCommon_acceptsAiExclusionWhitelistAndDefault() {
+        // 合法三档 + 缺省（null）均通过（领域枚举不可表达档位外值，非法线值由 payload 解析层 30072 把守）
+        for (AiExclusion level : AiExclusion.values()) {
+            SourceConfig config =
+                    new SourceConfig(
+                            null,
+                            null,
+                            null,
+                            List.of(),
+                            null,
+                            null,
+                            null,
+                            CursorType.NONE,
+                            null,
+                            null,
+                            level);
+            assertThatCode(() -> validator.validateCommon(rssSource(config, 15)))
+                    .doesNotThrowAnyException();
+        }
+        assertThatCode(() -> validator.validateCommon(rssSource(SourceConfig.empty(), 15)))
+                .doesNotThrowAnyException();
     }
 }

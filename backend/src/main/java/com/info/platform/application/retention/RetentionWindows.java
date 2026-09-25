@@ -38,14 +38,14 @@ public record RetentionWindows(
                 dayOf(doc, RetentionLogTable.NEWS_ITEM));
     }
 
-    /** 按表取窗口（五表独立判定）。 */
+    /** 按表取窗口（各表独立判定；NEWS_ANALYSIS 与 NEWS_ITEM 共窗 newsItemDays——T125）。 */
     public int of(RetentionLogTable table) {
         return switch (table) {
             case JOB_EXECUTION_LOG -> jobExecutionLogDays;
             case DATA_SOURCE_EVENT -> dataSourceEventDays;
             case LLM_CALL_LOG -> llmCallLogDays;
             case READING_EVENT -> readingEventDays;
-            case NEWS_ITEM -> newsItemDays;
+            case NEWS_ITEM, NEWS_ANALYSIS -> newsItemDays;
         };
     }
 

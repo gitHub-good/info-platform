@@ -365,4 +365,39 @@ class InfoSourceControllerTest {
                 .andExpect(jsonPath("$.data.days").value(30));
         verify(registry).stats(30);
     }
+
+    // ---- T125：config.aiExclusion 扩展字段（方案 §4.8 PATCH 契约，非法值 30072 既有） ----
+
+    @Test
+    void patch_invalidAiExclusion_30072() throws Exception {
+        // 非法档位串（非 NONE/L2/ALL）→ 30072 字段级（不静默落 NONE）
+        mockMvc.perform(
+                        patch("/api/v1/info-sources/9")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"config\":{\"aiExclusion\":\"FOO\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30072))
+                .andExpect(
+                        jsonPath("$.msg")
+                                .value(org.hamcrest.Matchers.containsString("aiExclusion")));
+    }
+
+    @Test
+    void patch_validAiExclusion_carriedIntoCommand() throws Exception {
+        // 合法档位进 UpdateCommand（service mock 回显验证透传）
+        when(registry.update(anyLong(), any())).thenReturn(card("t125_ai"));
+
+        mockMvc.perform(
+                        patch("/api/v1/info-sources/9")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"config\":{\"aiExclusion\":\"L2\"}}"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<SourceRegistryService.UpdateCommand> captor =
+                org.mockito.ArgumentCaptor.forClass(SourceRegistryService.UpdateCommand.class);
+        verify(registry).update(org.mockito.ArgumentMatchers.eq(9L), captor.capture());
+        org.assertj.core.api.Assertions.assertThat(
+                        captor.getValue().config().effectiveAiExclusion())
+                .isEqualTo(com.info.platform.domain.feed.AiExclusion.L2);
+    }
 }
