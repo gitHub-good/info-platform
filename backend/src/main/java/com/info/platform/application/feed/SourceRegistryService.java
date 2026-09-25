@@ -122,6 +122,12 @@ public class SourceRegistryService {
      */
     public InfoSourceCardView create(CreateCommand command) {
         validator.validateCreateType(command.adapterType());
+        // BUG-01（M13 验收）：endpoint 非空/格式校验先于 robots 检查——null 端点进 URI.create 抛 NPE 致 500，
+        // 应为 400/30072 字段级提示
+        if (command.endpoint() == null || command.endpoint().isBlank()) {
+            throw new BusinessException(
+                    ErrorCode.INFO_SOURCE_CONFIG_INVALID, "endpoint: 必填（源数据地址）");
+        }
         RobotsVerdict robots = robotsChecker.check(command.endpoint());
         if (!robots.allowed()) {
             throw new BusinessException(

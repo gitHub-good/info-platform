@@ -648,4 +648,16 @@ class SourceRegistryServiceIntegrationTest {
                                 NOW,
                                 FeedFingerprint.fingerprint(title, publishedAt))));
     }
+
+    @Test
+    void create_missingEndpoint_400_30072_not500() {
+        // BUG-01 修复回归：endpoint 缺失时曾因 robots 检查先执行抛 NPE → 500，应为 400/30072 字段级
+        assertThatThrownBy(
+                        () ->
+                                service.create(
+                                        new SourceRegistryService.CreateCommand(
+                                                "测试源", "自建", AdapterType.RSS, null, 5, true, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("endpoint");
+    }
 }
