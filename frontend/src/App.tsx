@@ -58,10 +58,13 @@ function renderPage(route: string) {
     return <LlmCostReport />;
   }
   if (route.startsWith('/subjects')) {
-    // 路由参数化（T38）：#/subjects/:code 或 ?code=xxx，无参回退默认标的
+    // 路由参数化（T38）：#/subjects/:code 或 ?code=xxx，无参回退默认标的；
+    // key 随标的代码变化强制重挂载（M12 UI 设计 D8，JobLog key 先例）：
+    // 各分区页码/新闻探页计数/停止标志随组件树重建归零，无逐项枚举重置的遗漏面
+    const subjectCode = parseSubjectCode(route);
     return (
       <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
-        <SubjectDetail subjectId={parseSubjectCode(route)} />
+        <SubjectDetail key={subjectCode} subjectId={subjectCode} />
       </main>
     );
   }

@@ -147,10 +147,21 @@ export function SubjectDetail({ subjectId = 'SH600519' }: SubjectDetailProps) {
         <QuoteSection data={data.quote} status={status.quote} />
         <FinanceSection data={data.finance} status={status.finance} />
         <ValuationSection data={data.valuation} status={status.valuation} />
-        <AnnounceSection data={data.announcements} status={status.announce} />
-        <NewsSection data={data.news} status={status.news} />
+        {/* 四分区「看更多」接入（M12 T95）：首屏 sectionPagination 驱动分页条，翻页走分区子端点 */}
+        <AnnounceSection
+          data={data.announcements}
+          status={status.announce}
+          subjectId={resolvedId}
+          pagination={data.sectionPagination?.announce}
+        />
+        <NewsSection data={data.news} status={status.news} subjectId={resolvedId} />
         <PolicySection data={data.policies} status={status.policy} />
-        <EventSection data={data.events} status={status.event} />
+        <EventSection
+          data={data.events}
+          status={status.event}
+          subjectId={resolvedId}
+          total={data.sectionPagination?.event?.total}
+        />
       </div>
     </div>
   );

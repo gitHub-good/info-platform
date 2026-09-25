@@ -463,8 +463,12 @@ describe('useNewsSectionPage 新闻探页状态机', () => {
 
 describe('stableNewsId 新闻稳定标识', () => {
   it('externalId 优先，id 兜底，均缺失为 null（title 不参与去重）', () => {
-    expect(stableNewsId({ externalId: 'doc-1', title: 'a' })).toBe('doc-1');
-    expect(stableNewsId({ id: 'fallback', title: 'a' })).toBe('fallback');
-    expect(stableNewsId({ title: 'a' })).toBeNull();
+    expect(stableNewsId({ externalId: 'doc-1', title: 'a', publishedAt: '2026-09-21' })).toBe(
+      'doc-1',
+    );
+    expect(stableNewsId({ id: 'fallback', title: 'a', publishedAt: '2026-09-21' })).toBe(
+      'fallback',
+    );
+    expect(stableNewsId({ title: 'a', publishedAt: '2026-09-21' })).toBeNull();
   });
 });
