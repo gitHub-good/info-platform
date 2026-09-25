@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Rss } from 'lucide-react';
 import { ApiError } from '@/api/http';
 import { getPersonalFeed, listSubscriptions } from '@/api/feed';
+import { trackReadingOnce } from '@/api/readingEvent';
 import { KeywordHighlight } from '@/components/feed/KeywordHighlight';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -41,6 +42,16 @@ function formatTime(iso: string | null): string {
 
 interface FeedItemCardProps {
   item: FeedItemView;
+}
+
+/** 原文外链点击埋点（M11/REQ-20260925-08）：FEED 事件 + 稳定 contentRef，fire-and-forget 不拦截外链打开。 */
+function trackFeedReading(item: FeedItemView): void {
+  if (!item.contentId) return; // 源缺稳定标识：不埋点（禁用合成游标 id 兜底，ADR-0019）
+  trackReadingOnce(`feed:${item.contentId}`, {
+    contentType: 'FEED',
+    contentRef: item.contentId,
+    subjectCode: item.subjectCode ?? undefined, // 政策条目 null → 载荷不带该字段（只留痕不入画像）
+  });
 }
 
 /** 信息流条目卡（类型徽章 + 标题/摘要关键词高亮 + 元信息 + 命中原因 chip + 原文外链）。 */
@@ -88,6 +99,7 @@ function FeedItemCard({ item }: FeedItemCardProps) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-0.5 text-primary outline-none transition-colors hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
               data-testid={`feed-item-link-${item.id}`}
+              onClick={() => trackFeedReading(item)}
             >
               原文
               <ExternalLink className="size-3" aria-hidden="true" />
@@ -104,6 +116,8 @@ function FeedItemCard({ item }: FeedItemCardProps) {
 /**
  * 个人信息流页（T43，UI 方案 §3.5）。
  * - 条目流：GET /feed/personal 游标分页（单页 20，publishedAt 倒序），条目卡关键词高亮。
+ * - 埋点（M11/REQ-20260925-08）：公告/新闻/政策条目「原文」点击上报 FEED 阅读事件
+ *   （contentRef=稳定 contentId + subjectCode 透传，fire-and-forget 静默失败；推荐条目无外链不埋点）。
  * - 分页（D7）：触底哨兵 IntersectionObserver 自动加载 + 「加载更多」按钮兜底
  *   （IO 不可用或翻页失败时显示，键盘可达）；翻页失败不清已有条目、可重试；
  *   nextCursor 为空停止哨兵并显示「已加载全部」。

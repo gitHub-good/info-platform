@@ -1,7 +1,9 @@
 // 个人信息流页测试（T43）：渲染/高亮/两种空态/三态/游标分页（按钮兜底 + IO 哨兵）/翻页失败不清数据。
+// M11（REQ-20260925-08）：原文点击 FEED 埋点接入——ADR-0019「页面无 reading-events 请求」断言反转为「点击原文发出 FEED 埋点」。
 import { cleanup, render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resetReadingTrackerForTest } from '@/api/readingEvent';
 import { Feed } from '@/pages/Feed';
 import type { FeedItemView, FeedPage, SubscriptionSummary } from '@/types/feed';
 
@@ -29,6 +31,7 @@ const SUB_ACTIVE: SubscriptionSummary = {
 function itemOf(overrides: Partial<FeedItemView> = {}): FeedItemView {
   return {
     id: 1,
+    contentId: 'policy:91',
     type: 'policy',
     title: '关于人工智能行动方案的通知',
     summary: '加快人工智能产业发展，推动……人工智能……应用',
@@ -43,12 +46,13 @@ function itemOf(overrides: Partial<FeedItemView> = {}): FeedItemView {
   };
 }
 
-/** 四类型条目各一（覆盖类型徽章与「原文」有无两种形态）。 */
+/** 四类型条目各一（覆盖类型徽章与「原文」有无两种形态；contentId 为后端稳定标识形态）。 */
 function fourTypeItems(): FeedItemView[] {
   return [
-    itemOf({ id: 1 }),
+    itemOf({ id: 1, contentId: 'policy:91' }),
     itemOf({
       id: 2,
+      contentId: 'announce:a1',
       type: 'announce',
       title: '贵州茅台关于回购股份的公告',
       summary: '公司拟以集中竞价方式回购……',
@@ -61,6 +65,7 @@ function fourTypeItems(): FeedItemView[] {
     }),
     itemOf({
       id: 3,
+      contentId: 'news:n1',
       type: 'news',
       title: 'AI 芯片板块走强',
       summary: '受政策利好影响，AI 概念股午后拉升',
@@ -73,6 +78,7 @@ function fourTypeItems(): FeedItemView[] {
     }),
     itemOf({
       id: 4,
+      contentId: 'recommendation:SH600519',
       type: 'recommendation',
       title: '贵州茅台',
       summary: '今日推荐理由：异动检测命中放量上涨',
@@ -96,7 +102,7 @@ interface StoreOpts {
 
 function makeStore(opts: StoreOpts = {}) {
   let feedCalls = 0;
-  const fetchMock = vi.fn(async (url: string) => {
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
     const path = String(url);
     if (path.includes('/subscriptions')) {
       if (opts.subscriptions === 'FAIL') return fail();
@@ -107,6 +113,9 @@ function makeStore(opts: StoreOpts = {}) {
       const idx = Math.min(feedCalls, pages.length - 1);
       feedCalls += 1;
       return ok(pages[idx]);
+    }
+    if (path.includes('/reading-events')) {
+      return ok({ recorded: true });
     }
     return fail();
   });
@@ -119,11 +128,19 @@ function feedCallsOf(fetchMock: ReturnType<typeof makeStore>['fetchMock']) {
     .filter((url) => /\/feed\/personal(\?.*)?$/.test(url));
 }
 
+/** reading-events 埋点请求（含载荷）。 */
+function readingEventCallsOf(fetchMock: ReturnType<typeof makeStore>['fetchMock']) {
+  return fetchMock.mock.calls
+    .filter((c) => String(c[0]).includes('/reading-events'))
+    .map((c) => ({ url: String(c[0]), init: c[1] as RequestInit | undefined }));
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
   window.location.hash = '';
+  resetReadingTrackerForTest(); // 埋点会话守卫跨用例隔离
 });
 
 describe('Feed 个人信息流页（T43）', () => {
@@ -385,5 +402,88 @@ describe('Feed 个人信息流页（T43）', () => {
     // nextCursor=null：哨兵卸载（停止观察），「已加载全部」
     await waitFor(() => expect(screen.queryByTestId('feed-sentinel')).toBeNull());
     expect(screen.getByTestId('feed-end')).toBeInTheDocument();
+  });
+
+  // —— M11（REQ-20260925-08）：原文点击 FEED 埋点（ADR-0019 断言反转：由「无 reading-events 请求」改为「点击原文发出」） ——
+
+  it('埋点：点击公告「原文」发出 FEED 埋点（contentRef=稳定 contentId、subjectCode 透传），外链照常打开', async () => {
+    const store = makeStore({
+      pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
+      subscriptions: [SUB_ACTIVE],
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+    const user = userEvent.setup();
+    render(<Feed />);
+
+    await screen.findByTestId('feed-item-2');
+    await user.click(screen.getByTestId('feed-item-link-2'));
+
+    // POST /reading-events：contentType=FEED、contentRef=后端透出的稳定 contentId（非游标 id "2"）、subjectCode 透传
+    await waitFor(() => expect(readingEventCallsOf(store.fetchMock)).toHaveLength(1));
+    const call = readingEventCallsOf(store.fetchMock)[0];
+    expect(call.init?.method).toBe('POST');
+    expect(JSON.parse(String(call.init?.body))).toEqual({
+      contentType: 'FEED',
+      contentRef: 'announce:a1',
+      subjectCode: 'SH600519',
+    });
+  });
+
+  it('埋点：同条目会话内第二次点击不再发请求（trackReadingOnce 守卫；后端另有 1 小时窗口去重）', async () => {
+    const store = makeStore({
+      pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
+      subscriptions: [SUB_ACTIVE],
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+    const user = userEvent.setup();
+    render(<Feed />);
+
+    await screen.findByTestId('feed-item-2');
+    const link = screen.getByTestId('feed-item-link-2');
+    await user.click(link);
+    await waitFor(() => expect(readingEventCallsOf(store.fetchMock)).toHaveLength(1));
+    await user.click(link);
+
+    // 会话级守卫：同键（feed:announce:a1）只上报一次
+    expect(readingEventCallsOf(store.fetchMock)).toHaveLength(1);
+  });
+
+  it('埋点：政策条目（subjectCode=null）照常上报，载荷不含 subjectCode 字段', async () => {
+    const store = makeStore({
+      pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
+      subscriptions: [SUB_ACTIVE],
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+    const user = userEvent.setup();
+    render(<Feed />);
+
+    await screen.findByTestId('feed-item-1');
+    await user.click(screen.getByTestId('feed-item-link-1'));
+
+    await waitFor(() => expect(readingEventCallsOf(store.fetchMock)).toHaveLength(1));
+    const body = JSON.parse(String(readingEventCallsOf(store.fetchMock)[0].init?.body));
+    expect(body).toEqual({ contentType: 'FEED', contentRef: 'policy:91' });
+    expect(body).not.toHaveProperty('subjectCode');
+  });
+
+  it('埋点：url=null（推荐条目）与 contentId 缺失条目不发埋点（合成游标 id 禁用，ADR-0019）', async () => {
+    const items = [
+      ...fourTypeItems().slice(0, 3), // 推荐条目（url=null）单独构造在下
+      itemOf({ id: 4, contentId: 'recommendation:SH600519', type: 'recommendation', url: null }),
+      itemOf({ id: 5, contentId: null, url: 'https://ex/ann/no-id' }), // 源缺稳定标识：不埋点
+    ];
+    const store = makeStore({
+      pages: [{ items, nextCursor: null, recommendationPending: false }],
+      subscriptions: [SUB_ACTIVE],
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+    const user = userEvent.setup();
+    render(<Feed />);
+
+    await screen.findByTestId('feed-item-5');
+    // 渲染与交互不产生任何埋点请求（推荐无「原文」链接；contentId=null 条目点击不埋点）
+    expect(readingEventCallsOf(store.fetchMock)).toHaveLength(0);
+    await user.click(screen.getByTestId('feed-item-link-5'));
+    expect(readingEventCallsOf(store.fetchMock)).toHaveLength(0);
   });
 });

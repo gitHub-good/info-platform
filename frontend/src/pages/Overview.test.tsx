@@ -45,6 +45,7 @@ function viewOf(overrides: Partial<OverviewView> = {}): OverviewView {
 function recFeedItem(overrides: Partial<FeedItemView> = {}): FeedItemView {
   return {
     id: 1,
+    contentId: 'recommendation:SH600519',
     type: 'recommendation',
     title: '贵州茅台',
     summary: '信息面活跃度提升：公告与新闻热度居前',

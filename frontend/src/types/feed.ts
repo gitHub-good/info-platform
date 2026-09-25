@@ -1,4 +1,5 @@
-// 个人信息流类型（T43，对齐后端 FeedItem/FeedListView/SubscriptionView——技术方案 §4.1.6）。
+// 个人信息流类型（T43，对齐后端 FeedItem/FeedListView/SubscriptionView——技术方案 §4.1.6；
+// M11/REQ-20260925-08 增 contentId 稳定内容标识）。
 
 /** 条目类型：announce 公告 / news 新闻 / policy 政策（订阅命中）+ recommendation 每日推荐。 */
 export type FeedItemType = 'announce' | 'news' | 'policy' | 'recommendation';
@@ -6,6 +7,11 @@ export type FeedItemType = 'announce' | 'news' | 'policy' | 'recommendation';
 /** 信息流条目（FeedItem；id 为合成游标序号，仅供 React key 与游标分页用）。 */
 export interface FeedItemView {
   id: number;
+  /**
+   * 稳定内容标识（M11 增量字段）：形态 `{type}:{源稳定 id}`，跨请求稳定、与游标 id 无关——
+   * FEED 阅读埋点的 contentRef；源缺稳定标识为 null（该条不埋点，不用游标 id 兜底）。
+   */
+  contentId: string | null;
   type: FeedItemType;
   title: string;
   summary: string | null;
