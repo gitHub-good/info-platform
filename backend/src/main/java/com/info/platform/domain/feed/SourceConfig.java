@@ -72,4 +72,9 @@ public record SourceConfig(
     public List<ItemMapping> mappings() {
         return itemMapping == null ? List.of() : itemMapping;
     }
+
+    /** 外呼头（null 视作空表；取数引擎与校验器共用空安全视图）。 */
+    public Map<String, String> headers() {
+        return headers == null ? Map.of() : headers;
+    }
 }
