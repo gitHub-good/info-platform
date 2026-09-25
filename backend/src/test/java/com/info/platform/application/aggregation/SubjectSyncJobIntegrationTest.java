@@ -126,10 +126,9 @@ class SubjectSyncJobIntegrationTest {
         assertThat(finalLog.getStatus().name()).isEqualTo("SUCCESS");
         // JobRunStats 通道（显示缺陷修复）：processed = 新增+更新，明细 = 各桶 summary
         assertThat(finalLog.getProcessedCount()).isEqualTo(8490);
-        assertThat(finalLog.getErrorMessage())
-                .contains("A_SHARE_STOCK")
-                .contains("inserted=5561")
-                .contains("HK_STOCK");
+        assertThat(finalLog.getErrorMessage()).isPresent();
+        String detail = finalLog.getErrorMessage().orElseThrow();
+        assertThat(detail).contains("A_SHARE_STOCK").contains("inserted=5561").contains("HK_STOCK");
     }
 
     @Test
