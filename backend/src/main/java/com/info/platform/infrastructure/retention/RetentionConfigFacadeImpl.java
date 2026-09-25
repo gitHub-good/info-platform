@@ -1,0 +1,87 @@
+package com.info.platform.infrastructure.retention;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.info.platform.application.common.RuntimeConfigEntry;
+import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.application.retention.RetentionConfigFacade;
+import com.info.platform.application.retention.RetentionConfigValidator;
+import com.info.platform.application.retention.RetentionWindows;
+import com.info.platform.domain.retention.RetentionLogTable;
+import com.info.platform.domain.common.BusinessException;
+import com.info.platform.domain.common.ErrorCode;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.springframework.stereotype.Component;
+
+/**
+ * {@link RetentionConfigFacade} 实现（T72，方案 §4.3）。读：runtime_config 快照现读 + {@link RetentionWindows}
+ * 字段级回退解析 + 枚举常量拼 limits。写：四字段拼全量文档（null 不拼入——校验器 2001 必填拦截）→
+ * {@link RuntimeConfigService#write}（校验 + 乐观防呆 + 换快照热生效），写后回读刷新视图。
+ */
+@Component
+public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
+
+    private final RuntimeConfigService configService;
+    private final ObjectMapper objectMapper;
+
+    public RetentionConfigFacadeImpl(RuntimeConfigService configService, ObjectMapper objectMapper) {
+        this.configService = configService;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    public WindowsView view() {
+        RuntimeConfigEntry entry = configService.read(RetentionConfigValidator.CONFIG_KEY).orElse(null);
+        RetentionWindows windows =
+                RetentionWindows.resolve(entry == null ? null : entry.document());
+        Map<String, FieldLimits> limits = new LinkedHashMap<>();
+        for (RetentionLogTable table : RetentionLogTable.values()) {
+            limits.put(table.jsonField(), new FieldLimits(table.minDays(), table.defaultDays()));
+        }
+        return new WindowsView(
+                new Windows(
+                        windows.jobExecutionLogDays(),
+                        windows.dataSourceEventDays(),
+                        windows.llmCallLogDays(),
+                        windows.readingEventDays()),
+                limits,
+                entry == null ? null : entry.updatedAt().toString());
+    }
+
+    @Override
+    public WindowsView update(WindowsUpdate update) {
+        ObjectNode doc = objectMapper.createObjectNode();
+        putIfPresent(doc, RetentionLogTable.JOB_EXECUTION_LOG, update.jobExecutionLogDays());
+        putIfPresent(doc, RetentionLogTable.DATA_SOURCE_EVENT, update.dataSourceEventDays());
+        putIfPresent(doc, RetentionLogTable.LLM_CALL_LOG, update.llmCallLogDays());
+        putIfPresent(doc, RetentionLogTable.READING_EVENT, update.readingEventDays());
+        configService.write(
+                RetentionConfigValidator.CONFIG_KEY,
+                doc.toString(),
+                parseExpected(update.expectedUpdatedAt()));
+        // write 成功后快照已换新——回读刷新视图（含新 updatedAt 供下次防呆比对）
+        return view();
+    }
+
+    private void putIfPresent(ObjectNode doc, RetentionLogTable table, Integer value) {
+        if (value != null) {
+            doc.put(table.jsonField(), value);
+        }
+    }
+
+    private Instant parseExpected(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(
+                    ErrorCode.PARAM_INVALID,
+                    "expectedUpdatedAt: 须为 ISO-8601 时刻（如 2026-09-22T01:00:00Z）");
+        }
+    }
+}
