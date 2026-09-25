@@ -63,6 +63,7 @@
 | ADR-0047 | 近重复海明预筛阈值实测勘定（simhashDistanceMax 缺省 3 → 18：20~60 字 CJK 标题 bigram simhash 实测改 1 字即海明 5、无关对 21+，阈值 3 召回失效；海明预筛定位勘定为「同稿系 vs 无关对」召回门，精细边界仍由编辑距离 ≤0.25 确认段承担；算法零改动；REQ-20260926-12 / V2.0-M15 T120） | 已决 |
 | ADR-0048 | T123/T125 实现裁量对齐（任务文本与方案原文四处出入以方案为准——aiExclusion 走 info_source.config 三值档不加列零 DDL、30076 单码承载 heat 查询参数非法而 30077 保留 T124 日报 409、下钻 beforeId 游标不引入页码双模式、T125 先于 T123 落库避免占位供应商死代码；V25 迁移号留给 T124；REQ-20260926-12 / V2.0-M15 T123/T125） | 已决 |
 | ADR-0049 | T124/T128 实现裁量对齐（日报重试端点 /retry 与 30077 已成功 409 / 30078 不存在 404 按方案冻结——任务文本 regenerate 与两码对调不落地；任意 FAILED 日可重试经 JobCenterFacade.trigger 202 受理 armRetry/disarm 回滚；FUSED 留痕次日补 = 定时窗口 [前日, 昨日]；空数据日不调 LLM；T128 停更标记载体 config.staleSince 零 DDL + PATCH 编辑保留 + 月频源 em_macro 35 天窗 + Should 通知裁剪；REQ-20260926-12 / V2.0-M15 T124/T128） | 已决 |
+| ADR-0050 | T127 实现裁量对齐（事件流卡片主键字段名 id 按方案 §4.8 冻结——任务文本 eventId 不落地；/events 全参数错误统一 30079 EVENT_FILTER_INVALID/400 单码承载而 30076 留 heat 域；newsTitle/newsUrl 核实在 news_item 列走 JOIN 取数而 event_item 无该两列；REQ-20260926-12 / V2.0-M15 T127） | 已决 |
 
 ## 🔍 关联调研
 
