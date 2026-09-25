@@ -13,6 +13,7 @@ import {
   Rss,
   ScrollText,
   Star,
+  Gauge,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,7 +31,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 14 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页）。 */
+/** 4 分组 15 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -64,6 +65,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/datasource-config', label: '数据源配置', icon: Database },
       // 资讯源管理（M13 T105，全站第 14 页）：数据源配置之后、提示词模板之前（M13 UI §2.1）
       { to: '/info-sources', label: '资讯源管理', icon: RadioTower },
+      // 抓取大盘（M14 T116，运维组第 15 页）：紧邻资讯源管理，同属源运行域（REQ 拍板二：独立只读监控页）
+      { to: '/feed-dashboard', label: '抓取大盘', icon: Gauge },
       // 运维组第 7 项（全站第 15 页，M5 T47）：紧邻模型/数据源配置，同属「改 AI 产出」入口（UI 方案 D1）
       { to: '/prompt-templates', label: '提示词模板', icon: MessageSquareText },
     ],

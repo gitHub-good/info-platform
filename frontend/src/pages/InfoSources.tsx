@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { currentRoute, queryOf } from '@/lib/navigation';
 import type {
   CreatableAdapterType,
   InfoSourceCardView,
@@ -558,6 +559,8 @@ interface SourceCardProps {
   source: InfoSourceCardView;
   polling: boolean;
   nowMillis: number;
+  /** 大盘失败列表跳转定位的短暂高亮（M14 T116：?source={code} 进入时）。 */
+  highlighted?: boolean;
   onSaved: (next: InfoSourceCardView) => void;
   onEdit: (source: InfoSourceCardView) => void;
   onArchive: (source: InfoSourceCardView) => void;
@@ -568,6 +571,7 @@ function SourceCard({
   source,
   polling,
   nowMillis,
+  highlighted,
   onSaved,
   onEdit,
   onArchive,
@@ -621,7 +625,7 @@ function SourceCard({
 
   return (
     <Card
-      className={source.enabled ? undefined : 'opacity-60'}
+      className={`${source.enabled ? '' : 'opacity-60'} ${highlighted ? 'ring-2 ring-primary' : ''}`}
       data-testid={`info-source-card-${code}`}
     >
       <CardHeader>
@@ -792,6 +796,9 @@ export function InfoSources() {
   const [archiveTarget, setArchiveTarget] = useState<InfoSourceCardView | null>(null);
   const [pollingCodes, setPollingCodes] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
+  // 大盘失败列表跳转定位（M14 T116）：#/info-sources?source={code} 进入时滚动定位并短暂高亮（一次性消费）
+  const focusCodeRef = useRef<string | null>(queryOf(currentRoute()).get('source'));
+  const [highlightCode, setHighlightCode] = useState<string | null>(null);
   // 手动抓取轻轮询登记：baseline = 触发时 lastAttemptAt（出现变化即出终态）
   const pollTrackerRef = useRef<Map<string, { baseline: string | null; until: number }>>(new Map());
   const pollTimerRef = useRef<number | null>(null);
@@ -823,6 +830,26 @@ export function InfoSources() {
     const timer = window.setInterval(() => setNowMillis(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  // 跳转定位：首份列表数据到位后滚动定位 + 高亮 5 秒（归档目标自动展开归档区）
+  useEffect(() => {
+    const code = focusCodeRef.current;
+    if (!code || !view) return;
+    focusCodeRef.current = null;
+    const target =
+      view.groups.flatMap((g) => g.sources).find((s) => s.sourceCode === code)
+        ?? view.archived.find((s) => s.sourceCode === code);
+    if (!target) return;
+    if (target.deleted) setShowArchived(true);
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-testid="info-source-card-${CSS.escape(code)}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    setHighlightCode(code);
+    const clear = window.setTimeout(() => setHighlightCode(null), 5_000);
+    return () => window.clearTimeout(clear);
+  }, [view]);
 
   useEffect(
     () => () => {
@@ -1027,6 +1054,7 @@ export function InfoSources() {
                       source={source}
                       polling={pollingCodes.has(source.sourceCode)}
                       nowMillis={nowMillis}
+                      highlighted={highlightCode === source.sourceCode}
                       onSaved={applyCard}
                       onEdit={setEditing}
                       onArchive={setArchiveTarget}

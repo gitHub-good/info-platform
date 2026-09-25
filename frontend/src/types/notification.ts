@@ -2,13 +2,15 @@
 // - SSE 实时事件与 history 端点记录归一为 NotificationItem，供面板统一渲染。
 // - 事件名对齐技术方案 §4.1.3：anomaly / event / policy / ai_brief / daily_recommend。
 
-/** SSE 事件名（后端 PushType.eventName，对齐 §4.1.3）。 */
+/** SSE 事件名（后端 PushType.eventName，对齐 §4.1.3 + M14 T115 源异常扩展）。 */
 export const NOTIFICATION_EVENT_TYPES = [
   'anomaly',
   'event',
   'policy',
   'ai_brief',
   'daily_recommend',
+  'source_alert',
+  'source_recovered',
 ] as const;
 
 /** SSE data 载荷（后端 NotificationEvent 序列化 JSON）。 */
@@ -63,4 +65,6 @@ export const TYPE_LABELS: Record<string, string> = {
   policy: '政策',
   ai_brief: 'AI 简报',
   daily_recommend: '每日推荐',
+  source_alert: '源异常',
+  source_recovered: '源恢复',
 };

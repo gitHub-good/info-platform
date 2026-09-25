@@ -13,6 +13,7 @@ import { Subscriptions } from '@/pages/Subscriptions';
 import { Watchlist } from '@/pages/Watchlist';
 import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
+import { FeedDashboard } from '@/pages/FeedDashboard';
 import { InfoSources } from '@/pages/InfoSources';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
@@ -85,6 +86,10 @@ function renderPage(route: string) {
   }
   if (route.startsWith('/task-center')) {
     return <TaskCenter />;
+  }
+  // 抓取大盘（M14 T116）：运维只读监控页，与源管理页「发现异常 → 处置」单向闭环（拍板二）
+  if (route.startsWith('/feed-dashboard')) {
+    return <FeedDashboard />;
   }
   if (route.startsWith('/feed')) {
     return <Feed />;
