@@ -51,13 +51,20 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
                         windows.llmCallLogDays(),
                         windows.readingEventDays(),
                         windows.newsItemDays(),
-                        windows.recommendationCardDays()),
+                        windows.recommendationCardDays(),
+                        windows.subjectFactorSnapshotDays(),
+                        windows.marketDailySnapshotDays()),
                 limits,
                 entry == null ? null : entry.updatedAt().toString());
     }
 
     @Override
     public WindowsView update(WindowsUpdate update) {
+        // M20 两快照字段缺省随当前库值（旧六字段 Dialog 请求零回归）；当前值缺失再回退枚举默认（解析器同口径）
+        RuntimeConfigEntry current =
+                configService.read(RetentionConfigValidator.CONFIG_KEY).orElse(null);
+        RetentionWindows currentWindows =
+                RetentionWindows.resolve(current == null ? null : current.document());
         ObjectNode doc = objectMapper.createObjectNode();
         putIfPresent(doc, RetentionLogTable.JOB_EXECUTION_LOG, update.jobExecutionLogDays());
         putIfPresent(doc, RetentionLogTable.DATA_SOURCE_EVENT, update.dataSourceEventDays());
@@ -65,6 +72,18 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
         putIfPresent(doc, RetentionLogTable.READING_EVENT, update.readingEventDays());
         putIfPresent(doc, RetentionLogTable.NEWS_ITEM, update.newsItemDays());
         putIfPresent(doc, RetentionLogTable.RECOMMENDATION_CARD, update.recommendationCardDays());
+        putIfPresent(
+                doc,
+                RetentionLogTable.SUBJECT_FACTOR_SNAPSHOT,
+                orCurrent(
+                        update.subjectFactorSnapshotDays(),
+                        currentWindows.subjectFactorSnapshotDays()));
+        putIfPresent(
+                doc,
+                RetentionLogTable.MARKET_DAILY_SNAPSHOT,
+                orCurrent(
+                        update.marketDailySnapshotDays(),
+                        currentWindows.marketDailySnapshotDays()));
         configService.write(
                 RetentionConfigValidator.CONFIG_KEY,
                 doc.toString(),
@@ -81,6 +100,13 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
         if (value != null && !value.isNull()) {
             doc.set(table.jsonField(), value);
         }
+    }
+
+    /** 请求未携带的快照字段以当前库值 IntNode 补齐（校验器必填口径不破坏，旧请求零回归）。 */
+    private JsonNode orCurrent(JsonNode value, int currentValue) {
+        return value != null && !value.isNull()
+                ? value
+                : objectMapper.getNodeFactory().numberNode(currentValue);
     }
 
     private Instant parseExpected(String raw) {

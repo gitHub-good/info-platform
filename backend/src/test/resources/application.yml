@@ -67,6 +67,13 @@ retention:
   cleanup:
     enabled: false
 
+# 因子快照 job 在测试环境关闭：种子 job.FACTOR_SNAPSHOT enabled=false → 调度零注册（M20 T170，十六 Job 惯例）；
+# 快照逻辑改由单测直接调 FactorSnapshotService.snapshotAll 验证（行情客户端 Mock 零外呼）。
+valuation:
+  factor-snapshot:
+    enabled: false
+    cron: 0 30 17 * * ?
+
 logging:
   level:
     org.springframework: WARN

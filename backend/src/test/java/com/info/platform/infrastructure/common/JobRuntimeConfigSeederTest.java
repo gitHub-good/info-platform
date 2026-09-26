@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllFourteenJobKeys() {
+    void seeds_carriesAllSixteenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 14 键不被增补挤占（INDUSTRY_WEEKLY_REPORT 第 15 键追加在尾部，M17 T145 / REQ 拍板四-2）
+        // 纯增量守卫：既有 15 键不被增补挤占（FACTOR_SNAPSHOT 第 16 键追加在尾部，M20 T170 方案 §4.6）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -68,7 +68,31 @@ class JobRuntimeConfigSeederTest {
                         "job.SOURCE_STALE_CHECK",
                         "job.PIPELINE_EXPRESS",
                         "job.RECOMMENDATION_FEED",
-                        "job.INDUSTRY_WEEKLY_REPORT");
+                        "job.INDUSTRY_WEEKLY_REPORT",
+                        "job.FACTOR_SNAPSHOT");
+    }
+
+    // ---- FACTOR_SNAPSHOT 种子（T170，M20 方案 §4.6：第 16 键，盘后 17:30 CRON）----
+
+    @Test
+    void seeds_factorSnapshot_cronAfterMarketClose() {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                seeder, "factorSnapshotEnabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                seeder, "factorSnapshotCron", "0 30 17 * * ?");
+
+        RuntimeConfigSeed seed =
+                seeder.seeds().stream()
+                        .filter(s -> s.configKey().equals("job.FACTOR_SNAPSHOT"))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 30 17 * * ?\"");
+        assertThat(seed.description()).contains("FactorSnapshotJob");
     }
 
     // ---- INDUSTRY_WEEKLY_REPORT 种子（T145，M17 / REQ 拍板四-2：第 15 键，周日晚 20:00 CRON）----

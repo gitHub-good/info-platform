@@ -229,6 +229,11 @@ public class TencentQuoteClient {
         putDecimal(row, "f171", f[43]);
         putDecimal(row, "f162", hk ? f[39] : f[52]);
         putDecimal(row, "f167", hk ? f[58] : f[46]);
+        // M20 T170 增量：腾讯原生 @30 源时间戳（无东财 f 键对应，键名取原生位）——market_daily_snapshot.quote_time
+        // freshness 对账用；既有 adapter 按白名单消费不受影响
+        if (f.length > 30 && !f[30].isBlank()) {
+            row.put("f30", f[30]);
+        }
         return row;
     }
 

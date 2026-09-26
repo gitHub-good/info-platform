@@ -29,13 +29,15 @@ class RetentionWindowsTest {
 
     @Test
     void resolve_fullDocument_adoptsAllFourWindows() {
-        // Arrange + Act：六字段均合法且各不相同（30/14 两窗口交叉；recommendationCardDays T134 扩键）
+        // Arrange + Act：八字段均合法且各不相同（30/14 两窗口交叉；T134 推荐扩键、T170 快照两键）
         RetentionWindows windows =
                 RetentionWindows.resolve(
                         doc(
                                 "{\"jobExecutionLogDays\":10,\"dataSourceEventDays\":5,"
                                         + "\"llmCallLogDays\":40,\"readingEventDays\":50,"
-                                        + "\"newsItemDays\":200,\"recommendationCardDays\":90}"));
+                                        + "\"newsItemDays\":200,\"recommendationCardDays\":90,"
+                                        + "\"subjectFactorSnapshotDays\":120,"
+                                        + "\"marketDailySnapshotDays\":400}"));
 
         // Assert
         assertThat(windows.jobExecutionLogDays()).isEqualTo(10);
@@ -44,6 +46,8 @@ class RetentionWindowsTest {
         assertThat(windows.readingEventDays()).isEqualTo(50);
         assertThat(windows.newsItemDays()).isEqualTo(200);
         assertThat(windows.recommendationCardDays()).isEqualTo(90);
+        assertThat(windows.subjectFactorSnapshotDays()).isEqualTo(120);
+        assertThat(windows.marketDailySnapshotDays()).isEqualTo(400);
     }
 
     @Test
@@ -52,7 +56,7 @@ class RetentionWindowsTest {
         RetentionWindows windows = RetentionWindows.resolve(null);
 
         // Assert：默认窗口 30/14/90/90/180/180（枚举单一事实源，T113 扩 newsItem、T134 扩推荐两表）
-        assertThat(windows).isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180));
+        assertThat(windows).isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180, 180, 365));
     }
 
     @Test
@@ -70,6 +74,9 @@ class RetentionWindowsTest {
         assertThat(windows.newsItemDays()).isEqualTo(180);
         // recommendationCardDays 缺失 → 回退 180（存量五字段键兼容——T134 扩键不强制旧文档补齐）
         assertThat(windows.recommendationCardDays()).isEqualTo(180);
+        // T170：快照两字段缺失 → 各自回退（180/365——存量六字段键零迁移兼容）
+        assertThat(windows.subjectFactorSnapshotDays()).isEqualTo(180);
+        assertThat(windows.marketDailySnapshotDays()).isEqualTo(365);
     }
 
     /** 非法值矩阵：0 / 负数 / 非整数（文本、小数、布尔、null）——绕过校验器直写库的执行侧兜底。 */
@@ -92,21 +99,23 @@ class RetentionWindowsTest {
 
     @Test
     void resolve_valueAtMin_adopted() {
-        // Arrange：六字段恰取各自下限 7/2/35/35/30/30（合法边界）
+        // Arrange：八字段恰取各自下限 7/2/35/35/30/30/30/90（合法边界）
         RetentionWindows windows =
                 RetentionWindows.resolve(
                         doc(
                                 "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
                                         + "\"llmCallLogDays\":35,\"readingEventDays\":35,"
-                                        + "\"newsItemDays\":30,\"recommendationCardDays\":30}"));
+                                        + "\"newsItemDays\":30,\"recommendationCardDays\":30,"
+                                        + "\"subjectFactorSnapshotDays\":30,"
+                                        + "\"marketDailySnapshotDays\":90}"));
 
         // Assert
-        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30));
+        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30, 30, 90));
     }
 
     @Test
     void of_mapsEachTableToItsWindow() {
-        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200, 90);
+        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300);
 
         assertThat(windows.of(RetentionLogTable.JOB_EXECUTION_LOG)).isEqualTo(10);
         assertThat(windows.of(RetentionLogTable.DATA_SOURCE_EVENT)).isEqualTo(5);
@@ -118,6 +127,9 @@ class RetentionWindowsTest {
         // T134：推荐卡片/反馈流水随 recommendationCardDays 同窗（两表 created_at 同刻落库同窗同清，方案 §4.1）
         assertThat(windows.of(RetentionLogTable.RECOMMENDATION_CARD)).isEqualTo(90);
         assertThat(windows.of(RetentionLogTable.RECOMMENDATION_FEEDBACK)).isEqualTo(90);
+        // T170（M20）：两快照表独立窗（因子 150、行情 300——365d 序列资产下限 90）
+        assertThat(windows.of(RetentionLogTable.SUBJECT_FACTOR_SNAPSHOT)).isEqualTo(150);
+        assertThat(windows.of(RetentionLogTable.MARKET_DAILY_SNAPSHOT)).isEqualTo(300);
     }
 
     @Test

@@ -130,6 +130,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${pipeline.weekly-report.cron:0 0 20 * * SUN}")
     private String weeklyReportCron;
 
+    /** 因子快照开关/CRON（M20 T170：FACTOR_SNAPSHOT 第 16 键，缺省盘后 17:30 日频，方案 §4.6）。 */
+    @Value("${valuation.factor-snapshot.enabled:true}")
+    private boolean factorSnapshotEnabled;
+
+    @Value("${valuation.factor-snapshot.cron:0 30 17 * * ?}")
+    private String factorSnapshotCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -252,6 +259,17 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         write(weeklyReport),
                         "行业周报调度（IndustryWeeklyReportJob，周日晚 20:00 生成当周周报：周窗聚合热度环比/事件主键归并/政策动向"
                                 + "→ 五区块含走向判断 v1（置信度 trend-v1 规则层锁定）——FUSED 跳过下周一覆盖，M17 REQ 拍板四）"));
+        Map<String, Object> factorSnapshot = new LinkedHashMap<>();
+        factorSnapshot.put("enabled", factorSnapshotEnabled);
+        factorSnapshot.put("scheduleType", CRON);
+        factorSnapshot.put("cron", factorSnapshotCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.FACTOR_SNAPSHOT",
+                        write(factorSnapshot),
+                        "因子快照调度（FactorSnapshotJob，盘后 17:30 全市场五因子计算→subject_factor_snapshot 5221 行/日"
+                                + "幂等 UPSERT + 腾讯批量行情日快照（失败降级不阻塞四维），权重/窗口热改见 score.weight 键，"
+                                + "M20 方案 §4.6）"));
         return seeds;
     }
 

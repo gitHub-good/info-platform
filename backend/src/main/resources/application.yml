@@ -198,6 +198,14 @@ pipeline:
     enabled: true
     interval-millis: 120000
 
+# 价值评分引擎（M20 T170，方案 §4.6）：job.FACTOR_SNAPSHOT 种子来源（ManagedJob 第 16 键）。
+# 盘后 17:30 日频全量（全轮 <2min，08:00 红线余量充足）；测试 profile 置 false → 调度零注册隔离。
+# 权重/窗口/阈值热改在 runtime_config score.weight 键（T172 编辑面，零 yml 入口）。
+valuation:
+  factor-snapshot:
+    enabled: true
+    cron: "0 30 17 * * ?"
+
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED
 # （Should，recovered-enabled 可关）。退避窗阈值语义：低频源（30~60min）连续失败数攒得慢，退避指数扩张先触达

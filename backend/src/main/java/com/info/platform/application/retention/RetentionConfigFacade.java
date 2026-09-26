@@ -28,14 +28,19 @@ public interface RetentionConfigFacade {
     /** GET 响应：窗口 + 各字段下限/默认（Dialog 预填与校验提示数据源）+ updatedAt（下次防呆比对）。 */
     record WindowsView(Windows windows, Map<String, FieldLimits> limits, String updatedAt) {}
 
-    /** 窗口值（键名与 retention.global 文档字段一致；newsItemDays 为 T113 扩键、recommendationCardDays 为 T134 扩键）。 */
+    /**
+     * 窗口值（键名与 retention.global 文档字段一致；newsItemDays 为 T113 扩键、recommendationCardDays 为 T134 扩键、
+     * 两快照表字段为 M20 T170 扩键）。
+     */
     record Windows(
             int jobExecutionLogDays,
             int dataSourceEventDays,
             int llmCallLogDays,
             int readingEventDays,
             int newsItemDays,
-            int recommendationCardDays) {}
+            int recommendationCardDays,
+            int subjectFactorSnapshotDays,
+            int marketDailySnapshotDays) {}
 
     /**
      * 单字段护栏：下限与默认（取枚举常量）。
@@ -45,7 +50,8 @@ public interface RetentionConfigFacade {
     record FieldLimits(int min, @JsonProperty("default") int defaultValue) {}
 
     /**
-     * PATCH 请求体：六字段全量（null/缺失 → 校验器 2001 必填拦截，不部分写）；expectedUpdatedAt 可选并发防呆。
+     * PATCH 请求体：原六字段全量（null/缺失 → 校验器 2001 必填拦截，不部分写）；M20 两快照字段可缺省 （缺省 → 随当前库值不动——旧 Dialog
+     * 六字段请求零回归）；expectedUpdatedAt 可选并发防呆。
      *
      * <p>窗口字段收 {@link JsonNode} 原样透传（D3 修复）：Integer 绑定会让非整数 JSON 在 Jackson 层先失败（字符串/布尔 →
      * 50000）或被静默截断（14.5 → 14 采信），{@code RetentionConfigValidator} 的「须为整数」分支经此路径不可达。收 JsonNode
@@ -58,5 +64,7 @@ public interface RetentionConfigFacade {
             JsonNode readingEventDays,
             JsonNode newsItemDays,
             JsonNode recommendationCardDays,
+            JsonNode subjectFactorSnapshotDays,
+            JsonNode marketDailySnapshotDays,
             String expectedUpdatedAt) {}
 }

@@ -10,9 +10,9 @@ import com.info.platform.domain.common.ErrorCode;
 import org.junit.jupiter.api.Test;
 
 /**
- * RetentionConfigValidator 单测（T72，方案 §4.2 保存侧防御 / §6 配置与接口组；T134 扩 recommendationCardDays 六字段）：
- * 字段非法矩阵（缺失 / 非整型 / 低于下限 → 2001 字段级 msg，多字段 "; " 连接；共窗键去重不重复报错）+ 合法值通过（恰在下限） + 未知多余字段不拒绝（读侧忽略，job
- * 域惯例）。
+ * RetentionConfigValidator 单测（T72，方案 §4.2 保存侧防御 / §6 配置与接口组；T134 扩 recommendationCardDays 六字段、 T170
+ * 扩 M20 两快照表八字段）： 字段非法矩阵（缺失 / 非整型 / 低于下限 → 2001 字段级 msg，多字段 "; " 连接；共窗键去重不重复报错）+ 合法值通过（恰在下限） +
+ * 未知多余字段不拒绝（读侧忽略，job 域惯例）。
  */
 class RetentionConfigValidatorTest {
 
@@ -39,26 +39,47 @@ class RetentionConfigValidatorTest {
 
     @Test
     void validate_legalDocument_passes() {
-        // 四字段均为合法整型（默认窗口）
+        // 八字段均为合法整型（默认窗口；M20 两快照表随枚举扩位必填）
         assertThatCode(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
-                                                + "\"recommendationCardDays\":180}"))
+                                                + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":180,"
+                                                + "\"marketDailySnapshotDays\":365}"))
                 .doesNotThrowAnyException();
     }
 
     @Test
     void validate_valuesAtLowerBound_pass() {
-        // 恰等于下限 7/2/35/35/30/30 合法（下限含边界）
+        // 恰等于下限 7/2/35/35/30/30/30/90 合法（下限含边界；M20 两快照表 30/90）
         assertThatCode(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
                                                 + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30,"
-                                                + "\"recommendationCardDays\":30}"))
+                                                + "\"recommendationCardDays\":30,\"subjectFactorSnapshotDays\":30,"
+                                                + "\"marketDailySnapshotDays\":90}"))
                 .doesNotThrowAnyException();
+        // T170：两快照表独立下限（因子 30 / 行情 90——序列资产窗更长）
+        assertThatThrownBy(
+                        () ->
+                                validate(
+                                        "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
+                                                + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":29,"
+                                                + "\"marketDailySnapshotDays\":365}"))
+                .hasMessageContaining("subjectFactorSnapshotDays")
+                .hasMessageContaining("30");
+        assertThatThrownBy(
+                        () ->
+                                validate(
+                                        "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
+                                                + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":180,"
+                                                + "\"marketDailySnapshotDays\":89}"))
+                .hasMessageContaining("marketDailySnapshotDays")
+                .hasMessageContaining("90");
     }
 
     @Test
@@ -171,7 +192,8 @@ class RetentionConfigValidatorTest {
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
-                                                + "\"recommendationCardDays\":180,\"futureField\":\"x\"}"))
+                                                + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":180,"
+                                                + "\"marketDailySnapshotDays\":365,\"futureField\":\"x\"}"))
                 .doesNotThrowAnyException();
     }
 
@@ -183,7 +205,8 @@ class RetentionConfigValidatorTest {
                                 validate(
                                         "{\"jobExecutionLogDays\":3650,\"dataSourceEventDays\":14,"
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
-                                                + "\"recommendationCardDays\":365}"))
+                                                + "\"recommendationCardDays\":365,\"subjectFactorSnapshotDays\":180,"
+                                                + "\"marketDailySnapshotDays\":730}"))
                 .doesNotThrowAnyException();
     }
 }

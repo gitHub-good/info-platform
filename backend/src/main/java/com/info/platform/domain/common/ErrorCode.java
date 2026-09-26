@@ -106,6 +106,8 @@ public enum ErrorCode {
     INDUSTRY_WEEKLY_REPORT_NOT_FOUND(30084, "该周周报不存在", 404),
     /** 该周周报已成功生成（重试 409，M17 T145 方案 §4.8——SUCCESS 幂等跳过语义） */
     INDUSTRY_WEEKLY_REPORT_ALREADY_SUCCESS(30085, "该周周报已成功生成，无需重试", 409),
+    /** 评分查询参数非法（coverage date 非 yyyy-MM-dd 等，400，M20 方案 §4.7.2） */
+    VALUE_SCORE_QUERY_INVALID(30088, "评分查询参数非法", 400),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

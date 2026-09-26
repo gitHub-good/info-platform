@@ -96,12 +96,20 @@ class RetentionConfigFacadeImplTest {
         assertThat(view.windows().readingEventDays()).isEqualTo(90);
         assertThat(view.windows().newsItemDays()).isEqualTo(180);
         assertThat(view.updatedAt()).isNull();
-        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段）
-        assertThat(view.limits()).hasSize(6);
+        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段 → T170 八字段）
+        assertThat(view.limits()).hasSize(8);
         assertThat(view.limits())
                 .containsEntry(
                         "recommendationCardDays", new RetentionConfigFacade.FieldLimits(30, 180));
         assertThat(view.windows().recommendationCardDays()).isEqualTo(180);
+        // T170（M20 方案 §4.1）：两快照表窗口枚举扩位——因子 180d/min30、行情 365d/min90（时序分位序列资产窗更长）
+        assertThat(view.limits())
+                .containsEntry(
+                        "subjectFactorSnapshotDays", new RetentionConfigFacade.FieldLimits(30, 180))
+                .containsEntry(
+                        "marketDailySnapshotDays", new RetentionConfigFacade.FieldLimits(90, 365));
+        assertThat(view.windows().subjectFactorSnapshotDays()).isEqualTo(180);
+        assertThat(view.windows().marketDailySnapshotDays()).isEqualTo(365);
     }
 
     @Test
@@ -153,6 +161,8 @@ class RetentionConfigFacadeImplTest {
                                 IntNode.valueOf(35),
                                 IntNode.valueOf(30),
                                 IntNode.valueOf(30),
+                                null,
+                                null,
                                 "2026-09-22T01:00:00Z"));
 
         // Assert：写入文档六字段齐整；返回写后视图（新值 + 新 updatedAt）
@@ -165,7 +175,10 @@ class RetentionConfigFacadeImplTest {
                 .contains("\"llmCallLogDays\":35")
                 .contains("\"readingEventDays\":35")
                 .contains("\"newsItemDays\":30")
-                .contains("\"recommendationCardDays\":30");
+                .contains("\"recommendationCardDays\":30")
+                // M20 两快照字段缺省随当前库值（stub 六字段文档 → 解析默认 180/365）
+                .contains("\"subjectFactorSnapshotDays\":180")
+                .contains("\"marketDailySnapshotDays\":365");
         assertThat(view.windows().jobExecutionLogDays()).isEqualTo(7);
         assertThat(view.updatedAt()).isEqualTo("2026-09-22T02:00:00Z");
     }
@@ -188,6 +201,8 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
                                                 null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
@@ -208,6 +223,8 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
                                                 "not-a-time")))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
@@ -234,6 +251,8 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
                                                 "2026-09-22T00:00:00Z")))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(

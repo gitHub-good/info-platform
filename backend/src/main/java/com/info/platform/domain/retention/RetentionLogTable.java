@@ -18,6 +18,9 @@ package com.info.platform.domain.retention;
  *
  * <p>NEWS_ITEM 注记（T113，REQ-20260925-11 条目 7）：判定列 created_at（V22 惯例整秒 ISO-8601 文本，与亚秒边界的
  * 比较下界兼容）；created_at 无独立索引——180d 窗口峰值 ≈36 万行（方案 §5 容量预估）全扫毫秒级可接受，量级抬升再评估 （记 M17 跟进，不为本批加索引）。
+ *
+ * <p>M20 扩位（T170，技术方案-V2.2-M20 §4.1）：追加 SUBJECT_FACTOR_SNAPSHOT（180/30）与 MARKET_DAILY_SNAPSHOT
+ * （365/90——v2 时序分位序列资产窗更长）两枚举项；{@code retention.global} 旧 JSON 行由解析器字段级回退补默认，无数据迁移。
  */
 public enum RetentionLogTable {
 
@@ -53,7 +56,15 @@ public enum RetentionLogTable {
      * created_at 同刻落库，沿 NEWS_ANALYSIS 随 newsItemDays 先例，方案 §4.1 注记）。mute 表常驻不入枚举（ACTIVE 行是
      * 有效状态，清理会静默恢复推送）。
      */
-    RECOMMENDATION_FEEDBACK("recommendation_feedback", "recommendationCardDays", 180, 30);
+    RECOMMENDATION_FEEDBACK("recommendation_feedback", "recommendationCardDays", 180, 30),
+
+    /**
+     * 标的因子日快照表（M20 V30 T170；快照序列是 M21 榜单变动/M22 历史统计/按当时权重复现审计的对照物——默认 180 天 下限 30，方案 §4.1 键空间扩位表）。
+     */
+    SUBJECT_FACTOR_SNAPSHOT("subject_factor_snapshot", "subjectFactorSnapshotDays", 180, 30),
+
+    /** 行情估值日快照表（M20 V30 T170；v2 时序分位序列资产——默认 365 天下限 90（窗更长，ADR-0058 裁决 1 配套）。 */
+    MARKET_DAILY_SNAPSHOT("market_daily_snapshot", "marketDailySnapshotDays", 365, 90);
 
     private final String physicalName;
     private final String jsonField;

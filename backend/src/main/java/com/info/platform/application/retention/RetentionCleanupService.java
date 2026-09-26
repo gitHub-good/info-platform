@@ -48,7 +48,7 @@ public class RetentionCleanupService {
     /**
      * 执行一轮清理（定时与手动触发共用入口，由 RetentionCleanupJob 委托）。
      *
-     * @return 合计删除行数与段式明细（枚举序逐表一段，T134 起八段；供 JobRunStats 上报 SUCCESS 留痕）
+     * @return 合计删除行数与段式明细（枚举序逐表一段，T134 起八段、T170 起十段；供 JobRunStats 上报 SUCCESS 留痕）
      * @throws RetentionCleanupException 存在失败表（其余表已尽力删除，成功侧信息在异常消息）
      */
     public CleanupResult runOnce() {
