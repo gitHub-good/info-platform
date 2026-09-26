@@ -18,8 +18,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * 人民网经济适配器单测（M17 T142，REQ-20260926-14 拍板一 #7）：真实截样本（2026-09-22 预检，finance.people.com.cn
- * 频道首页）的条目映射（/n1/ 锚点 + URL 内嵌日期墙钟 + c 栏目尾号作 externalId）+ GB 旧栏目与跨站链接隔离 + 结构漂移防御。
- * 零外呼。
+ * 频道首页）的条目映射（/n1/ 锚点 + URL 内嵌日期墙钟 + c 栏目尾号作 externalId）+ GB 旧栏目与跨站链接隔离 + 结构漂移防御。 零外呼。
  */
 class PeopleFinanceAdapterTest {
 

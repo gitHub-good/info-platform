@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 /**
- * 批次二国际 RSS 双源 fixture 单测（M17 T142，REQ-20260926-14 拍板一 #8/#9，MarketWatch T106 先例复制）： Nasdaq·市场
- * 与 WSJ·市场目录配置对真实响应截样本的解析正确性（条数/RSS 2.0 默认映射/pubDate RFC-1123/TIME 游标）。 fixture 均为
- * 2026-09-22 预检三验（robots+可达+结构）锁定后的真实响应截样本（各 3 条）。
+ * 批次二国际 RSS 双源 fixture 单测（M17 T142，REQ-20260926-14 拍板一 #8/#9，MarketWatch T106 先例复制）： Nasdaq·市场 与
+ * WSJ·市场目录配置对真实响应截样本的解析正确性（条数/RSS 2.0 默认映射/pubDate RFC-1123/TIME 游标）。 fixture 均为 2026-09-22
+ * 预检三验（robots+可达+结构）锁定后的真实响应截样本（各 3 条）。
  */
 class RssFeedFetcherBatchTwoTest {
 
@@ -76,8 +76,7 @@ class RssFeedFetcherBatchTwoTest {
         RawFeedItem first = items.get(0);
         assertThat(first.title()).contains("Stock Market News");
         assertThat(first.url()).startsWith("https://www.wsj.com/");
-        assertThat(first.publishedAt())
-                .isEqualTo(java.time.Instant.parse("2026-09-25T08:52:23Z"));
+        assertThat(first.publishedAt()).isEqualTo(java.time.Instant.parse("2026-09-25T08:52:23Z"));
         assertThat(first.cursorValue()).isEqualTo("2026-09-25T08:52:23Z");
     }
 }

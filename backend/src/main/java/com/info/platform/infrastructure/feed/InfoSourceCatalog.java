@@ -307,11 +307,12 @@ public final class InfoSourceCatalog {
                     30);
 
     /**
-     * 工信部政策文件（M17 T140，REQ-20260926-14 拍板一 #1）：预置 adapter（{@code miitPolicyAdapter}）。REQ 记
-     * {@code /zwgk/zcwj/} 路径实测为 JS 跳转壳（新站列表客户端渲染），现行数据端点为站点公开检索 API {@code
+     * 工信部政策文件（M17 T140，REQ-20260926-14 拍板一 #1）：预置 adapter（{@code miitPolicyAdapter}）。REQ 记 {@code
+     * /zwgk/zcwj/} 路径实测为 JS 跳转壳（新站列表客户端渲染），现行数据端点为站点公开检索 API {@code
      * search-front-server/api/search/info}（参数与字段口径见适配器类注释，2026-09-22 预检实测，ADR-0053）。
      *
-     * <p>robots：miit.gov.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」；历史 WAF 风险（普查预告）实测未触发， 单源退避兜底。频控 60min（REQ 官方频段上限，日级源礼貌抓取）。
+     * <p>robots：miit.gov.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」；历史 WAF 风险（普查预告）实测未触发，
+     * 单源退避兜底。频控 60min（REQ 官方频段上限，日级源礼貌抓取）。
      */
     private static final PresetEntry MIIT_POLICY =
             new PresetEntry(
@@ -331,10 +332,11 @@ public final class InfoSourceCatalog {
                     60);
 
     /**
-     * 财政部政策发布（M17 T140，拍板一 #2）：预置 adapter（{@code mofPolicyAdapter}），szs.mof.gov.cn/zhengcefabu
-     * 列表页 HTML 解析口径与 URL 尾号 externalId 见适配器类注释（2026-09-22 预检实测，ADR-0053）。
+     * 财政部政策发布（M17 T140，拍板一 #2）：预置 adapter（{@code mofPolicyAdapter}），szs.mof.gov.cn/zhengcefabu 列表页
+     * HTML 解析口径与 URL 尾号 externalId 见适配器类注释（2026-09-22 预检实测，ADR-0053）。
      *
-     * <p>robots：szs.mof.gov.cn robots 302 跳主站 404 页（非 robots 文件）→ 按「无 robots 文件 = 无限制」留档。 频控 60min（REQ 官方频段上限）。
+     * <p>robots：szs.mof.gov.cn robots 302 跳主站 404 页（非 robots 文件）→ 按「无 robots 文件 = 无限制」留档。 频控
+     * 60min（REQ 官方频段上限）。
      */
     private static final PresetEntry MOF_POLICY =
             new PresetEntry(
@@ -351,9 +353,10 @@ public final class InfoSourceCatalog {
     /**
      * 东财要闻频道（M17 T140，拍板一 #3）：np-weblist 宿主 getNewsByColumns（与 7×24 快讯同宿主，频道纵深形态）。
      *
-     * <p>实测口径（2026-09-22 预检）：端点必带 {@code client=web&req_trace}；条目数组 {@code data.list[]}，{@code code}
-     * 日期前缀数值游标、{@code showTime} {@code yyyy-MM-dd HH:mm:ss} 墙钟、title/summary 齐全且<b>自带直链字段 url</b>（与
-     * 7×24 快讯通道的差异点）。robots：np-weblist 404 → 无限制（M14 T110 已档，同宿主复核一致）。频控 15min（REQ 要闻频段下限，高更新密度）。
+     * <p>实测口径（2026-09-22 预检）：端点必带 {@code client=web&req_trace}；条目数组 {@code data.list[]}，{@code
+     * code} 日期前缀数值游标、{@code showTime} {@code yyyy-MM-dd HH:mm:ss} 墙钟、title/summary 齐全且<b>自带直链字段
+     * url</b>（与 7×24 快讯通道的差异点）。robots：np-weblist 404 → 无限制（M14 T110 已档，同宿主复核一致）。频控 15min（REQ
+     * 要闻频段下限，高更新密度）。
      */
     private static final PresetEntry EM_HEADLINES =
             new PresetEntry(
@@ -397,8 +400,8 @@ public final class InfoSourceCatalog {
 
     /**
      * 上证报要闻（M17 T141，拍板一 #5，澎湃密度补位①）：预置 adapter（{@code cnstockNewsAdapter}）。旧 news 子域 302 进新站、
-     * 栏目列表客户端渲染——现行窗口为首页要闻卡块（沿证监会首页块先例），CSS-module 哈希类锚定与相对/MM-dd 混排墙钟见适配器类注释
-     * （2026-09-22 预检实测，ADR-0053）。
+     * 栏目列表客户端渲染——现行窗口为首页要闻卡块（沿证监会首页块先例），CSS-module 哈希类锚定与相对/MM-dd 混排墙钟见适配器类注释 （2026-09-22
+     * 预检实测，ADR-0053）。
      *
      * <p>robots：cnstock.com robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」。频控 30min（首页大页礼貌抓取）。
      */
@@ -418,7 +421,8 @@ public final class InfoSourceCatalog {
      * 中证网要闻（M17 T141，拍板一 #6，Should，澎湃密度补位②）：预置 adapter（{@code csNewsAdapter}）。栏目列表页均 JS
      * 模板渲染——现行窗口为首页中证快讯 7×24 块（em 时分 + URL 内嵌日期拼合墙钟），口径见适配器类注释（2026-09-22 预检实测， ADR-0053）。
      *
-     * <p>robots：cs.com.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」。频控 30min。同质对冲：与证券时报同稿由跨源指纹去重拦截。
+     * <p>robots：cs.com.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」。频控
+     * 30min。同质对冲：与证券时报同稿由跨源指纹去重拦截。
      */
     private static final PresetEntry CS_NEWS =
             new PresetEntry(
@@ -433,10 +437,12 @@ public final class InfoSourceCatalog {
                     30);
 
     /**
-     * 人民网经济频道（M17 T142，拍板一 #7，Should）：预置 adapter（{@code peopleFinanceAdapter}），finance.people.com.cn
-     * 首页 /n1/ 锚点与 URL 内嵌日期墙钟口径见适配器类注释（2026-09-22 预检实测，ADR-0053）。
+     * 人民网经济频道（M17 T142，拍板一 #7，Should）：预置 adapter（{@code
+     * peopleFinanceAdapter}），finance.people.com.cn 首页 /n1/ 锚点与 URL 内嵌日期墙钟口径见适配器类注释（2026-09-22
+     * 预检实测，ADR-0053）。
      *
-     * <p>robots：www.people.com.cn robots 200（全放行 + Crawl-delay 120s）→ 频控 60min = 30 倍裕量（REQ ≥15 倍条款）。
+     * <p>robots：www.people.com.cn robots 200（全放行 + Crawl-delay 120s）→ 频控 60min = 30 倍裕量（REQ ≥15
+     * 倍条款）。
      */
     private static final PresetEntry PEOPLE_FINANCE =
             new PresetEntry(
@@ -451,8 +457,9 @@ public final class InfoSourceCatalog {
                     60);
 
     /**
-     * Nasdaq 市场 RSS（M17 T142，拍板一 #8，国际 RSS 源 1，三验锁定 2026-09-22）：标准 RSS 2.0（15 条/轮），robots 200
-     * 通配放行仅 {@code Crawl-delay: 30}（/feed/ 不在 Disallow 列表）→ 频控 30min = 60 倍裕量； 境内可达 200 实证。TIME 游标沿 MarketWatch 先例（T106）。
+     * Nasdaq 市场 RSS（M17 T142，拍板一 #8，国际 RSS 源 1，三验锁定 2026-09-22）：标准 RSS 2.0（15 条/轮），robots 200 通配放行仅
+     * {@code Crawl-delay: 30}（/feed/ 不在 Disallow 列表）→ 频控 30min = 60 倍裕量； 境内可达 200 实证。TIME 游标沿
+     * MarketWatch 先例（T106）。
      */
     private static final PresetEntry NASDAQ_MARKETS =
             new PresetEntry(
@@ -467,9 +474,9 @@ public final class InfoSourceCatalog {
                     30);
 
     /**
-     * 华尔街日报市场 RSS（M17 T142，拍板一 #9，国际 RSS 源 2，三验锁定 2026-09-22）：标准 RSS 2.0（61 条/轮，入库层
-     * maxItems 缺省 50 截断），feeds.content.dowjones.io 宿主与 MarketWatch 同族（robots 403 → RFC 9309 无 robots 即无限制，
-     * T106 复核留档）；境内可达 200 实证（首测连接重置、重试即 200——瞬时抖动非封禁）。TIME 游标沿 MarketWatch 先例。
+     * 华尔街日报市场 RSS（M17 T142，拍板一 #9，国际 RSS 源 2，三验锁定 2026-09-22）：标准 RSS 2.0（61 条/轮，入库层 maxItems 缺省 50
+     * 截断），feeds.content.dowjones.io 宿主与 MarketWatch 同族（robots 403 → RFC 9309 无 robots 即无限制， T106
+     * 复核留档）；境内可达 200 实证（首测连接重置、重试即 200——瞬时抖动非封禁）。TIME 游标沿 MarketWatch 先例。
      */
     private static final PresetEntry WSJ_MARKETS =
             new PresetEntry(

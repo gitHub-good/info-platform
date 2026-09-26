@@ -18,9 +18,9 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * 上证报要闻适配器单测（M17 T141，REQ-20260926-14 拍板一 #5）：真实截样本（2026-09-22 预检，cnstock 首页要闻块—— 旧
- * news 子域 302 进新站 /channel，列表页为客户端渲染，首页块为唯一新鲜 SSR 窗口，沿证监会首页块先例）的条目映射（CSS-module
- * 哈希类锚定/相对时间与 MM-dd 混排墙钟/轮播克隆去重/topic 链接隔离）+ 结构漂移防御。零外呼。
+ * 上证报要闻适配器单测（M17 T141，REQ-20260926-14 拍板一 #5）：真实截样本（2026-09-22 预检，cnstock 首页要闻块—— 旧 news 子域 302 进新站
+ * /channel，列表页为客户端渲染，首页块为唯一新鲜 SSR 窗口，沿证监会首页块先例）的条目映射（CSS-module 哈希类锚定/相对时间与 MM-dd 混排墙钟/轮播克隆去重/topic
+ * 链接隔离）+ 结构漂移防御。零外呼。
  */
 class CnstockNewsAdapterTest {
 

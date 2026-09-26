@@ -22,12 +22,12 @@ import org.springframework.web.client.RestClient;
  *
  * <p>栏目口径（2026-09-22 预检实测留档，ADR-0053）：栏目列表页（{@code /sylm/jsbd/list.html}、{@code /gppd/} 系栏目 list 页
  * 等）均为 JS 模板渲染（{@code #title#} 占位符），首页为唯一服务端渲染窗口——取首页<b>中证快讯 7×24 块</b>：{@code li &gt; em{HH:mm} +
- * a}，锚点 {@code title} 属性为标题、链接内嵌完整日期（{@code /ssgs/01/yyyy/MM/dd/detail_{id}.html}）；发布时间 = URL 日期 + em 时分（北京墙钟精确到分，优于日粒度）。
- * 其余首页区块（推荐旧文等）无 em 时分不在采集面。
+ * a}，锚点 {@code title} 属性为标题、链接内嵌完整日期（{@code /ssgs/01/yyyy/MM/dd/detail_{id}.html}）；发布时间 = URL 日期 +
+ * em 时分（北京墙钟精确到分，优于日粒度）。 其余首页区块（推荐旧文等）无 em 时分不在采集面。
  *
- * <p>增量口径：externalId = 详情 URL {@code detail_{id}} 尾号数值段（日期前缀天然携带，同日不同条唯一）；cursorType=NONE—— 首页块无翻页窗口，重复轮由
- * (source_id, external_id) 唯一索引幂等吸收（裁量沿 ADR-0044）。robots：cs.com.cn robots 404 → 按 RFC 9309「无 robots
- * 文件 = 无限制」。频控 30min（REQ 纸媒频段上限）。同质对冲：与证券时报同稿由跨源指纹去重前置拦截（REQ 场景 5）。
+ * <p>增量口径：externalId = 详情 URL {@code detail_{id}} 尾号数值段（日期前缀天然携带，同日不同条唯一）；cursorType=NONE——
+ * 首页块无翻页窗口，重复轮由 (source_id, external_id) 唯一索引幂等吸收（裁量沿 ADR-0044）。robots：cs.com.cn robots 404 → 按 RFC
+ * 9309「无 robots 文件 = 无限制」。频控 30min（REQ 纸媒频段上限）。同质对冲：与证券时报同稿由跨源指纹去重前置拦截（REQ 场景 5）。
  */
 @Component(CsNewsAdapter.BEAN_NAME)
 public class CsNewsAdapter extends AbstractHtmlListFeedAdapter {
@@ -70,8 +70,7 @@ public class CsNewsAdapter extends AbstractHtmlListFeedAdapter {
             }
         }
         if (items.isEmpty()) {
-            throw new FeedFetchException(
-                    "中证网要闻结构漂移（li>em+a 快讯条目缺失）: " + source.getSourceCode());
+            throw new FeedFetchException("中证网要闻结构漂移（li>em+a 快讯条目缺失）: " + source.getSourceCode());
         }
         return dedupeByExternalId(items);
     }
@@ -88,16 +87,16 @@ public class CsNewsAdapter extends AbstractHtmlListFeedAdapter {
         if (!time.matches() || !detail.matches()) {
             return null;
         }
-        String rawTitle =
-                anchor.attr("title").isBlank() ? anchor.text() : anchor.attr("title");
+        String rawTitle = anchor.attr("title").isBlank() ? anchor.text() : anchor.attr("title");
         String title = cleanTitle(rawTitle);
         if (title == null) {
             return null;
         }
-        LocalDate date = LocalDate.of(
-                Integer.parseInt(detail.group(1)),
-                Integer.parseInt(detail.group(2)),
-                Integer.parseInt(detail.group(3)));
+        LocalDate date =
+                LocalDate.of(
+                        Integer.parseInt(detail.group(1)),
+                        Integer.parseInt(detail.group(2)),
+                        Integer.parseInt(detail.group(3)));
         Instant publishedAt =
                 date.atTime(LocalTime.of(hour(time.group(1)), minute(time.group(2))))
                         .atZone(SHANGHAI)

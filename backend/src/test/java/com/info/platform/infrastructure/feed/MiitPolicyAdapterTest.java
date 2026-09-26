@@ -15,9 +15,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * 工信部政策文件适配器单测（M17 T140，REQ-20260926-14 拍板一 #1）：真实截样本（2026-09-22 预检，search-front-server
- * 检索 API 现行结构）的条目映射（标题/相对链接绝对化/art uuid 作 externalId/deploytime 毫秒墙钟）+ 解读跨栏条目保留 +
- * 结构漂移防御。零外呼。
+ * 工信部政策文件适配器单测（M17 T140，REQ-20260926-14 拍板一 #1）：真实截样本（2026-09-22 预检，search-front-server 检索 API
+ * 现行结构）的条目映射（标题/相对链接绝对化/art uuid 作 externalId/deploytime 毫秒墙钟）+ 解读跨栏条目保留 + 结构漂移防御。零外呼。
  */
 class MiitPolicyAdapterTest {
 
@@ -61,6 +60,25 @@ class MiitPolicyAdapterTest {
         assertThat(interpretation.url()).contains("/zwgk/zcjd/");
         assertThat(interpretation.title()).contains("解读");
         assertThat(interpretation.externalId()).isEqualTo("ced716be0a094e82937064b815ecba28");
+    }
+
+    @Test
+    void parseList_skipsMalformedItems_andFallsBackWhenDeploytimeUnparsable() {
+        // 边界：url 无 art uuid / title 缺失的条目跳过；deploytime 不可解析回落 null（摄取层补抓取时刻）
+        String body =
+                """
+                {"code":"200","success":true,"data":{"searchResult":{"dataResults":[
+                  {"groupData":[{"data":{"title":"无 uuid 链接条目","url":"/zwgk/no-uuid.html","deploytime":"1790132090256"}}]},
+                  {"groupData":[{"data":{"url":"/zwgk/zcwj/wjfb/tz/art/11111111111111111111111111111111.html","deploytime":"1790132090256"}}]},
+                  {"groupData":[{"data":{"title":"墙钟不可解析条目","url":"/zwgk/zcwj/wjfb/tz/art_22222222222222222222222222222222.html","deploytime":"not-a-number"}}]}
+                ]}}}
+                """;
+
+        var items = adapter.parse(body, miitSource());
+
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).externalId()).isEqualTo("22222222222222222222222222222222");
+        assertThat(items.get(0).publishedAt()).isNull();
     }
 
     @Test

@@ -20,12 +20,12 @@ import org.springframework.web.client.RestClient;
  *
  * <p>栏目口径（2026-09-22 预检实测留档，ADR-0053）：端点 {@code szs.mof.gov.cn/zhengcefabu/}（税政司·政策发布， REQ
  * 记路径即现行入口，12KB 服务端渲染）；结构 {@code div.listBox &gt; ul.liBox &gt; li}，条目 = 锚点（{@code title}
- * 属性为标题，{@code ./202609/t20260904_3996707.htm} 相对链接）+ 尾部 {@code span} 日期（{@code yyyy-MM-dd} 墙钟，北京时间，
- * 日粒度）。首屏 10 条。
+ * 属性为标题，{@code ./202609/t20260904_3996707.htm} 相对链接）+ 尾部 {@code span} 日期（{@code yyyy-MM-dd}
+ * 墙钟，北京时间， 日粒度）。首屏 10 条。
  *
- * <p>增量口径：externalId = 详情 URL 尾号数值段（{@code t{date}_{id}.htm} 的 id）；cursorType=NONE——日期粒度仅到日， TIME 游标「遇已见止」会漏同日新条目（裁量沿 ADR-0044
- * 发改委先例），重复轮由 (source_id, external_id) 唯一索引幂等吸收。robots： szs.mof.gov.cn robots 302 跳主站 404 页（非 robots
- * 文件）→ 按「无 robots 文件 = 无限制」留档（沿证监会 302 先例）。频控 60min（REQ 官方频段上限）。
+ * <p>增量口径：externalId = 详情 URL 尾号数值段（{@code t{date}_{id}.htm} 的 id）；cursorType=NONE——日期粒度仅到日， TIME
+ * 游标「遇已见止」会漏同日新条目（裁量沿 ADR-0044 发改委先例），重复轮由 (source_id, external_id) 唯一索引幂等吸收。robots： szs.mof.gov.cn
+ * robots 302 跳主站 404 页（非 robots 文件）→ 按「无 robots 文件 = 无限制」留档（沿证监会 302 先例）。频控 60min（REQ 官方频段上限）。
  */
 @Component(MofPolicyAdapter.BEAN_NAME)
 public class MofPolicyAdapter extends AbstractHtmlListFeedAdapter {

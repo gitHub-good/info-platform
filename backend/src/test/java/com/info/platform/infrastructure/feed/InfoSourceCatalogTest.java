@@ -94,9 +94,11 @@ class InfoSourceCatalogTest {
         // 频控官方 60min、东财要闻 15min
         var byCode =
                 InfoSourceCatalog.presets().stream()
-                        .collect(java.util.stream.Collectors.toMap(
+                        .collect(
+                                java.util.stream.Collectors.toMap(
                                         InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
-        assertThat(byCode).containsKeys(
+        assertThat(byCode)
+                .containsKeys(
                         "miit_policy",
                         "mof_policy",
                         "em_headlines",
@@ -143,10 +145,7 @@ class InfoSourceCatalogTest {
                                 .effectiveCursorType()
                                 .name())
                 .isEqualTo("TIME");
-        assertThat(
-                        codec.parse(byCode.get("wsj_markets").configJson())
-                                .effectiveCursorType()
-                                .name())
+        assertThat(codec.parse(byCode.get("wsj_markets").configJson()).effectiveCursorType().name())
                 .isEqualTo("TIME");
     }
 

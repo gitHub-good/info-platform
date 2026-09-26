@@ -17,9 +17,9 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * 中证网要闻适配器单测（M17 T141，REQ-20260926-14 拍板一 #6）：真实截样本（2026-09-22 预检，cs.com.cn 首页 7×24
- * 快讯块—— 栏目列表页均为 JS 模板渲染，首页块为唯一新鲜 SSR 窗口）的条目映射（em 时分 + URL 内嵌日期拼合墙钟/detail 尾号作
- * externalId/title 属性标题）+ 旧文区块隔离 + 结构漂移防御。零外呼。
+ * 中证网要闻适配器单测（M17 T141，REQ-20260926-14 拍板一 #6）：真实截样本（2026-09-22 预检，cs.com.cn 首页 7×24 快讯块—— 栏目列表页均为
+ * JS 模板渲染，首页块为唯一新鲜 SSR 窗口）的条目映射（em 时分 + URL 内嵌日期拼合墙钟/detail 尾号作 externalId/title 属性标题）+ 旧文区块隔离 +
+ * 结构漂移防御。零外呼。
  */
 class CsNewsAdapterTest {
 
@@ -46,8 +46,7 @@ class CsNewsAdapterTest {
         assertThat(newest.externalId()).isEqualTo("2026092610041829");
         assertThat(newest.title()).contains("大丰实业").contains("中标");
         assertThat(newest.url())
-                .isEqualTo(
-                        "https://www.cs.com.cn/ssgs/01/2026/09/26/detail_2026092610041829.html");
+                .isEqualTo("https://www.cs.com.cn/ssgs/01/2026/09/26/detail_2026092610041829.html");
         assertThat(newest.author()).isEqualTo("中证网");
         // em 09:47 + URL 日期 2026/09/26（北京墙钟）→ UTC 前一日 01:47
         assertThat(newest.publishedAt()).isEqualTo(Instant.parse("2026-09-26T01:47:00Z"));
@@ -60,9 +59,7 @@ class CsNewsAdapterTest {
         List<RawFeedItem> items = adapter.parseList(fixture(), csSource());
 
         // 旧文区块噪音（2026-07-11 detail 链接、无 em 时分）不在 7×24 块内，不产出条目
-        assertThat(items)
-                .extracting(RawFeedItem::externalId)
-                .doesNotContain("2026071110023356");
+        assertThat(items).extracting(RawFeedItem::externalId).doesNotContain("2026071110023356");
     }
 
     @Test

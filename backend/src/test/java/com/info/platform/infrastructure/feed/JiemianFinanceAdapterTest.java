@@ -17,9 +17,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * 界面新闻财经适配器单测（M17 T141，REQ-20260926-14 拍板一 #4）：真实截样本（2026-09-22 预检，lists/800 财经频道—— REQ
- * 记 lists/2 实测为商业频道，预检修正）的条目映射（卡片标题/摘要/作者/MM-dd HH:mm 墙钟/article id 作 externalId）+ 右栏噪音隔离 +
- * 结构漂移防御。零外呼。
+ * 界面新闻财经适配器单测（M17 T141，REQ-20260926-14 拍板一 #4）：真实截样本（2026-09-22 预检，lists/800 财经频道—— REQ 记 lists/2
+ * 实测为商业频道，预检修正）的条目映射（卡片标题/摘要/作者/MM-dd HH:mm 墙钟/article id 作 externalId）+ 右栏噪音隔离 + 结构漂移防御。零外呼。
  */
 class JiemianFinanceAdapterTest {
 
@@ -59,9 +58,7 @@ class JiemianFinanceAdapterTest {
         List<RawFeedItem> items = adapter.parseList(fixture(), jiemianSource());
 
         // 右栏快讯噪音（article/15140848）不在 #load-list 主列表内，不产出条目
-        assertThat(items)
-                .extracting(RawFeedItem::externalId)
-                .doesNotContain("15140848");
+        assertThat(items).extracting(RawFeedItem::externalId).doesNotContain("15140848");
     }
 
     @Test

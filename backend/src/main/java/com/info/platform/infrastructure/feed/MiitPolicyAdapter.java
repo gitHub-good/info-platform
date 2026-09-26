@@ -22,15 +22,17 @@ import org.springframework.web.client.RestClientException;
 /**
  * 工信部政策文件预置适配器（M17 T140，REQ-20260926-14 拍板一 #1，bean 名 {@code miitPolicyAdapter} 与目录种子一致）。
  *
- * <p>栏目口径（2026-09-22 预检实测留档，ADR-0053）：REQ 记路径 {@code /zwgk/zcwj/index.html} 实测为 2KB JS 跳转壳（→
- * {@code /zwgk/zcwj/wjfb/index.html} → {@code /search/wjfb.html?...&category=51}），列表正文客户端渲染—— 现行唯一服务端数据端点为站点公开检索
- * API {@code /search-front-server/api/search/info}（search.js 页面自身调用， 参数 websiteid=110000000000000&amp;searchid=51
- * = 政策文件·文件发布）。响应 {@code data.searchResult.dataResults[].groupData[].data}（实测 groupData 均 1 条）， 字段
- * {@code title}/{@code url}（站内相对链接）/{@code deploytime}（Unix 毫秒字符串）；列表混排政策解读跨栏条目（{@code /zwgk/zcjd/}）——按栏内内容保留（沿发改委解读先例）。
+ * <p>栏目口径（2026-09-22 预检实测留档，ADR-0053）：REQ 记路径 {@code /zwgk/zcwj/index.html} 实测为 2KB JS 跳转壳（→ {@code
+ * /zwgk/zcwj/wjfb/index.html} → {@code /search/wjfb.html?...&category=51}），列表正文客户端渲染——
+ * 现行唯一服务端数据端点为站点公开检索 API {@code /search-front-server/api/search/info}（search.js 页面自身调用， 参数
+ * websiteid=110000000000000&amp;searchid=51 = 政策文件·文件发布）。响应 {@code
+ * data.searchResult.dataResults[].groupData[].data}（实测 groupData 均 1 条）， 字段 {@code title}/{@code
+ * url}（站内相对链接）/{@code deploytime}（Unix 毫秒字符串）；列表混排政策解读跨栏条目（{@code /zwgk/zcjd/}）——按栏内内容保留（沿发改委解读先例）。
  *
  * <p>增量口径：externalId = 详情 URL 的 {@code art_{uuid}} 段（uuid 本体）；cursorType=NONE——实测检索序非严格时间序
- * （deploytime 1790038536069 先于 1790038626691），TIME 游标「遇已见止」会漏新条目，重复轮由 (source_id, external_id) 唯一索引幂等吸收（裁量沿 ADR-0044）。robots：miit.gov.cn
- * robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」；历史 WAF 风险（普查预告）实测未触发（预检 200）， 单源退避降级兜底。频控 60min（REQ 官方频段上限，日级源礼貌抓取）。
+ * （deploytime 1790038536069 先于 1790038626691），TIME 游标「遇已见止」会漏新条目，重复轮由 (source_id, external_id)
+ * 唯一索引幂等吸收（裁量沿 ADR-0044）。robots：miit.gov.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」；历史 WAF
+ * 风险（普查预告）实测未触发（预检 200）， 单源退避降级兜底。频控 60min（REQ 官方频段上限，日级源礼貌抓取）。
  */
 @Component(MiitPolicyAdapter.BEAN_NAME)
 public class MiitPolicyAdapter implements PresetFeedAdapter {
@@ -93,19 +95,12 @@ public class MiitPolicyAdapter implements PresetFeedAdapter {
                             .retrieve()
                             .body(String.class);
             if (body == null || body.isBlank()) {
-                throw new FeedFetchException(
-                        "工信部政策文件空响应 " + source.getSourceCode() + " " + url);
+                throw new FeedFetchException("工信部政策文件空响应 " + source.getSourceCode() + " " + url);
             }
             return body;
         } catch (RestClientException e) {
             throw new FeedFetchException(
-                    "工信部政策文件取数失败 "
-                            + source.getSourceCode()
-                            + " "
-                            + url
-                            + ": "
-                            + e.getMessage(),
-                    e);
+                    "工信部政策文件取数失败 " + source.getSourceCode() + " " + url + ": " + e.getMessage(), e);
         }
     }
 
@@ -113,15 +108,15 @@ public class MiitPolicyAdapter implements PresetFeedAdapter {
     List<RawFeedItem> parse(String body, InfoSource source) {
         JsonNode dataResults;
         try {
-            dataResults = MAPPER.readTree(body).path("data").path("searchResult").path("dataResults");
+            dataResults =
+                    MAPPER.readTree(body).path("data").path("searchResult").path("dataResults");
         } catch (Exception e) {
             throw new FeedFetchException(
                     "工信部政策文件 JSON 解析失败 " + source.getSourceCode() + ": " + e.getMessage(), e);
         }
         if (!dataResults.isArray()) {
             throw new FeedFetchException(
-                    "工信部政策文件结构漂移（data.searchResult.dataResults 缺失）: "
-                            + source.getSourceCode());
+                    "工信部政策文件结构漂移（data.searchResult.dataResults 缺失）: " + source.getSourceCode());
         }
         List<RawFeedItem> items = new ArrayList<>();
         for (JsonNode dataResult : dataResults) {

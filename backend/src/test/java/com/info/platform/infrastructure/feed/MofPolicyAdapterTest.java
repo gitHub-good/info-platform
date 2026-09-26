@@ -17,8 +17,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * 财政部政策发布适配器单测（M17 T140，REQ-20260926-14 拍板一 #2）：真实截样本（2026-09-22 预检，szs.mof.gov.cn
- * 税政司政策发布列表现行结构）的条目映射（title 属性标题/相对链接绝对化/URL 尾号作 externalId/span 日期墙钟）+ 结构漂移防御。
- * 零外呼。
+ * 税政司政策发布列表现行结构）的条目映射（title 属性标题/相对链接绝对化/URL 尾号作 externalId/span 日期墙钟）+ 结构漂移防御。 零外呼。
  */
 class MofPolicyAdapterTest {
 

@@ -14,8 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子落库（M13 三源 + M14 批次一十源 + M17 批次二九源 = 22 预置源）、
- * 幂等重跑零新增、 运行态行随种子初始化（错峰 next_due_at ∈ [now, now+interval]）。共享内存库 + Flyway V22 建表，直连断言。
+ * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子落库（M13 三源 + M14 批次一十源 + M17 批次二九源 =
+ * 22 预置源）、 幂等重跑零新增、 运行态行随种子初始化（错峰 next_due_at ∈ [now, now+interval]）。共享内存库 + Flyway V22 建表，直连断言。
  */
 @SpringBootTest
 @ActiveProfiles("test")

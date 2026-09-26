@@ -25,8 +25,8 @@ import org.springframework.web.client.RestClient;
  *
  * <p>增量口径：externalId = URL 尾段文章 id（{@code c1004-40805164} 的 40805164）；cursorType=NONE——日粒度 URL 日期 +
  * 首页编辑序，重复轮由 (source_id, external_id) 唯一索引幂等吸收（裁量沿 ADR-0044）。robots：{@code www.people.com.cn}
- * robots 200 为 {@code User-agent: * Disallow:（空 = 全放行） + Crawl-delay: 120}（{@code finance.} 子域 robots 404
- * 无独立限制）——间隔 60min = Crawl-delay 的 30 倍裕量（REQ 要求 ≥15 倍）。
+ * robots 200 为 {@code User-agent: * Disallow:（空 = 全放行） + Crawl-delay: 120}（{@code finance.} 子域
+ * robots 404 无独立限制）——间隔 60min = Crawl-delay 的 30 倍裕量（REQ 要求 ≥15 倍）。
  */
 @Component(PeopleFinanceAdapter.BEAN_NAME)
 public class PeopleFinanceAdapter extends AbstractHtmlListFeedAdapter {
@@ -66,8 +66,7 @@ public class PeopleFinanceAdapter extends AbstractHtmlListFeedAdapter {
             }
         }
         if (items.isEmpty()) {
-            throw new FeedFetchException(
-                    "人民网经济结构漂移（/n1/ 文章锚点缺失）: " + source.getSourceCode());
+            throw new FeedFetchException("人民网经济结构漂移（/n1/ 文章锚点缺失）: " + source.getSourceCode());
         }
         return dedupeByExternalId(items);
     }
@@ -89,12 +88,6 @@ public class PeopleFinanceAdapter extends AbstractHtmlListFeedAdapter {
                         Integer.parseInt(article.group(3)));
         Instant publishedAt = date.atStartOfDay(SHANGHAI).toInstant();
         return new RawFeedItem(
-                article.group(4),
-                title,
-                null,
-                anchor.absUrl("href"),
-                "人民网",
-                publishedAt,
-                null);
+                article.group(4), title, null, anchor.absUrl("href"), "人民网", publishedAt, null);
     }
 }
