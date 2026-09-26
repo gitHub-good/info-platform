@@ -20,6 +20,7 @@ import com.info.platform.domain.analysis.GuardLevel;
  * @param fuseAtMicros 熔断阈值（budget × fuseRatio，微元）
  * @param calibratedPerItemMicros 单条成本校准值（pipeline.budget，微元；初值 1100 = 附录 A 实测+推算）
  * @param costBasis 成本口径版本串（校准写入时升版，不静默）
+ * @param coverageBasis L2 覆盖率口径版本串（T137 起 coverage-v2——NO_EVENT 移出分母 + noEventRatio 独立；切换不静默）
  */
 public record PipelineStatusView(
         String jobKey,
@@ -31,7 +32,8 @@ public record PipelineStatusView(
         long degradeAtMicros,
         long fuseAtMicros,
         long calibratedPerItemMicros,
-        String costBasis) {
+        String costBasis,
+        String coverageBasis) {
 
     /** 当日计数（l0 按 l0_result / l1 按 l1_status / l2 按 l2_status；缺态计 0；比率无样本 null）。 */
     public record TodayView(
@@ -44,11 +46,12 @@ public record PipelineStatusView(
             long l2Extracted,
             long l2Deferred,
             Double l1RateIn30min,
-            Double l2Coverage) {
+            Double l2Coverage,
+            Double noEventRatio) {
 
         /** 空计数（无数据日/未跑过）。 */
         public static TodayView empty() {
-            return new TodayView(0, 0, 0, 0, 0, 0, 0, 0, null, null);
+            return new TodayView(0, 0, 0, 0, 0, 0, 0, 0, null, null, null);
         }
     }
 

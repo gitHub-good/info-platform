@@ -42,7 +42,7 @@ class PipelineStatusControllerTest {
                                 "NEWS_PIPELINE",
                                 GuardLevel.DEGRADED,
                                 new PipelineStatusView.TodayView(
-                                        620, 8, 12, 600, 5, 2, 90, 10, 0.95, 0.75),
+                                        620, 8, 12, 600, 5, 2, 90, 10, 0.95, 0.75, 0.1),
                                 new PipelineStatusView.LastTickView(
                                         "2026-09-22T09:20:00Z",
                                         "2026-09-22T09:21:00Z",
@@ -52,7 +52,8 @@ class PipelineStatusControllerTest {
                                 1_200_000L,
                                 1_800_000L,
                                 1_100L,
-                                "cost-v1:initial"));
+                                "cost-v1:initial",
+                                "coverage-v2"));
 
         mockMvc.perform(get("/api/v1/pipeline/status"))
                 .andExpect(status().isOk())
@@ -65,6 +66,8 @@ class PipelineStatusControllerTest {
                 .andExpect(jsonPath("$.data.today.l2Deferred").value(10))
                 .andExpect(jsonPath("$.data.today.l1RateIn30min").value(0.95))
                 .andExpect(jsonPath("$.data.today.l2Coverage").value(0.75))
+                .andExpect(jsonPath("$.data.today.noEventRatio").value(0.1))
+                .andExpect(jsonPath("$.data.coverageBasis").value("coverage-v2"))
                 .andExpect(jsonPath("$.data.todayCostMicros").value(1350000))
                 .andExpect(jsonPath("$.data.budgetMicros").value(2000000))
                 .andExpect(jsonPath("$.data.degradeAtMicros").value(1200000))
@@ -90,7 +93,8 @@ class PipelineStatusControllerTest {
                                 1_200_000L,
                                 1_800_000L,
                                 1_100L,
-                                "cost-v1:initial"));
+                                "cost-v1:initial",
+                                "coverage-v2"));
 
         mockMvc.perform(get("/api/v1/pipeline/status"))
                 .andExpect(status().isOk())
@@ -98,6 +102,7 @@ class PipelineStatusControllerTest {
                 .andExpect(jsonPath("$.data.today.l0Pass").value(0))
                 .andExpect(jsonPath("$.data.today.l1RateIn30min").doesNotExist())
                 .andExpect(jsonPath("$.data.today.l2Coverage").doesNotExist())
+                .andExpect(jsonPath("$.data.today.noEventRatio").doesNotExist())
                 .andExpect(jsonPath("$.data.lastTick").doesNotExist());
     }
 }

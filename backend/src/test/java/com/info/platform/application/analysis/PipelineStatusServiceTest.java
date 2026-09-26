@@ -83,8 +83,8 @@ class PipelineStatusServiceTest {
 
     @Test
     void status_slaAndCoverageArithmetic() {
-        // l1RateIn30min = 570/600 = 0.95；l2Coverage =
-        // EXTRACTED/(EXTRACTED+NO_EVENT+FAILED+DEFERRED)
+        // l1RateIn30min = 570/600 = 0.95；l2Coverage(coverage-v2) =
+        // EXTRACTED/(EXTRACTED+FAILED+DEFERRED+滞留SELECTED)——NO_EVENT 已移出分母（T137）
         when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of());
         when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of("DONE", 600L));
         when(repository.countL2ByStatusSince(anyString()))
@@ -95,7 +95,7 @@ class PipelineStatusServiceTest {
         PipelineStatusView view = service.status();
 
         assertThat(view.today().l1RateIn30min()).isEqualTo(0.95);
-        assertThat(view.today().l2Coverage()).isEqualTo(90.0 / 120.0);
+        assertThat(view.today().l2Coverage()).isEqualTo(90.0 / 100.0);
         assertThat(view.today().l2Extracted()).isEqualTo(90L);
         assertThat(view.today().l2Deferred()).isEqualTo(10L);
     }
@@ -114,8 +114,79 @@ class PipelineStatusServiceTest {
         assertThat(view.today().l0Pass()).isEqualTo(3L);
         assertThat(view.today().l1RateIn30min()).isNull();
         assertThat(view.today().l2Coverage()).isNull();
+        assertThat(view.today().noEventRatio()).isNull(); // 无样本同 null 先例
         assertThat(view.today().l2Extracted()).isZero();
         assertThat(view.lastTick()).isNull(); // 未跑过批窗口
+    }
+
+    // ---- T137：coverage-v2 口径（AMB-02 落地，方案 §4.10） ----
+
+    @Test
+    void status_coverageV2_excludesNoEventAndAddsNoEventRatio() {
+        // Arrange：EXTRACTED=90 / NO_EVENT=20 / FAILED=2 / DEFERRED=10
+        when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of());
+        when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of("DONE", 600L));
+        when(repository.countL2ByStatusSince(anyString()))
+                .thenReturn(
+                        Map.of("EXTRACTED", 90L, "NO_EVENT", 20L, "FAILED", 2L, "DEFERRED", 10L));
+        when(repository.countL1SlaSince(anyString()))
+                .thenReturn(new NewsAnalysisRepository.L1SlaStats(0L, 0L));
+
+        // Act
+        PipelineStatusView view = service.status();
+
+        // Assert：覆盖率分母剔除 NO_EVENT = 90 ÷ (90+2+10) = 0.9；NO_EVENT 占比独立指标 =
+        // 20 ÷ (90+20+2+10) = 20/122；口径版本串 coverage-v2（阈值 80% 判定不变）
+        assertThat(view.today().l2Coverage()).isEqualTo(90.0 / 102.0);
+        assertThat(view.today().noEventRatio()).isEqualTo(20.0 / 122.0);
+        assertThat(view.coverageBasis()).isEqualTo("coverage-v2");
+    }
+
+    @Test
+    void status_coverageV2_selectedStuckCountedInDenominator() {
+        // Arrange：当日滞留处理中（SELECTED 未终态）计入分母——正确拒绝不算失败，滞留算未完成
+        when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of());
+        when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of());
+        when(repository.countL2ByStatusSince(anyString()))
+                .thenReturn(Map.of("EXTRACTED", 8L, "SELECTED", 2L));
+        when(repository.countL1SlaSince(anyString()))
+                .thenReturn(new NewsAnalysisRepository.L1SlaStats(0L, 0L));
+
+        // Act
+        PipelineStatusView view = service.status();
+
+        // Assert：8 ÷ (8 + 2) = 0.8；noEventRatio = 0 ÷ 10 = 0.0（非 null——有样本）
+        assertThat(view.today().l2Coverage()).isEqualTo(0.8);
+        assertThat(view.today().noEventRatio()).isEqualTo(0.0);
+    }
+
+    @Test
+    void status_coverageV2_m15ThreeSnapshotsReplayAll100() {
+        // M15 测试报告 §3.3 三拍（AMB-02 澄清前 coverage-v1 读数 86.4% / 80.0% / 79.1%）：
+        // EXTRACTED/分母 = 19/22 → 28/35 → 34/43，差额全为 NO_EVENT（FAILED/DEFERRED/滞留均为 0）。
+        // coverage-v2 分母剔除 NO_EVENT 后三拍全部 = 100%（正确拒绝不计失败，防诱导硬凑事件）。
+        long[][] snapshots = {{19, 3}, {28, 7}, {34, 9}};
+        for (long[] snapshot : snapshots) {
+            when(repository.countL2ByStatusSince(anyString()))
+                    .thenReturn(
+                            Map.of(
+                                    "EXTRACTED", snapshot[0],
+                                    "NO_EVENT", snapshot[1]));
+            when(repository.countL0ByResultSince(anyString())).thenReturn(Map.of());
+            when(repository.countL1ByStatusSince(anyString())).thenReturn(Map.of());
+            when(repository.countL1SlaSince(anyString()))
+                    .thenReturn(new NewsAnalysisRepository.L1SlaStats(0L, 0L));
+
+            PipelineStatusView view = service.status();
+
+            long extracted = snapshot[0];
+            long noEvent = snapshot[1];
+            assertThat(view.today().l2Coverage())
+                    .as("M15 三拍回放 EXTRACTED=%d NO_EVENT=%d", extracted, noEvent)
+                    .isEqualTo(1.0);
+            assertThat(view.today().noEventRatio())
+                    .isEqualTo((double) noEvent / (extracted + noEvent));
+        }
     }
 
     @Test
