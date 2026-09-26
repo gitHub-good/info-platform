@@ -83,17 +83,18 @@ public class PipelineRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         write(l2),
                         "L2 事件提取参数（重要性打分源权重/强弱触发词/标的加成/阈值 2.5/日配额比例 0.2/批大小，M15 方案 §4.4/§4.8）"));
         Map<String, Object> budget = new LinkedHashMap<>();
-        budget.put("dailyBudgetMicros", 2_000_000L);
+        budget.put("dailyBudgetMicros", 2_600_000L);
         budget.put("degradeRatio", 0.6);
         budget.put("fuseRatio", 0.9);
         budget.put("calibratedPerItemMicros", 1_100L);
-        budget.put("costBasis", "cost-v1:initial");
+        budget.put("costBasis", "cost-v2:m18-30src");
         seeds.add(
                 new RuntimeConfigSeed(
                         "pipeline.budget",
                         write(budget),
-                        "管道成本护栏预算（日预算 ¥2=2,000,000 微元/降级 60%/熔断 90%/单条校准初值 1100 微元[附录 A 实测+推算]"
-                                + "/成本口径串，方案 §3.5/§4.6/§4.8）"));
+                        "管道成本护栏预算（M18 T157 30 源校准：日预算 ¥2.60=2,600,000 微元[scene5-8 近 3 日日均 ×30/22 外推"
+                                + "+裕量，常态日不触降级线]/降级 60%/熔断 90% 零变更/单条校准初值 1100 微元[Guard 每日写回]"
+                                + "/成本口径串 cost-v2，方案 §3.5/§4.6/§4.8、ADR-0056）"));
         Map<String, Object> heat = new LinkedHashMap<>();
         heat.put("k1", 10.0);
         heat.put("impHigh", 1.0);

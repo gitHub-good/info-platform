@@ -55,7 +55,8 @@ class PipelineStatusServiceTest {
 
     @Test
     void status_fullGuardFaceComposed() {
-        // Arrange：预算键缺省（¥2/日=2,000,000 微元；60%/90% 阈值；校准初值 1100 = 附录 A）
+        // Arrange：预算键缺省 = T157 校准缺省（¥2.60/日=2,600,000 微元——30 源外推常态水位 22.5%、重日裕量 27%；
+        // 60%/90% 阈值零变更；校准初值 1100；口径 cost-v2:m18-30src）
         when(repository.countL0ByResultSince(TODAY_START))
                 .thenReturn(Map.of("PASS", 620L, "NOISE", 8L, "NEAR_DUP", 12L));
         when(repository.countL1ByStatusSince(TODAY_START))
@@ -74,11 +75,11 @@ class PipelineStatusServiceTest {
         assertThat(view.jobKey()).isEqualTo("NEWS_PIPELINE");
         assertThat(view.level()).isEqualTo(GuardLevel.DEGRADED);
         assertThat(view.todayCostMicros()).isEqualTo(1_350_000L);
-        assertThat(view.budgetMicros()).isEqualTo(2_000_000L);
-        assertThat(view.degradeAtMicros()).isEqualTo(1_200_000L);
-        assertThat(view.fuseAtMicros()).isEqualTo(1_800_000L);
+        assertThat(view.budgetMicros()).isEqualTo(2_600_000L);
+        assertThat(view.degradeAtMicros()).isEqualTo(1_560_000L);
+        assertThat(view.fuseAtMicros()).isEqualTo(2_340_000L);
         assertThat(view.calibratedPerItemMicros()).isEqualTo(1_100L);
-        assertThat(view.costBasis()).isEqualTo("cost-v1:initial");
+        assertThat(view.costBasis()).isEqualTo("cost-v2:m18-30src");
     }
 
     @Test

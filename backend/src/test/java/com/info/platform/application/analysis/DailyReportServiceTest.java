@@ -258,7 +258,7 @@ class DailyReportServiceTest {
         assertThat(saved.getReportDate()).isEqualTo(YESTERDAY);
         assertThat(saved.getStatus()).isEqualTo(ReportStatus.SUCCESS);
         assertThat(saved.getPromptVersion()).isEqualTo("v1.0");
-        assertThat(saved.getBasis()).contains("heat-v1:k1=10").contains("cost-v1:initial");
+        assertThat(saved.getBasis()).contains("heat-v1:k1=10").contains("cost-v2:m18-30src");
         JsonNode content = readJson(saved.getContent());
         assertThat(content.get("summary").asText()).contains("银行");
         assertThat(content.get("narrativeDegraded").asBoolean()).isFalse();

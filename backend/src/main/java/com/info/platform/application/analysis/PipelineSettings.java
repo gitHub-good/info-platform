@@ -130,8 +130,12 @@ public class PipelineSettings {
 
     // —— 护栏预算参数（M15 T125，方案 §3.5/§4.8 pipeline.budget 键） ——
 
-    /** 日预算缺省（¥2/日 = 2,000,000 微元——按实测单条 ¥0.0011 × 632 条/日 ≈ 35% 水位，3 倍放量余量）。 */
-    static final long DEFAULT_DAILY_BUDGET_MICROS = 2_000_000L;
+    /**
+     * 日预算缺省（¥2.60/日 = 2,600,000 微元——M18 T157 校准，M17 遗留 ⑥）：scene5-8 近 3 日日均 ¥0.4293 × 30/22 = 常态水位
+     * ¥0.5854（22.5%）；期内最高日 ¥0.8983 × 30/22 = ¥1.2250 &lt; 降级线 ¥1.56（27% 裕量，常态日不触线）； 60%/90%
+     * 两级比例零变更（护栏语义/两级降级机制不变，ADR-0056）。
+     */
+    static final long DEFAULT_DAILY_BUDGET_MICROS = 2_600_000L;
 
     /** 降级阈值比例缺省（60%）。 */
     static final double DEFAULT_DEGRADE_RATIO = 0.6;
@@ -142,8 +146,8 @@ public class PipelineSettings {
     /** 单条成本校准初值（微元 = 附录 A 实测 L1 ¥0.00046 + L2 推算 + 日报摊薄）。 */
     static final long DEFAULT_CALIBRATED_PER_ITEM_MICROS = 1_100L;
 
-    /** 成本口径版本串初值（校准写入时升版）。 */
-    static final String DEFAULT_COST_BASIS = "cost-v1:initial";
+    /** 成本口径版本串初值（M18 T157 30 源校准升版 cost-v2；Guard 每日校准写回时续接 cost-v2:calibrated:{date}）。 */
+    static final String DEFAULT_COST_BASIS = "cost-v2:m18-30src";
 
     /** 日预算（微元；热改即时生效——每 tick 现读）。 */
     public long dailyBudgetMicros() {

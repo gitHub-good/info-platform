@@ -59,16 +59,18 @@ class PipelineRuntimeConfigSeederTest {
     // ---- T125：pipeline.budget 护栏预算键（方案 §3.5/§4.8） ----
 
     @Test
-    void seed_budget_defaultsTwoYuanPerDayWithTwoStageRatios() {
+    void seed_budget_calibratedForThirtySourcesWithTwoStageRatios() {
         String json = seedOf("pipeline.budget").json();
 
-        // ¥2/日 = 2,000,000 微元；60%/90% 两级；校准初值 1100（附录 A 实测+推算）与 cost-v1:initial
+        // T157 校准（M17 遗留 ⑥）：¥2.60/日 = 2,600,000 微元——scene5-8 近 3 日日均 ¥0.4293 × 30/22 = ¥0.5854
+        // 常态水位 22.5%，期内最高日 ¥0.8983 × 30/22 = ¥1.2250 < 降级线 ¥1.56（27% 裕量）；
+        // 60%/90% 两级比例零变更（护栏语义不变）；校准初值 1100 归 Guard 每日写回；口径升版 cost-v2:m18-30src
         assertThat(json)
-                .contains("\"dailyBudgetMicros\":2000000")
+                .contains("\"dailyBudgetMicros\":2600000")
                 .contains("\"degradeRatio\":0.6")
                 .contains("\"fuseRatio\":0.9")
                 .contains("\"calibratedPerItemMicros\":1100")
-                .contains("\"costBasis\":\"cost-v1:initial\"");
+                .contains("\"costBasis\":\"cost-v2:m18-30src\"");
     }
 
     // ---- T123：pipeline.heat 热度参数键（方案 §3.6/§4.8） ----

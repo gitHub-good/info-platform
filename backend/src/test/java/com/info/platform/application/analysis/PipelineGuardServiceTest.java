@@ -35,12 +35,12 @@ class PipelineGuardServiceTest {
     // 2026-09-22 17:30 上海 = 09:30 UTC → 当日零点（上海）= 2026-09-21T16:00:00Z
     private static final Instant NOW = Instant.parse("2026-09-22T09:30:00Z");
 
-    /** 预算键缺省：¥2/日 = 2,000,000 微元 → 降级阈值 1,200,000 / 熔断阈值 1,800,000。 */
-    private static final long BUDGET = 2_000_000L;
+    /** 预算键缺省 = T157 校准缺省：¥2.60/日 = 2,600,000 微元 → 降级阈值 1,560,000 / 熔断阈值 2,340,000（ADR-0056）。 */
+    private static final long BUDGET = 2_600_000L;
 
-    private static final long DEGRADE_AT = 1_200_000L;
+    private static final long DEGRADE_AT = 1_560_000L;
 
-    private static final long FUSE_AT = 1_800_000L;
+    private static final long FUSE_AT = 2_340_000L;
 
     private LlmCallLogRepository llmCallLogRepository;
     private ApplicationEventPublisher eventPublisher;
@@ -289,7 +289,7 @@ class PipelineGuardServiceTest {
         assertThat(jsonCaptor.getValue())
                 .contains("\"calibratedPerItemMicros\":2250")
                 .contains("\"costBasis\":\"cost-v2:calibrated:2026-09-22\"")
-                .contains("\"dailyBudgetMicros\":2000000"); // 既有字段保留（整体替换语义）
+                .contains("\"dailyBudgetMicros\":2600000"); // 既有字段保留（整体替换语义，T157 校准缺省）
     }
 
     @Test
