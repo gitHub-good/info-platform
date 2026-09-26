@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+
+<title>WSJ.com: Markets</title>
+<description>Markets</description>
+<link>https://www.wsj.com/finance</link>
+<language>en-us</language>
+<copyright>Copyright &#169; Dow Jones &amp; Company, Inc. All rights reserved.</copyright>
+<lastBuildDate>Sat, 26 Sep 2026 04:09:21 GMT</lastBuildDate>
+<image>
+<title>WSJ.com: Markets</title>
+<url>http://online.wsj.com/img/wsj_sm_logo.gif</url>
+<link>https://www.wsj.com/finance</link>
+</image>
+<item>
+<guid isPermaLink="false">lc-wsj-stock-market-today-dow-sp-500-nasdaq-09-25-2026</guid>
+<title>Stock Market News, Sept. 25, 2026: Bond Yields Drop With Oil Prices Near End of Volatile Week</title>
+<description>Dow rises amid hopes for a deal to reopen the Strait of Hormuz</description>
+<link>https://www.wsj.com/livecoverage/stock-market-today-dow-sp-500-nasdaq-09-25-2026?mod=rss_markets_main</link>
+<pubDate>Fri, 25 Sep 2026 08:52:23 GMT</pubDate>
+<media:content url="https://images.wsj.net/im-925351" medium="image" type="image/jpeg">
+</media:content>
+</item>
+<item>
+<guid isPermaLink="false">WP-WSJ-0003924954</guid>
+<title>Stocks Rise to Cap Week of Increasing Yields, Volatile Oil Prices</title>
+<description>The Dow snaps its three-session losing streak, finishing the week higher.</description>
+<link>https://www.wsj.com/finance/stocks/stocks-rise-to-cap-week-of-increasing-yields-volatile-oil-prices-de1cba89?mod=rss_markets_main</link>
+<pubDate>Fri, 25 Sep 2026 21:06:00 GMT</pubDate>
+<dc:creator>Dean Seal</dc:creator>
+<dc:creator>Vicky Ge Huang</dc:creator>
+<media:content url="https://images.wsj.net/im-15026372" medium="image" type="image/jpeg">
+<media:credit>Michael Nagle/Bloomberg News</media:credit>
+</media:content>
+</item>
+<item>
+<guid isPermaLink="false">WP-WSJ-0003921319</guid>
+<title>Don&#x2019;t Fall for Bond Funds That Say They&#x2019;re Beating the Market</title>
+<description>Active bond funds claim to beat the benchmark, but hidden risks often drive returns.</description>
+<link>https://www.wsj.com/finance/investing/dont-fall-for-bond-funds-that-say-theyre-beating-the-market-fe8876d4?mod=rss_markets_main</link>
+<pubDate>Fri, 25 Sep 2026 20:16:00 GMT</pubDate>
+<dc:creator>Jason Zweig</dc:creator>
+<media:content url="https://images.wsj.net/im-52406006" medium="image" type="image/jpeg">
+<media:credit>Eliot Wyatt for WSJ</media:credit>
+</media:content>
+</item>
+</channel></rss>

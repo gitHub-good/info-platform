@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+
+  <title>Markets Feed</title>
+  <link>https://www.nasdaq.com/feed/rssoutbound</link>
+  <description>This feed is responsible for generating the rss feed related to the topic markets</description>
+  <language>en</language>
+<item>
+   <title>The Case for Selling SpaceX Stock Before its December Lock-Up Expiration</title>
+   <link>https://www.nasdaq.com/articles/case-selling-spacex-stock-its-december-lock-expiration</link>
+   <description>
+        Key PointsSpaceX stock opened at $150 when it IPOed, and is still right around that level.
+    </description>
+   <pubDate>Sat, 26 Sep 2026 02:35:00 +0000</pubDate>
+   <guid isPermaLink="true">https://www.nasdaq.com/articles/case-selling-spacex-stock-its-december-lock-expiration?time=1790390100</guid>
+   <dc:creator>The Motley Fool</dc:creator>
+   <category>Markets</category>
+   <nasdaq:tickers></nasdaq:tickers>
+  </item>
+<item>
+   <title>Why Microsoft Stock Is Up Today</title>
+   <link>https://www.nasdaq.com/articles/why-microsoft-stock-today-0</link>
+   <description>
+        Key PointsMicrosoft is adding new agentic AI features to Copilot.
+    </description>
+   <pubDate>Sat, 26 Sep 2026 02:34:59 +0000</pubDate>
+   <guid isPermaLink="true">https://www.nasdaq.com/articles/why-microsoft-stock-today-0?time=1790390099</guid>
+   <dc:creator>The Motley Fool</dc:creator>
+   <category>Markets</category>
+   <nasdaq:tickers>MSFT,MSFT,SF,SFB</nasdaq:tickers>
+  </item>
+<item>
+   <title>C3.ai CEO Thomas Siebel Sells Over 444,000 Shares Worth $4.8 Million After a 40% Decline in the Stock</title>
+   <link>https://www.nasdaq.com/articles/c3ai-ceo-thomas-siebel-sells-over-444000-shares-worth-48-million-after-40-decline-stock</link>
+   <description>
+        Key PointsThe notable CEO sold ~444,000 shares at a weighted average price of $10.77 per share, representing a total transaction value of ~$4.8 million.
+    </description>
+   <pubDate>Sat, 26 Sep 2026 02:27:05 +0000</pubDate>
+   <guid isPermaLink="true">https://www.nasdaq.com/articles/c3ai-ceo-thomas-siebel-sells-over-444000-shares-worth-48-million-after-40-decline-stock?time=1790389625</guid>
+   <dc:creator>The Motley Fool</dc:creator>
+   <category>Markets</category>
+   <nasdaq:tickers>AI,AI</nasdaq:tickers>
+  </item>
+</channel></rss>

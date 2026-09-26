@@ -432,6 +432,57 @@ public final class InfoSourceCatalog {
                     {"cursorType":"NONE"}""",
                     30);
 
+    /**
+     * 人民网经济频道（M17 T142，拍板一 #7，Should）：预置 adapter（{@code peopleFinanceAdapter}），finance.people.com.cn
+     * 首页 /n1/ 锚点与 URL 内嵌日期墙钟口径见适配器类注释（2026-09-22 预检实测，ADR-0053）。
+     *
+     * <p>robots：www.people.com.cn robots 200（全放行 + Crawl-delay 120s）→ 频控 60min = 30 倍裕量（REQ ≥15 倍条款）。
+     */
+    private static final PresetEntry PEOPLE_FINANCE =
+            new PresetEntry(
+                    "people_finance",
+                    "人民网·经济",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "peopleFinanceAdapter",
+                    "http://finance.people.com.cn/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    60);
+
+    /**
+     * Nasdaq 市场 RSS（M17 T142，拍板一 #8，国际 RSS 源 1，三验锁定 2026-09-22）：标准 RSS 2.0（15 条/轮），robots 200
+     * 通配放行仅 {@code Crawl-delay: 30}（/feed/ 不在 Disallow 列表）→ 频控 30min = 60 倍裕量； 境内可达 200 实证。TIME 游标沿 MarketWatch 先例（T106）。
+     */
+    private static final PresetEntry NASDAQ_MARKETS =
+            new PresetEntry(
+                    "nasdaq_markets",
+                    "Nasdaq·市场",
+                    "国际",
+                    AdapterType.RSS,
+                    null,
+                    "https://www.nasdaq.com/feed/rssoutbound?category=markets",
+                    """
+                    {"cursorType":"TIME","cursorField":"publishedAt"}""",
+                    30);
+
+    /**
+     * 华尔街日报市场 RSS（M17 T142，拍板一 #9，国际 RSS 源 2，三验锁定 2026-09-22）：标准 RSS 2.0（61 条/轮，入库层
+     * maxItems 缺省 50 截断），feeds.content.dowjones.io 宿主与 MarketWatch 同族（robots 403 → RFC 9309 无 robots 即无限制，
+     * T106 复核留档）；境内可达 200 实证（首测连接重置、重试即 200——瞬时抖动非封禁）。TIME 游标沿 MarketWatch 先例。
+     */
+    private static final PresetEntry WSJ_MARKETS =
+            new PresetEntry(
+                    "wsj_markets",
+                    "华尔街日报·市场",
+                    "国际",
+                    AdapterType.RSS,
+                    null,
+                    "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
+                    """
+                    {"cursorType":"TIME","cursorField":"publishedAt"}""",
+                    30);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -453,6 +504,9 @@ public final class InfoSourceCatalog {
                 EM_HEADLINES,
                 JIEMIAN_FINANCE,
                 CNSTOCK_NEWS,
-                CS_NEWS);
+                CS_NEWS,
+                PEOPLE_FINANCE,
+                NASDAQ_MARKETS,
+                WSJ_MARKETS);
     }
 }

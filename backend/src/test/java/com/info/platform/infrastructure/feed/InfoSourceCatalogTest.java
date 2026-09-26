@@ -46,7 +46,10 @@ class InfoSourceCatalogTest {
                         "em_headlines",
                         "jiemian_finance",
                         "cnstock_news",
-                        "cs_news");
+                        "cs_news",
+                        "people_finance",
+                        "nasdaq_markets",
+                        "wsj_markets");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -78,8 +81,11 @@ class InfoSourceCatalogTest {
                         "em_headlines",
                         "jiemian_finance",
                         "cnstock_news",
-                        "cs_news");
-        assertThat(codes).hasSize(19);
+                        "cs_news",
+                        "people_finance",
+                        "nasdaq_markets",
+                        "wsj_markets");
+        assertThat(codes).hasSize(22);
     }
 
     @Test
@@ -96,11 +102,21 @@ class InfoSourceCatalogTest {
                         "em_headlines",
                         "jiemian_finance",
                         "cnstock_news",
-                        "cs_news");
+                        "cs_news",
+                        "people_finance",
+                        "nasdaq_markets",
+                        "wsj_markets");
         assertThat(byCode.get("em_headlines").adapterType()).isEqualTo(AdapterType.JSON_API);
+        assertThat(byCode.get("nasdaq_markets").adapterType()).isEqualTo(AdapterType.RSS);
+        assertThat(byCode.get("wsj_markets").adapterType()).isEqualTo(AdapterType.RSS);
         for (String code :
                 new String[] {
-                    "miit_policy", "mof_policy", "jiemian_finance", "cnstock_news", "cs_news"
+                    "miit_policy",
+                    "mof_policy",
+                    "jiemian_finance",
+                    "cnstock_news",
+                    "cs_news",
+                    "people_finance"
                 }) {
             assertThat(byCode.get(code).adapterType())
                     .as("%s 通道", code)
@@ -116,6 +132,22 @@ class InfoSourceCatalogTest {
         assertThat(byCode.get("jiemian_finance").intervalMinutes()).isEqualTo(30);
         assertThat(byCode.get("cnstock_news").intervalMinutes()).isEqualTo(30);
         assertThat(byCode.get("cs_news").intervalMinutes()).isEqualTo(30);
+        assertThat(byCode.get("people_finance").intervalMinutes())
+                .as("人民网 Crawl-delay 120s 的 30 倍裕量")
+                .isEqualTo(60);
+        assertThat(byCode.get("nasdaq_markets").intervalMinutes()).isEqualTo(30);
+        assertThat(byCode.get("wsj_markets").intervalMinutes()).isEqualTo(30);
+        // 国际 RSS 两源沿用 MarketWatch TIME 游标先例（T106）
+        assertThat(
+                        codec.parse(byCode.get("nasdaq_markets").configJson())
+                                .effectiveCursorType()
+                                .name())
+                .isEqualTo("TIME");
+        assertThat(
+                        codec.parse(byCode.get("wsj_markets").configJson())
+                                .effectiveCursorType()
+                                .name())
+                .isEqualTo("TIME");
     }
 
     @Test
@@ -141,7 +173,8 @@ class InfoSourceCatalogTest {
                         "mof_policy",
                         "jiemian_finance",
                         "cnstock_news",
-                        "cs_news");
+                        "cs_news",
+                        "people_finance");
         for (String code :
                 new String[] {
                     "ndrc_policy",
@@ -154,7 +187,8 @@ class InfoSourceCatalogTest {
                     "mof_policy",
                     "jiemian_finance",
                     "cnstock_news",
-                    "cs_news"
+                    "cs_news",
+                    "people_finance"
                 }) {
             var entry =
                     htmlCodes.stream()
@@ -171,6 +205,9 @@ class InfoSourceCatalogTest {
                     || code.equals("csrc_news")
                     || code.equals("stats_release")) {
                 assertThat(interval).as("%s 官方源频控 30~60", code).isBetween(30, 60);
+            } else if (code.equals("people_finance")) {
+                // 人民网 Crawl-delay 120s 合规裕量：60min（30 倍，REQ 场景 6）
+                assertThat(interval).as("%s 频控（Crawl-delay 裕量）", code).isEqualTo(60);
             } else {
                 assertThat(interval).as("%s 报纸源频控 15~30", code).isBetween(15, 30);
             }

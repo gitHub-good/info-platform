@@ -14,7 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子落库（M13 三源 + M14 批次一十源 = 13 预置源）、
+ * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子落库（M13 三源 + M14 批次一十源 + M17 批次二九源 = 22 预置源）、
  * 幂等重跑零新增、 运行态行随种子初始化（错峰 next_due_at ∈ [now, now+interval]）。共享内存库 + Flyway V22 建表，直连断言。
  */
 @SpringBootTest
@@ -44,7 +44,16 @@ class InfoSourceSeederIntegrationTest {
                     "stats_release",
                     "stcn_news",
                     "yicai_news",
-                    "jingji21_finance"
+                    "jingji21_finance",
+                    "miit_policy",
+                    "mof_policy",
+                    "em_headlines",
+                    "jiemian_finance",
+                    "cnstock_news",
+                    "cs_news",
+                    "people_finance",
+                    "nasdaq_markets",
+                    "wsj_markets"
                 }) {
             Optional<InfoSource> found = infoSourceRepository.findBySourceCode(code);
             assertThat(found).as("预置源缺失: %s", code).isPresent();
