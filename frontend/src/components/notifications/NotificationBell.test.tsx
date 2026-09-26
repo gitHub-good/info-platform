@@ -407,9 +407,9 @@ describe('通知铃铛与面板交互', () => {
     fireEvent.click(screen.getByTestId('notification-bell'));
 
     MockEventSource.instances[0].dispatch(
-      'recommend',
+      'recommendation',
       {
-        type: 'recommend',
+        type: 'recommendation',
         subjectId: null,
         subjectCode: null,
         refId: '901',
@@ -428,9 +428,9 @@ describe('通知铃铛与面板交互', () => {
     const { renderBell } = setupEnvironment();
     renderBell();
     MockEventSource.instances[0].dispatch(
-      'recommend',
+      'recommendation',
       {
-        type: 'recommend',
+        type: 'recommendation',
         subjectId: null,
         subjectCode: null,
         refId: '901',
@@ -451,7 +451,7 @@ describe('通知铃铛与面板交互', () => {
       historyItems: [
         {
           id: 303,
-          type: 'recommend',
+          type: 'recommendation',
           subjectId: null,
           subjectCode: null,
           refId: '903',

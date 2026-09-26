@@ -41,7 +41,7 @@ function NotificationRow({
   onClick: () => void;
 }) {
   // 推荐类无 subjectCode 但有 refId（cardId）——跳推荐中心 focus 定位（M16 T136）
-  const clickable = Boolean(item.subjectCode) || (item.type === 'recommend' && Boolean(item.refId));
+  const clickable = Boolean(item.subjectCode) || (item.type === 'recommendation' && Boolean(item.refId));
   return (
     <button
       type="button"
@@ -123,7 +123,7 @@ export function NotificationBell() {
       navigate(`/subjects/${item.subjectCode}`);
       return;
     }
-    if (item.type === 'recommend' && item.refId) {
+    if (item.type === 'recommendation' && item.refId) {
       navigate(`/recommendations?focus=${item.refId}`);
     }
   };
