@@ -9,6 +9,8 @@ import com.info.platform.domain.aggregation.SourceStatus;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.ai.TopRecommendation;
+import com.info.platform.domain.common.BusinessException;
+import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
 import com.info.platform.domain.subscription.Subscription;
@@ -88,6 +90,9 @@ public class FeedService {
     /** contentId 长度上限（对齐 readingEvent contentRef ≤200 校验，透出前防御截断）。 */
     private static final int CONTENT_ID_MAX_LENGTH = 200;
 
+    /** 行业筛选值长度上限（防御性；正常下拉值远短于此，M18 T156）。 */
+    private static final int INDUSTRY_FILTER_MAX_LENGTH = 50;
+
     private static final Comparator<FeedEntry> COMPARATOR =
             Comparator.comparing(
                             FeedEntry::publishedAt, Comparator.nullsLast(Comparator.reverseOrder()))
@@ -129,12 +134,27 @@ public class FeedService {
      * @param cursor 上一页末条合成 id；null/0 表首页
      */
     public FeedListView getPersonalFeed(long userId, Long cursor) {
+        return getPersonalFeed(userId, cursor, null);
+    }
+
+    /**
+     * 个人信息流（行业筛选形态，M18 T156 蓝图 G 域「信息流加行业维度」）。
+     *
+     * <p>匹配语义（行业标签维度，ADR-0057）：政策按 relatedIndustries 标签包含、公告/新闻按所属标的 {@code subject.industry}
+     * 相等；<b>推荐条目不入筛选视图</b>（推荐是全量 Top5、不持有行业维度，掺入即口径混淆）。 参数校验宽松（trim 非空即可，长度防御上限 50）——条目行业标签粒度不冻结为申万
+     * 31（政策标签含二级行业， V2.1 候选：统一库 L1 归类透传后收敛口径）。筛选在分页<b>前</b>应用，游标语义与无筛选形态一致。
+     *
+     * @param industry 行业标签（null/空白 = 不筛选）
+     */
+    public FeedListView getPersonalFeed(long userId, Long cursor, String industry) {
+        String normalizedIndustry = normalizeIndustry(industry);
         DailyRecommendationResult recommendation = dailyRecommendationService.readDaily(userId);
         List<Subscription> activeSubs = activeSubscriptions(userId);
+        boolean filtered = normalizedIndustry != null;
         if (activeSubs.isEmpty()) {
-            log.info("个人信息流无活跃订阅 userId={} 仅返回每日推荐", userId);
+            log.info("个人信息流无活跃订阅 userId={} industry={} 仅返回每日推荐", userId, normalizedIndustry);
             return paginate(
-                    recommendationEntries(recommendation),
+                    filtered ? List.of() : recommendationEntries(recommendation),
                     cursor,
                     recommendation.recommendationPending());
         }
@@ -142,19 +162,54 @@ public class FeedService {
         Map<Long, SubjectRef> subjectIndex = buildSubjectIndex(subjects);
         List<FeedContent> contents = collectContents(activeSubs, subjects);
         List<MatchedFeedContent> matched = feedMatcher.match(activeSubs, contents, subjectIndex);
+        if (filtered) {
+            matched =
+                    matched.stream()
+                            .filter(
+                                    m ->
+                                            matchesIndustry(
+                                                    m.content(), normalizedIndustry, subjectIndex))
+                            .toList();
+        }
         List<FeedEntry> entries = new ArrayList<>(matched.size() + 5);
         for (MatchedFeedContent m : matched) {
             entries.add(toEntry(m));
         }
-        entries.addAll(recommendationEntries(recommendation));
+        if (!filtered) {
+            entries.addAll(recommendationEntries(recommendation));
+        }
         log.info(
-                "个人信息流装配 userId={} 活跃订阅={} 命中={} 条目={} 推荐未就绪={}",
+                "个人信息流装配 userId={} 活跃订阅={} 命中={} 行业筛选={} 条目={} 推荐未就绪={}",
                 userId,
                 activeSubs.size(),
                 matched.size(),
+                normalizedIndustry,
                 entries.size(),
                 recommendation.recommendationPending());
         return paginate(entries, cursor, recommendation.recommendationPending());
+    }
+
+    /** 行业参数归一：null/空白返回 null（不筛选）；超长防御性 400。 */
+    private static String normalizeIndustry(String industry) {
+        if (industry == null || industry.isBlank()) {
+            return null;
+        }
+        String trimmed = industry.trim();
+        if (trimmed.length() > INDUSTRY_FILTER_MAX_LENGTH) {
+            throw new BusinessException(
+                    ErrorCode.PARAM_INVALID, "行业筛选值超过上限 " + INDUSTRY_FILTER_MAX_LENGTH + " 字");
+        }
+        return trimmed;
+    }
+
+    /** 行业匹配：政策按标签包含、公告/新闻按所属标的行业相等（标的上下文缺失不匹配）。 */
+    private static boolean matchesIndustry(
+            FeedContent content, String industry, Map<Long, SubjectRef> subjectIndex) {
+        if (content.type() == FeedItemType.POLICY) {
+            return content.relatedIndustries().contains(industry);
+        }
+        SubjectRef ref = content.subjectId() == null ? null : subjectIndex.get(content.subjectId());
+        return ref != null && industry.equals(ref.industry());
     }
 
     /** 取当前用户活跃订阅（行级 {@code WHERE user_id=?} + status=1 过滤）。 */

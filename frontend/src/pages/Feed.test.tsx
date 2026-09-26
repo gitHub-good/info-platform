@@ -486,4 +486,67 @@ describe('Feed 个人信息流页（T43）', () => {
     await user.click(screen.getByTestId('feed-item-link-5'));
     expect(readingEventCallsOf(store.fetchMock)).toHaveLength(0);
   });
+
+  // —— M18 T156 行业筛选（31 行业下拉，蓝图 G 域「信息流加行业维度」） ——
+
+  it('行业筛选：下拉切换即带 industry 参数重拉首页，31 行业选项齐备', async () => {
+    const store = makeStore({
+      pages: [{ items: [itemOf()], nextCursor: null, recommendationPending: false }],
+      subscriptions: [SUB_ACTIVE],
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+    const user = userEvent.setup();
+
+    render(<Feed />);
+
+    await screen.findByTestId('feed-item-1');
+    // 31 行业 + 全部行业
+    const options = screen.getByTestId('feed-industry-filter').querySelectorAll('option');
+    expect(options).toHaveLength(32);
+    // 初始无筛选参数
+    expect(feedCallsOf(store.fetchMock).at(-1)).not.toContain('industry=');
+
+    await user.selectOptions(screen.getByTestId('feed-industry-filter'), '银行');
+    await waitFor(() =>
+      expect(feedCallsOf(store.fetchMock).at(-1)).toContain(
+        `industry=${encodeURIComponent('银行')}`,
+      ),
+    );
+  });
+
+  it('行业筛选：空结果展示行业名空态文案，切回「全部行业」恢复条目', async () => {
+    const hitPage: FeedPage = {
+      items: [itemOf()],
+      nextCursor: null,
+      recommendationPending: false,
+    };
+    let empty = false;
+    const store = makeStore({
+      pages: [hitPage],
+      subscriptions: [SUB_ACTIVE],
+    });
+    // 在 makeStore 基础上包一层：empty 旗标切换返回空页/命中页
+    const wrapped = vi.fn(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (/\/feed\/personal(\?.*)?$/.test(path) && empty) {
+        return ok({ items: [], nextCursor: null, recommendationPending: false });
+      }
+      return store.fetchMock(url, init);
+    });
+    vi.stubGlobal('fetch', wrapped);
+    const user = userEvent.setup();
+
+    render(<Feed />);
+
+    await screen.findByTestId('feed-item-1');
+    empty = true;
+    await user.selectOptions(screen.getByTestId('feed-industry-filter'), '煤炭');
+    expect(await screen.findByTestId('feed-empty-no-hits')).toHaveTextContent(
+      '「煤炭」行业暂无命中内容',
+    );
+
+    empty = false;
+    await user.selectOptions(screen.getByTestId('feed-industry-filter'), '');
+    expect(await screen.findByTestId('feed-item-1')).toBeInTheDocument();
+  });
 });

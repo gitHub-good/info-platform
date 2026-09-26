@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RecommendationCard } from '@/components/overview/RecommendationCard';
 import { StatCard } from '@/components/overview/StatCard';
+import { WorkbenchPanel } from '@/components/overview/WorkbenchPanel';
 import { ApiError } from '@/api/http';
 import { getOverview } from '@/api/overview';
 import type { OverviewLlmStatus, OverviewSourceHealth, OverviewView } from '@/types/overview';
@@ -84,8 +85,9 @@ function AnomalySourceWarning() {
 }
 
 /**
- * 概览仪表盘页（体检 P1-4 用户视角化改造，登录后默认落地页）。
- * - 两段式布局：上半部「今日」用户视角区（今日推荐主位 lg 占 2 列 + 今日异动/最新政策右列堆叠），
+ * 概览仪表盘页（体检 P1-4 用户视角化改造，登录后默认落地页；M18 T156 升级 V2.0 工作台）。
+ * - 布局：上半部「今日」用户视角区（今日推荐主位 lg 占 2 列 + 今日异动/最新政策右列堆叠），
+ *   中部「V2.0 工作台」区块（热度 Top5 / 最新推荐 / 最新事件 / 大盘健康四块摘要，复用既有 API），
  *   下半部「平台健康」区（成本水位/任务健康/数据源健康三卡网格收纳，既有五卡中异动与政策上移）。
  * - 今日推荐卡自管三态与生成触发（见 RecommendationCard）；其余卡片沿用卡级 error 字段 + 整页错误重试。
  * - 今日异动卡：行情源健康异常时叠加警示条（体检 E2 联动，数据源健康同源数据）。
@@ -203,6 +205,10 @@ export function Overview() {
               </div>
             </div>
           </section>
+
+          {/* —— V2.0 工作台（M18 T156）：热度 Top5 / 最新推荐 / 最新事件 / 大盘健康四块摘要，
+                 复用既有 API、30 秒刷新、单块失败独立降级 —— */}
+          <WorkbenchPanel />
 
           {/* —— 下半部：平台健康区（运维视角三卡收纳） —— */}
           <section aria-label="平台健康" data-testid="overview-platform">

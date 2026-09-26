@@ -4,7 +4,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Overview } from '@/pages/Overview';
 import type { OverviewView } from '@/types/overview';
 import type { FeedItemView, FeedPage } from '@/types/feed';
-import type { DailyRecommendationView, TopRecommendation } from '@/types/recommendation';
+import type {
+  DailyRecommendationView,
+  TopRecommendation,
+  RecommendationListView,
+} from '@/types/recommendation';
+import type { IndustryHeatBoardView } from '@/types/industryHeat';
+import type { EventStreamView } from '@/types/eventStream';
+import type { FeedDashboardView } from '@/types/feedDashboard';
+import type { PipelineStatusView } from '@/types/pipelineStatus';
 
 // —— fetch mock：GET /api/v1/overview（五卡片聚合，可变异供重试路径复用） ——
 
@@ -85,13 +93,189 @@ type StubResponse = ReturnType<typeof ok> | ReturnType<typeof fail>;
 /** 响应器：同步返回或挂起 Promise（生成中占位测试用延迟放行）。 */
 type StubResponder = () => StubResponse | Promise<StubResponse>;
 
-/** 默认：overview 正常 / feed 只读空页（推荐已就绪无条目→空池）/ daily status=1。 */
-function routeFetch(opts: { overview?: StubResponder; feed?: StubResponder; daily?: StubResponder } = {}) {
+// —— M18 T156 工作台四块数据工厂（复用既有 API 契约面） ——
+
+function heatBoardOf(): IndustryHeatBoardView {
+  return {
+    window: 'D7',
+    industries: [
+      { industry: '电子', heatScore: 92, prevScore: 80, deltaPct: 15, newsCount: 120, eventCount: 8 },
+      { industry: '计算机', heatScore: 85, prevScore: 88, deltaPct: -3.4, newsCount: 96, eventCount: 5 },
+      { industry: '医药生物', heatScore: 70, prevScore: 70, deltaPct: 0, newsCount: 60, eventCount: 2 },
+    ],
+    basis: 'heat-v1:d7-window',
+    snapshotAt: '2026-09-22T07:00:00Z',
+    pipeline: { level: 'NORMAL' },
+  };
+}
+
+function recCardsOf(): RecommendationListView {
+  return {
+    total: 2,
+    items: [
+      {
+        id: 501,
+        eventId: 91,
+        eventType: 'EARNINGS_FORECAST',
+        importance: 'HIGH',
+        direction: 'BULLISH',
+        level: 'A',
+        industries: ['电子'],
+        subjects: [],
+        logicChain: '…',
+        summary: '某公司发布业绩预告，净利润同比增长',
+        figures: [],
+        quote: null,
+        newsId: 1,
+        newsTitle: null,
+        newsUrl: null,
+        eventTime: '2026-09-22T05:00:00Z',
+        pushStatus: 'DELIVERED',
+        pushedAt: '2026-09-22T05:10:00Z',
+        createdAt: '2026-09-22T05:00:00Z',
+        read: false,
+        muted: false,
+        feedbackAction: null,
+      },
+    ],
+    nextBeforeId: null,
+  };
+}
+
+function eventsOf(): EventStreamView {
+  return {
+    total: 3,
+    items: [
+      {
+        id: 71,
+        eventType: 'POLICY_RELEASE',
+        summary: '工信部发布行业规范条件',
+        industries: ['电子'],
+        direction: 'BULLISH',
+        importance: 'HIGH',
+        figures: [],
+        subjects: [],
+        quote: null,
+        newsId: 10,
+        newsTitle: null,
+        newsUrl: null,
+        eventTime: '2026-09-22T04:00:00Z',
+      },
+    ],
+    nextBeforeId: null,
+  };
+}
+
+function dashboardOf(): FeedDashboardView {
+  return {
+    global: {
+      todayNewCount: 1732,
+      todayDupCount: 40,
+      activeSourceCount: 28,
+      failedSourceCount: 1,
+      latency: {
+        p50Millis: 180000,
+        p90Millis: 540000,
+        sampleCount: 200,
+        basis: 'incremental-only-v1:exclude-first-day+daily-sources',
+        excludedSourceCodes: [],
+      },
+    },
+    sources: [
+      {
+        sourceId: 1,
+        sourceCode: 's1',
+        name: '源一',
+        category: '分类',
+        adapterType: 'preset',
+        intervalMinutes: 15,
+        enabled: true,
+        preset: true,
+        deleted: false,
+        staleSince: null,
+        todayPollCount: 10,
+        todayNewCount: 5,
+        todayFailCount: 0,
+        todayDupCount: 0,
+        totalCount: 100,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        nextDueAt: null,
+        backoffUntil: null,
+        consecutiveFailures: 0,
+        lastError: null,
+        lastRoundDetail: null,
+        runState: 'ok',
+        abnormal: false,
+      },
+      {
+        sourceId: 2,
+        sourceCode: 's2',
+        name: '源二',
+        category: '分类',
+        adapterType: 'preset',
+        intervalMinutes: 15,
+        enabled: false,
+        preset: true,
+        deleted: true,
+        staleSince: null,
+        todayPollCount: 0,
+        todayNewCount: 0,
+        todayFailCount: 0,
+        todayDupCount: 0,
+        totalCount: 10,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        nextDueAt: null,
+        backoffUntil: null,
+        consecutiveFailures: 0,
+        lastError: null,
+        lastRoundDetail: null,
+        runState: 'disabled',
+        abnormal: false,
+      },
+    ],
+    failures: [],
+  };
+}
+
+function pipelineOf(): PipelineStatusView {
+  return {
+    jobKey: 'NEWS_PIPELINE',
+    level: 'NORMAL',
+    todayCostMicros: 500_000,
+    budgetMicros: 2_600_000,
+    costBasis: 'cost-v2:m18-30src',
+  };
+}
+
+/**
+ * 默认：overview 正常 / feed 只读空页 / daily status=1 /
+ * 工作台四块（industry-heat / recommendations / events / feed-dashboard / pipeline/status）正常。
+ */
+function routeFetch(
+  opts: {
+    overview?: StubResponder;
+    feed?: StubResponder;
+    daily?: StubResponder;
+    heat?: StubResponder;
+    workbenchFail?: boolean;
+  } = {},
+) {
   return vi.fn(async (url: unknown) => {
     const path = String(url);
     if (path.includes('/recommendations/daily')) return (await opts.daily?.()) ?? ok(dailyViewOf());
     if (path.includes('/feed/personal')) return (await opts.feed?.()) ?? ok(feedPageOf());
     if (path.includes('/overview')) return (await opts.overview?.()) ?? ok(viewOf());
+    // —— 工作台四块（M18 T156）——
+    if (path.includes('/pipeline/status')) return ok(pipelineOf());
+    if (path.includes('/feed-dashboard')) return ok(dashboardOf());
+    if (path.includes('/industry-heat')) {
+      if (opts.workbenchFail) return fail(500, 50000, '热度服务异常');
+      return (await opts.heat?.()) ?? ok(heatBoardOf());
+    }
+    if (path.includes('/events')) return ok(eventsOf());
+    if (path.includes('/recommendations')) return ok(recCardsOf());
     return fail(500, 50000, '未知端点');
   });
 }
@@ -483,5 +667,61 @@ describe('Overview 用户视角化（体检 P1-4）', () => {
 
     await screen.findByTestId('stat-card-anomaly');
     expect(screen.queryByTestId('anomaly-source-warning')).toBeNull();
+  });
+
+  // —— M18 T156 V2.0 工作台（四块摘要 + 单块降级） ——
+
+  it('工作台：热度 Top5 / 最新推荐 / 最新事件 / 大盘健康四块渲染，直达链接齐备', async () => {
+    vi.stubGlobal('fetch', routeFetch());
+
+    render(<Overview />);
+
+    // 热度 Top5（取前三行工厂数据；环比涨红跌绿）
+    const heat = await screen.findByTestId('workbench-heat');
+    expect(heat).toHaveTextContent('电子');
+    expect(heat).toHaveTextContent('计算机');
+    expect(heat).toHaveTextContent('92 分');
+    expect(screen.getByTestId('workbench-heat-link')).toHaveAttribute('href', '#/industry-heat');
+    // 最新推荐（重要度徽章 + 摘要 + 事件类型）
+    const rec = screen.getByTestId('workbench-recommendations');
+    expect(rec).toHaveTextContent('业绩预告');
+    expect(rec).toHaveTextContent('净利润同比增长');
+    expect(screen.getByTestId('workbench-rec-501')).toBeInTheDocument();
+    expect(screen.getByTestId('workbench-recommendations-link')).toHaveAttribute(
+      'href',
+      '#/recommendations',
+    );
+    // 最新事件（重要度徽章 + 摘要 + 时间）
+    const events = screen.getByTestId('workbench-events');
+    expect(events).toHaveTextContent('工信部发布行业规范条件');
+    expect(screen.getByTestId('workbench-event-71')).toBeInTheDocument();
+    expect(screen.getByTestId('workbench-events-link')).toHaveAttribute('href', '#/events');
+    // 大盘健康（源在线 28/1 现役、今日入库、成本水位 19% + 正常徽章）
+    expect(await screen.findByTestId('workbench-health-body')).toBeInTheDocument();
+    expect(screen.getByTestId('workbench-health-sources')).toHaveTextContent('28/1');
+    expect(screen.getByTestId('workbench-health-intake')).toHaveTextContent('1732 条');
+    expect(screen.getByTestId('workbench-health-cost')).toHaveTextContent('19%');
+    expect(screen.getByTestId('workbench-health-level')).toHaveTextContent('正常');
+    expect(screen.getByTestId('workbench-health-link')).toHaveAttribute(
+      'href',
+      '#/feed-dashboard',
+    );
+  });
+
+  it('工作台：单块加载失败独立降级（可重试），既有五卡与其余块不受拖累', async () => {
+    vi.stubGlobal('fetch', routeFetch({ workbenchFail: true }));
+
+    render(<Overview />);
+
+    // 热度块降级（错误 + 重试入口），其余三块照常
+    expect(await screen.findByTestId('workbench-heat-error')).toHaveTextContent('热度服务异常');
+    expect(screen.getByTestId('workbench-heat-retry')).toBeInTheDocument();
+    expect(await screen.findByTestId('workbench-health-body')).toBeInTheDocument();
+    expect(screen.getByTestId('workbench-event-71')).toBeInTheDocument();
+    expect(screen.getByTestId('workbench-rec-501')).toBeInTheDocument();
+    // 既有五卡不受影响（零回归）
+    expect(await screen.findByTestId('stat-card-llm-today')).toHaveTextContent('¥0.0342');
+    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
+    expect(screen.queryByRole('alert')).toBeNull(); // 单块降级非阻断性错误，不占整页 alert 语义
   });
 });

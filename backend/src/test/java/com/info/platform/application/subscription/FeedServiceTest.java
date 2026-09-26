@@ -1,6 +1,7 @@
 package com.info.platform.application.subscription;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -22,6 +23,7 @@ import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.domain.ai.TopRecommendation;
+import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.policy.AiTendency;
 import com.info.platform.domain.policy.PolicyItem;
 import com.info.platform.domain.policy.PolicyRepository;
@@ -150,6 +152,104 @@ class FeedServiceTest {
         // 标的订阅命中词 = 标的展示名（文本未必出现，前端仅出现时高亮）
         assertThat(view.items().get(2).keywords()).containsExactly("贵州茅台");
         assertThat(view.items().get(2).id()).isEqualTo(3L);
+    }
+
+    // ---- M18 T156 行业筛选（industry 参数：政策行业标签 / 标的行业两路匹配；推荐条目不入筛选视图） ----
+
+    /** 行业筛选基座：茅台（行业=食品饮料）公告命中 + 政策（标签=银行）主题命中 + 推荐就绪。 */
+    private void stubIndustryBoard() {
+        Subscription subjectSub = sub(10L, SubscriptionType.SUBJECT, "600519");
+        Subscription topicSub = sub(11L, SubscriptionType.TOPIC, "白酒");
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(List.of(subjectSub, topicSub));
+        when(subjectRepository.findById(MOUTAI_ID))
+                .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "食品饮料")));
+        when(announceAdapter.fetch(any(Subject.class)))
+                .thenReturn(
+                        SourceResult.ok(
+                                SourceCode.ANNOUNCE,
+                                MOUTAI_ID,
+                                Map.of(
+                                        "items",
+                                        List.of(
+                                                Map.of(
+                                                        "externalId",
+                                                        "a1",
+                                                        "title",
+                                                        "2026年半年度报告",
+                                                        "publishedAt",
+                                                        "2026-09-15",
+                                                        "category",
+                                                        "财务报告",
+                                                        "url",
+                                                        "https://ex/ann/1"))),
+                                "公告",
+                                NOW));
+        when(newsAdapter.fetch(any(Subject.class)))
+                .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
+        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt()))
+                .thenReturn(List.of(policy(1L, "国务院关于白酒产业的意见", List.of("银行"))));
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+    }
+
+    @Test
+    void getPersonalFeed_industryFilter_subjectIndustryMatch_keepsSubjectContentsOnly() {
+        stubIndustryBoard();
+
+        // Act：筛「食品饮料」（标的行业命中公告；政策标签「银行」不匹配；推荐不入筛选视图）
+        FeedListView view = service.getPersonalFeed(ME, null, "食品饮料");
+
+        // Assert：仅 1 条标的公告，推荐/政策被筛除
+        assertThat(view.items()).hasSize(1);
+        assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.ANNOUNCE);
+        assertThat(view.items().get(0).subjectName()).isEqualTo("贵州茅台");
+        assertThat(view.nextCursor()).isNull();
+    }
+
+    @Test
+    void getPersonalFeed_industryFilter_policyTagMatch_keepsPolicyOnly() {
+        stubIndustryBoard();
+
+        // Act：筛「银行」（政策标签命中；标的公司行业「食品饮料」不匹配）
+        FeedListView view = service.getPersonalFeed(ME, null, "银行");
+
+        // Assert：仅 1 条政策条目
+        assertThat(view.items()).hasSize(1);
+        assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.POLICY);
+    }
+
+    @Test
+    void getPersonalFeed_industryFilter_noMatch_returnsEmptyAndExcludesRecommendations() {
+        stubIndustryBoard();
+
+        // Act：筛无人匹配的行业
+        FeedListView view = service.getPersonalFeed(ME, null, "煤炭");
+
+        // Assert：空列表（含推荐条目被筛除——行业维度视图不掺全量推荐），nextCursor null
+        assertThat(view.items()).isEmpty();
+        assertThat(view.nextCursor()).isNull();
+    }
+
+    @Test
+    void getPersonalFeed_industryFilter_blankOrOmitted_behavesUnfiltered() {
+        stubIndustryBoard();
+
+        // 三种缺省形态等价不筛选：null / 空串 / 空白串
+        assertThat(service.getPersonalFeed(ME, null, null).items()).hasSize(3);
+        assertThat(service.getPersonalFeed(ME, null, "").items()).hasSize(3);
+        assertThat(service.getPersonalFeed(ME, null, "  ").items()).hasSize(3);
+        // 两参重载沿用无筛选行为（既有调用方零变更）
+        assertThat(service.getPersonalFeed(ME, null).items()).hasSize(3);
+    }
+
+    @Test
+    void getPersonalFeed_industryFilter_overlongValue_rejected() {
+        stubIndustryBoard();
+
+        // 超长防御性拒绝（PARAM_INVALID 400；正常下拉值不会触达）
+        assertThatThrownBy(() -> service.getPersonalFeed(ME, null, "煤".repeat(51)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("行业");
     }
 
     // ---- P1-5a 回归（修前红）：feed 不阻塞等待每日简报生成、只读缓存 ----

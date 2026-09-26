@@ -35,17 +35,19 @@ public class FeedController {
     }
 
     /**
-     * 个人信息流（游标分页）。
+     * 个人信息流（游标分页 + 行业筛选）。
      *
      * @param cursor 上一页末条 id；缺省首页
+     * @param industry 行业标签筛选（M18 T156，缺省不筛选；政策标签/标的行业两路匹配，超长 → 400）
      * @return 200 + {items[], nextCursor}
      */
     @GetMapping("/personal")
     public Result<FeedListView> personal(
-            @RequestParam(name = "cursor", required = false) Long cursor) {
+            @RequestParam(name = "cursor", required = false) Long cursor,
+            @RequestParam(name = "industry", required = false) String industry) {
         long userId = currentUserId();
-        log.debug("个人信息流请求 userId={} cursor={}", userId, cursor);
-        return Result.ok(feedService.getPersonalFeed(userId, cursor));
+        log.debug("个人信息流请求 userId={} cursor={} industry={}", userId, cursor, industry);
+        return Result.ok(feedService.getPersonalFeed(userId, cursor, industry));
     }
 
     private static long currentUserId() {

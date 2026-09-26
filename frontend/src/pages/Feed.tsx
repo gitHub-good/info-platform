@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Rss } from 'lucide-react';
 import { ApiError } from '@/api/http';
-import { getPersonalFeed, listSubscriptions } from '@/api/feed';
+import { getPersonalFeedWith, listSubscriptions } from '@/api/feed';
 import { trackReadingOnce } from '@/api/readingEvent';
 import { KeywordHighlight } from '@/components/feed/KeywordHighlight';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SW_INDUSTRIES } from '@/types/eventStream';
 import type { FeedItemView, FeedItemType } from '@/types/feed';
 import { cn } from '@/lib/utils';
 
@@ -114,8 +115,10 @@ function FeedItemCard({ item }: FeedItemCardProps) {
 // —— 页面 ——
 
 /**
- * 个人信息流页（T43，UI 方案 §3.5）。
+ * 个人信息流页（T43，UI 方案 §3.5；M18 T156 增行业筛选）。
  * - 条目流：GET /feed/personal 游标分页（单页 20，publishedAt 倒序），条目卡关键词高亮。
+ * - 行业筛选（M18 T156，蓝图 G 域「信息流加行业维度」）：31 行业下拉（申万一级），
+ *   切换即回首页重拉（后端参数过滤，翻页游标同筛选语义）；推荐条目不入筛选视图。
  * - 埋点（M11/REQ-20260925-08）：公告/新闻/政策条目「原文」点击上报 FEED 阅读事件
  *   （contentRef=稳定 contentId + subjectCode 透传，fire-and-forget 静默失败；推荐条目无外链不埋点）。
  * - 分页（D7）：触底哨兵 IntersectionObserver 自动加载 + 「加载更多」按钮兜底
@@ -133,6 +136,8 @@ export function Feed() {
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   // null = 未知（订阅查询未返回或失败）：空态降级为「无命中」文案，不误导性引导
   const [hasActiveSubs, setHasActiveSubs] = useState<boolean | null>(null);
+  // 行业筛选（空串 = 全部行业）；切换即重拉首页（M18 T156）
+  const [industry, setIndustry] = useState('');
 
   const abortRef = useRef<AbortController | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -148,7 +153,7 @@ export function Feed() {
     setLoadMoreError(null);
     try {
       const [page, subs] = await Promise.all([
-        getPersonalFeed(null, ctrl.signal),
+        getPersonalFeedWith({ industry: industry || null }, ctrl.signal),
         listSubscriptions(ctrl.signal).catch(() => null),
       ]);
       if (ctrl.signal.aborted) return;
@@ -163,20 +168,20 @@ export function Feed() {
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [industry]);
 
   useEffect(() => {
     void loadFirst();
     return () => abortRef.current?.abort();
   }, [loadFirst]);
 
-  // 翻页：追加不清已有条目；失败保留条目并露出兜底按钮（可重试）
+  // 翻页：追加不清已有条目；失败保留条目并露出兜底按钮（可重试）；游标沿用当前行业筛选
   const loadMore = useCallback(async () => {
     if (nextCursor == null || loadingMore || loading) return;
     setLoadingMore(true);
     setLoadMoreError(null);
     try {
-      const page = await getPersonalFeed(nextCursor);
+      const page = await getPersonalFeedWith({ cursor: nextCursor, industry: industry || null });
       setItems((prev) => [...prev, ...page.items]);
       setNextCursor(page.nextCursor);
     } catch (err) {
@@ -184,7 +189,7 @@ export function Feed() {
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore, loading]);
+  }, [nextCursor, loadingMore, loading, industry]);
 
   const hasMore = nextCursor != null && !loading && !error;
 
@@ -205,10 +210,31 @@ export function Feed() {
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="feed-page">
       <header className="mb-4">
-        <h1 className="text-xl font-medium">个人信息流</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          按时间倒序 · 命中你的主题 / 标的 / 事件类型订阅
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-medium">个人信息流</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              按时间倒序 · 命中你的主题 / 标的 / 事件类型订阅
+            </p>
+          </div>
+          {/* 行业筛选（M18 T156）：31 行业下拉，切换即重拉首页；推荐条目不入筛选视图 */}
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            行业
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+              data-testid="feed-industry-filter"
+            >
+              <option value="">全部行业</option>
+              {SW_INDUSTRIES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </header>
 
       {loading ? (
@@ -251,7 +277,7 @@ export function Feed() {
             className="py-10 text-center text-sm text-muted-foreground"
             data-testid="feed-empty-no-hits"
           >
-            暂无命中内容，可稍后再来看看
+            {industry ? `「${industry}」行业暂无命中内容，可稍后再来看看` : '暂无命中内容，可稍后再来看看'}
           </div>
         )
       ) : (

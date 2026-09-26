@@ -2,6 +2,7 @@ package com.info.platform.interfaces.subscription;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -49,7 +50,7 @@ class FeedControllerTest {
     @Test
     void personal_returns200WithItemsAndNextCursor() throws Exception {
         // Arrange：1 条命中公告 + 1 条每日推荐
-        when(feedService.getPersonalFeed(1L, null))
+        when(feedService.getPersonalFeed(1L, null, null))
                 .thenReturn(
                         new FeedListView(
                                 List.of(
@@ -100,13 +101,26 @@ class FeedControllerTest {
     @Test
     void personal_withCursor_passesCursorToService() throws Exception {
         // Arrange：翻页游标透传 service
-        when(feedService.getPersonalFeed(1L, 20L)).thenReturn(new FeedListView(List.of(), null));
+        when(feedService.getPersonalFeed(1L, 20L, null))
+                .thenReturn(new FeedListView(List.of(), null));
 
         // Act + Assert
         mockMvc.perform(get("/api/v1/feed/personal").param("cursor", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void personal_withIndustry_passesIndustryToService() throws Exception {
+        // M18 T156：行业筛选参数透传 service（政策标签/标的行业两路匹配归服务层）
+        when(feedService.getPersonalFeed(1L, null, "银行"))
+                .thenReturn(new FeedListView(List.of(), null));
+
+        mockMvc.perform(get("/api/v1/feed/personal").param("industry", "银行"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty());
+        verify(feedService).getPersonalFeed(1L, null, "银行");
     }
 
     @Test
