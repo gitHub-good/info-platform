@@ -793,7 +793,7 @@ describe('IndustryHeat 行业周报 Tab（T145，#/industry-heat 三 Tab）', ()
 
   it('FAILED 周报重试：POST 202 受理 → 轻轮询翻成功；三 Tab 互不干扰', async () => {
     let retried = false;
-    const fetchMock = stubFetch([
+    stubFetch([
       { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
       {
         path: '/api/v1/industry-reports/weekly/2026-09-21/retry',
@@ -838,9 +838,7 @@ describe('IndustryHeat 行业周报 Tab（T145，#/industry-heat 三 Tab）', ()
       () => expect(screen.getByTestId('weekly-status-2026-09-21')).toHaveTextContent('成功'),
       { timeout: 3000 },
     );
-    expect(
-      fetchMock.mock.calls.some((call) => call[1]?.method === 'POST' && String(call[0]).includes('/retry')),
-    ).toBe(true);
+    expect(retried).toBe(true); // retry 路由被 POST 命中（respond 内置位即受理）
 
     // 三 Tab 互不干扰：回热度榜榜单仍在
     await userEvent.click(screen.getByTestId('heat-tab-heat'));
