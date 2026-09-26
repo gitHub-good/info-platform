@@ -62,11 +62,21 @@ public interface HeatSnapshotRepository {
             Importance eventImportance,
             List<String> affectedIndustries) {}
 
-    /** 下钻 news 卡（含 L2 事件标记——hasEvent）。 */
+    /**
+     * 下钻 news 卡（含 L2 事件标记——hasEvent；url 为 news_item 原文外链，T162 trace-v1 A 级溯源字段）。
+     */
     record IndustryNewsItem(
-            long newsId, String title, String sourceName, Instant publishedAt, boolean hasEvent) {}
+            long newsId,
+            String title,
+            String sourceName,
+            Instant publishedAt,
+            boolean hasEvent,
+            String url) {}
 
-    /** 下钻事件卡（核心字段与事件流卡片同源，完整卡片归 T127 /events）。 */
+    /**
+     * 下钻事件卡（核心字段与事件流卡片同源，完整卡片归 T127 /events；newsUrl/quote/sourceName 为 T162
+     * trace-v1 溯源字段——join news_item.url + info_source.name，quote 直读 event_item）。
+     */
     record IndustryEventItem(
             long eventId,
             long newsId,
@@ -75,5 +85,8 @@ public interface HeatSnapshotRepository {
             String summary,
             Direction direction,
             Importance importance,
-            Instant eventTime) {}
+            Instant eventTime,
+            String newsUrl,
+            String quote,
+            String sourceName) {}
 }

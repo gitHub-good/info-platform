@@ -121,8 +121,10 @@ class HeatSnapshotRepositoryImplTest {
         if (eventJson != null) {
             jdbcTemplate.update(
                     "INSERT INTO event_item (news_id, event_type, summary, affected_industries,"
-                            + " direction, importance, event_time, event_date, created_at, updated_at)"
-                            + " VALUES (?, 'POLICY_RELEASE', '事件摘要', ?, 'BULLISH', 'HIGH', ?, '2026-09-22', ?, ?)",
+                            + " direction, importance, event_time, event_date, quote,"
+                            + " created_at, updated_at)"
+                            + " VALUES (?, 'POLICY_RELEASE', '事件摘要', ?, 'BULLISH', 'HIGH', ?,"
+                            + " '2026-09-22', '政策原文引用', ?, ?)",
                     newsId,
                     eventJson,
                     publishedAtIso,
@@ -236,6 +238,11 @@ class HeatSnapshotRepositoryImplTest {
         assertThat(total).isEqualTo(3); // 对账 = 榜单 news_count 口径
         assertThat(page1.get(1).hasEvent()).isTrue(); // L2 事件标记（条目二带事件）
         assertThat(page1.get(0).hasEvent()).isFalse();
+        // T162 trace-v1 A 级：url 与库内 news_item.url join 一致（对账口径 = API 返回 = 库内）
+        assertThat(page1.get(0).url())
+                .isEqualTo("https://example.com/n/" + "银行下钻条目三".hashCode());
+        assertThat(page1.get(1).url())
+                .isEqualTo("https://example.com/n/" + "银行下钻条目二".hashCode());
         List<HeatSnapshotRepository.IndustryNewsItem> page2 =
                 repository.findIndustryNewsItems("银行", from, NOW.toString(), second, 2);
         assertThat(page2)
@@ -261,6 +268,12 @@ class HeatSnapshotRepositoryImplTest {
         assertThat(events.get(0).eventType()).isEqualTo(EventType.POLICY_RELEASE);
         assertThat(events.get(0).direction()).isEqualTo(Direction.BULLISH);
         assertThat(events.get(0).importance()).isEqualTo(Importance.HIGH);
+        // T162 trace-v1：events 行补 newsUrl（A 级）/ quote / sourceName（B 级兜底面）——与库内一致
+        // （id DESC 首行 = 第二插入的「银行业绩条目」）
+        assertThat(events.get(0).newsUrl())
+                .isEqualTo("https://example.com/n/" + "银行业绩条目".hashCode());
+        assertThat(events.get(0).quote()).isEqualTo("政策原文引用");
+        assertThat(events.get(0).sourceName()).isEqualTo("t123_heat");
     }
 
     @Test

@@ -26,7 +26,10 @@ public record IndustryHeatItemsView(
         List<ItemView> items,
         Long nextBeforeId) {
 
-    /** 下钻条目卡（news 行与 events 行共用外形容器，未用字段 null）。 */
+    /**
+     * 下钻条目卡（news 行与 events 行共用外形容器，未用字段 null）。 T162 trace-v1 溯源增量：news 行 url（A 级原文外链）；
+     * events 行 newsUrl（A 级）+ quote/sourceName（B 级兜底面）。
+     */
     public record ItemView(
             Long newsId,
             Long eventId,
@@ -38,7 +41,10 @@ public record IndustryHeatItemsView(
             String summary,
             Direction direction,
             Importance importance,
-            Instant eventTime) {
+            Instant eventTime,
+            String url,
+            String newsUrl,
+            String quote) {
 
         static ItemView ofNews(HeatSnapshotRepository.IndustryNewsItem item) {
             return new ItemView(
@@ -52,6 +58,9 @@ public record IndustryHeatItemsView(
                     null,
                     null,
                     null,
+                    null,
+                    item.url(),
+                    null,
                     null);
         }
 
@@ -60,14 +69,17 @@ public record IndustryHeatItemsView(
                     item.newsId(),
                     item.eventId(),
                     item.newsTitle(),
-                    null,
+                    item.sourceName(),
                     null,
                     null,
                     item.eventType(),
                     item.summary(),
                     item.direction(),
                     item.importance(),
-                    item.eventTime());
+                    item.eventTime(),
+                    null,
+                    item.newsUrl(),
+                    item.quote());
         }
     }
 }

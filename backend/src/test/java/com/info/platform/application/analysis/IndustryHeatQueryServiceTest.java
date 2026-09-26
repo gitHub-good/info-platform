@@ -111,7 +111,12 @@ class IndustryHeatQueryServiceTest {
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.IndustryNewsItem(
-                                        5L, "央行降准", "新浪财经", NOW, true)));
+                                        5L,
+                                        "央行降准",
+                                        "新浪财经",
+                                        NOW,
+                                        true,
+                                        "https://example.com/n/5")));
         when(repository.countIndustryNewsItems(eq("银行"), anyString(), anyString())).thenReturn(1L);
 
         IndustryHeatItemsView view = service.items("银行", "H24", "news", null, 20);
@@ -121,6 +126,8 @@ class IndustryHeatQueryServiceTest {
         assertThat(view.items()).hasSize(1);
         assertThat(view.items().get(0).newsId()).isEqualTo(5L);
         assertThat(view.items().get(0).hasEvent()).isTrue();
+        // T162 trace-v1 A 级：news 行 url 透传（前端标题外链数据面）
+        assertThat(view.items().get(0).url()).isEqualTo("https://example.com/n/5");
         assertThat(view.nextBeforeId()).isNull(); // 尾页无下一页游标
     }
 
@@ -135,7 +142,12 @@ class IndustryHeatQueryServiceTest {
                                 .map(
                                         id ->
                                                 new HeatSnapshotRepository.IndustryNewsItem(
-                                                        id, "条目" + id, "源", NOW, false))
+                                                        id,
+                                                        "条目" + id,
+                                                        "源",
+                                                        NOW,
+                                                        false,
+                                                        "https://example.com/n/" + id))
                                 .toList());
         when(repository.countIndustryNewsItems(eq("银行"), anyString(), anyString()))
                 .thenReturn(120L);
@@ -165,7 +177,10 @@ class IndustryHeatQueryServiceTest {
                                         "降准释放流动性",
                                         Direction.BULLISH,
                                         Importance.HIGH,
-                                        NOW)));
+                                        NOW,
+                                        "https://example.com/n/5",
+                                        "降准 0.5 个百分点",
+                                        "新浪财经")));
         when(repository.countIndustryEventItems(eq("银行"), anyString(), anyString())).thenReturn(1L);
 
         IndustryHeatItemsView view = service.items("银行", "H24", "events", null, 20);
@@ -175,6 +190,10 @@ class IndustryHeatQueryServiceTest {
         assertThat(view.items().get(0).eventId()).isEqualTo(9L);
         assertThat(view.items().get(0).eventType()).isEqualTo(EventType.POLICY_RELEASE);
         assertThat(view.items().get(0).importance()).isEqualTo(Importance.HIGH);
+        // T162 trace-v1：events 行 newsUrl（A 级）+ quote/sourceName（B 级）映射入 ItemView
+        assertThat(view.items().get(0).newsUrl()).isEqualTo("https://example.com/n/5");
+        assertThat(view.items().get(0).quote()).isEqualTo("降准 0.5 个百分点");
+        assertThat(view.items().get(0).sourceName()).isEqualTo("新浪财经");
     }
 
     @Test

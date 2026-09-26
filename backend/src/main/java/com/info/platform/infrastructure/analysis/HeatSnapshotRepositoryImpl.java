@@ -22,7 +22,8 @@ import org.springframework.stereotype.Repository;
  *
  * <p>UPSERT {@code ON CONFLICT(industry, window_type) DO UPDATE}（62 行常驻当前值，重跑收敛）；窗口现算与下钻 join
  * {@code news_analysis/news_item/event_item}（独立表代价 = 一次 join，24h 窗 ≤700 行毫秒级——裁决 1 论证）；事件行业匹配走 JSON
- * 文本包含（引号定界 {@code '%"银行"%'}——枚举名不含引号/百分号，无转义面，且不受「非银金融」等子串误配）。
+ * 文本包含（引号定界 {@code '%"银行"%'}——枚举名不含引号/百分号，无转义面，且不受「非银金融」等子串误配）。下钻 events 清单的
+ * info_source 取 LEFT JOIN（软删源行不消失，sourceName 置空——行数与 countIndustryEventItems 对账保持相等）。
  */
 @Repository
 public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
@@ -69,7 +70,7 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
     private static final String FIND_INDUSTRY_NEWS_SQL =
             """
             SELECT na.news_id, ni.title, s.name AS source_name, ni.published_at,
-                   CASE WHEN e.id IS NULL THEN 0 ELSE 1 END AS has_event
+                   CASE WHEN e.id IS NULL THEN 0 ELSE 1 END AS has_event, ni.url
               FROM news_analysis na
               JOIN news_item ni ON ni.id = na.news_id
               JOIN info_source s ON s.id = ni.source_id
@@ -83,9 +84,11 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
     private static final String FIND_INDUSTRY_EVENTS_SQL =
             """
             SELECT e.id AS event_id, e.news_id, ni.title AS news_title, e.event_type, e.summary,
-                   e.direction, e.importance, e.event_time
+                   e.direction, e.importance, e.event_time, ni.url AS news_url, e.quote,
+                   s.name AS source_name
               FROM event_item e
               JOIN news_item ni ON ni.id = e.news_id
+              LEFT JOIN info_source s ON s.id = ni.source_id
              WHERE e.affected_industries LIKE ?
                AND ni.published_at >= ? AND ni.published_at < ?
             """;
@@ -123,7 +126,8 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
                             rs.getString("title"),
                             rs.getString("source_name"),
                             Instant.parse(rs.getString("published_at")),
-                            rs.getInt("has_event") == 1);
+                            rs.getInt("has_event") == 1,
+                            rs.getString("url"));
 
     private static final RowMapper<HeatSnapshotRepository.IndustryEventItem> EVENT_ITEM_ROW =
             (rs, rowNum) ->
@@ -135,7 +139,10 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
                             rs.getString("summary"),
                             Direction.fromName(rs.getString("direction")),
                             Importance.fromName(rs.getString("importance")),
-                            Instant.parse(rs.getString("event_time")));
+                            Instant.parse(rs.getString("event_time")),
+                            rs.getString("news_url"),
+                            rs.getString("quote"),
+                            rs.getString("source_name"));
 
     private final JdbcTemplate jdbcTemplate;
 
