@@ -23,7 +23,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 /**
- * 管道成本护栏服务（应用层，M15 T125，方案 §3.5/§4.6 裁决 5）：{@code llm_call_log} scene 5/6/7 当日 SUCCESS 求和现算成本 → 对
+ * 管道成本护栏服务（应用层，M15 T125，方案 §3.5/§4.6 裁决 5）：{@code llm_call_log} scene 5/6/7/8 当日 SUCCESS 求和现算成本 → 对
  * {@code pipeline.budget} 两级阈值派生级别（无表无状态，重启不丢口径——ADR-0015「严格口径以留痕表为准」先例）；FUSED 进入时发布 {@link
  * PipelineFusedEvent} 告警一次（内存节流，重启重告一次可容忍——ADR-0045 同款裁量）。
  *
@@ -39,8 +39,9 @@ public class PipelineGuardService {
     /** 统计日界（Asia/Shanghai——与 PipelineStatusService 同口径）。 */
     static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
 
-    /** 管道成本口径 scene 集（L1 归类 5 / L2 事件提取 6 / 行业日报 7——T124 消费 7）。 */
-    static final List<String> PIPELINE_SCENES = List.of("5", "6", "7");
+    /** 管道成本口径 scene 集（L1 归类 5 / L2 事件提取 6 / 行业日报 7——T124 消费 7；M16 T132 扩 8 推荐卡片——卡片 LLM
+     * 计入管道日成本，REQ 非功能「成本护栏联动」；DEGRADED/FUSED 态卡片直接走模板不调 LLM）。 */
+    static final List<String> PIPELINE_SCENES = List.of("5", "6", "7", "8");
 
     /** 成本读取 llm_call_log 上限护栏（个人量级日 ~90 行，上限防御）。 */
     private static final int COST_LOG_LIMIT = 10_000;
@@ -88,7 +89,7 @@ public class PipelineGuardService {
         return level;
     }
 
-    /** 当日管道成本（微元；scene 5/6/7 SUCCESS，Asia/Shanghai 日界）。 */
+    /** 当日管道成本（微元；scene 5/6/7/8 SUCCESS，Asia/Shanghai 日界）。 */
     public long todayCostMicros() {
         List<LlmCallLog> logs =
                 llmCallLogRepository.findCreatedSince(todayStartInstant(), COST_LOG_LIMIT);

@@ -47,7 +47,8 @@ class PromptPlaceholderRegistryTest {
                                     mock(BriefContentCodec.class)),
                             classifyProvider(),
                             extractProvider(),
-                            dailyReportProvider()));
+                            dailyReportProvider(),
+                            recommendCardProvider()));
 
     /** 场景 5（行业归类）供给方：全部依赖 mock（注册表只读 provided()，不触发调用）。 */
     private static com.info.platform.application.analysis.ClassificationService classifyProvider() {
@@ -95,11 +96,24 @@ class PromptPlaceholderRegistryTest {
                 Clock.systemUTC());
     }
 
+    /** 场景 8（推荐卡片逻辑链）供给方：全部依赖 mock（注册表只读 provided()，不触发调用，M16 T132）。 */
+    private static com.info.platform.application.recommendation.RecommendationCardService
+            recommendCardProvider() {
+        return new com.info.platform.application.recommendation.RecommendationCardService(
+                mock(com.info.platform.domain.recommendation.RecommendationCardRepository.class),
+                mock(LlmGateway.class),
+                mock(PromptTemplateService.class),
+                mock(com.info.platform.application.analysis.PipelineGuardService.class),
+                mock(SubjectRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+    }
+
     @Test
     void aggregates_sevenScenarios_withExpectedCounts() {
-        // Act + Assert：注册表 38 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）+ 2（场景5 行业归类，M15 T121）
+        // Act + Assert：注册表 45 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）+ 2（场景5 行业归类，M15 T121）
         // + 3（场景6 事件提取 today/batchSize/items，M15 T122）+ 3（场景7 行业日报
-        // reportDate/industryStats/topEvents，M15 T124）
+        // reportDate/industryStats/topEvents，M15 T124）+ 7（场景8 推荐卡片
+        // level/eventTypeLabel/directionLabel/summary/industries/subjects/watchSubjects，M16 T132）
         assertThat(registry.byBriefType(BriefType.STOCK)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.EVENT_ATTRIBUTION)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.POLICY)).hasSize(7);
@@ -107,6 +121,7 @@ class PromptPlaceholderRegistryTest {
         assertThat(registry.byBriefType(BriefType.L1_CLASSIFY)).hasSize(2);
         assertThat(registry.byBriefType(BriefType.L2_EXTRACT)).hasSize(3);
         assertThat(registry.byBriefType(BriefType.INDUSTRY_DAILY)).hasSize(3);
+        assertThat(registry.byBriefType(BriefType.RECOMMEND_CARD)).hasSize(7);
         assertThat(registry.all()).containsOnlyKeys(BriefType.values());
     }
 

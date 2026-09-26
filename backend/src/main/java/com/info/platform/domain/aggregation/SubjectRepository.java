@@ -52,6 +52,12 @@ public interface SubjectRepository {
     List<Subject> loadBucket(Market market, SubjectType subjectType);
 
     /**
+     * 标的池全量名（M16 T132）：FactWhitelistValidator ①类「虚构标的」判定的检测词表——文本出现池内名但 ∉
+     * 允许集即拒（池外未知词不判，方案 §3.3）。只取名列（~5k 行本地 SQLite 毫秒级；不筛状态——停用名仍是池内名）。
+     */
+    List<String> findAllNames();
+
+    /**
      * 批量幂等新增（{@code INSERT OR IGNORE}，V17 先例；UNIQUE 兜底）：已存在同 subject_code 的行静默跳过。
      *
      * @return 实际插入行数（忽略行不计）

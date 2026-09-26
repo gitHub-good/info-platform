@@ -6,7 +6,7 @@ package com.info.platform.domain.ai;
  *
  * <p>领域层纯净枚举（仅 JDK），与持久化层 {@code TINYINT} 互转。1~4 对齐 Spike-2 §7 四类 v1 模板： 1 个股 / 2 事件归因 / 3 政策解读 / 4
  * 每日推荐；M15（ADR-0046 裁决 3）扩管道场景 5 行业归类（V23 播种 v1.0，治理页零改动自动可见）/ 6 事件提取（V24 播种 v1.0，T122）/ 7
- * 行业日报（T124 播种）。
+ * 行业日报（T124 播种）；M16 T132（ADR-0051 裁决 3）扩 8 推荐卡片逻辑链（V27 播种 v1.0）。
  *
  * <p>{@link #key()} 返回字符串码（如 {@code "1"}），供 T21 构造 {@link LlmRequest#json(java.util.List, String)
  * LlmRequest.json(messages, briefTypeKey)} 时直接传入（{@code briefTypeKey} 即此 key，见 LlmRequest 契约）。
@@ -25,7 +25,9 @@ public enum BriefType {
     /** 事件提取（L2 批量结构化事件管道模板，briefType=6，M15 T122 / ADR-0046 裁决 3；V24 播种 v1.0）。 */
     L2_EXTRACT(6, "事件提取"),
     /** 行业日报（L3 日报叙述模板，briefType=7，M15 T124 / ADR-0046 裁决 3；V25 播种 v1.0——数字全部统计注入，AI 只写叙述）。 */
-    INDUSTRY_DAILY(7, "行业日报");
+    INDUSTRY_DAILY(7, "行业日报"),
+    /** 推荐卡片逻辑链（M16 T132 / ADR-0051 裁决 3；V27 播种 v1.0——LLM 仅语言组织零新增事实，输出经 FactWhitelistValidator 四类白名单校验拒即模板兜底）。 */
+    RECOMMEND_CARD(8, "推荐卡片");
 
     private final int code;
     private final String displayName;

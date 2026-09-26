@@ -163,6 +163,14 @@ public class SubjectRepositoryImpl implements SubjectRepository {
     }
 
     @Override
+    public List<String> findAllNames() {
+        // T132 白名单①类检测词表：只取名列（JdbcTemplate 单列查询；不筛状态——停用名仍是池内名）
+        return jdbcTemplate.queryForList(
+                "SELECT name FROM subject_master WHERE name IS NOT NULL AND TRIM(name) <> ''",
+                String.class);
+    }
+
+    @Override
     @Transactional
     public Subject save(Subject subject) {
         SubjectPO po = toPO(subject);

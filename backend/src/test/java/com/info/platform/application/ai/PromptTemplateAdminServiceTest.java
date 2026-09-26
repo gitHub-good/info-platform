@@ -77,13 +77,15 @@ class PromptTemplateAdminServiceTest {
         when(repository.findAllByBriefType(BriefType.L2_EXTRACT))
                 .thenReturn(List.of(row(31L, BriefType.L2_EXTRACT, "v1.0", 1)));
         when(repository.findAllByBriefType(BriefType.INDUSTRY_DAILY)).thenReturn(List.of());
+        when(repository.findAllByBriefType(BriefType.RECOMMEND_CARD))
+                .thenReturn(List.of(row(41L, BriefType.RECOMMEND_CARD, "v1.0", 1)));
 
         // Act
         ListView view = service.list();
 
-        // Assert：恒按 BriefType 序出组（M15 T124 起 7 组——场景 5 归类/6 提取/7 行业日报零特例自动可见，ADR-0046 裁决 3）；
-        // 数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
-        assertThat(view.groups()).hasSize(7);
+        // Assert：恒按 BriefType 序出组（M16 T132 起 8 组——场景 5 归类/6 提取/7 行业日报/8 推荐卡片零特例自动可见，
+        // ADR-0046 裁决 3 同款）；数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
+        assertThat(view.groups()).hasSize(8);
         var stock = view.groups().get(0);
         assertThat(stock.name()).isEqualTo("个股简报");
         assertThat(stock.versions())
@@ -107,6 +109,9 @@ class PromptTemplateAdminServiceTest {
         var dailyReport = view.groups().get(6);
         assertThat(dailyReport.name()).isEqualTo("行业日报");
         assertThat(dailyReport.versions()).isEmpty();
+        var recommendCard = view.groups().get(7);
+        assertThat(recommendCard.name()).isEqualTo("推荐卡片");
+        assertThat(recommendCard.activeCount()).isEqualTo(1);
     }
 
     @Test
