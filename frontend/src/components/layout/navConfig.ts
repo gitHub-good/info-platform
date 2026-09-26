@@ -75,12 +75,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/job-logs', label: 'Job 日志', icon: ScrollText },
       { to: '/cost-report', label: '成本报表', icon: Coins },
       { to: '/llm-config', label: '模型配置', icon: Bot },
-      { to: '/datasource-config', label: '数据源配置', icon: Database },
-      // 资讯源管理（M13 T105，全站第 14 页）：数据源配置之后、提示词模板之前（M13 UI §2.1）
-      { to: '/info-sources', label: '资讯源管理', icon: RadioTower },
-      // 抓取大盘（M14 T116，运维组第 15 页）：紧邻资讯源管理，同属源运行域（REQ 拍板二：独立只读监控页）
+      // 源页面轻整合（M19 T165，REQ 拍板三）：改名「业务数据源」（按需拉取型六源业务域），路由 hash 与 testid 零变化
+      { to: '/datasource-config', label: '业务数据源', icon: Database },
+      // 资讯源（M13 T105 全站第 14 页；M19 T165 由「资讯源管理」改名——轮询采集型 30 源管道），两页页顶互链引导
+      { to: '/info-sources', label: '资讯源', icon: RadioTower },
+      // 抓取大盘（M14 T116，运维组第 15 页）：紧邻资讯源，同属源运行域（REQ 拍板二：独立只读监控页）
       { to: '/feed-dashboard', label: '抓取大盘', icon: Gauge },
-      // 运维组第 7 项（全站第 15 页，M5 T47）：紧邻模型/数据源配置，同属「改 AI 产出」入口（UI 方案 D1）
+      // 运维组第 7 项（全站第 15 页，M5 T47）：紧邻模型/业务数据源，同属「改 AI 产出」入口（UI 方案 D1）
       { to: '/prompt-templates', label: '提示词模板', icon: MessageSquareText },
     ],
   },

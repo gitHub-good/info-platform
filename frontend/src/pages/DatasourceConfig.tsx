@@ -870,9 +870,20 @@ export function DatasourceConfig() {
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="datasource-config-page">
       <header className="mb-4">
-        <h1 className="text-xl font-medium">数据源配置</h1>
+        <h1 className="text-xl font-medium">业务数据源</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          7 源开关 / 运行模式 / 降级链 / 弹性参数与健康状态一页管理
+          按需拉取型 · 行情 / 财务 / 估值 / 公告 / 新闻 / 政策六域——7 源开关 / 运行模式 / 降级链 / 弹性参数与健康状态一页管理
+        </p>
+        {/* 源页面轻整合互链（M19 T165）：轮询采集的另一套「源」页直达（路由不变零兼容成本） */}
+        <p className="mt-1 text-sm text-muted-foreground">
+          轮询抓取的资讯源管理 →{' '}
+          <a
+            href="#/info-sources"
+            data-testid="datasource-config-info-sources-link"
+            className="underline underline-offset-2 transition-colors hover:text-foreground"
+          >
+            资讯源
+          </a>
         </p>
       </header>
 

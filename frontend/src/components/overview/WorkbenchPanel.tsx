@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatPct } from '@/lib/format';
+import { navigate } from '@/lib/navigation';
 import {
   EVENT_TYPE_LABELS,
   IMPORTANCE_LABELS,
@@ -24,6 +25,8 @@ import type { PipelineGuardLevel } from '@/types/pipelineStatus';
 // 行业热度 Top5 摘要 + 最新推荐卡 ≤2 + 最新事件 ≤3 + 大盘健康摘要。
 // 复用既有 API（热度榜/推荐中心/事件流/大盘/管道状态），30 秒刷新沿大盘机制（document.hidden 暂停）；
 // 四块各自三态（骨架/错误可重试/空态），单块加载失败降级不影响其余块与页面既有五卡（零回归）。
+// M19 T164 行级跳转（trace-v1 C 级溯源链）：热度 Top5 行带 industry 参数跳热度榜下钻、
+// 推荐行跳推荐中心 focus 定位、事件行跳事件流；块级「直达」链接保留，大盘健康保持块级（REQ 故事 5 场景 4/5）。
 
 /** 自动刷新间隔（沿大盘 30 秒机制，蓝图故事 7 场景 1 口径）。 */
 const AUTO_REFRESH_MILLIS = 30_000;
@@ -237,10 +240,15 @@ export function WorkbenchPanel() {
           empty={heatRows.length === 0}
         >
           {heatRows.map((row, index) => (
-            <div
+            <button
               key={row.industry}
-              className="flex items-center gap-2 text-sm"
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-2 rounded-sm text-left text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               data-testid={`workbench-heat-row-${row.industry}`}
+              title={`跳转行业热度并展开「${row.industry}」下钻`}
+              onClick={() =>
+                navigate(`/industry-heat?industry=${encodeURIComponent(row.industry)}`)
+              }
             >
               <span className="w-4 text-right text-xs text-muted-foreground tabular-nums">{index + 1}</span>
               <span className="min-w-0 flex-1 truncate">{row.industry}</span>
@@ -257,7 +265,7 @@ export function WorkbenchPanel() {
                 {row.deltaPct > 0 ? '+' : ''}
                 {formatPct(row.deltaPct, 1)}
               </span>
-            </div>
+            </button>
           ))}
         </Block>
         <Block
@@ -272,21 +280,24 @@ export function WorkbenchPanel() {
           empty={(recs.data?.length ?? 0) === 0}
         >
           {(recs.data ?? []).map((card) => (
-            <div
+            <button
               key={card.id}
-              className="flex items-start gap-2 text-sm"
+              type="button"
+              className="flex w-full cursor-pointer items-start gap-2 rounded-sm text-left text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               data-testid={`workbench-rec-${card.id}`}
+              title="跳转推荐中心并定位该卡"
+              onClick={() => navigate(`/recommendations?focus=${card.id}`)}
             >
               <Badge className="bg-amber-500/15 text-amber-400" variant="ghost">
                 {labelOf(IMPORTANCE_LABELS, card.importance)}
               </Badge>
-              <p className="min-w-0 flex-1 truncate" title={card.summary ?? undefined}>
+              <span className="min-w-0 flex-1 truncate" title={card.summary ?? undefined}>
                 {card.summary ?? card.newsTitle ?? `事件 #${card.eventId}`}
-              </p>
+              </span>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {labelOf(EVENT_TYPE_LABELS, card.eventType)}
               </span>
-            </div>
+            </button>
           ))}
         </Block>
         <Block
@@ -301,10 +312,13 @@ export function WorkbenchPanel() {
           empty={(events.data?.length ?? 0) === 0}
         >
           {(events.data ?? []).map((event) => (
-            <div
+            <button
               key={event.id}
-              className="flex items-start gap-2 text-sm"
+              type="button"
+              className="flex w-full cursor-pointer items-start gap-2 rounded-sm text-left text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               data-testid={`workbench-event-${event.id}`}
+              title="跳转事件流查看详情"
+              onClick={() => navigate('/events')}
             >
               <Badge
                 variant="ghost"
@@ -316,13 +330,13 @@ export function WorkbenchPanel() {
               >
                 {labelOf(IMPORTANCE_LABELS, event.importance)}
               </Badge>
-              <p className="min-w-0 flex-1 truncate" title={event.summary}>
+              <span className="min-w-0 flex-1 truncate" title={event.summary}>
                 {event.summary}
-              </p>
+              </span>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {formatTime(event.eventTime)}
               </span>
-            </div>
+            </button>
           ))}
         </Block>
         <Block

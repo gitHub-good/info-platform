@@ -252,6 +252,21 @@ describe('InfoSources 资讯源管理页（M13 T105）', () => {
     localStorage.clear();
   });
 
+  // —— M19 T165 源页面轻整合：改名「资讯源」+ 轮询采集型副标 + 互链直达业务数据源页 ——
+
+  it('页头轻整合：标题「资讯源」+ 轮询采集型副标 + 互链直达业务数据源页（路由 hash 零变化）', async () => {
+    renderPage(makeStore());
+
+    const page = await screen.findByTestId('info-sources-page');
+    expect(screen.getByRole('heading', { name: '资讯源' })).toBeInTheDocument();
+    expect(page).toHaveTextContent('轮询采集型');
+    expect(page).toHaveTextContent('7×24');
+    expect(screen.getByTestId('info-sources-datasource-link')).toHaveAttribute(
+      'href',
+      '#/datasource-config',
+    );
+  });
+
   it('渲染分组视图：分组标题 / 类型徽章 / 指标行（间隔·今日+新增）', async () => {
     renderPage(makeStore());
 

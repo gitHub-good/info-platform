@@ -724,4 +724,30 @@ describe('Overview 用户视角化（体检 P1-4）', () => {
     expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
     expect(screen.queryByRole('alert')).toBeNull(); // 单块降级非阻断性错误，不占整页 alert 语义
   });
+
+  // —— M19 T164 行级跳转（C 级溯源链：摘要行 → 承载页；块级直达零回归） ——
+
+  it('工作台行级跳转：热度 Top5 行带 industry 参数跳热度榜 / 推荐行跳推荐中心 focus / 事件行跳事件流；大盘健康保持块级', async () => {
+    vi.stubGlobal('fetch', routeFetch());
+
+    render(<Overview />);
+
+    // 热度 Top5 行 → 热度榜并展开该行业下钻（与报告行业名同一 ?industry= 直达参数）
+    await screen.findByTestId('workbench-heat-row-电子');
+    await userEvent.click(screen.getByTestId('workbench-heat-row-电子'));
+    expect(window.location.hash).toBe(`#/industry-heat?industry=${encodeURIComponent('电子')}`);
+
+    window.location.hash = '';
+    await userEvent.click(screen.getByTestId('workbench-rec-501'));
+    expect(window.location.hash).toBe('#/recommendations?focus=501');
+
+    window.location.hash = '';
+    await userEvent.click(screen.getByTestId('workbench-event-71'));
+    expect(window.location.hash).toBe('#/events');
+
+    // 大盘健康：行级不强制，块级「直达」链接保留（REQ 故事 5 场景 5）
+    expect(screen.getByTestId('workbench-health-link')).toHaveAttribute('href', '#/feed-dashboard');
+    // 块级直达链接零回归（与行级并存）
+    expect(screen.getByTestId('workbench-heat-link')).toHaveAttribute('href', '#/industry-heat');
+  });
 });

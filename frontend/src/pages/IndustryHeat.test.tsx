@@ -972,9 +972,9 @@ describe('IndustryHeat 溯源补全（T162/T163，trace-v1）', () => {
 
   it('T163 历史日报（content 无 newsUrl/sourceName）：quote 兜底不渲染死链 + 脚注提示', async () => {
     const legacy = reportDetail();
-    // 模拟上线前物化报告：事件仅 newsId+quote（REQ #15 不回填）
-    (legacy.content!.events[0] as Record<string, unknown>).sourceName = undefined;
-    (legacy.content!.events[0] as Record<string, unknown>).newsUrl = undefined;
+    // 模拟上线前物化报告：事件仅 newsId+quote（REQ #15 不回填）——直接删除可选溯源字段
+    delete legacy.content!.events[0].sourceName;
+    delete legacy.content!.events[0].newsUrl;
     stubFetch([
       { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
       { path: '/api/v1/industry-reports/2026-09-21', respond: () => ok(legacy) },
@@ -1033,8 +1033,10 @@ describe('IndustryHeat 溯源补全（T162/T163，trace-v1）', () => {
 
     render(<IndustryHeat />);
 
-    // 未点击行即展开（focus 参数消费）
+    // 未点击行即展开（focus 参数消费）；total 等清单请求返回后对账
     const drill = await screen.findByTestId('heat-drilldown-电子');
-    expect(within(drill).getByTestId('drill-total-电子')).toHaveTextContent('42');
+    await waitFor(() =>
+      expect(within(drill).getByTestId('drill-total-电子')).toHaveTextContent('42'),
+    );
   });
 });

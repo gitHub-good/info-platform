@@ -211,7 +211,7 @@ export function FeedDashboard() {
         <h1 className="text-xl font-medium">抓取大盘</h1>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="max-w-3xl text-sm text-muted-foreground">
-            V2.0 北极星六指标、全部资讯源今日入库、运行状态与近期失败的一屏近实时视图（只读）；处置动作跳「资讯源管理」页完成。
+            V2.0 北极星六指标、全部资讯源今日入库、运行状态与近期失败的一屏近实时视图（只读）；处置动作跳「资讯源」页完成。
           </p>
           <span className="ml-auto flex items-center gap-3">
             <span

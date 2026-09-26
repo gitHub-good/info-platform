@@ -1030,10 +1030,17 @@ export function InfoSources() {
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="info-sources-page">
       <header className="mb-4">
-        <h1 className="text-xl font-medium">资讯源管理</h1>
+        <h1 className="text-xl font-medium">资讯源</h1>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="max-w-3xl text-sm text-muted-foreground">
-            资讯源 7×24 分钟级轮询入库，本页管理源的启停 / 参数 / 新增 / 归档；按标的请求驱动的六源业务域仍在「数据源配置」页管理。
+            轮询采集型 · 30 源采集管道——资讯源 7×24 分钟级轮询入库，本页管理源的启停 / 参数 / 新增 / 归档；按需拉取的业务数据源配置 →{' '}
+            <a
+              href="#/datasource-config"
+              data-testid="info-sources-datasource-link"
+              className="underline underline-offset-2 transition-colors hover:text-foreground"
+            >
+              业务数据源
+            </a>
           </p>
           <Button size="sm" className="ml-auto" onClick={() => setAddOpen(true)} data-testid="info-sources-add">
             ＋新增源

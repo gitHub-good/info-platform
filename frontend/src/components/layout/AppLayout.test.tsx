@@ -27,6 +27,15 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     }
     // 资讯库（M19 T161 第 19 页）：数据组第 4 项（政策时事之后）
     expect(screen.getByTestId('nav-item-news-library')).toHaveTextContent('资讯库');
+    // 源页面轻整合（M19 T165）：「业务数据源」与「资讯源」相邻呈现，旧文案不再出现（路由 hash/testid 零变化）
+    const datasourceItem = screen.getByTestId('nav-item-datasource-config');
+    const infoSourceItem = screen.getByTestId('nav-item-info-sources');
+    expect(datasourceItem).toHaveTextContent('业务数据源');
+    expect(infoSourceItem).toHaveTextContent('资讯源');
+    expect(datasourceItem.compareDocumentPosition(infoSourceItem) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByText('数据源配置')).toBeNull();
+    expect(screen.queryByText('资讯源管理')).toBeNull();
     // 当前页高亮：aria-current="page"
     expect(screen.getByTestId('nav-item-watchlists')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('nav-item-overview')).not.toHaveAttribute('aria-current');
@@ -108,6 +117,9 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     expect(titleForRoute('/job-logs?jobName=x')).toBe('Job 日志');
     expect(titleForRoute('/subjects/SH600519')).toBe('标的详情');
     expect(titleForRoute('/prompt-templates')).toBe('提示词模板');
+    // M19 T165：窄屏顶栏标题随导航改名同步（大盘跳转带查询串仍命中）
+    expect(titleForRoute('/datasource-config')).toBe('业务数据源');
+    expect(titleForRoute('/info-sources?source=s1')).toBe('资讯源');
     expect(titleForRoute('/unknown')).toBe('');
   });
 });

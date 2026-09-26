@@ -186,6 +186,24 @@ describe('DatasourceConfig 页面', () => {
     expect(screen.queryByTestId('datasource-edit-params-EVENT')).toBeNull();
   });
 
+  // —— M19 T165 源页面轻整合：改名「业务数据源」+ 运行形态副标 + 互链引导（路由 hash/testid 零变化） ——
+
+  it('页头轻整合：标题「业务数据源」+ 按需拉取型副标 + 互链直达资讯源页', async () => {
+    const store = makeStore();
+    renderPage(store);
+
+    expect(await screen.findByTestId('datasource-config-page')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '业务数据源' })).toBeInTheDocument();
+    expect(screen.getByTestId('datasource-config-page')).toHaveTextContent('按需拉取型');
+    expect(screen.getByTestId('datasource-config-page')).toHaveTextContent('六域');
+    expect(screen.getByTestId('datasource-config-info-sources-link')).toHaveAttribute(
+      'href',
+      '#/info-sources',
+    );
+    // 路由 hash 与页面 testid 零变化（旧收藏直达）
+    expect(screen.getByTestId('datasource-config-page')).toBeInTheDocument();
+  });
+
   it('mock 模式卡顶常显提示条；真实→mock 切换弹确认（PRD 风险对策）', async () => {
     const store = makeStore();
     renderPage(store);
