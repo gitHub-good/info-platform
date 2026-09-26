@@ -462,6 +462,9 @@ public class DailyReportService implements PlaceholderProvider {
             node.put("quote", event.quote());
             node.set("figures", figuresOf(event.figuresJson()));
             node.put("eventTime", event.eventTime() == null ? null : event.eventTime().toString());
+            // T163 trace-v1：来源名 + 原文外链（新报告起升 A 级；历史 content 无此两字段由前端判空降级）
+            node.put("sourceName", event.sourceName());
+            node.put("newsUrl", event.newsUrl());
         }
         content.put("disclaimer", DISCLAIMER);
         try {

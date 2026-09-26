@@ -94,6 +94,10 @@ class WeeklyReportRepositoryImplTest {
         assertThat(events.stream().map(DailyReportRepository.ReportEvent::eventId))
                 .as("周窗 [from, to] 事件主键归并（跨日去重天然成立，一行一主线）")
                 .containsExactlyInAnyOrder(9501L, 9502L);
+        // T163 trace-v1：join 补溯源字段——sourceName 取 info_source.name；news_item 无 url 行置 null
+        // （历史行降级语义，前端判空不渲染死链）
+        assertThat(events.get(0).sourceName()).isEqualTo("T145W源");
+        assertThat(events.get(0).newsUrl()).isNull();
     }
 
     private void seedEvent(long eventId, String eventDate) {

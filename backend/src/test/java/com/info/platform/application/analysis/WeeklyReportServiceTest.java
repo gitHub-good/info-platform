@@ -178,7 +178,9 @@ class WeeklyReportServiceTest {
                 importance,
                 "原文引用" + id,
                 "[]",
-                Instant.parse("2026-09-2" + (3 + (id % 5)) + "T02:00:00Z"));
+                Instant.parse("2026-09-2" + (3 + (id % 5)) + "T02:00:00Z"),
+                "周源" + id,
+                "https://example.com/w/" + (1000L + id));
     }
 
     private static LlmResponse llmResponse(String content) {
@@ -243,6 +245,13 @@ class WeeklyReportServiceTest {
         assertThat(content.path("topRisers").size()).isGreaterThan(0);
         assertThat(content.path("eventReview").size()).isEqualTo(4);
         assertThat(content.path("policyMoves").size()).isEqualTo(2); // 仅 POLICY_RELEASE
+        // T163 溯源增量：事件回顾/政策动向逐条带 sourceName + newsUrl（新报告起升 A 级）
+        assertThat(content.path("eventReview").get(0).path("sourceName").asText())
+                .isEqualTo("周源1");
+        assertThat(content.path("eventReview").get(0).path("newsUrl").asText())
+                .isEqualTo("https://example.com/w/1001");
+        assertThat(content.path("policyMoves").get(0).path("sourceName").asText()).isNotBlank();
+        assertThat(content.path("policyMoves").get(0).path("newsUrl").asText()).startsWith("https://");
         assertThat(content.path("nextWeekWatch").size()).isGreaterThan(0);
         JsonNode trend = content.path("trendJudgement");
         assertThat(trend.path("basis").asText()).isEqualTo("trend-v1");

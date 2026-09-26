@@ -78,15 +78,18 @@ public class DailyReportRepositoryImpl implements DailyReportRepository {
 
     private static final String FIND_EVENTS_SQL =
             """
-            SELECT id, news_id, event_type, summary, affected_industries, direction, importance,
-                   quote, key_figures, event_time
-              FROM event_item
-             WHERE event_date = ?
-             ORDER BY CASE importance
+            SELECT e.id, e.news_id, e.event_type, e.summary, e.affected_industries, e.direction,
+                   e.importance, e.quote, e.key_figures, e.event_time,
+                   ni.url AS news_url, s.name AS source_name
+              FROM event_item e
+              LEFT JOIN news_item ni ON ni.id = e.news_id
+              LEFT JOIN info_source s ON s.id = ni.source_id
+             WHERE e.event_date = ?
+             ORDER BY CASE e.importance
                         WHEN 'HIGH' THEN 3
                         WHEN 'MEDIUM' THEN 2
                         ELSE 1
-                      END DESC, id ASC
+                      END DESC, e.id ASC
              LIMIT ?
             """;
 
@@ -119,7 +122,9 @@ public class DailyReportRepositoryImpl implements DailyReportRepository {
                             Importance.fromName(rs.getString("importance")),
                             rs.getString("quote"),
                             rs.getString("key_figures"),
-                            nullableInstant(rs.getString("event_time")));
+                            nullableInstant(rs.getString("event_time")),
+                            rs.getString("source_name"),
+                            rs.getString("news_url"));
 
     /** RowMapper 静态上下文共享解码器（无状态；回读失败按空表降级——历史行损坏不阻断读）。 */
     private static final ObjectMapper MAPPER = new ObjectMapper();

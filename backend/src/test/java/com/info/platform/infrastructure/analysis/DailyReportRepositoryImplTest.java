@@ -245,6 +245,10 @@ class DailyReportRepositoryImplTest {
         assertThat(events.get(0).industries()).containsExactly("银行", "房地产");
         assertThat(events.get(0).figuresJson()).contains("100亿");
         assertThat(events.get(0).quote()).isEqualTo("引用");
+        // T163 trace-v1：join news_item/info_source 补溯源字段（与库内一致，A/B 级数据面）
+        assertThat(events.get(0).sourceName()).isEqualTo("t124_report");
+        assertThat(events.get(0).newsUrl())
+                .isEqualTo("https://example.com/n/" + "高重要事件载体".hashCode());
         // cap 生效
         assertThat(repository.findEventsByDate("2026-09-22", 2)).hasSize(2);
     }

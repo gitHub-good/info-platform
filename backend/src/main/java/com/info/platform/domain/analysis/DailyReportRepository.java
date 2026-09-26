@@ -51,8 +51,12 @@ public interface DailyReportRepository {
 
     /**
      * 事件精选投影（{@code event_item} 行；figures 线 JSON 由消费方解析，affected 已解析为枚举数组）。
+     * T163 trace-v1 溯源增量：sourceName/newsUrl 由查询 join news_item/info_source 补出（新报告
+     * content 升 A 级；历史行 null 由前端判空降级）。
      *
      * @param figuresJson key_figures 列原文（JSON 数组文本，可空）
+     * @param sourceName 资讯源名（join info_source.name，可空）
+     * @param newsUrl 原文外链（join news_item.url，可空）
      */
     record ReportEvent(
             long eventId,
@@ -64,5 +68,7 @@ public interface DailyReportRepository {
             Importance importance,
             String quote,
             String figuresJson,
-            Instant eventTime) {}
+            Instant eventTime,
+            String sourceName,
+            String newsUrl) {}
 }

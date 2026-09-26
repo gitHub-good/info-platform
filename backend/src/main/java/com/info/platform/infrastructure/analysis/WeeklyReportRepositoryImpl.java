@@ -61,15 +61,18 @@ public class WeeklyReportRepositoryImpl implements WeeklyReportRepository {
 
     private static final String FIND_EVENTS_BETWEEN_SQL =
             """
-            SELECT id, news_id, event_type, summary, affected_industries, direction, importance,
-                   quote, key_figures, event_time
-              FROM event_item
-             WHERE event_date >= ? AND event_date <= ?
-             ORDER BY CASE importance
+            SELECT e.id, e.news_id, e.event_type, e.summary, e.affected_industries, e.direction,
+                   e.importance, e.quote, e.key_figures, e.event_time,
+                   ni.url AS news_url, s.name AS source_name
+              FROM event_item e
+              LEFT JOIN news_item ni ON ni.id = e.news_id
+              LEFT JOIN info_source s ON s.id = ni.source_id
+             WHERE e.event_date >= ? AND e.event_date <= ?
+             ORDER BY CASE e.importance
                         WHEN 'HIGH' THEN 3
                         WHEN 'MEDIUM' THEN 2
                         ELSE 1
-                      END DESC, id ASC
+                      END DESC, e.id ASC
              LIMIT ?
             """;
 
@@ -100,7 +103,9 @@ public class WeeklyReportRepositoryImpl implements WeeklyReportRepository {
                             Importance.fromName(rs.getString("importance")),
                             rs.getString("quote"),
                             rs.getString("key_figures"),
-                            parseInstant(rs.getString("event_time")));
+                            parseInstant(rs.getString("event_time")),
+                            rs.getString("source_name"),
+                            rs.getString("news_url"));
 
     /** JSON 列解码器（无状态共享；回读失败按空表降级）。 */
     private static final ObjectMapper MAPPER = new ObjectMapper();

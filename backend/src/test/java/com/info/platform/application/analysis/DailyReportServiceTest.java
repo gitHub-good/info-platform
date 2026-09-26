@@ -147,7 +147,9 @@ class DailyReportServiceTest {
                 importance,
                 "原文引用" + eventId,
                 "[{\"label\":\"金额\",\"value\":\"100亿\",\"unit\":\"\"}]",
-                NOW);
+                NOW,
+                "源" + eventId,
+                "https://example.com/n/" + (eventId + 1000));
     }
 
     private void stubStats() {
@@ -276,13 +278,16 @@ class DailyReportServiceTest {
         assertThat(top.get(0).get("heatScore").asDouble()).isEqualTo(45.0);
         assertThat(top.get(0).get("commentary").asText()).contains("资金面");
         assertThat(top.get(0).get("refEventIds").toString()).contains("11");
-        // 事件精选：重要度降序 ≤10，含 quote/figures 可回溯
+        // 事件精选：重要度降序 ≤10，含 quote/figures 可回溯 + T163 sourceName/newsUrl 溯源增量
         JsonNode events = content.get("events");
         assertThat(events.size()).isEqualTo(2);
         assertThat(events.get(0).get("eventId").asLong()).isEqualTo(11L);
         assertThat(events.get(0).get("importance").asText()).isEqualTo("HIGH");
         assertThat(events.get(0).get("quote").asText()).isEqualTo("原文引用11");
         assertThat(events.get(0).get("figures").toString()).contains("100亿");
+        assertThat(events.get(0).get("sourceName").asText()).isEqualTo("源11");
+        assertThat(events.get(0).get("newsUrl").asText())
+                .isEqualTo("https://example.com/n/1011");
         // watchPoints 叙述保留
         assertThat(content.get("watchPoints").size()).isEqualTo(3);
         // heat_top 快照留存（生成时点 H24 榜）
