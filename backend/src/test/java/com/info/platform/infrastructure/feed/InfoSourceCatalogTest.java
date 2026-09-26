@@ -52,7 +52,10 @@ class InfoSourceCatalogTest {
                         "wsj_markets",
                         "netease_money",
                         "ifeng_finance",
-                        "jrj_home");
+                        "jrj_home",
+                        "nbd_news",
+                        "cnfin_flash",
+                        "cctv_economy");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -88,12 +91,12 @@ class InfoSourceCatalogTest {
                         "people_finance",
                         "nasdaq_markets",
                         "wsj_markets");
-        // 25 = 22 现役目录 + 批次三门户 3 席（T150）
-        assertThat(codes).hasSize(25);
+        // 28 = 22 现役目录 + 批次三门户 3 席（T150）+ 媒体 3 席（T151）
+        assertThat(codes).hasSize(28);
     }
 
     @Test
-    void presets_containsM18BatchThreePortalSources_channelsAndIntervalsPerReq() {
+    void presets_containsM18BatchThreeSources_channelsAndIntervalsPerReq() {
         // M18 T150 门户三源（REQ-20260926-15 拍板一 #1/#2/#6 + T153 预检终局，ADR-0055）：preset 通道 + 频控 15~30min
         // （REQ 门户频段）；金融界 www 根无参数路径合规注记（robots 仅禁搜索/翻页参数路径）
         var byCode =
@@ -101,8 +104,16 @@ class InfoSourceCatalogTest {
                         .collect(
                                 java.util.stream.Collectors.toMap(
                                         InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
-        assertThat(byCode).containsKeys("netease_money", "ifeng_finance", "jrj_home");
-        for (String code : new String[] {"netease_money", "ifeng_finance", "jrj_home"}) {
+        assertThat(byCode)
+                .containsKeys(
+                        "netease_money",
+                        "ifeng_finance",
+                        "jrj_home",
+                        "nbd_news",
+                        "cnfin_flash",
+                        "cctv_economy");
+        for (String code :
+                new String[] {"netease_money", "ifeng_finance", "jrj_home", "nbd_news", "cnfin_flash"}) {
             assertThat(byCode.get(code).adapterType())
                     .as("%s 通道", code)
                     .isEqualTo(AdapterType.PRESET);
@@ -112,6 +123,16 @@ class InfoSourceCatalogTest {
                     .as("%s cursorType", code)
                     .isEqualTo("NONE");
         }
+        // 央视走 jsonp 数据端点（jingji 首页客户端渲染壳，沿工信部检索 API 先例）
+        assertThat(byCode.get("cctv_economy").adapterType()).isEqualTo(AdapterType.JSON_API);
+        assertThat(byCode.get("cctv_economy").endpoint())
+                .contains("cmsdatainterface/page/economy_zixun_1.jsonp");
+        assertThat(byCode.get("cctv_economy").intervalMinutes()).isEqualTo(15);
+        assertThat(
+                        codec.parse(byCode.get("cctv_economy").configJson())
+                                .effectiveCursorType()
+                                .name())
+                .isEqualTo("NONE");
         // 金融界端点为无参数 www 根（robots 合规注记：仅禁搜索/翻页参数路径）
         assertThat(byCode.get("jrj_home").endpoint()).isEqualTo("https://www.jrj.com.cn/");
         assertThat(byCode.get("jrj_home").endpoint()).doesNotContain("?");
@@ -206,7 +227,9 @@ class InfoSourceCatalogTest {
                         "people_finance",
                         "netease_money",
                         "ifeng_finance",
-                        "jrj_home");
+                        "jrj_home",
+                        "nbd_news",
+                        "cnfin_flash");
         for (String code :
                 new String[] {
                     "ndrc_policy",

@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * 预置源目录（M13 T100，方案 §4.6/§3.4）：预置源<b>单一事实源</b>（对齐 SourceProviders/DataSourceDefaults 惯例）。
  *
- * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150 批次三门户三源入目录（T153 预检终局 ADR-0055，累计 25 预置）；M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
+ * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150/T151 批次三门户与媒体六源入目录（T153 预检终局 ADR-0055，累计 28 预置）；M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
  * 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集）。
  *
  * <p>合规预检留档（T106 复核）：MarketWatch robots 403 → RFC 9309 无 robots 即无限制（落地复核注记）；金十/新浪 7×24 无 robots。
@@ -571,6 +571,70 @@ public final class InfoSourceCatalog {
                     {"cursorType":"NONE"}""",
                     15);
 
+    /**
+     * 每日经济新闻首页（M18 T151，拍板一 #3）：预置 adapter（{@code nbdNewsAdapter}），首页
+     * /articles/{yyyy-MM-dd}/{id}.html 锚点 与 URL 内嵌日粒度墙钟口径见适配器类注释（2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p>robots：nbd robots 200 仅禁 js/css 与查询参数路径（文章列表不涉）。频控 15min（REQ 媒体频段下限）。
+     */
+    private static final PresetEntry NBD_NEWS =
+            new PresetEntry(
+                    "nbd_news",
+                    "每日经济新闻·要闻",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "nbdNewsAdapter",
+                    "https://www.nbd.com.cn/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    15);
+
+    /**
+     * 新华财经首页快讯块（M18 T151，拍板一 #4）：预置 adapter（{@code cnfinFlashAdapter}），首页「新华快讯」块（URL 日期 + 锚点 HH:mm
+     * 前缀拼合分钟精度墙钟）口径见适配器类注释（2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p>robots：cnfin robots（https 跟随后）200 全放行。频控 15min。
+     */
+    private static final PresetEntry CNFIN_FLASH =
+            new PresetEntry(
+                    "cnfin_flash",
+                    "新华财经·快讯",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "cnfinFlashAdapter",
+                    "https://www.cnfin.com/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    15);
+
+    /**
+     * 央视财经经济资讯（M18 T151，拍板一 #5）：json_api 通道走页面自身 jsonp 数据端点（jingji 首页客户端渲染壳，沿工信部检索 API 先例
+     * ADR-0053）：{@code economy_zixun({data:{list:[...]}})} 包装剥离 + {@code focus_date} 墙钟（2026-09-26
+     * 预检实测，ADR-0055）。
+     *
+     * <p>id 为 ARTI 段（非数值）→ cursorType=NONE；条目 80 条/轮（入库层 maxItems 缺省 50 截断）。robots：news.cctv.com
+     * robots 404 错误页 → 无 robots 文件。频控 15min。
+     */
+    private static final PresetEntry CCTV_ECONOMY =
+            new PresetEntry(
+                    "cctv_economy",
+                    "央视财经·经济",
+                    "媒体",
+                    AdapterType.JSON_API,
+                    null,
+                    "https://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/economy_zixun_1.jsonp",
+                    """
+                    {"stripPrefix":"economy_zixun(","stripSuffix":")",\
+                    "listPath":"data.list",\
+                    "itemMapping":[\
+                    {"source":"id","target":"externalId","transform":"to_string"},\
+                    {"source":"focus_date","target":"publishedAt","transform":"to_iso_datetime"},\
+                    {"source":"title","target":"title","transform":"to_string"},\
+                    {"source":"url","target":"url","transform":"to_string"}],\
+                    "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://jingji.cctv.com/"},\
+                    "cursorType":"NONE"}""",
+                    15);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(                MARKETWATCH,
@@ -597,6 +661,9 @@ public final class InfoSourceCatalog {
                 WSJ_MARKETS,
                 NETEASE_MONEY,
                 IFENG_FINANCE,
-                JRJ_HOME);
+                JRJ_HOME,
+                NBD_NEWS,
+                CNFIN_FLASH,
+                CCTV_ECONOMY);
     }
 }
