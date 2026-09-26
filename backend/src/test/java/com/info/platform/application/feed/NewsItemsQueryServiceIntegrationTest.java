@@ -6,6 +6,7 @@ import com.info.platform.domain.feed.AdapterType;
 import com.info.platform.domain.feed.FeedFingerprint;
 import com.info.platform.domain.feed.FeedItem;
 import com.info.platform.domain.feed.FeedItemRepository;
+import com.info.platform.domain.feed.FeedItemRepository.LibraryFilter;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.InfoSourceRepository;
 import java.time.Instant;
@@ -98,7 +99,9 @@ class NewsItemsQueryServiceIntegrationTest {
 
     @Test
     void listPaged_returnsTotalAndEcho() {
-        NewsItemsPagedView view = service.listPaged(sourceId, 1, 2);
+        // l0=null = 不过滤（T160 前口径不变——过滤参数缺省语义归控制器裁量，服务层只认显式过滤值）
+        NewsItemsPagedView view =
+                service.listPaged(new LibraryFilter(sourceId, null, null, null), 1, 2);
 
         assertThat(view.items()).hasSize(2);
         assertThat(view.total()).isEqualTo(3);
@@ -111,6 +114,7 @@ class NewsItemsQueryServiceIntegrationTest {
         jdbcTemplate.update("UPDATE info_source SET deleted = 1 WHERE id = ?", sourceId);
 
         assertThat(service.listCursor(null, null, 10).items()).isEmpty();
-        assertThat(service.listPaged(null, 1, 10).total()).isZero();
+        assertThat(service.listPaged(new LibraryFilter(null, null, null, null), 1, 10).total())
+                .isZero();
     }
 }

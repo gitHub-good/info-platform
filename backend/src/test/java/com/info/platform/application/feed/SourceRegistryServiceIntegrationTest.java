@@ -344,7 +344,7 @@ class SourceRegistryServiceIntegrationTest {
         assertThat(archived.enabled()).isFalse();
         // 历史条目保留但默认流排除（join deleted=0）
         assertThat(itemRepository.findLatest(created.id(), null, 10)).isEmpty();
-        assertThat(itemRepository.countByFilter(created.id())).isZero();
+        assertThat(itemRepository.countByFilter(unfiltered(created.id()))).isZero();
         // 预置种子源在分组中恒在（本断言只看本源）：软删后从全部 active 分组消失、出现在归档组
         InfoSourcesListView view = service.list();
         List<String> activeCodes =
@@ -496,7 +496,7 @@ class SourceRegistryServiceIntegrationTest {
         assertThat(result.sampleItems().get(0).title()).isEqualTo("样本一");
         assertThat(result.latencyMillis()).isNotNull();
         // 干跑不落库
-        assertThat(itemRepository.countByFilter(created.id())).isZero();
+        assertThat(itemRepository.countByFilter(unfiltered(created.id()))).isZero();
     }
 
     @Test
@@ -634,6 +634,11 @@ class SourceRegistryServiceIntegrationTest {
                 "作者",
                 publishedAt,
                 externalId);
+    }
+
+    /** 无过滤计数（T160 起 countByFilter 收 LibraryFilter；源过滤 + 其余维度不过滤 = 旧口径）。 */
+    private static FeedItemRepository.LibraryFilter unfiltered(Long sourceId) {
+        return new FeedItemRepository.LibraryFilter(sourceId, null, null, null);
     }
 
     private void persistItem(long sourceId, String externalId, String title, Instant publishedAt) {

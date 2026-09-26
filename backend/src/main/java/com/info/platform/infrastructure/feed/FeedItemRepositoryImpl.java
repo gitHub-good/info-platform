@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.feed;
 
+import com.info.platform.domain.analysis.L0Result;
 import com.info.platform.domain.feed.FeedItem;
 import com.info.platform.domain.feed.FeedItemRepository;
 import java.sql.ResultSet;
@@ -14,12 +15,18 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 /**
- * {@link FeedItemRepository} 端口的 SQLite 实现（M13 T104，ADR-0039）。
+ * {@link FeedItemRepository} 端口的 SQLite 实现（M13 T104，ADR-0039；T160 增资讯库读模型）。
  *
  * <p>批量落库走 {@link JdbcTemplate} {@code INSERT OR IGNORE}（MyBatis-Plus 无该语义，SubjectRepository 同惯例）——
  * idx_news_fp（全局指纹）与 idx_news_src_ext（源内 external_id，NULL 豁免）双索引同时兜底， 调度重入/补抓重拉/并发同稿均收敛，实插行数即返回值
  * （「应插 − 实插 = dup」对账口径）。 读路径默认 join info_source 排除软删源（历史行保留、默认流不可见）。 id DESC newest-first：id
  * 自增顺序即入库顺序，游标分页无需 OFFSET（LIMIT n）。
+ *
+ * <p><b>资讯库读模型（T160，REQ-20260926-16 拍板一）</b>：news_item 主锚 LEFT JOIN news_analysis（UNIQUE(news_id)
+ * 走索引）+ 近重复主条二次 LEFT JOIN news_item 取 url——单查询直查（页大小 ≤50，量级毫秒级）。索引评估留档：① q 关键词 {@code LIKE '%…%'}
+ * 前缀通配无法走索引（10 万级全扫毫秒可接受，抽查场景非高频主路径——REQ 非功能「性能」节裁量）； ② l0/l1 过滤不另建索引：分页恒由 ni.id DESC + LIMIT 驱动（id
+ * 自增即入库序），analysis 列经 join 后逐行判定， news_analysis 既有 UNIQUE(news_id)/idx_na_main 不需要新索引；③ 无 analysis
+ * 行按 PASS 兜底（l0=PASS 条件为 {@code na.news_id IS NULL OR na.l0_result='PASS'}，行映射同口径）。
  */
 @Repository
 public class FeedItemRepositoryImpl implements FeedItemRepository {
@@ -32,7 +39,22 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
-    private static final RowMapper<FeedItem> ITEM_ROW = FeedItemRepositoryImpl::toItem;
+    /** 资讯库读模型基座：软删源 join + analysis LEFT JOIN（1:1）+ 近重复主条 url 直查。 */
+    private static final String LIBRARY_SELECT_SQL =
+            """
+            SELECT ni.id, ni.source_id, ni.external_id, ni.title, ni.summary, ni.url, ni.author,
+                   ni.published_at, ni.fetched_at, ni.fingerprint, ni.status,
+                   ni.created_at, ni.updated_at,
+                   na.l0_result, na.l0_detail, na.main_category, na.confidence, na.low_confidence,
+                   na.near_dup_of AS near_dup_master_id, master.url AS near_dup_master_url
+              FROM news_item ni
+              JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
+              LEFT JOIN news_analysis na ON na.news_id = ni.id
+              LEFT JOIN news_item master ON master.id = na.near_dup_of
+             WHERE 1=1
+            """;
+
+    private static final RowMapper<LibraryRow> LIBRARY_ROW = FeedItemRepositoryImpl::toLibraryRow;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -82,36 +104,37 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
     }
 
     @Override
-    public List<FeedItem> findLatest(Long sourceId, Long beforeId, int limit) {
-        Query query = baseQuery();
+    public List<LibraryRow> findLatest(Long sourceId, Long beforeId, int limit) {
+        Query query = libraryQuery();
         applySourceFilter(query, sourceId);
         if (beforeId != null && beforeId > 0) {
             query.append(" AND ni.id < ?", beforeId);
         }
         query.appendRaw(" ORDER BY ni.id DESC LIMIT " + limit);
-        return jdbcTemplate.query(query.sql(), ITEM_ROW, query.args());
+        return jdbcTemplate.query(query.sql(), LIBRARY_ROW, query.args());
     }
 
     @Override
-    public List<FeedItem> findPage(Long sourceId, int page, int size) {
-        Query query = baseQuery();
-        applySourceFilter(query, sourceId);
+    public List<LibraryRow> findPage(LibraryFilter filter, int page, int size) {
+        Query query = libraryQuery();
+        applyLibraryFilter(query, filter);
         // LIMIT/OFFSET 从简（ADR-0035：页码上限下实测毫秒级）
         query.appendRaw(" ORDER BY ni.id DESC LIMIT " + size + " OFFSET " + (page - 1) * size);
-        return jdbcTemplate.query(query.sql(), ITEM_ROW, query.args());
+        return jdbcTemplate.query(query.sql(), LIBRARY_ROW, query.args());
     }
 
     @Override
-    public long countByFilter(Long sourceId) {
+    public long countByFilter(LibraryFilter filter) {
         Query query =
                 new Query(
                         """
                         SELECT COUNT(*)
                           FROM news_item ni
                           JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
+                          LEFT JOIN news_analysis na ON na.news_id = ni.id
                          WHERE 1=1
                         """);
-        applySourceFilter(query, sourceId);
+        applyLibraryFilter(query, filter);
         Long count = jdbcTemplate.queryForObject(query.sql(), Long.class, query.args());
         return count == null ? 0L : count;
     }
@@ -181,23 +204,50 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
                         });
     }
 
-    /** 列表查询基座（软删源 join + WHERE 1=1 起步，过滤片段顺序追加）。 */
-    private static Query baseQuery() {
-        return new Query(
-                """
-                SELECT ni.id, ni.source_id, ni.external_id, ni.title, ni.summary, ni.url, ni.author,
-                       ni.published_at, ni.fetched_at, ni.fingerprint, ni.status,
-                       ni.created_at, ni.updated_at
-                  FROM news_item ni
-                  JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
-                 WHERE 1=1
-                """);
+    /** 资讯库读模型查询基座（软删源 join + analysis/主条 LEFT JOIN + WHERE 1=1 起步，过滤片段顺序追加）。 */
+    private static Query libraryQuery() {
+        return new Query(LIBRARY_SELECT_SQL);
     }
 
     private static void applySourceFilter(Query query, Long sourceId) {
         if (sourceId != null) {
             query.append(" AND ni.source_id = ?", sourceId);
         }
+    }
+
+    /**
+     * 资讯库组合 WHERE 一处组装（sourceId + q LIKE + l0 状态 + l1 主分类，全 AND），{@link #findPage}/ {@link
+     * #countByFilter} 两用——页数据与计数同口径（M9 PolicyRepository 同惯例）。
+     */
+    private static void applyLibraryFilter(Query query, LibraryFilter filter) {
+        applySourceFilter(query, filter.sourceId());
+        if (filter.keyword() != null) {
+            // title 或 summary 任一命中（OR）；NULL LIKE 天然不命中（正确语义）
+            String pattern = likePattern(filter.keyword());
+            query.append(" AND (ni.title LIKE ? ESCAPE '\\'", pattern);
+            query.append(" OR ni.summary LIKE ? ESCAPE '\\')", pattern);
+        }
+        if (filter.l0() != null) {
+            if (filter.l0() == L0Result.PASS) {
+                // 无 analysis 行（保留期清理错位滞留条目）按 PASS 兜底展示（REQ 拍板一 join 语义注记）
+                query.appendRaw(" AND (na.news_id IS NULL OR na.l0_result = 'PASS')");
+            } else {
+                query.append(" AND na.l0_result = ?", filter.l0().name());
+            }
+        }
+        if (filter.mainCategory() != null) {
+            // main_category 仅 L1 DONE 有值：PENDING/FAILED/无 analysis 行自然不含（REQ 故事 2 场景 3）
+            query.append(" AND na.main_category = ?", filter.mainCategory());
+        }
+    }
+
+    /**
+     * LIKE 模式串：转义 {@code \ % _} 后包 % 通配（防用户输入通配符误当语义，M9/ADR-0035 先例—— PolicyRepository 同款）。
+     *
+     * <p>替换顺序必须先 {@code \}（否则后续引入的转义符会被二次转义）。
+     */
+    static String likePattern(String raw) {
+        return "%" + raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     /** 参数化查询组装小件（SQL 片段 + 顺序参数；appendRaw 仅用于本类受控 int 字面量）。 */
@@ -242,6 +292,24 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
                 rs.getInt("status"),
                 Instant.parse(rs.getString("created_at")),
                 Instant.parse(rs.getString("updated_at")));
+    }
+
+    /** 资讯库行映射：无 analysis 行（三列全 NULL）兜底 l0=PASS、分类 null（「未分类」由前端呈现）。 */
+    private static LibraryRow toLibraryRow(ResultSet rs, int rowNum) throws SQLException {
+        String l0Name = nullable(rs.getString("l0_result"));
+        Long masterId =
+                rs.getObject("near_dup_master_id") == null
+                        ? null
+                        : rs.getLong("near_dup_master_id");
+        return new LibraryRow(
+                toItem(rs, rowNum),
+                l0Name == null ? L0Result.PASS : L0Result.fromName(l0Name),
+                nullable(rs.getString("l0_detail")),
+                nullable(rs.getString("main_category")),
+                rs.getObject("confidence") == null ? null : rs.getDouble("confidence"),
+                rs.getObject("low_confidence") != null && rs.getInt("low_confidence") == 1,
+                masterId,
+                nullable(rs.getString("near_dup_master_url")));
     }
 
     private static String nullable(String value) {

@@ -6,6 +6,8 @@ import com.info.platform.domain.feed.AdapterType;
 import com.info.platform.domain.feed.FeedFingerprint;
 import com.info.platform.domain.feed.FeedItem;
 import com.info.platform.domain.feed.FeedItemRepository;
+import com.info.platform.domain.feed.FeedItemRepository.LibraryFilter;
+import com.info.platform.domain.feed.FeedItemRepository.LibraryRow;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.InfoSourceRepository;
 import java.time.Instant;
@@ -111,9 +113,9 @@ class FeedItemRepositoryImplTest {
         assertThat(inserted).isEqualTo(2);
         // dup 对账：应插 3 − 实插 2 = 1
         assertThat(batch.size() - inserted).isEqualTo(1);
-        // 首个入库者胜：e1 保留原标题
-        List<FeedItem> latest = itemRepository.findLatest(sourceA, null, 10);
-        assertThat(latest).extracting(FeedItem::title).containsExactly("标题二", "标题一");
+        // 首个入库者胜：e1 保留原标题（T160 起读模型为 LibraryRow，标题经 item() 取）
+        List<LibraryRow> latest = itemRepository.findLatest(sourceA, null, 10);
+        assertThat(latest).extracting(row -> row.item().title()).containsExactly("标题二", "标题一");
     }
 
     @Test
@@ -221,16 +223,16 @@ class FeedItemRepositoryImplTest {
                                 FeedFingerprint.fingerprint("新B", t))));
 
         // 全局 newest-first（id DESC）
-        List<FeedItem> all = itemRepository.findLatest(null, null, 10);
-        assertThat(all).extracting(FeedItem::title).containsExactly("新B", "新A", "旧");
+        List<LibraryRow> all = itemRepository.findLatest(null, null, 10);
+        assertThat(all).extracting(row -> row.item().title()).containsExactly("新B", "新A", "旧");
         // beforeId 续取
-        Long secondId = all.get(1).id();
+        Long secondId = all.get(1).item().id();
         assertThat(itemRepository.findLatest(null, secondId, 10))
-                .extracting(FeedItem::title)
+                .extracting(row -> row.item().title())
                 .containsExactly("旧");
         // 源过滤
         assertThat(itemRepository.findLatest(sourceA, null, 10))
-                .extracting(FeedItem::title)
+                .extracting(row -> row.item().title())
                 .containsExactly("新A", "旧");
     }
 
@@ -252,12 +254,17 @@ class FeedItemRepositoryImplTest {
                                     FeedFingerprint.fingerprint("第" + i + "条", t))));
         }
 
-        List<FeedItem> page2 = itemRepository.findPage(sourceA, 2, 2);
-        long total = itemRepository.countByFilter(sourceA);
+        List<LibraryRow> page2 = itemRepository.findPage(unfiltered(sourceA), 2, 2);
+        long total = itemRepository.countByFilter(unfiltered(sourceA));
 
         assertThat(total).isEqualTo(5);
-        assertThat(page2).extracting(FeedItem::title).containsExactly("第3条", "第2条");
-        assertThat(itemRepository.countByFilter(null)).isEqualTo(5);
+        assertThat(page2).extracting(row -> row.item().title()).containsExactly("第3条", "第2条");
+        assertThat(itemRepository.countByFilter(unfiltered(null))).isEqualTo(5);
+    }
+
+    /** 无过滤（源 + q/l0/l1 全空 = T160 前旧口径）。 */
+    private static LibraryFilter unfiltered(Long sourceId) {
+        return new LibraryFilter(sourceId, null, null, null);
     }
 
     @Test
@@ -289,10 +296,10 @@ class FeedItemRepositoryImplTest {
         jdbcTemplate.update("UPDATE info_source SET deleted = 1 WHERE id = ?", sourceB);
 
         assertThat(itemRepository.findLatest(null, null, 10))
-                .extracting(FeedItem::title)
+                .extracting(row -> row.item().title())
                 .containsExactly("保留条目");
-        assertThat(itemRepository.countByFilter(null)).isEqualTo(1);
-        assertThat(itemRepository.findPage(null, 1, 10)).hasSize(1);
+        assertThat(itemRepository.countByFilter(unfiltered(null))).isEqualTo(1);
+        assertThat(itemRepository.findPage(unfiltered(null), 1, 10)).hasSize(1);
         // 行未物理删除（历史数据保留语义）
         Integer rows =
                 jdbcTemplate.queryForObject(
