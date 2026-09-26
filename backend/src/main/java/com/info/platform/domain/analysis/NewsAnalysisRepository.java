@@ -149,15 +149,30 @@ public interface NewsAnalysisRepository {
     /** 当日净入库资讯条数（news_item.created_at ≥ 下界；校准值分母，T125）。 */
     long countNewsItemsCreatedSince(String createdSinceIso);
 
+    /**
+     * OBS-04 一次性归位（M16 T130，方案 §4.2）：{@code l2_status='EXTRACTED'} 但 {@code event_item} 无对应行的孤儿
+     * 留痕行（BUG-01 处置残留）回置 {@code FAILED}——l2_attempts 留痕不动（未满上限的行由后续 L2 重扫窗口自然补提取）。
+     *
+     * @return 归位行数（一次性修正；无孤儿返回 0）
+     */
+    int failOrphanExtractedRows();
+
     /** T+30min 口径计数（status 端点 l1RateIn30min 数据面）。 */
     record L1SlaStats(long done, long within30Min) {}
 
-    /** L0/近重复候选条目（news_item 投影：标题/摘要/发布时间是两段判定的全部输入）。 */
+    /**
+     * L0/近重复候选条目（news_item 投影：标题/摘要/发布时间是两段判定的全部输入）。
+     *
+     * @param externalId news_item.external_id（BUG-03 序列豁免信号①：含 # 的分卷编号，T130）
+     * @param sourceCategory 源类别（PIPELINE_EXPRESS 重要性预筛分的源权重输入，M16 T131；常规 L0 不消费）
+     */
     record NewsCandidate(
             long newsId,
             long sourceId,
+            String externalId,
             String title,
             String summary,
+            String sourceCategory,
             Instant publishedAt,
             Instant createdAt) {}
 

@@ -60,7 +60,7 @@ public class L0PrefilterService {
                                 AiExclusion.ALL), // 不建 analysis 行（REQ 拍板五-1）
                         PipelineSettings.L0_INTAKE_CAP_PER_TICK);
         if (candidates.isEmpty()) {
-            return new L0Report(0, 0, 0);
+            return new L0Report(0, 0, 0, 0);
         }
         List<NewsAnalysisRepository.NewsCandidate> pool =
                 repository.findPassPoolSince(
@@ -119,21 +119,38 @@ public class L0PrefilterService {
         int pass = 0;
         int noise = 0;
         int nearDup = 0;
+        int seqExempt = 0;
         for (NewsAnalysis row : rows) {
             switch (row.getL0Result()) {
-                case PASS -> pass++;
+                case PASS -> {
+                    pass++;
+                    if (row.getL0Detail() != null
+                            && row.getL0Detail().startsWith(SEQ_EXEMPT_DETAIL_PREFIX)) {
+                        seqExempt++;
+                    }
+                }
                 case NOISE -> noise++;
                 case NEAR_DUP -> nearDup++;
             }
         }
-        return new L0Report(pass, noise, nearDup);
+        return new L0Report(pass, noise, nearDup, seqExempt);
     }
 
-    /** 一轮 L0 计数（JobRunStats 段式明细数据面，ADR-0036 通道）。 */
-    public record L0Report(int pass, int noise, int nearDup) {
+    /** 序列豁免留痕前缀（l0_detail = seq-exempt:# / seq-exempt:monthly，T130 BUG-03）。 */
+    static final String SEQ_EXEMPT_DETAIL_PREFIX = "seq-exempt:";
+
+    /** 一轮 L0 计数（JobRunStats 段式明细数据面，ADR-0036 通道；seq_exempt 为 PASS 内序列豁免子计数）。 */
+    public record L0Report(int pass, int noise, int nearDup, int seqExempt) {
+
+        /** 便捷构造（无序列豁免条目——既有调用点兼容，T130 前语义等价）。 */
+        public L0Report(int pass, int noise, int nearDup) {
+            this(pass, noise, nearDup, 0);
+        }
 
         public String detail() {
-            return "l0=pass:" + pass + "; noise:" + noise + "; near_dup:" + nearDup;
+            String base = "l0=pass:" + pass + "; noise:" + noise + "; near_dup:" + nearDup;
+            // 序列豁免计数仅非零时附加（既有 tick 明细串零变化——回归红线）
+            return seqExempt > 0 ? base + "; seq_exempt:" + seqExempt : base;
         }
     }
 }

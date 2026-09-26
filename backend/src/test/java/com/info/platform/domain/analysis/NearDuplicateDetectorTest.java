@@ -20,8 +20,19 @@ class NearDuplicateDetectorTest {
     private final NearDuplicateDetector detector = new NearDuplicateDetector();
 
     private static NewsCandidate item(long id, String title, int plusMinutes) {
+        return item(id, null, title, plusMinutes);
+    }
+
+    private static NewsCandidate item(long id, String externalId, String title, int plusMinutes) {
         return new NewsCandidate(
-                id, 1L, title, "摘要", BASE.plusSeconds(plusMinutes * 60L), BASE.plusSeconds(600));
+                id,
+                1L,
+                externalId,
+                title,
+                "摘要",
+                null,
+                BASE.plusSeconds(plusMinutes * 60L),
+                BASE.plusSeconds(600));
     }
 
     // ---- simhash / 距离原语 ----
@@ -237,5 +248,77 @@ class NearDuplicateDetectorTest {
     @Test
     void evaluate_emptyInputs_emptyVerdicts() {
         assertThat(detector.evaluate(List.of(), List.of(), DupParams.DEFAULTS)).isEmpty();
+    }
+
+    // ---- T130 · BUG-03 序列豁免（M15 测试报告 P2：CPI 月度序列 19 条被误并；M16 方案 §4.2）----
+
+    @Test
+    void evaluate_monthlySeriesTitles_neverMarkedNearDup() {
+        // BUG-03 回归（修前红）：CPI 月度序列标题逐月仅数字不同，双段判定下后到月份被误并 NEAR_DUP——
+        // 序列豁免后两条各自 PASS（19 条恢复各自 L1 归类与 L2 事件资格）
+        NewsCandidate aug = item(101, "CPI：2026年08月份 同比 0.8%", 0);
+        NewsCandidate sep = item(102, "CPI：2026年09月份 同比 0.7%", 5);
+
+        List<Verdict> verdicts =
+                detector.evaluate(List.of(), List.of(aug, sep), DupParams.DEFAULTS);
+
+        assertThat(verdicts).hasSize(2);
+        assertThat(verdicts.get(0).result()).isEqualTo(L0Result.PASS);
+        assertThat(verdicts.get(1).result())
+                .as("月度序列条目永不标记 NEAR_DUP（BUG-03 豁免）")
+                .isEqualTo(L0Result.PASS);
+        assertThat(verdicts.get(1).nearDupOf()).isNull();
+    }
+
+    @Test
+    void evaluate_nonSeriesNearDuplicate_stillMerged_regression() {
+        // 回归红线：豁免只作用于两类强序列信号，普通近重复照并（既有语义零变化）
+        NewsCandidate a = item(301, "某公司公告回购股份计划提振市场信心", 0);
+        NewsCandidate b = item(302, "某公司公告回购股份计划提振市场信心", 5);
+
+        List<Verdict> verdicts = detector.evaluate(List.of(), List.of(a, b), DupParams.DEFAULTS);
+
+        assertThat(verdicts.get(1).result()).isEqualTo(L0Result.NEAR_DUP);
+        assertThat(verdicts.get(1).nearDupOf()).isEqualTo(301L);
+    }
+
+    @Test
+    void evaluate_volumeMarkedExternalId_exemptWithDetailToken() {
+        // 谓词①：externalId 含 #（标题无月度模式）→ PASS + seq-exempt:# 留痕
+        NewsCandidate marked = item(401, "RPT_ECONOMY_CPI#2026-08-01", "全国居民消费价格指数发布", 0);
+        NewsCandidate later = item(402, "全国居民消费价格指数发布", 3);
+
+        List<Verdict> verdicts =
+                detector.evaluate(List.of(), List.of(marked, later), DupParams.DEFAULTS);
+
+        assertThat(verdicts.get(0).result()).isEqualTo(L0Result.PASS);
+        assertThat(verdicts.get(0).detail()).isEqualTo("seq-exempt:#");
+        // 豁免条目仍入池作主条候选：无 # 的真同稿照常引用之（方案 §4.2「真同稿可引用之」）
+        assertThat(verdicts.get(1).result()).isEqualTo(L0Result.NEAR_DUP);
+        assertThat(verdicts.get(1).nearDupOf()).isEqualTo(401L);
+    }
+
+    @Test
+    void evaluate_monthlyExemptCarriesMonthlyDetailToken() {
+        NewsCandidate monthly = item(501, "CPI：2026年08月份 同比 0.8%", 0);
+
+        List<Verdict> verdicts = detector.evaluate(List.of(), List.of(monthly), DupParams.DEFAULTS);
+
+        assertThat(verdicts.get(0).result()).isEqualTo(L0Result.PASS);
+        assertThat(verdicts.get(0).detail()).isEqualTo("seq-exempt:monthly");
+        assertThat(verdicts.get(0).nearDupOf()).isNull();
+    }
+
+    @Test
+    void evaluate_exemptCandidateVersusPoolMain_stillPass() {
+        // 池内已有相似主条，豁免候选到达 → 不并（豁免条目永不作为被并方）
+        NewsCandidate poolMain = item(10, "PMI：2026年08月份 制造业指数 49.8", 0);
+        NewsCandidate incoming = item(11, "PMI：2026年09月份 制造业指数 49.6", 10);
+
+        List<Verdict> verdicts =
+                detector.evaluate(List.of(poolMain), List.of(incoming), DupParams.DEFAULTS);
+
+        assertThat(verdicts.get(0).result()).isEqualTo(L0Result.PASS);
+        assertThat(verdicts.get(0).detail()).isEqualTo("seq-exempt:monthly");
     }
 }

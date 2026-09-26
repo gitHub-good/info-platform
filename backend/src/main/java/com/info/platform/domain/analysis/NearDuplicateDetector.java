@@ -9,7 +9,8 @@ import java.util.List;
  *
  * <p>双段确认：simhash64（标题字元 bigram 加权投票指纹）海明距离预筛（缺省 ≤18——20~60 字 CJK 标题实测「同稿系 ≤16 vs 无关对
  * ≥21」中分，ADR-0047）→ 归一化编辑距离 ≤0.25 确认，且双标题长度均 ≥8（超短标题误并风险高，直接豁免）。主条语义：按 {@code published_at, id}
- * 升序处理，先到者为 PASS 主条，后到相似条 NEAR_DUP 引用之（同刻取 id 小者 = 升序排序天然保证）。 跨语言同稿不合并（如实标注边界，方案 §8）。
+ * 升序处理，先到者为 PASS 主条，后到相似条 NEAR_DUP 引用之（同刻取 id 小者 = 升序排序天然保证）。 跨语言同稿不合并（如实标注边界，方案 §8）。 序列豁免（M16 T130
+ * BUG-03）：{@link SequenceExemptRule} 命中的条目永不作为被并方（PASS 入池作主条候选，真同稿可引用之）。
  *
  * <p>量级：新批 ≤200 条 × 24h 池 ≤700 条海明比较（long 位运算）+ 通过预筛的少量编辑距离（O(60²)），毫秒级。
  */
@@ -90,10 +91,15 @@ public final class NearDuplicateDetector {
         return verdicts;
     }
 
-    /** 单条判定：超短豁免 → 海明预筛 → 编辑距离确认（首命中 = 池内最早相似主条）。 */
+    /** 单条判定：序列豁免（BUG-03）→ 超短豁免 → 海明预筛 → 编辑距离确认（首命中 = 池内最早相似主条）。 */
     private static Verdict judge(
             NewsCandidate item, List<Fingerprinted> candidates, DupParams params) {
         String title = item.title() == null ? "" : item.title();
+        // 序列豁免（T130 BUG-03）：externalId 含 # 或月度标题模式 → 永不作为被并方（仍 PASS 入池作主条候选）
+        String exemptToken = SequenceExemptRule.exemptToken(item.externalId(), title);
+        if (exemptToken != null) {
+            return new Verdict(item.newsId(), L0Result.PASS, null, exemptToken);
+        }
         long fingerprint = Fingerprinted.fingerprintOf(title);
         for (Fingerprinted candidate : candidates) {
             if (title.length() < params.minTitleLength()

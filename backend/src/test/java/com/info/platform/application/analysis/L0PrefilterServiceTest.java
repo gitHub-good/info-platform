@@ -57,8 +57,20 @@ class L0PrefilterServiceTest {
 
     private static NewsAnalysisRepository.NewsCandidate candidate(
             long id, String title, String summary) {
+        return candidate(id, null, title, summary);
+    }
+
+    private static NewsAnalysisRepository.NewsCandidate candidate(
+            long id, String externalId, String title, String summary) {
         return new NewsAnalysisRepository.NewsCandidate(
-                id, 1L, title, summary, NOW.minusSeconds(300), NOW.minusSeconds(120));
+                id,
+                1L,
+                externalId,
+                title,
+                summary,
+                null,
+                NOW.minusSeconds(300),
+                NOW.minusSeconds(120));
     }
 
     @Test
@@ -159,6 +171,76 @@ class L0PrefilterServiceTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> NewsAnalysis.newForL0(1L, L0Result.PASS, 9L, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ---- T130 · BUG-03 序列豁免（M16 方案 §4.2：月度序列条目永不标 NEAR_DUP，恢复事件源） ----
+
+    @Test
+    void run_monthlySeriesCandidates_allPassNoNearDup() {
+        // 修前红：CPI 月度序列两条仅月份数字不同——当前实现后到者 NEAR_DUP；豁免后全 PASS
+        when(repository.findUnanalyzed(anyString(), anyList(), anyInt()))
+                .thenReturn(
+                        List.of(
+                                candidate(41, "CPI：2026年08月份 同比 0.8%", "宏观"),
+                                candidate(42, "CPI：2026年09月份 同比 0.7%", "宏观")));
+        when(repository.findPassPoolSince(anyString(), anyInt())).thenReturn(List.of());
+
+        // Act
+        L0PrefilterService.L0Report report = service.run();
+
+        // Assert
+        assertThat(report.pass()).isEqualTo(2);
+        assertThat(report.nearDup()).as("月度序列条目豁免近重复（BUG-03）").isZero();
+        ArgumentCaptor<List<NewsAnalysis>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).insertIgnoreBatch(captor.capture());
+        for (NewsAnalysis row : captor.getValue()) {
+            assertThat(row.getL0Result()).isEqualTo(L0Result.PASS);
+            assertThat(row.getNearDupOf()).isNull();
+        }
+    }
+
+    @Test
+    void run_nonSeriesDuplicate_stillNearDup_regression() {
+        // 回归红线：普通近重复照常合并（豁免不外溢）
+        when(repository.findUnanalyzed(anyString(), anyList(), anyInt()))
+                .thenReturn(
+                        List.of(
+                                candidate(51, "美元兑日元USD/JPY日内下跌1.00%", "摘要"),
+                                candidate(52, "【快讯】美元兑日元USD/JPY日内下跌1.00%", "摘要")));
+        when(repository.findPassPoolSince(anyString(), anyInt())).thenReturn(List.of());
+
+        // Act
+        L0PrefilterService.L0Report report = service.run();
+
+        // Assert
+        assertThat(report.nearDup()).isEqualTo(1);
+    }
+
+    @Test
+    void run_exemptCandidates_carrySeqExemptDetailAndCount() {
+        // Arrange：# 标记条 + 月度标题条 + 普通条——豁免留痕 token 落 l0_detail，tick 明细计数 seq_exempt=2
+        when(repository.findUnanalyzed(anyString(), anyList(), anyInt()))
+                .thenReturn(
+                        List.of(
+                                candidate(61, "RPT_ECONOMY_CPI#2026-08-01", "居民消费价格指数发布", "宏观"),
+                                candidate(62, null, "PPI：2026年08月份 同比下降 1.2%", "宏观"),
+                                candidate(63, null, "贵州茅台发布半年度业绩预告", "公司")));
+        when(repository.findPassPoolSince(anyString(), anyInt())).thenReturn(List.of());
+
+        // Act
+        L0PrefilterService.L0Report report = service.run();
+
+        // Assert
+        assertThat(report.pass()).isEqualTo(3);
+        assertThat(report.seqExempt()).isEqualTo(2);
+        assertThat(report.detail()).isEqualTo("l0=pass:3; noise:0; near_dup:0; seq_exempt:2");
+        ArgumentCaptor<List<NewsAnalysis>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).insertIgnoreBatch(captor.capture());
+        Map<Long, NewsAnalysis> byNewsId = new java.util.HashMap<>();
+        captor.getValue().forEach(row -> byNewsId.put(row.getNewsId(), row));
+        assertThat(byNewsId.get(61L).getL0Detail()).isEqualTo("seq-exempt:#");
+        assertThat(byNewsId.get(62L).getL0Detail()).isEqualTo("seq-exempt:monthly");
+        assertThat(byNewsId.get(63L).getL0Detail()).isNull();
     }
 
     // ---- T125：aiExclusion=ALL 源条目不建 analysis 行（REQ 拍板五-1 两分支之 ALL） ----

@@ -60,6 +60,11 @@ class PipelineGuardServiceTest {
         }
 
         @Override
+        public int failOrphanExtractedRows() {
+            return 0; // OBS-04 一次性归位（T130）——护栏测试不消费
+        }
+
+        @Override
         public int insertIgnoreBatch(List<com.info.platform.domain.analysis.NewsAnalysis> rows) {
             return 0;
         }

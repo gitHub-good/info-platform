@@ -52,8 +52,10 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
                     new NewsAnalysisRepository.NewsCandidate(
                             rs.getLong("news_id"),
                             rs.getLong("source_id"),
+                            nullable(rs.getString("external_id")),
                             rs.getString("title"),
                             nullable(rs.getString("summary")),
+                            nullable(rs.getString("source_category")),
                             Instant.parse(rs.getString("published_at")),
                             Instant.parse(rs.getString("created_at")));
 
@@ -116,11 +118,13 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
     public List<NewsAnalysisRepository.NewsCandidate> findUnanalyzed(
             String createdBeforeIso, List<Long> excludeSourceIds, int limit) {
         // LEFT JOIN 取「入库已过缓冲期仍无 analysis 行」条目；published_at,id 升序 = 近重复主条判定的时间序前提；
-        // aiExclusion=ALL 源不建行（T125，REQ 拍板五-1）
+        // aiExclusion=ALL 源不建行（T125，REQ 拍板五-1）；external_id/source_category = T130 序列豁免与
+        // T131 express 预筛分输入
         StringBuilder sql =
                 new StringBuilder(
                         """
-                        SELECT ni.id AS news_id, ni.source_id, ni.title, ni.summary, ni.published_at, ni.created_at
+                        SELECT ni.id AS news_id, ni.source_id, ni.external_id, ni.title, ni.summary,
+                               s.category AS source_category, ni.published_at, ni.created_at
                           FROM news_item ni
                           JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
                           LEFT JOIN news_analysis na ON na.news_id = ni.id
@@ -139,9 +143,11 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
             String publishedSinceIso, int limit) {
         String sql =
                 """
-                SELECT ni.id AS news_id, ni.source_id, ni.title, ni.summary, ni.published_at, ni.created_at
+                SELECT ni.id AS news_id, ni.source_id, ni.external_id, ni.title, ni.summary,
+                       s.category AS source_category, ni.published_at, ni.created_at
                   FROM news_analysis na
                   JOIN news_item ni ON ni.id = na.news_id
+                  JOIN info_source s ON s.id = ni.source_id
                  WHERE na.l0_result = 'PASS' AND ni.published_at >= ?
                  ORDER BY ni.published_at ASC, ni.id ASC
                  LIMIT ?
@@ -423,6 +429,21 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
                         Long.class,
                         createdSinceIso);
         return count == null ? 0 : count;
+    }
+
+    private static final String FAIL_ORPHAN_EXTRACTED_SQL =
+            """
+            UPDATE news_analysis
+               SET l2_status = 'FAILED', updated_at = ?
+             WHERE l2_status = 'EXTRACTED'
+               AND news_id NOT IN (SELECT news_id FROM event_item)
+            """;
+
+    @Override
+    public int failOrphanExtractedRows() {
+        // OBS-04（M16 T130 方案 §4.2）：孤儿 EXTRACTED 行回置 FAILED（attempts 留痕不动；
+        // 未满上限的行重进 L2 候选重扫窗口自然补提取）
+        return jdbcTemplate.update(FAIL_ORPHAN_EXTRACTED_SQL, Instant.now().toString());
     }
 
     private Map<String, Long> countByColumnValue(String column, String createdSinceIso) {
