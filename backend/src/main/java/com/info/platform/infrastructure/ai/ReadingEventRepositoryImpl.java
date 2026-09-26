@@ -64,6 +64,26 @@ public class ReadingEventRepositoryImpl implements ReadingEventRepository {
         return toEntities(mapper.selectList(wrapper));
     }
 
+    @Override
+    public long countDistinctRefBetween(
+            long userId, ReadingEventType contentType, Instant since, Instant until) {
+        // T134 采纳统计 adopt-v1：窗口内 distinct contentRef 计数（同卡多动作去重计 1）。
+        // LambdaQueryWrapper 不支持 DISTINCT 聚合列——走 QueryWrapper 原生 select +
+        // selectObjs（SubjectRepositoryImpl 先例）
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ReadingEventPO> wrapper =
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ReadingEventPO>()
+                        .select("COUNT(DISTINCT content_ref)")
+                        .eq("user_id", userId)
+                        .eq("content_type", contentType.persistentName())
+                        .ge("created_at", since.toString())
+                        .lt("created_at", until.toString());
+        List<Object> rows = mapper.selectObjs(wrapper);
+        if (rows.isEmpty() || rows.get(0) == null) {
+            return 0;
+        }
+        return ((Number) rows.get(0)).longValue();
+    }
+
     private static List<ReadingEvent> toEntities(List<ReadingEventPO> pos) {
         if (pos == null || pos.isEmpty()) {
             return Collections.emptyList();

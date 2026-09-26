@@ -76,4 +76,10 @@ public interface PushRepository {
      * @param createdSince 创建时间下限（早于此的 PENDING 不再入选，通常 now - 保留期）
      */
     List<PushRecord> findPending(int limit, Instant createdSince);
+
+    /**
+     * 当日窗口内该类型已送达计数（T134 采纳统计 adopt-v1 曝光①：{@code status=SUCCESS 且 pushed_at ∈ [since, until)}， M16
+     * 方案 §4.7——推荐卡推送送达口径；SILENT 未送达不计）。
+     */
+    long countDeliveredBetween(long userId, PushType type, Instant since, Instant until);
 }

@@ -9,8 +9,12 @@ package com.info.platform.domain.ai;
  *   <li>{@link #SUBJECT_DETAIL}：标的详情聚合页（contentRef=标的代码如 SH600519）。
  *   <li>{@link #POLICY}：政策时事详情（contentRef=政策 id）。
  *   <li>{@link #AI_BRIEF}：AI 简报阅读（contentRef=简报 taskId）。
- *   <li>{@link #FEED}：个人信息流「点原文」阅读（contentRef=FeedItem 稳定 contentId，REQ-20260925-08 / ADR-0019
+ *   <li>{@link #FEED}：信息流「点原文」阅读（contentRef=FeedItem 稳定 contentId，REQ-20260925-08 / ADR-0019
  *       解除延后；带标的关联的条目经 subjectCode 解析计入画像，同权口径）。
+ *   <li>{@link #RECOMMENDATION_VIEW}：推荐卡片视口曝光（M16 T134，contentRef=recommendation_card.id）—— 采纳统计
+ *       adopt-v1 曝光②口径（§4.7），前端推荐中心页埋点。
+ *   <li>{@link #RECOMMENDATION_ACT}：推荐采纳动作（M16 T134，contentRef=recommendation_card.id）—— 与
+ *       card.adopted 条件置位同点写入（读/有用/加自选先置位成功再落 ACT，§4.7 对账恒等断言）； subjectId 经标的区首标的解析（USEFUL 画像回流）。
  * </ul>
  */
 public enum ReadingEventType {
@@ -21,7 +25,11 @@ public enum ReadingEventType {
     /** AI 简报阅读。 */
     AI_BRIEF,
     /** 信息流「点原文」阅读（contentRef=条目稳定 contentId，非合成游标 id）。 */
-    FEED;
+    FEED,
+    /** 推荐卡片视口曝光（contentRef=recommendation_card.id，M16 采纳统计曝光②）。 */
+    RECOMMENDATION_VIEW,
+    /** 推荐采纳动作（contentRef=recommendation_card.id，与 adopted 置位同点写入，M16）。 */
+    RECOMMENDATION_ACT;
 
     /** 持久化用枚举名（与 DDL content_type TEXT 一致）。 */
     public String persistentName() {

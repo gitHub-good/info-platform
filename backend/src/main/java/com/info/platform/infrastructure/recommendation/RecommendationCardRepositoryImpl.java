@@ -99,6 +99,28 @@ public class RecommendationCardRepositoryImpl implements RecommendationCardRepos
              WHERE id = ? AND push_status = 'PENDING'
             """;
 
+    /** 条件置采纳（T134 §4.7：仅 adopted=0 行命中——首置语义，ACT 同点写入的对账基础）。 */
+    private static final String MARK_ADOPTED_SQL =
+            """
+            UPDATE recommendation_card
+               SET adopted = 1, updated_at = ?
+             WHERE id = ? AND adopted = 0
+            """;
+
+    private static final String MARK_READ_SQL =
+            """
+            UPDATE recommendation_card
+               SET read = 1, updated_at = ?
+             WHERE id = ? AND read = 0
+            """;
+
+    private static final String UPDATE_SUBJECTS_SQL =
+            """
+            UPDATE recommendation_card
+               SET subjects = ?, updated_at = ?
+             WHERE id = ?
+            """;
+
     private static final String FIND_BY_ID_SQL =
             """
             SELECT id, user_id, event_id, news_id, event_type, importance, direction, level,
@@ -230,6 +252,25 @@ public class RecommendationCardRepositoryImpl implements RecommendationCardRepos
     public int markSkipped(long cardId, CardPushStatus target) {
         String now = java.time.Instant.now().toString();
         return jdbcTemplate.update(MARK_SKIPPED_SQL, target.name(), now, cardId);
+    }
+
+    @Override
+    public int markAdopted(long cardId) {
+        return jdbcTemplate.update(MARK_ADOPTED_SQL, java.time.Instant.now().toString(), cardId);
+    }
+
+    @Override
+    public int markRead(long cardId) {
+        return jdbcTemplate.update(MARK_READ_SQL, java.time.Instant.now().toString(), cardId);
+    }
+
+    @Override
+    public int updateSubjects(long cardId, List<RecommendationCard.CardSubject> subjects) {
+        return jdbcTemplate.update(
+                UPDATE_SUBJECTS_SQL,
+                writeJson(subjects == null ? List.of() : subjects),
+                java.time.Instant.now().toString(),
+                cardId);
     }
 
     @Override

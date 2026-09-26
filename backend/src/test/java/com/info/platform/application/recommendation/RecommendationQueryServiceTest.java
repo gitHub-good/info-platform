@@ -7,8 +7,11 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.info.platform.domain.ai.ReadingEventRepository;
+import com.info.platform.domain.ai.ReadingEventType;
 import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventItem;
 import com.info.platform.domain.analysis.EventItemRepository;
@@ -16,26 +19,31 @@ import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import com.info.platform.domain.push.PushRepository;
+import com.info.platform.domain.push.PushType;
 import com.info.platform.domain.recommendation.CardGenMethod;
 import com.info.platform.domain.recommendation.CardPushStatus;
+import com.info.platform.domain.recommendation.FeedbackAction;
 import com.info.platform.domain.recommendation.MuteStatus;
 import com.info.platform.domain.recommendation.RecLevel;
 import com.info.platform.domain.recommendation.RecommendationCard;
 import com.info.platform.domain.recommendation.RecommendationCardRepository;
+import com.info.platform.domain.recommendation.RecommendationFeedbackRepository;
 import com.info.platform.domain.recommendation.RecommendationMute;
 import com.info.platform.domain.recommendation.RecommendationMuteRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * 推荐中心读服务单测（T133，方案 §4.8）：四维筛选解析（level/eventType/direction/read，非法 → 30082 字段级）、limit 缺省
- * 20/越界拒绝、游标续页与尾页 null、卡片视图 join 组装（event+news 大字段直出/缺事件防御）、muted 现查、详情 owner 行级权限与 logicInputs
- * 透出、30080 语义。
+ * 推荐中心读服务单测（T133 → T134 扩 stats/feedbackAction）：四维筛选解析（level/eventType/direction/read，非法 → 30082
+ * 字段级）、limit 缺省 20/越界拒绝、游标续页与尾页 null、卡片视图 join 组装（event+news 大字段直出/缺事件防御）、muted 现查、feedbackAction
+ * 操作条回显（T134）、 详情 owner 行级权限与 logicInputs 透出、30080 语义、stats adopt-v1 三口径算术与日期窗口（T134，方案 §4.7）。
  */
 class RecommendationQueryServiceTest {
 
@@ -49,6 +57,12 @@ class RecommendationQueryServiceTest {
 
     private RecommendationMuteRepository muteRepository;
 
+    private PushRepository pushRepository;
+
+    private ReadingEventRepository readingEventRepository;
+
+    private RecommendationFeedbackRepository feedbackRepository;
+
     private RecommendationQueryService service;
 
     @BeforeEach
@@ -56,15 +70,25 @@ class RecommendationQueryServiceTest {
         cardRepository = mock(RecommendationCardRepository.class);
         eventRepository = mock(EventItemRepository.class);
         muteRepository = mock(RecommendationMuteRepository.class);
+        pushRepository = mock(PushRepository.class);
+        readingEventRepository = mock(ReadingEventRepository.class);
+        feedbackRepository = mock(RecommendationFeedbackRepository.class);
         service =
                 new RecommendationQueryService(
                         cardRepository,
                         eventRepository,
                         muteRepository,
+                        pushRepository,
+                        readingEventRepository,
+                        feedbackRepository,
                         Clock.fixed(NOW, ZoneOffset.UTC));
         when(muteRepository.findActiveByUserAndCombo(anyLong(), any()))
                 .thenReturn(Optional.empty());
         when(eventRepository.findStreamItemsByIds(anyList())).thenReturn(List.of());
+        when(feedbackRepository.findLatestActionsByCardIds(anyList())).thenReturn(Map.of());
+        when(pushRepository.countDeliveredBetween(anyLong(), any(), any(), any())).thenReturn(0L);
+        when(readingEventRepository.countDistinctRefBetween(anyLong(), any(), any(), any()))
+                .thenReturn(0L);
     }
 
     private static RecommendationCard card(long id, long userId, String comboKey) {
@@ -205,7 +229,24 @@ class RecommendationQueryServiceTest {
         assertThat(item.subjects().get(0).inWatchlist()).isTrue();
         assertThat(item.muted()).isTrue();
         assertThat(item.pushStatus()).isEqualTo("PUSHED");
-        assertThat(item.feedbackAction()).isNull();
+        assertThat(item.feedbackAction()).isNull(); // 该卡无历史反馈（T134：有则回显最近动作）
+    }
+
+    @Test
+    void list_fillsFeedbackAction_latestActionPerCard() {
+        // Arrange：同卡先后 USEFUL → DISLIKE → UNDO_MUTE，操作条回显最近动作（idx_rf_card 查询面）
+        when(cardRepository.findByUserCursor(eq(USER_ID), any(), eq(null), eq(20)))
+                .thenReturn(List.of(card(9L, USER_ID, "A|食品饮料"), card(8L, USER_ID, "B|电子")));
+        when(cardRepository.countByUser(eq(USER_ID), any())).thenReturn(2L);
+        when(feedbackRepository.findLatestActionsByCardIds(List.of(9L, 8L)))
+                .thenReturn(Map.of(9L, FeedbackAction.DISLIKE, 8L, FeedbackAction.ADD_WATCHLIST));
+
+        // Act
+        RecommendationCardListView view = service.list(USER_ID, null, null, null, null, null, null);
+
+        // Assert
+        assertThat(view.items().get(0).feedbackAction()).isEqualTo("DISLIKE");
+        assertThat(view.items().get(1).feedbackAction()).isEqualTo("ADD_WATCHLIST");
     }
 
     @Test
@@ -271,6 +312,83 @@ class RecommendationQueryServiceTest {
                                 assertThat(((BusinessException) e).getErrorCode())
                                         .isEqualTo(ErrorCode.RECOMMENDATION_NOT_FOUND));
         assertThatThrownBy(() -> service.detail(USER_ID, 10L))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    // ---- stats adopt-v1（T134，方案 §4.7） ----
+
+    @Test
+    void stats_composesAdoptV1Arithmetic() {
+        // Arrange：推送送达 5 + 视口曝光 3（单列）、采纳 4（ACT 埋点 distinct 卡）
+        // 2026-09-22 上海日界 = 2026-09-21T16:00:00Z ~ 2026-09-22T16:00:00Z
+        Instant dayStart = Instant.parse("2026-09-21T16:00:00Z");
+        Instant dayEnd = Instant.parse("2026-09-22T16:00:00Z");
+        when(pushRepository.countDeliveredBetween(
+                        USER_ID, PushType.RECOMMENDATION, dayStart, dayEnd))
+                .thenReturn(5L);
+        when(readingEventRepository.countDistinctRefBetween(
+                        USER_ID, ReadingEventType.RECOMMENDATION_VIEW, dayStart, dayEnd))
+                .thenReturn(3L);
+        when(readingEventRepository.countDistinctRefBetween(
+                        USER_ID, ReadingEventType.RECOMMENDATION_ACT, dayStart, dayEnd))
+                .thenReturn(4L);
+
+        // Act
+        RecommendationStatsView stats = service.stats(USER_ID, "2026-09-22");
+
+        // Assert：曝光 = ①推送送达 + ②视口曝光；采纳率 = 采纳 ÷ 曝光（4/8=0.5）；basis 版本串
+        assertThat(stats.date()).isEqualTo("2026-09-22");
+        assertThat(stats.pushDelivered()).isEqualTo(5L);
+        assertThat(stats.viewExposed()).isEqualTo(3L);
+        assertThat(stats.adopted()).isEqualTo(4L);
+        assertThat(stats.adoptRate()).isEqualTo(0.5);
+        assertThat(stats.basis()).isEqualTo("adopt-v1");
+    }
+
+    @Test
+    void stats_defaultDate_todayShanghai_andExplicitDateWindow() {
+        // Arrange：date 缺省 = 上海当日（NOW=08:00Z → 上海 16:00，当日 = 2026-09-22）
+        // Act
+        service.stats(USER_ID, null);
+        service.stats(USER_ID, "2026-09-01");
+
+        // Assert：窗口 = [date 上海零点, +1d)；推送口径 status=SUCCESS 送达（type=10）
+        verify(pushRepository)
+                .countDeliveredBetween(
+                        eq(USER_ID),
+                        eq(PushType.RECOMMENDATION),
+                        eq(Instant.parse("2026-09-21T16:00:00Z")),
+                        eq(Instant.parse("2026-09-22T16:00:00Z")));
+        verify(readingEventRepository)
+                .countDistinctRefBetween(
+                        eq(USER_ID),
+                        eq(ReadingEventType.RECOMMENDATION_VIEW),
+                        eq(Instant.parse("2026-08-31T16:00:00Z")),
+                        eq(Instant.parse("2026-09-01T16:00:00Z")));
+    }
+
+    @Test
+    void stats_zeroExposure_adoptRateNull() {
+        // Arrange：无样本记 null（P50/P90「无样本 null」先例，可区分 0）
+        // Act
+        RecommendationStatsView stats = service.stats(USER_ID, "2026-09-22");
+
+        // Assert
+        assertThat(stats.pushDelivered()).isZero();
+        assertThat(stats.viewExposed()).isZero();
+        assertThat(stats.adopted()).isZero();
+        assertThat(stats.adoptRate()).isNull();
+    }
+
+    @Test
+    void stats_invalidDate_throws30082() {
+        assertThatThrownBy(() -> service.stats(USER_ID, "2026/09/22"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((BusinessException) e).getErrorCode())
+                                        .isEqualTo(ErrorCode.RECOMMENDATION_FILTER_INVALID));
+        assertThatThrownBy(() -> service.stats(USER_ID, "not-a-date"))
                 .isInstanceOf(BusinessException.class);
     }
 }

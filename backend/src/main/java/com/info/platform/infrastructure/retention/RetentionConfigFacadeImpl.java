@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * {@link RetentionConfigFacade} 实现（T72，方案 §4.3；T113 扩 newsItemDays 五字段）。读：runtime_config 快照现读 +
- * {@link RetentionWindows} 字段级回退解析 + 枚举常量拼 limits。写：五字段拼全量文档（null 不拼入——校验器 2001 必填拦截； 非整数类型原样透传——
+ * {@link RetentionWindows} 字段级回退解析 + 枚举常量拼 limits。写：六字段拼全量文档（null 不拼入——校验器 2001 必填拦截； 非整数类型原样透传——
  * 校验器 2001 须为整数拦截，D3）→ {@link RuntimeConfigService#write}（校验 + 乐观防呆 + 换快照热生效），写后回读刷新视图。
  */
 @Component
@@ -50,7 +50,8 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
                         windows.dataSourceEventDays(),
                         windows.llmCallLogDays(),
                         windows.readingEventDays(),
-                        windows.newsItemDays()),
+                        windows.newsItemDays(),
+                        windows.recommendationCardDays()),
                 limits,
                 entry == null ? null : entry.updatedAt().toString());
     }
@@ -63,6 +64,7 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
         putIfPresent(doc, RetentionLogTable.LLM_CALL_LOG, update.llmCallLogDays());
         putIfPresent(doc, RetentionLogTable.READING_EVENT, update.readingEventDays());
         putIfPresent(doc, RetentionLogTable.NEWS_ITEM, update.newsItemDays());
+        putIfPresent(doc, RetentionLogTable.RECOMMENDATION_CARD, update.recommendationCardDays());
         configService.write(
                 RetentionConfigValidator.CONFIG_KEY,
                 doc.toString(),

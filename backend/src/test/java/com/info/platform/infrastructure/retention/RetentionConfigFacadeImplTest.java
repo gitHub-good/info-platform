@@ -96,8 +96,12 @@ class RetentionConfigFacadeImplTest {
         assertThat(view.windows().readingEventDays()).isEqualTo(90);
         assertThat(view.windows().newsItemDays()).isEqualTo(180);
         assertThat(view.updatedAt()).isNull();
-        // limits 恒全量（页面文案与前端校验兜底数据源；T113 起五字段）
-        assertThat(view.limits()).hasSize(5);
+        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段）
+        assertThat(view.limits()).hasSize(6);
+        assertThat(view.limits())
+                .containsEntry(
+                        "recommendationCardDays", new RetentionConfigFacade.FieldLimits(30, 180));
+        assertThat(view.windows().recommendationCardDays()).isEqualTo(180);
     }
 
     @Test
@@ -139,7 +143,7 @@ class RetentionConfigFacadeImplTest {
                                     Instant.parse("2026-09-22T02:00:00Z"));
                         });
 
-        // Act：PATCH 五字段全量 + expectedUpdatedAt 防呆（D3 后窗口字段收 JsonNode，合法整数以 IntNode 透传）
+        // Act：PATCH 六字段全量 + expectedUpdatedAt 防呆（D3 后窗口字段收 JsonNode，合法整数以 IntNode 透传）
         RetentionConfigFacade.WindowsView view =
                 facade.update(
                         new RetentionConfigFacade.WindowsUpdate(
@@ -148,9 +152,10 @@ class RetentionConfigFacadeImplTest {
                                 IntNode.valueOf(35),
                                 IntNode.valueOf(35),
                                 IntNode.valueOf(30),
+                                IntNode.valueOf(30),
                                 "2026-09-22T01:00:00Z"));
 
-        // Assert：写入文档五字段齐整；返回写后视图（新值 + 新 updatedAt）
+        // Assert：写入文档六字段齐整；返回写后视图（新值 + 新 updatedAt）
         ArgumentCaptor<String> docCaptor = ArgumentCaptor.forClass(String.class);
         verify(configService)
                 .write(eq(KEY), docCaptor.capture(), eq(Instant.parse("2026-09-22T01:00:00Z")));
@@ -159,7 +164,8 @@ class RetentionConfigFacadeImplTest {
                 .contains("\"dataSourceEventDays\":14")
                 .contains("\"llmCallLogDays\":35")
                 .contains("\"readingEventDays\":35")
-                .contains("\"newsItemDays\":30");
+                .contains("\"newsItemDays\":30")
+                .contains("\"recommendationCardDays\":30");
         assertThat(view.windows().jobExecutionLogDays()).isEqualTo(7);
         assertThat(view.updatedAt()).isEqualTo("2026-09-22T02:00:00Z");
     }
@@ -181,6 +187,7 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
+                                                IntNode.valueOf(30),
                                                 null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
@@ -199,6 +206,7 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(14),
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(35),
+                                                IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
                                                 "not-a-time")))
                 .isInstanceOf(BusinessException.class)
@@ -224,6 +232,7 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(14),
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(35),
+                                                IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
                                                 "2026-09-22T00:00:00Z")))
                 .isInstanceOf(BusinessException.class)

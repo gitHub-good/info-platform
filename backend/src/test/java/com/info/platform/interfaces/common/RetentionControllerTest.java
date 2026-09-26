@@ -48,7 +48,9 @@ class RetentionControllerTest {
         limits.put("llmCallLogDays", new FieldLimits(35, 90));
         limits.put("readingEventDays", new FieldLimits(35, 90));
         limits.put("newsItemDays", new FieldLimits(30, 180));
-        return new WindowsView(new Windows(30, 14, 90, 90, 180), limits, "2026-09-22T01:00:00Z");
+        limits.put("recommendationCardDays", new FieldLimits(30, 180));
+        return new WindowsView(
+                new Windows(30, 14, 90, 90, 180, 180), limits, "2026-09-22T01:00:00Z");
     }
 
     @Test
@@ -63,6 +65,7 @@ class RetentionControllerTest {
                 .andExpect(jsonPath("$.data.windows.llmCallLogDays").value(90))
                 .andExpect(jsonPath("$.data.windows.readingEventDays").value(90))
                 .andExpect(jsonPath("$.data.windows.newsItemDays").value(180))
+                .andExpect(jsonPath("$.data.windows.recommendationCardDays").value(180))
                 .andExpect(jsonPath("$.data.limits.jobExecutionLogDays.min").value(7))
                 .andExpect(jsonPath("$.data.limits.jobExecutionLogDays.default").value(30))
                 .andExpect(jsonPath("$.data.limits.dataSourceEventDays.min").value(2))

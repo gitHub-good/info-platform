@@ -13,6 +13,9 @@ public interface RecommendationMuteRepository {
     /** 当前生效的降频组合（status='ACTIVE' 且未到期；无返回空——推送闸门降噪拦截判定）。 */
     Optional<RecommendationMute> findActiveByUserAndCombo(long userId, String comboKey);
 
+    /** 按用户 + 组合键取行（任意状态，T134 DISIKE 升级判定用：triggerCount 增量与 LIFTED → reactivate 语义需读现值）。 */
+    Optional<RecommendationMute> findByUserAndCombo(long userId, String comboKey);
+
     /**
      * UPSERT（新建或 reactivate 续期；muteDays/triggerCount/mutedUntil 以入参为准覆盖）。
      *

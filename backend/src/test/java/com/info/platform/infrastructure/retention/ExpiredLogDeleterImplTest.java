@@ -263,12 +263,12 @@ class ExpiredLogDeleterImplTest {
                                                 "SELECT COUNT(*) FROM " + t, Long.class))
                         .toList();
 
-        // Act：四表全删（PRD 场景 6 白名单红线）
+        // Act：枚举全表各删一轮（PRD 场景 6 白名单红线；T134 起含推荐两表）
         for (RetentionLogTable table : RetentionLogTable.values()) {
             deleter.deleteExpiredBefore(table, CUTOFF, 500);
         }
 
-        // Assert：业务表行数逐一不变（白名单只动四留痕表）
+        // Assert：业务表行数逐一不变（白名单只动留痕表）
         for (int i = 0; i < businessTables.size(); i++) {
             long after =
                     jdbcTemplate.queryForObject(

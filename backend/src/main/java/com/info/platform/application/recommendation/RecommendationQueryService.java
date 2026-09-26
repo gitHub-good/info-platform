@@ -1,13 +1,21 @@
 package com.info.platform.application.recommendation;
 
+import com.info.platform.domain.ai.ReadingEventRepository;
+import com.info.platform.domain.ai.ReadingEventType;
 import com.info.platform.domain.analysis.EventItemRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
+import com.info.platform.domain.push.PushRepository;
+import com.info.platform.domain.push.PushType;
 import com.info.platform.domain.recommendation.RecLevel;
 import com.info.platform.domain.recommendation.RecommendationCard;
 import com.info.platform.domain.recommendation.RecommendationCardRepository;
+import com.info.platform.domain.recommendation.RecommendationFeedbackRepository;
 import com.info.platform.domain.recommendation.RecommendationMuteRepository;
 import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -15,11 +23,11 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 /**
- * 推荐中心读服务（应用层，M16 T133，方案 §4.8 {@code GET /api/v1/recommendations} 两端点）：卡片流（level/eventType/
- * direction/read 四维可空筛选 + beforeId 游标 + limit 缺省 20 ≤50，id DESC；枚举非法/limit 越界 → 30082 字段级 400，
- * 越界拒绝不截断——M9 口径）与详情（logicInputs 抽检对账面）。卡片大字段（figures/quote/summary/eventTime/newsTitle/ newsUrl）由
- * event_item + news_item join 直出（卡片表不冗余）；muted 按卡 comboKey 现查（视图降频标记）。 userId
- * 由接口层传入（行级权限键，沿通知中心惯例）。
+ * 推荐中心读服务（应用层，M16 T133 → T134 扩 stats/feedbackAction，方案 §4.8 {@code GET /api/v1/recommendations*}）：
+ * 卡片流（level/eventType/direction/read 四维可空筛选 + beforeId 游标 + limit 缺省 20 ≤50，id DESC；枚举非法/limit 越界 →
+ * 30082 字段级 400，越界拒绝不截断——M9 口径）、详情（logicInputs 抽检对账面）与采纳统计（adopt-v1 三口径，§4.7）。 feedbackAction
+ * 按反馈流水每卡最近动作回显（操作条已点态）；卡片大字段（figures/quote/summary/eventTime/newsTitle/ newsUrl）由 event_item +
+ * news_item join 直出（卡片表不冗余）；muted 按卡 comboKey 现查（视图降频标记）。 userId 由接口层传入（行级权限键，沿通知中心惯例）。
  */
 @Service
 public class RecommendationQueryService {
@@ -29,11 +37,20 @@ public class RecommendationQueryService {
 
     private static final int LIST_LIMIT_MAX = 50;
 
+    /** 统计日界（Asia/Shanghai——采纳统计窗口口径，沿 PipelineStatusService 先例）。 */
+    static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
+
     private final RecommendationCardRepository cardRepository;
 
     private final EventItemRepository eventRepository;
 
     private final RecommendationMuteRepository muteRepository;
+
+    private final PushRepository pushRepository;
+
+    private final ReadingEventRepository readingEventRepository;
+
+    private final RecommendationFeedbackRepository feedbackRepository;
 
     private final Clock clock;
 
@@ -41,10 +58,16 @@ public class RecommendationQueryService {
             RecommendationCardRepository cardRepository,
             EventItemRepository eventRepository,
             RecommendationMuteRepository muteRepository,
+            PushRepository pushRepository,
+            ReadingEventRepository readingEventRepository,
+            RecommendationFeedbackRepository feedbackRepository,
             Clock clock) {
         this.cardRepository = cardRepository;
         this.eventRepository = eventRepository;
         this.muteRepository = muteRepository;
+        this.pushRepository = pushRepository;
+        this.readingEventRepository = readingEventRepository;
+        this.feedbackRepository = feedbackRepository;
         this.clock = clock;
     }
 
@@ -69,7 +92,9 @@ public class RecommendationQueryService {
         long total = cardRepository.countByUser(userId, filter);
         return new RecommendationCardListView(
                 total,
-                page.stream().map(card -> toView(card, eventJoin(page))).toList(),
+                page.stream()
+                        .map(card -> toView(card, eventJoin(page), latestActions(page)))
+                        .toList(),
                 nextBeforeId(
                         page.size(),
                         pageSize,
@@ -85,7 +110,46 @@ public class RecommendationQueryService {
             throw notFound(); // 非本人卡同一 404 语义（行级权限，不泄露存在性）
         }
         return new RecommendationCardDetailView(
-                toView(card, eventJoin(List.of(card))), card.getLogicInputs());
+                toView(card, eventJoin(List.of(card)), latestActions(List.of(card))),
+                card.getLogicInputs());
+    }
+
+    /**
+     * 采纳统计（GET /recommendations/stats，adopt-v1 三口径，§4.7）。
+     *
+     * @param dateRaw yyyy-MM-dd（缺省当日 Asia/Shanghai；非法 → 30082）
+     */
+    public RecommendationStatsView stats(long userId, String dateRaw) {
+        LocalDate date = resolveDate(dateRaw);
+        java.time.Instant since = date.atStartOfDay(STAT_ZONE).toInstant();
+        java.time.Instant until = date.plusDays(1).atStartOfDay(STAT_ZONE).toInstant();
+        long pushDelivered =
+                pushRepository.countDeliveredBetween(userId, PushType.RECOMMENDATION, since, until);
+        long viewExposed =
+                readingEventRepository.countDistinctRefBetween(
+                        userId, ReadingEventType.RECOMMENDATION_VIEW, since, until);
+        // 采纳 = ACT 埋点 distinct 卡 = card.adopted 当日首置（同点写入恒等，§4.7 对账断言）
+        long adopted =
+                readingEventRepository.countDistinctRefBetween(
+                        userId, ReadingEventType.RECOMMENDATION_ACT, since, until);
+        long exposure = pushDelivered + viewExposed;
+        Double adoptRate = exposure == 0 ? null : (double) adopted / exposure;
+        return new RecommendationStatsView(
+                date.toString(),
+                pushDelivered,
+                viewExposed,
+                adopted,
+                adoptRate,
+                RecommendationStatsView.BASIS);
+    }
+
+    /** 每卡最近反馈动作（操作条回显；T134）。 */
+    private Map<Long, com.info.platform.domain.recommendation.FeedbackAction> latestActions(
+            List<RecommendationCard> cards) {
+        List<Long> cardIds = cards.stream().map(RecommendationCard::getId).toList();
+        return cardIds.isEmpty()
+                ? Map.of()
+                : feedbackRepository.findLatestActionsByCardIds(cardIds);
     }
 
     /** 批量 join event + news（figures/quote/summary/eventTime/newsTitle/newsUrl 直出；缺失事件字段留空）。 */
@@ -103,8 +167,12 @@ public class RecommendationQueryService {
 
     /** 卡片视图组装（event 缺失时 summary/figures 等留空——防御，不阻断列表）。 */
     private RecommendationCardListView.CardView toView(
-            RecommendationCard card, Map<Long, EventItemRepository.EventStreamItem> joined) {
+            RecommendationCard card,
+            Map<Long, EventItemRepository.EventStreamItem> joined,
+            Map<Long, com.info.platform.domain.recommendation.FeedbackAction> latestActions) {
         EventItemRepository.EventStreamItem item = joined.get(card.getEventId());
+        com.info.platform.domain.recommendation.FeedbackAction latestAction =
+                latestActions.get(card.getId());
         return new RecommendationCardListView.CardView(
                 card.getId(),
                 card.getEventId(),
@@ -133,7 +201,7 @@ public class RecommendationQueryService {
                 card.getCreatedAt(),
                 card.isRead(),
                 isMuting(card),
-                null); // feedbackAction：T134 反馈闭环填充（操作条已点动作回显）
+                latestAction == null ? null : latestAction.name()); // 操作条已点动作回显（T134）
     }
 
     /** 该卡组合当前是否降频中（视图降频标记 + 撤销入口）。 */
@@ -210,6 +278,20 @@ public class RecommendationQueryService {
 
     private static boolean isAbsent(String raw) {
         return raw == null || raw.isBlank();
+    }
+
+    /** 统计日解析（缺省 = 上海当日；非法格式 → 30082 字段级）。 */
+    private LocalDate resolveDate(String raw) {
+        if (isAbsent(raw)) {
+            return LocalDate.ofInstant(clock.instant(), STAT_ZONE);
+        }
+        try {
+            return LocalDate.parse(raw.trim());
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(
+                    ErrorCode.RECOMMENDATION_FILTER_INVALID,
+                    "date: 须为 yyyy-MM-dd（如 2026-09-22），当前值 " + raw);
+        }
     }
 
     private static String normalize(String raw) {

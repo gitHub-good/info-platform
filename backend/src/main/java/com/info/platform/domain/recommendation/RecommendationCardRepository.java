@@ -60,6 +60,23 @@ public interface RecommendationCardRepository {
     /** 按主键取卡（详情端点；owner 校验在应用层）。 */
     Optional<RecommendationCard> findById(long cardId);
 
+    /**
+     * 条件置采纳（T134，方案 §4.7：{@code UPDATE SET adopted=1 WHERE id=? AND adopted=0}）。
+     *
+     * @return 1 = 本次首置成功（调用方同点落 ACT 埋点）；0 = 已采纳（幂等防线——ACT 不重复落，对账恒等）
+     */
+    int markAdopted(long cardId);
+
+    /** 条件置已读（T134：{@code WHERE read=0}；返回 0 = 已读，幂等 200 直返语义）。 */
+    int markRead(long cardId);
+
+    /**
+     * 刷新标的区快照（T134 ADD_WATCHLIST：inWatchlist 翻 true 后回写，操作条即时态与回看一致）。
+     *
+     * @return 实更新行数
+     */
+    int updateSubjects(long cardId, List<RecommendationCard.CardSubject> subjects);
+
     /** FEED 消费事件行（结构化事件 + news 标题 join——P3 主题命中面与数字白名单来源）。 */
     record FeedEvent(EventItem event, String newsTitle) {}
 

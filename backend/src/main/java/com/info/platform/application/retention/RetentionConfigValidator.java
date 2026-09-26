@@ -22,6 +22,18 @@ public class RetentionConfigValidator implements RuntimeConfigValidator {
     /** 窗口配置键（与 RetentionCleanupService.CONFIG_KEY 同键）。 */
     public static final String CONFIG_KEY = "retention.global";
 
+    /**
+     * 按 jsonField 去重的枚举视图（T134：RECOMMENDATION_CARD/RECOMMENDATION_FEEDBACK 共 recommendationCardDays
+     * 键——同键只校验一次，不重复报错）。
+     */
+    private static List<RetentionLogTable> distinctJsonFields() {
+        java.util.Map<String, RetentionLogTable> byField = new java.util.LinkedHashMap<>();
+        for (RetentionLogTable table : RetentionLogTable.values()) {
+            byField.putIfAbsent(table.jsonField(), table);
+        }
+        return List.copyOf(byField.values());
+    }
+
     @Override
     public boolean supports(String configKey) {
         return CONFIG_KEY.equals(configKey);
@@ -30,7 +42,7 @@ public class RetentionConfigValidator implements RuntimeConfigValidator {
     @Override
     public void validate(String configKey, JsonNode document) {
         List<String> problems = new ArrayList<>();
-        for (RetentionLogTable table : RetentionLogTable.values()) {
+        for (RetentionLogTable table : distinctJsonFields()) {
             JsonNode field = document.get(table.jsonField());
             if (field == null || field.isNull()) {
                 problems.add(table.jsonField() + ": 必填");

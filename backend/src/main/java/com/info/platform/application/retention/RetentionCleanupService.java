@@ -48,7 +48,7 @@ public class RetentionCleanupService {
     /**
      * 执行一轮清理（定时与手动触发共用入口，由 RetentionCleanupJob 委托）。
      *
-     * @return 合计删除行数与五段明细（供 JobRunStats 上报 SUCCESS 留痕）
+     * @return 合计删除行数与段式明细（枚举序逐表一段，T134 起八段；供 JobRunStats 上报 SUCCESS 留痕）
      * @throws RetentionCleanupException 存在失败表（其余表已尽力删除，成功侧信息在异常消息）
      */
     public CleanupResult runOnce() {
@@ -105,7 +105,10 @@ public class RetentionCleanupService {
         return clock.instant().minus(Duration.ofDays(days)).truncatedTo(ChronoUnit.SECONDS);
     }
 
-    /** 五段明细（段序=枚举序，全表恒五段）：{@code job_execution_log=n1; data_source_event=n2; …; news_item=n5}。 */
+    /**
+     * 段式明细（段序=枚举序，T134 起含 recommendation_card/recommendation_feedback 两段）：{@code
+     * job_execution_log=n1; …; news_item=n5}。
+     */
     private static String detailOf(Map<RetentionLogTable, Long> counts) {
         return java.util.Arrays.stream(RetentionLogTable.values())
                 .map(table -> table.physicalName() + "=" + counts.getOrDefault(table, 0L))
@@ -115,8 +118,8 @@ public class RetentionCleanupService {
     /**
      * 单轮清理结果（RetentionCleanupJob 经 JobRunStats 上报：processed_count=合计、error_message=明细）。
      *
-     * @param processedCount 五表删除合计
-     * @param detail 五段明细（ADR-0036 §2 固定格式，T113 起含 news_item 段）
+     * @param processedCount 全表删除合计
+     * @param detail 段式明细（ADR-0036 §2 固定格式，T113 增 news_item、T134 增推荐两表段）
      */
     public record CleanupResult(long processedCount, String detail) {}
 }

@@ -40,7 +40,20 @@ public enum RetentionLogTable {
      * 管道逐条状态表（M15 V23；随 news_item 同窗同清——T125 并入 {@code newsItemDays} 键：两表 created_at 同刻落库，
      * 窗口一致即近似同轮清出，孤儿行窗口差 ≤一轮，ADR-0046 裁决 1 注记）。
      */
-    NEWS_ANALYSIS("news_analysis", "newsItemDays", 180, 30);
+    NEWS_ANALYSIS("news_analysis", "newsItemDays", 180, 30),
+
+    /**
+     * 推荐卡片表（M16 V26 T134；随 {@code recommendationCardDays} 同窗——缺省 180 下限 30）。清出后推荐中心早卡降级为
+     * 仅卡片自身字段（event/news 大字段 join 不到时留空——既有防御语义）。
+     */
+    RECOMMENDATION_CARD("recommendation_card", "recommendationCardDays", 180, 30),
+
+    /**
+     * 推荐反馈流水表（M16 V26 T134；与 recommendation_card 共 {@code recommendationCardDays} 键同窗同清——两表
+     * created_at 同刻落库，沿 NEWS_ANALYSIS 随 newsItemDays 先例，方案 §4.1 注记）。mute 表常驻不入枚举（ACTIVE 行是
+     * 有效状态，清理会静默恢复推送）。
+     */
+    RECOMMENDATION_FEEDBACK("recommendation_feedback", "recommendationCardDays", 180, 30);
 
     private final String physicalName;
     private final String jsonField;

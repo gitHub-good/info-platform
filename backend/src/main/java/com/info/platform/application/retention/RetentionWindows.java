@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.info.platform.domain.retention.RetentionLogTable;
 
 /**
- * 留痕保留窗口的类型化视图（T71，方案 §4.2 执行侧防御；T113 扩 newsItemDays）：五表各自保留天数。
+ * 留痕保留窗口的类型化视图（T71，方案 §4.2 执行侧防御；T113 扩 newsItemDays、T134 扩 recommendationCardDays）：六字段
+ * 覆盖七表（news_analysis 随 newsItemDays、recommendation_feedback 随 recommendationCardDays 共窗）。
  *
  * <p><b>每轮现读</b>：{@link RetentionCleanupService} 在每轮 run() 内读取当前快照解析（用时读取即热生效，改窗口下一轮按新界）。
  * 解析规则（字段级回退，{@link #resolve}）：字段存在且为整型且 ≥ 表下限 → 采信；否则回退该表 {@code defaultDays}
@@ -17,7 +18,8 @@ public record RetentionWindows(
         int dataSourceEventDays,
         int llmCallLogDays,
         int readingEventDays,
-        int newsItemDays) {
+        int newsItemDays,
+        int recommendationCardDays) {
 
     /** 全默认窗口（键缺失/文档损坏时的兜底，值取枚举 defaultDays 单一事实源）。 */
     public static RetentionWindows defaults() {
@@ -35,10 +37,13 @@ public record RetentionWindows(
                 dayOf(doc, RetentionLogTable.DATA_SOURCE_EVENT),
                 dayOf(doc, RetentionLogTable.LLM_CALL_LOG),
                 dayOf(doc, RetentionLogTable.READING_EVENT),
-                dayOf(doc, RetentionLogTable.NEWS_ITEM));
+                dayOf(doc, RetentionLogTable.NEWS_ITEM),
+                dayOf(doc, RetentionLogTable.RECOMMENDATION_CARD));
     }
 
-    /** 按表取窗口（各表独立判定；NEWS_ANALYSIS 与 NEWS_ITEM 共窗 newsItemDays——T125）。 */
+    /**
+     * 按表取窗口（各表独立判定；共窗：NEWS_ANALYSIS←newsItemDays[T125]，RECOMMENDATION_FEEDBACK←recommendationCardDays[T134]）。
+     */
     public int of(RetentionLogTable table) {
         return switch (table) {
             case JOB_EXECUTION_LOG -> jobExecutionLogDays;
@@ -46,6 +51,7 @@ public record RetentionWindows(
             case LLM_CALL_LOG -> llmCallLogDays;
             case READING_EVENT -> readingEventDays;
             case NEWS_ITEM, NEWS_ANALYSIS -> newsItemDays;
+            case RECOMMENDATION_CARD, RECOMMENDATION_FEEDBACK -> recommendationCardDays;
         };
     }
 

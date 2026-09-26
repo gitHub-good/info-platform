@@ -166,6 +166,25 @@ public class PushRepositoryImpl implements PushRepository {
         return toEntities(pos);
     }
 
+    @Override
+    public long countDeliveredBetween(long userId, PushType type, Instant since, Instant until) {
+        // T134 采纳统计 adopt-v1 曝光①：status=SUCCESS 且 pushed_at ∈ [since, until)——推荐卡推送送达口径（SILENT
+        // 未送达不计）
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<PushRecordPO> wrapper =
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<PushRecordPO>()
+                        .select("COUNT(*)")
+                        .eq("user_id", userId)
+                        .eq("push_type", type.code())
+                        .eq("status", PushStatus.SUCCESS.code())
+                        .ge("pushed_at", since.toString())
+                        .lt("pushed_at", until.toString());
+        List<Object> rows = pushMapper.selectObjs(wrapper);
+        if (rows.isEmpty() || rows.get(0) == null) {
+            return 0;
+        }
+        return ((Number) rows.get(0)).longValue();
+    }
+
     private List<PushRecord> toEntities(List<PushRecordPO> pos) {
         if (pos == null || pos.isEmpty()) {
             return Collections.emptyList();

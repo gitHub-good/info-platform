@@ -40,4 +40,14 @@ public interface ReadingEventRepository {
      * @param limit 返回条数上限
      */
     List<ReadingEvent> findByUserSince(long userId, Instant since, int limit);
+
+    /**
+     * 窗口内不同 contentRef 的留痕条数（T134 采纳统计 adopt-v1：RECOMMENDATION_VIEW 曝光② / RECOMMENDATION_ACT 采纳
+     * ——同卡多动作按 distinct 卡去重计 1，方案 §4.7）。
+     *
+     * @param since 窗口起点（含）
+     * @param until 窗口终点（不含）
+     */
+    long countDistinctRefBetween(
+            long userId, ReadingEventType contentType, Instant since, Instant until);
 }

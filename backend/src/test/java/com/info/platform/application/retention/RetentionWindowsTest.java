@@ -11,8 +11,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * RetentionWindows 解析单测（T71，方案 §4.2 执行侧防御；T113 扩 newsItemDays）：全字段采信 / 键缺失全默认 / 逐字段独立回退（缺失、非整型、低于下限
- * 各自回退该表 defaultDays，好字段不受牵连）/ 恰等于下限采信 / of(table) 映射。纯函数单测（无 Spring 上下文）。
+ * RetentionWindows 解析单测（T71，方案 §4.2 执行侧防御；T113 扩 newsItemDays、T134 扩 recommendationCardDays）：全字段采信
+ * / 键缺失全默认 / 逐字段独立回退（缺失、非整型、低于下限 各自回退该表 defaultDays，好字段不受牵连）/ 恰等于下限采信 / of(table) 映射。纯函数单测（无 Spring
+ * 上下文）。
  */
 class RetentionWindowsTest {
 
@@ -28,12 +29,13 @@ class RetentionWindowsTest {
 
     @Test
     void resolve_fullDocument_adoptsAllFourWindows() {
-        // Arrange + Act：四字段均合法且各不相同（30/14 两窗口交叉）
+        // Arrange + Act：六字段均合法且各不相同（30/14 两窗口交叉；recommendationCardDays T134 扩键）
         RetentionWindows windows =
                 RetentionWindows.resolve(
                         doc(
                                 "{\"jobExecutionLogDays\":10,\"dataSourceEventDays\":5,"
-                                        + "\"llmCallLogDays\":40,\"readingEventDays\":50,\"newsItemDays\":200}"));
+                                        + "\"llmCallLogDays\":40,\"readingEventDays\":50,"
+                                        + "\"newsItemDays\":200,\"recommendationCardDays\":90}"));
 
         // Assert
         assertThat(windows.jobExecutionLogDays()).isEqualTo(10);
@@ -41,6 +43,7 @@ class RetentionWindowsTest {
         assertThat(windows.llmCallLogDays()).isEqualTo(40);
         assertThat(windows.readingEventDays()).isEqualTo(50);
         assertThat(windows.newsItemDays()).isEqualTo(200);
+        assertThat(windows.recommendationCardDays()).isEqualTo(90);
     }
 
     @Test
@@ -48,8 +51,8 @@ class RetentionWindowsTest {
         // Arrange + Act：键缺失（种子前/被删）→ 全默认，绝不按 0 全删（执行侧防御）
         RetentionWindows windows = RetentionWindows.resolve(null);
 
-        // Assert：默认窗口 30/14/90/90/180（枚举单一事实源，T113 扩 newsItem）
-        assertThat(windows).isEqualTo(new RetentionWindows(30, 14, 90, 90, 180));
+        // Assert：默认窗口 30/14/90/90/180/180（枚举单一事实源，T113 扩 newsItem、T134 扩推荐两表）
+        assertThat(windows).isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180));
     }
 
     @Test
@@ -65,6 +68,8 @@ class RetentionWindowsTest {
         assertThat(windows.readingEventDays()).isEqualTo(90);
         // newsItemDays 缺失 → 字段级回退 180（存量四字段键兼容）
         assertThat(windows.newsItemDays()).isEqualTo(180);
+        // recommendationCardDays 缺失 → 回退 180（存量五字段键兼容——T134 扩键不强制旧文档补齐）
+        assertThat(windows.recommendationCardDays()).isEqualTo(180);
     }
 
     /** 非法值矩阵：0 / 负数 / 非整数（文本、小数、布尔、null）——绕过校验器直写库的执行侧兜底。 */
@@ -87,20 +92,21 @@ class RetentionWindowsTest {
 
     @Test
     void resolve_valueAtMin_adopted() {
-        // Arrange：四字段恰取各自下限 7/2/35/35（合法边界）
+        // Arrange：六字段恰取各自下限 7/2/35/35/30/30（合法边界）
         RetentionWindows windows =
                 RetentionWindows.resolve(
                         doc(
                                 "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
-                                        + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30}"));
+                                        + "\"llmCallLogDays\":35,\"readingEventDays\":35,"
+                                        + "\"newsItemDays\":30,\"recommendationCardDays\":30}"));
 
         // Assert
-        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30));
+        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30));
     }
 
     @Test
     void of_mapsEachTableToItsWindow() {
-        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200);
+        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200, 90);
 
         assertThat(windows.of(RetentionLogTable.JOB_EXECUTION_LOG)).isEqualTo(10);
         assertThat(windows.of(RetentionLogTable.DATA_SOURCE_EVENT)).isEqualTo(5);
@@ -109,6 +115,9 @@ class RetentionWindowsTest {
         assertThat(windows.of(RetentionLogTable.NEWS_ITEM)).isEqualTo(200);
         // T125：news_analysis 随 news_item 同窗（newsItemDays 共窗——ADR-0046 裁决 1 注记）
         assertThat(windows.of(RetentionLogTable.NEWS_ANALYSIS)).isEqualTo(200);
+        // T134：推荐卡片/反馈流水随 recommendationCardDays 同窗（两表 created_at 同刻落库同窗同清，方案 §4.1）
+        assertThat(windows.of(RetentionLogTable.RECOMMENDATION_CARD)).isEqualTo(90);
+        assertThat(windows.of(RetentionLogTable.RECOMMENDATION_FEEDBACK)).isEqualTo(90);
     }
 
     @Test

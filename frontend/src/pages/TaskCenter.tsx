@@ -87,13 +87,14 @@ function userIdsError(raw: string): string | null {
 /** 留痕清理任务键（窗口分组仅该任务显示，对齐 userIds 仅 DAILY_RECOMMEND 的条件渲染先例）。 */
 const RETENTION_JOB_KEY = 'RETENTION_CLEANUP';
 
-/** 五窗口字段元数据：含义文案（REQ 场景 5 口径交前端静态维护）+ 静态下限兜底（GET limits 优先）。newsItemDays 为 M14 T113 扩键。 */
+/** 窗口字段元数据：含义文案（REQ 场景 5 口径交前端静态维护）+ 静态下限兜底（GET limits 优先）。newsItemDays 为 M14 T113 扩键、recommendationCardDays 为 M16 T134 扩键（推荐两表共窗）。 */
 const RETENTION_FIELDS: { field: RetentionWindowField; label: string; fallbackMin: number }[] = [
   { field: 'jobExecutionLogDays', label: 'Job 执行日志保留天数', fallbackMin: 7 },
   { field: 'dataSourceEventDays', label: '数据源事件保留天数', fallbackMin: 2 },
   { field: 'llmCallLogDays', label: 'LLM 调用日志保留天数', fallbackMin: 35 },
   { field: 'readingEventDays', label: '阅读行为保留天数', fallbackMin: 35 },
   { field: 'newsItemDays', label: '资讯条目保留天数', fallbackMin: 30 },
+  { field: 'recommendationCardDays', label: '推荐卡片与反馈保留天数', fallbackMin: 30 },
 ];
 
 /** 窗口字段粗校验：整型且 ≥ 下限（对齐后端 RetentionConfigValidator 下限口径）。 */
@@ -238,6 +239,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
           llmCallLogDays: String(view.windows.llmCallLogDays),
           readingEventDays: String(view.windows.readingEventDays),
           newsItemDays: String(view.windows.newsItemDays),
+          recommendationCardDays: String(view.windows.recommendationCardDays),
         };
         setWindows(loaded);
         setWindowsLoaded(loaded);
@@ -319,6 +321,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
           llmCallLogDays: Number(windows?.llmCallLogDays),
           readingEventDays: Number(windows?.readingEventDays),
           newsItemDays: Number(windows?.newsItemDays),
+          recommendationCardDays: Number(windows?.recommendationCardDays),
           expectedUpdatedAt: windowsUpdatedAt ?? undefined,
         });
         changed.push('windows');

@@ -78,4 +78,26 @@ class RecommendationSettingsTest {
         assertThat(settings.expressScoreThreshold()).isEqualTo(4.0);
         assertThat(settings.expressBatchSize()).isEqualTo(10);
     }
+
+    @Test
+    void pushNoiseParams_defaultsAndHotConfig() {
+        // Arrange：T134 反馈闭环消费的降噪四参数（键缺失 → 代码缺省 7/30/3/30）
+        RecommendationSettings defaults = settingsOf("recommendation.push", null);
+        RecommendationSettings hot =
+                settingsOf(
+                        "recommendation.push",
+                        "{\"mutedDays\":3,\"escalatedDays\":15,\"escalateThreshold\":5,"
+                                + "\"escalateWindowDays\":14}");
+
+        // Act + Assert：缺省 + 热改（页面保存即对下一轮生效）
+        assertThat(defaults.mutedDays()).isEqualTo(7);
+        assertThat(defaults.escalatedDays()).isEqualTo(30);
+        assertThat(defaults.escalateThreshold()).isEqualTo(3);
+        assertThat(defaults.escalateWindowDays()).isEqualTo(30);
+        assertThat(hot.mutedDays()).isEqualTo(3);
+        assertThat(hot.escalatedDays()).isEqualTo(15);
+        assertThat(hot.escalateThreshold()).isEqualTo(5);
+        assertThat(hot.escalateWindowDays()).isEqualTo(14);
+        assertThat(defaults.dailyLimit()).isEqualTo(10);
+    }
 }

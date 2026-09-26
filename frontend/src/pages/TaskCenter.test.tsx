@@ -114,7 +114,7 @@ function fiveJobs(): JobView[] {
   ];
 }
 
-/** 留痕窗口视图（对齐后端 GET /retention/windows 契约：默认窗口 30/14/90/90/180 + 下限 7/2/35/35/30；newsItemDays 为 M14 T113 扩键）。 */
+/** 留痕窗口视图（对齐后端 GET /retention/windows 契约：默认窗口 30/14/90/90/180/180 + 下限 7/2/35/35/30/30；newsItemDays 为 M14 T113 扩键、recommendationCardDays 为 M16 T134 扩键）。 */
 function retentionView() {
   return {
     windows: {
@@ -123,6 +123,7 @@ function retentionView() {
       llmCallLogDays: 90,
       readingEventDays: 90,
       newsItemDays: 180,
+      recommendationCardDays: 180,
     },
     limits: {
       jobExecutionLogDays: { min: 7, default: 30 },
@@ -130,6 +131,7 @@ function retentionView() {
       llmCallLogDays: { min: 35, default: 90 },
       readingEventDays: { min: 35, default: 90 },
       newsItemDays: { min: 30, default: 180 },
+      recommendationCardDays: { min: 30, default: 180 },
     },
     updatedAt: '2026-09-22T01:00:00Z',
   };
@@ -487,6 +489,7 @@ describe('TaskCenter 页面（T41）', () => {
     expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-llmCallLogDays')).toHaveValue('90');
     expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-readingEventDays')).toHaveValue('90');
     expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-newsItemDays')).toHaveValue('180');
+    expect(screen.getByTestId('task-edit-window-RETENTION_CLEANUP-recommendationCardDays')).toHaveValue('180');
 
     // 含义文案 + 下限提示（REQ 场景 5：口径交前端静态维护，下限来自 GET limits）
     expect(screen.getByText('Job 执行日志保留天数（≥7）')).toBeInTheDocument();
@@ -494,6 +497,7 @@ describe('TaskCenter 页面（T41）', () => {
     expect(screen.getByText('LLM 调用日志保留天数（≥35）')).toBeInTheDocument();
     expect(screen.getByText('阅读行为保留天数（≥35）')).toBeInTheDocument();
     expect(screen.getByText('资讯条目保留天数（≥30）')).toBeInTheDocument();
+    expect(screen.getByText('推荐卡片与反馈保留天数（≥30）')).toBeInTheDocument();
   });
 
   it('窗口低于下限前端拦截不发请求（提交前拦截，对齐后端校验器下限）', async () => {
@@ -547,6 +551,7 @@ describe('TaskCenter 页面（T41）', () => {
           String(call[1]?.body).includes('"jobExecutionLogDays":45') &&
           String(call[1]?.body).includes('"readingEventDays":90') &&
           String(call[1]?.body).includes('"newsItemDays":180') &&
+          String(call[1]?.body).includes('"recommendationCardDays":180') &&
           String(call[1]?.body).includes('"expectedUpdatedAt":"2026-09-22T01:00:00Z"'),
       ),
     ).toBe(true);

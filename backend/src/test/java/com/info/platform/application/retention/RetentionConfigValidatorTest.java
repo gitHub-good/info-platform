@@ -10,8 +10,9 @@ import com.info.platform.domain.common.ErrorCode;
 import org.junit.jupiter.api.Test;
 
 /**
- * RetentionConfigValidator 单测（T72，方案 §4.2 保存侧防御 / §6 配置与接口组）：四字段非法矩阵（缺失 / 非整型 / 低于下限 → 2001 字段级
- * msg，多字段 "; " 连接）+ 合法值通过（恰在下限）+ 未知多余字段不拒绝（读侧忽略，job 域惯例）。
+ * RetentionConfigValidator 单测（T72，方案 §4.2 保存侧防御 / §6 配置与接口组；T134 扩 recommendationCardDays 六字段）：
+ * 字段非法矩阵（缺失 / 非整型 / 低于下限 → 2001 字段级 msg，多字段 "; " 连接；共窗键去重不重复报错）+ 合法值通过（恰在下限） + 未知多余字段不拒绝（读侧忽略，job
+ * 域惯例）。
  */
 class RetentionConfigValidatorTest {
 
@@ -43,19 +44,33 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
+                                                + "\"recommendationCardDays\":180}"))
                 .doesNotThrowAnyException();
     }
 
     @Test
     void validate_valuesAtLowerBound_pass() {
-        // 恰等于下限 7/2/35/35 合法（下限含边界）
+        // 恰等于下限 7/2/35/35/30/30 合法（下限含边界）
         assertThatCode(
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
-                                                + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30}"))
+                                                + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30,"
+                                                + "\"recommendationCardDays\":30}"))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void validate_sharedKey_deduplicated_notReportedTwice() {
+        // T134：RECOMMENDATION_CARD/RECOMMENDATION_FEEDBACK 共 recommendationCardDays 键——缺失只报一次
+        assertThatThrownBy(
+                        () ->
+                                validate(
+                                        "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
+                .hasMessageContaining("recommendationCardDays")
+                .hasMessageNotContaining("recommendationCardDays: 必填; recommendationCardDays: 必填");
     }
 
     @Test
@@ -155,7 +170,8 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"futureField\":\"x\"}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
+                                                + "\"recommendationCardDays\":180,\"futureField\":\"x\"}"))
                 .doesNotThrowAnyException();
     }
 
@@ -166,7 +182,8 @@ class RetentionConfigValidatorTest {
                         () ->
                                 validate(
                                         "{\"jobExecutionLogDays\":3650,\"dataSourceEventDays\":14,"
-                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180}"))
+                                                + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
+                                                + "\"recommendationCardDays\":365}"))
                 .doesNotThrowAnyException();
     }
 }

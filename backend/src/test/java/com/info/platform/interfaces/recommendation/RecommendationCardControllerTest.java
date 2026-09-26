@@ -2,8 +2,10 @@ package com.info.platform.interfaces.recommendation;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,7 +14,9 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.info.platform.application.recommendation.RecommendationCardDetailView;
 import com.info.platform.application.recommendation.RecommendationCardListView;
+import com.info.platform.application.recommendation.RecommendationFeedbackService;
 import com.info.platform.application.recommendation.RecommendationQueryService;
+import com.info.platform.application.recommendation.RecommendationStatsView;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.common.UserContext;
@@ -22,14 +26,16 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * 推荐中心接口切片测试（T133，方案 §4.8）：GET /api/v1/recommendations 卡片流（level/eventType/direction/read 可空筛选 +
- * beforeId 游标 + limit 缺省 20 ≤50）与 GET /{id} 详情（logicInputs 抽检面）；30080 不存在/非本人、30082 筛选非法。 认证上下文经
- * UserContext.set 模拟（生产由 JwtAuthFilter 写入）。
+ * 推荐中心接口切片测试（T133 → T134 扩 feedback/read/stats 三端点，方案 §4.8）：GET /api/v1/recommendations
+ * 卡片流（level/eventType/direction/read 可空筛选 + beforeId 游标 + limit 缺省 20 ≤50）与 GET /{id}
+ * 详情（logicInputs 抽检面）；POST /{id}/feedback 四动作（30080/30081）、POST /{id}/read 已读（幂等 200 直返）、GET /stats
+ * adopt-v1 采纳统计（30082 日期非法）。 认证上下文经 UserContext.set 模拟（生产由 JwtAuthFilter 写入）。
  */
 class RecommendationCardControllerTest {
 
@@ -37,15 +43,19 @@ class RecommendationCardControllerTest {
 
     private RecommendationQueryService queryService;
 
+    private RecommendationFeedbackService feedbackService;
+
     @BeforeEach
     void setUp() {
         queryService = mock(RecommendationQueryService.class);
+        feedbackService = mock(RecommendationFeedbackService.class);
         ObjectMapper mapper =
                 new ObjectMapper()
                         .registerModule(new JavaTimeModule())
                         .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mockMvc =
-                MockMvcBuilders.standaloneSetup(new RecommendationCardController(queryService))
+                MockMvcBuilders.standaloneSetup(
+                                new RecommendationCardController(queryService, feedbackService))
                         .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                         .setControllerAdvice(new GlobalExceptionHandler())
                         .build();
@@ -173,5 +183,117 @@ class RecommendationCardControllerTest {
         mockMvc.perform(get("/api/v1/recommendations/424242"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(30080));
+    }
+
+    // ---- T134：feedback / read / stats 三端点 ----
+
+    @Test
+    void feedback_dislike_returnsMuteUntilAndEscalated() throws Exception {
+        // Arrange
+        when(feedbackService.feedback(7L, 9L, "DISLIKE", null))
+                .thenReturn(
+                        new RecommendationFeedbackService.FeedbackResult(
+                                "2026-09-29T08:00:00Z", false));
+
+        // Act + Assert：body {action} 透传 + {muteUntil, escalated} 响应
+        mockMvc.perform(
+                        post("/api/v1/recommendations/9/feedback")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"action\":\"DISLIKE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.muteUntil").value("2026-09-29T08:00:00Z"))
+                .andExpect(jsonPath("$.data.escalated").value(false));
+    }
+
+    @Test
+    void feedback_addWatchlist_passesSubjectCode() throws Exception {
+        // Arrange
+        when(feedbackService.feedback(7L, 9L, "ADD_WATCHLIST", "SH600519"))
+                .thenReturn(new RecommendationFeedbackService.FeedbackResult(null, null));
+
+        // Act + Assert：subjectCode 透传（必填校验在服务层）
+        mockMvc.perform(
+                        post("/api/v1/recommendations/9/feedback")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"action\":\"ADD_WATCHLIST\",\"subjectCode\":\"SH600519\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.muteUntil").doesNotExist());
+    }
+
+    @Test
+    void feedback_invalidActionOrMissingCard_maps30081And30080() throws Exception {
+        // Arrange
+        when(feedbackService.feedback(7L, 9L, "LIKE", null))
+                .thenThrow(new BusinessException(ErrorCode.RECOMMENDATION_FEEDBACK_INVALID));
+        when(feedbackService.feedback(7L, 424242L, "USEFUL", null))
+                .thenThrow(new BusinessException(ErrorCode.RECOMMENDATION_NOT_FOUND));
+
+        // Act + Assert
+        mockMvc.perform(
+                        post("/api/v1/recommendations/9/feedback")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"action\":\"LIKE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30081));
+        mockMvc.perform(
+                        post("/api/v1/recommendations/424242/feedback")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"action\":\"USEFUL\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30080));
+    }
+
+    @Test
+    void read_marksRead_idempotent200() throws Exception {
+        // Act + Assert：已读端点幂等 200 直返（无载荷）
+        mockMvc.perform(post("/api/v1/recommendations/9/read"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+        verify(feedbackService).markRead(7L, 9L);
+    }
+
+    @Test
+    void read_missingCard_maps30080() throws Exception {
+        // Arrange
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RECOMMENDATION_NOT_FOUND))
+                .when(feedbackService)
+                .markRead(7L, 424242L);
+
+        // Act + Assert
+        mockMvc.perform(post("/api/v1/recommendations/424242/read"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30080));
+    }
+
+    @Test
+    void stats_returnsAdoptV1Fields() throws Exception {
+        // Arrange
+        when(queryService.stats(7L, "2026-09-22"))
+                .thenReturn(new RecommendationStatsView("2026-09-22", 5L, 3L, 4L, 0.5, "adopt-v1"));
+
+        // Act + Assert：date 可缺省；五字段 + basis
+        mockMvc.perform(get("/api/v1/recommendations/stats").param("date", "2026-09-22"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.date").value("2026-09-22"))
+                .andExpect(jsonPath("$.data.pushDelivered").value(5))
+                .andExpect(jsonPath("$.data.viewExposed").value(3))
+                .andExpect(jsonPath("$.data.adopted").value(4))
+                .andExpect(jsonPath("$.data.adoptRate").value(0.5))
+                .andExpect(jsonPath("$.data.basis").value("adopt-v1"));
+    }
+
+    @Test
+    void stats_invalidDate_maps30082With400() throws Exception {
+        // Arrange
+        when(queryService.stats(7L, "bad-date"))
+                .thenThrow(new BusinessException(ErrorCode.RECOMMENDATION_FILTER_INVALID));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/recommendations/stats").param("date", "bad-date"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30082));
     }
 }

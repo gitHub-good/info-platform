@@ -43,6 +43,18 @@ public class RecommendationSettings {
     /** 日推送上限缺省（REQ：10 可配；SILENT 不占）。 */
     static final int DEFAULT_DAILY_LIMIT = 10;
 
+    /** DISIKE 降频天数缺省（REQ 拍板六：7 天）。 */
+    static final int DEFAULT_MUTED_DAYS = 7;
+
+    /** 升级静默天数缺省（Should 条款：30 天）。 */
+    static final int DEFAULT_ESCALATED_DAYS = 30;
+
+    /** 升级阈值缺省（滚动窗内 DISLIKE 次数 ≥3 → 升级）。 */
+    static final int DEFAULT_ESCALATE_THRESHOLD = 3;
+
+    /** 升级滚动窗天数缺省（30 天）。 */
+    static final int DEFAULT_ESCALATE_WINDOW_DAYS = 30;
+
     static final String KEY_GLOBAL = "recommendation.global";
 
     static final String KEY_SCORE = "recommendation.score";
@@ -82,6 +94,30 @@ public class RecommendationSettings {
     public int dailyLimit() {
         int limit = intOf(doc(KEY_PUSH), "dailyLimit", DEFAULT_DAILY_LIMIT);
         return limit < 0 ? DEFAULT_DAILY_LIMIT : limit;
+    }
+
+    /** DISLIKE 降频天数（mutedDays，T134 反馈闭环消费）。 */
+    public int mutedDays() {
+        int days = intOf(doc(KEY_PUSH), "mutedDays", DEFAULT_MUTED_DAYS);
+        return days <= 0 ? DEFAULT_MUTED_DAYS : days;
+    }
+
+    /** 升级静默天数（escalatedDays——滚动窗 DISLIKE 达阈值后的 Should 条款升级）。 */
+    public int escalatedDays() {
+        int days = intOf(doc(KEY_PUSH), "escalatedDays", DEFAULT_ESCALATED_DAYS);
+        return days <= 0 ? DEFAULT_ESCALATED_DAYS : days;
+    }
+
+    /** 升级阈值（escalateThreshold：滚动窗内 DISLIKE ≥ 该值 → 升级静默）。 */
+    public int escalateThreshold() {
+        int threshold = intOf(doc(KEY_PUSH), "escalateThreshold", DEFAULT_ESCALATE_THRESHOLD);
+        return threshold <= 0 ? DEFAULT_ESCALATE_THRESHOLD : threshold;
+    }
+
+    /** 升级滚动窗天数（escalateWindowDays：DISLIKE 计数回看窗）。 */
+    public int escalateWindowDays() {
+        int days = intOf(doc(KEY_PUSH), "escalateWindowDays", DEFAULT_ESCALATE_WINDOW_DAYS);
+        return days <= 0 ? DEFAULT_ESCALATE_WINDOW_DAYS : days;
     }
 
     /** recscore-v1 参数组装（RecommendationScoreCalculator 消费形态；basis 版本串随参数配置）。 */

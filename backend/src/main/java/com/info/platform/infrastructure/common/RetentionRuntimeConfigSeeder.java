@@ -34,8 +34,8 @@ public class RetentionRuntimeConfigSeeder implements RuntimeConfigSeeder {
                 new RuntimeConfigSeed(
                         "retention.global",
                         write(doc),
-                        "留痕数据保留窗口（五张表各自保留天数：任务日志/数据源事件/LLM 调用/阅读行为/资讯条目；"
-                                + "下限 7/2/35/35/30 天，改大=多留，保存即热生效——下一轮清理按新窗口）"));
+                        "留痕数据保留窗口（任务日志/数据源事件/LLM 调用/阅读行为/资讯条目/推荐卡片与反馈——推荐两表共窗；"
+                                + "下限 7/2/35/35/30/30 天，改大=多留，保存即热生效——下一轮清理按新窗口）"));
     }
 
     private String write(Map<String, Object> doc) {

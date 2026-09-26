@@ -84,6 +84,14 @@ public class RecommendationMuteRepositoryImpl implements RecommendationMuteRepos
         return mutes.isEmpty() ? Optional.empty() : Optional.of(mutes.get(0));
     }
 
+    @Override
+    public Optional<RecommendationMute> findByUserAndCombo(long userId, String comboKey) {
+        // 任意状态（含 LIFTED）——T134 升级判定读现值：triggerCount 增量与 reactivate 续期语义
+        List<RecommendationMute> mutes =
+                jdbcTemplate.query(FIND_BY_USER_AND_COMBO_SQL, MUTE_ROW, userId, comboKey);
+        return mutes.isEmpty() ? Optional.empty() : Optional.of(mutes.get(0));
+    }
+
     private static final String FIND_BY_USER_AND_COMBO_SQL =
             """
             SELECT id, user_id, combo_key, mute_days, muted_until, trigger_count,
