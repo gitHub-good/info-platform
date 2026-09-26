@@ -313,7 +313,8 @@ public class PushService {
 
     /**
      * 行业周报生成完成推送（M17 T145 Should，REQ 条目 11）：{@code @Async @EventListener} 消费 {@link
-     * IndustryWeeklyReportReadyEvent}（WeeklyReportService SUCCESS 落库后发布），广播全量用户。异常兜底记 ERROR 不上抛（异步监听器纪律）。
+     * IndustryWeeklyReportReadyEvent}（WeeklyReportService SUCCESS 落库后发布），广播全量用户。异常兜底记 ERROR
+     * 不上抛（异步监听器纪律）。
      */
     @Async("pushAsyncExecutor")
     @EventListener

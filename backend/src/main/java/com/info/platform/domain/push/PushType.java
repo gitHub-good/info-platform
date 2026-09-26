@@ -35,8 +35,8 @@ public enum PushType {
      */
     RECOMMENDATION(10, "recommendation"),
     /**
-     * 行业周报生成完成提醒（M17 T145 Should，REQ 条目 11：INDUSTRY_WEEKLY_REPORT 成功落库后发布，全量用户广播； 前端常量同步由
-     * GAP-03 契约对账断言常驻把守）。
+     * 行业周报生成完成提醒（M17 T145 Should，REQ 条目 11：INDUSTRY_WEEKLY_REPORT 成功落库后发布，全量用户广播； 前端常量同步由 GAP-03
+     * 契约对账断言常驻把守）。
      */
     INDUSTRY_WEEKLY_REPORT(11, "industry_weekly_report");
 

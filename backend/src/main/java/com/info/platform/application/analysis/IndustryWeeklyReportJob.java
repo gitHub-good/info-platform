@@ -10,9 +10,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * 行业周报 Job（M17 T145，REQ 拍板四-2）：第 15 个收编任务——{@code INDUSTRY_WEEKLY_REPORT} CRON（缺省周日晚 20:00
- * {@code 0 0 20 * * SUN}，{@code job.INDUSTRY_WEEKLY_REPORT} 可配）。定时语义 = 生成当周周报（本周一锚点 ~ 生成时刻窗口）；手动
- * retry 语义 = {@link #armRetry} 指定周整行重生成（JobExecutor CAS 守卫保证串行，armed 消费即清）。
+ * 行业周报 Job（M17 T145，REQ 拍板四-2）：第 15 个收编任务——{@code INDUSTRY_WEEKLY_REPORT} CRON（缺省周日晚 20:00 {@code 0
+ * 0 20 * * SUN}，{@code job.INDUSTRY_WEEKLY_REPORT} 可配）。定时语义 = 生成当周周报（本周一锚点 ~ 生成时刻窗口）；手动 retry 语义 =
+ * {@link #armRetry} 指定周整行重生成（JobExecutor CAS 守卫保证串行，armed 消费即清）。
  *
  * <p>测试 profile 种子 {@code enabled=false} → 调度零注册（十五 Job 惯例）；生成逻辑由单测直调 WeeklyReportService 验证。
  */
@@ -73,7 +73,8 @@ public class IndustryWeeklyReportJob implements ManagedJob, JobRunStats {
         lastRunDetail = null;
         LocalDate armed = armedRetryWeek.getAndSet(null);
         if (armed != null) {
-            WeeklyReportService.GenerationOutcome outcome = reportService.generateFor(armed.toString());
+            WeeklyReportService.GenerationOutcome outcome =
+                    reportService.generateFor(armed.toString());
             lastProcessedCount = outcome.skipped() ? 0 : 1;
             lastRunDetail =
                     "retry weekStart="

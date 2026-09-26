@@ -17,8 +17,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 行业周报读与重试服务（应用层，M17 T145，沿 IndustryReportService 同构）：列表（beforeId 游标 + limit 缺省 10）/ 详情
- * （30084）/ 重试（FAILED 校验 30085→409、不存在 30084；202 受理走 {@link JobCenterFacade#trigger} 手动通道）。
+ * 行业周报读与重试服务（应用层，M17 T145，沿 IndustryReportService 同构）：列表（beforeId 游标 + limit 缺省 10）/ 详情 （30084）/
+ * 重试（FAILED 校验 30085→409、不存在 30084；202 受理走 {@link JobCenterFacade#trigger} 手动通道）。
  */
 @Service
 public class IndustryWeeklyReportService {
@@ -173,13 +173,11 @@ public class IndustryWeeklyReportService {
             anchor = LocalDate.parse(weekStart);
         } catch (DateTimeParseException | NullPointerException e) {
             throw new BusinessException(
-                    ErrorCode.PIPELINE_CONFIG_INVALID,
-                    "weekStart: 须为 yyyy-MM-dd，当前值 " + weekStart);
+                    ErrorCode.PIPELINE_CONFIG_INVALID, "weekStart: 须为 yyyy-MM-dd，当前值 " + weekStart);
         }
         if (anchor.getDayOfWeek() != DayOfWeek.MONDAY) {
             throw new BusinessException(
-                    ErrorCode.PIPELINE_CONFIG_INVALID,
-                    "weekStart: 须为周一（周窗锚点），当前值 " + weekStart);
+                    ErrorCode.PIPELINE_CONFIG_INVALID, "weekStart: 须为周一（周窗锚点），当前值 " + weekStart);
         }
         return anchor;
     }

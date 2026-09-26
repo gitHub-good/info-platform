@@ -8,8 +8,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * 行业周报实体单测（M17 T145，V29 {@code industry_weekly_report}）：weekStart 须为周一（周窗锚点语义）、UNIQUE(week_start) 幂等
- * 语义由仓储把守、SUCCESS content 必填、FAILED 留痕重建。
+ * 行业周报实体单测（M17 T145，V29 {@code industry_weekly_report}）：weekStart 须为周一（周窗锚点语义）、UNIQUE(week_start)
+ * 幂等 语义由仓储把守、SUCCESS content 必填、FAILED 留痕重建。
  */
 class IndustryWeeklyReportTest {
 
@@ -23,7 +23,13 @@ class IndustryWeeklyReportTest {
     void success_mondayAnchored() {
         IndustryWeeklyReport report =
                 IndustryWeeklyReport.success(
-                        MONDAY, "{\"summary\":\"..\"}", "[]", null, "v1.0", "trend-v1|heat-v1", NOW);
+                        MONDAY,
+                        "{\"summary\":\"..\"}",
+                        "[]",
+                        null,
+                        "v1.0",
+                        "trend-v1|heat-v1",
+                        NOW);
 
         assertThat(report.getWeekStart()).isEqualTo(MONDAY);
         assertThat(report.getStatus()).isEqualTo(ReportStatus.SUCCESS);
@@ -40,10 +46,7 @@ class IndustryWeeklyReportTest {
                                         "2026-09-22", "{}", "[]", null, "v1.0", "b", NOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("周一");
-        assertThatThrownBy(
-                        () ->
-                                IndustryWeeklyReport.failed(
-                                        "2026/09/21", "error", NOW))
+        assertThatThrownBy(() -> IndustryWeeklyReport.failed("2026/09/21", "error", NOW))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -51,7 +54,9 @@ class IndustryWeeklyReportTest {
     @DisplayName("SUCCESS content 必填；FAILED 留痕可重建")
     void contractGuards() {
         assertThatThrownBy(
-                        () -> IndustryWeeklyReport.success(MONDAY, null, "[]", null, "v1.0", "b", NOW))
+                        () ->
+                                IndustryWeeklyReport.success(
+                                        MONDAY, null, "[]", null, "v1.0", "b", NOW))
                 .isInstanceOf(NullPointerException.class);
 
         IndustryWeeklyReport failed = IndustryWeeklyReport.failed(MONDAY, "统计失败", NOW);

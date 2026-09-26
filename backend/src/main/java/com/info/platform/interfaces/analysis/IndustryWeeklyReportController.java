@@ -16,12 +16,12 @@ import org.springframework.web.bind.annotation.RestController;
  * 行业周报接口（M17 T145，方案 §4.8，Bearer JWT；字面量 {@code weekly} 段与日报 {@code /{reportDate}} 路由无歧义——精确匹配优先）：
  *
  * <ul>
- *   <li>{@code GET /api/v1/industry-reports/weekly?beforeId=&limit=} —— 周报列表（week_start DESC 游标分页，limit 缺省 10
- *       ≤50）
- *   <li>{@code GET /api/v1/industry-reports/weekly/{weekStart}} —— 单周详情（content/heatTop 五区块 JSON 全量；不存在
- *       404/30084）
- *   <li>{@code POST /api/v1/industry-reports/weekly/{weekStart}/retry} —— 重试 FAILED 周报（202 受理走 JobExecutor 手动通道；
- *       已 SUCCESS 409/30085）
+ *   <li>{@code GET /api/v1/industry-reports/weekly?beforeId=&limit=} —— 周报列表（week_start DESC
+ *       游标分页，limit 缺省 10 ≤50）
+ *   <li>{@code GET /api/v1/industry-reports/weekly/{weekStart}} —— 单周详情（content/heatTop 五区块 JSON
+ *       全量；不存在 404/30084）
+ *   <li>{@code POST /api/v1/industry-reports/weekly/{weekStart}/retry} —— 重试 FAILED 周报（202 受理走
+ *       JobExecutor 手动通道； 已 SUCCESS 409/30085）
  * </ul>
  */
 @RestController

@@ -3,7 +3,6 @@ package com.info.platform.infrastructure.analysis;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.info.platform.domain.analysis.DailyReportRepository;
-import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.IndustryWeeklyReport;
 import com.info.platform.domain.analysis.ReportStatus;
 import com.info.platform.domain.analysis.WeeklyReportRepository;
@@ -18,8 +17,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * 周报仓储集成测试（M17 T145，V29 {@code industry_weekly_report}）：UNIQUE(week_start) UPSERT（FAILED 重生成/幂等收敛一行）、
- * week_start DESC 游标分页、周窗事件区间取数（主键归并——event_item 一行一主线）。t145w_ 前缀数据隔离清理。
+ * 周报仓储集成测试（M17 T145，V29 {@code industry_weekly_report}）：UNIQUE(week_start) UPSERT（FAILED
+ * 重生成/幂等收敛一行）、 week_start DESC 游标分页、周窗事件区间取数（主键归并——event_item 一行一主线）。t145w_ 前缀数据隔离清理。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -72,22 +71,15 @@ class WeeklyReportRepositoryImplTest {
 
     @Test
     void findPage_weekStartDescCursor() {
+        repository.upsert(IndustryWeeklyReport.failed("2027-09-13", "err", NOW));
         repository.upsert(
-                IndustryWeeklyReport.failed("2027-09-13", "err", NOW));
-        repository.upsert(
-                IndustryWeeklyReport.success(
-                        "2027-09-20", "{}", "[]", null, "v1.0", "b", NOW));
+                IndustryWeeklyReport.success("2027-09-20", "{}", "[]", null, "v1.0", "b", NOW));
 
         List<IndustryWeeklyReport> page = repository.findPage(null, 10);
 
         assertThat(page.stream().map(IndustryWeeklyReport::getWeekStart))
                 .contains("2027-09-20", "2027-09-13");
-        assertThat(
-                        repository
-                                .findPage(null, 10)
-                                .get(0)
-                                .getWeekStart())
-                .isEqualTo("2027-09-20");
+        assertThat(repository.findPage(null, 10).get(0).getWeekStart()).isEqualTo("2027-09-20");
     }
 
     @Test

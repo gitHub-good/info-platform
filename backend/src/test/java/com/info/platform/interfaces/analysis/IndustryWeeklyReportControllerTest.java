@@ -9,9 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.info.platform.application.analysis.IndustryWeeklyReportService;
-import com.info.platform.application.analysis.IndustryWeeklyReportListView;
 import com.info.platform.application.analysis.IndustryWeeklyReportDetailView;
+import com.info.platform.application.analysis.IndustryWeeklyReportListView;
+import com.info.platform.application.analysis.IndustryWeeklyReportService;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.GlobalExceptionHandler;
@@ -40,8 +40,7 @@ class IndustryWeeklyReportControllerTest {
     void setUp() {
         weeklyService = mock(IndustryWeeklyReportService.class);
         mockMvc =
-                MockMvcBuilders.standaloneSetup(
-                                new IndustryWeeklyReportController(weeklyService))
+                MockMvcBuilders.standaloneSetup(new IndustryWeeklyReportController(weeklyService))
                         .setMessageConverters(
                                 new MappingJackson2HttpMessageConverter(new ObjectMapper()))
                         .setControllerAdvice(new GlobalExceptionHandler())
@@ -85,8 +84,9 @@ class IndustryWeeklyReportControllerTest {
                                 1L,
                                 "2026-09-21",
                                 "SUCCESS",
-                                new ObjectMapper().readTree(
-                                        "{\"summary\":\"s\",\"trendJudgement\":{\"basis\":\"trend-v1\"}}"),
+                                new ObjectMapper()
+                                        .readTree(
+                                                "{\"summary\":\"s\",\"trendJudgement\":{\"basis\":\"trend-v1\"}}"),
                                 new ObjectMapper().readTree("[]"),
                                 null,
                                 "v1.0",
@@ -106,8 +106,7 @@ class IndustryWeeklyReportControllerTest {
         when(weeklyService.detail("2026-09-21"))
                 .thenThrow(
                         new BusinessException(
-                                ErrorCode.INDUSTRY_WEEKLY_REPORT_NOT_FOUND,
-                                "该周周报不存在: 2026-09-21"));
+                                ErrorCode.INDUSTRY_WEEKLY_REPORT_NOT_FOUND, "该周周报不存在: 2026-09-21"));
 
         mockMvc.perform(get("/api/v1/industry-reports/weekly/2026-09-21"))
                 .andExpect(status().isNotFound())

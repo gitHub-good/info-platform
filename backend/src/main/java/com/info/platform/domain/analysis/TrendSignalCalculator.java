@@ -1,8 +1,8 @@
 package com.info.platform.domain.analysis;
 
 /**
- * 走向判断规则信号层（领域纯函数，M17 T146，REQ 拍板六 / 任务 T146）：输入 = 周内热度首末对比（本周 vs 上周等长窗现算）+ 事件密度 +
- * 政策计数 → 每行业信号（升温/降温/平稳）+ 置信度（高/中/低）。<b>纯计算零 AI 成本；置信度由本层锁定（trend-v1），AI 仅语言组织不可抬高或
+ * 走向判断规则信号层（领域纯函数，M17 T146，REQ 拍板六 / 任务 T146）：输入 = 周内热度首末对比（本周 vs 上周等长窗现算）+ 事件密度 + 政策计数 →
+ * 每行业信号（升温/降温/平稳）+ 置信度（高/中/低）。<b>纯计算零 AI 成本；置信度由本层锁定（trend-v1），AI 仅语言组织不可抬高或
  * 降低</b>（输出校验在周报服务——置信度与规则层不一致即模板兜底）。
  *
  * <p>trend-v1 映射口径（版本化留档，沿 heat-v1 / recscore-v1 / adopt-v1 先例）：
@@ -95,18 +95,23 @@ public final class TrendSignalCalculator {
         TrendSignal signal =
                 deltaPct >= SIGNAL_DELTA_THRESHOLD
                         ? TrendSignal.HEATING
-                        : deltaPct <= -SIGNAL_DELTA_THRESHOLD ? TrendSignal.COOLING : TrendSignal.STABLE;
+                        : deltaPct <= -SIGNAL_DELTA_THRESHOLD
+                                ? TrendSignal.COOLING
+                                : TrendSignal.STABLE;
         return new TrendResult(signal, confidenceOf(deltaPct, input), deltaPct);
     }
 
     private static TrendConfidence confidenceOf(double deltaPct, TrendInput input) {
         boolean strong = Math.abs(deltaPct) >= STRONG_DELTA_THRESHOLD;
-        boolean dense = input.weekEvents() >= DENSITY_EVENT_THRESHOLD
-                && input.weekEvents() > input.prevWeekEvents();
+        boolean dense =
+                input.weekEvents() >= DENSITY_EVENT_THRESHOLD
+                        && input.weekEvents() > input.prevWeekEvents();
         if (strong && dense) {
             return TrendConfidence.HIGH;
         }
-        return Math.abs(deltaPct) >= SIGNAL_DELTA_THRESHOLD ? TrendConfidence.MEDIUM : TrendConfidence.LOW;
+        return Math.abs(deltaPct) >= SIGNAL_DELTA_THRESHOLD
+                ? TrendConfidence.MEDIUM
+                : TrendConfidence.LOW;
     }
 
     /** 环比：prev=0 且 score&gt;0 记 100.0，双 0 记 0（与 heat-v1 deltaPctOf 同口径）。 */

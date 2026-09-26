@@ -15,12 +15,12 @@ import com.info.platform.domain.ai.LlmResponse;
 import com.info.platform.domain.ai.PlaceholderDescriptor;
 import com.info.platform.domain.ai.PromptTemplate;
 import com.info.platform.domain.analysis.DailyReportRepository;
+import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.GuardLevel;
 import com.info.platform.domain.analysis.HeatCalculator;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.IndustryCategory;
 import com.info.platform.domain.analysis.IndustryWeeklyReport;
-import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.ReportStatus;
 import com.info.platform.domain.analysis.TrendSignalCalculator;
 import com.info.platform.domain.analysis.WeeklyReportRepository;
@@ -45,15 +45,14 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 /**
- * 行业周报生成服务（应用层，M17 T145/T146，REQ 拍板四/六，方案沿 DailyReportService 同构）：周窗聚合（本周 [周一 00:00,
- * 生成时刻] vs 上周等长窗热度现算 + 事件主键归并（event_item 一行一主线，跨日去重天然成立）+ 政策动向） → 规则信号层（{@link
- * TrendSignalCalculator} 纯计算）→ 单次 LLM 语言组织（briefType=9，走向判断 AI 只组织语言，<b>置信度 trend-v1 规则层锁定——AI
- * 输出置信度与规则层不一致即该行业模板兜底</b>，零新增事实）→ 五区块周报落 {@code industry_weekly_report}（UNIQUE(week_start)
- * 幂等 / FAILED 重生成替换）。
+ * 行业周报生成服务（应用层，M17 T145/T146，REQ 拍板四/六，方案沿 DailyReportService 同构）：周窗聚合（本周 [周一 00:00, 生成时刻] vs
+ * 上周等长窗热度现算 + 事件主键归并（event_item 一行一主线，跨日去重天然成立）+ 政策动向） → 规则信号层（{@link TrendSignalCalculator} 纯计算）→
+ * 单次 LLM 语言组织（briefType=9，走向判断 AI 只组织语言，<b>置信度 trend-v1 规则层锁定——AI 输出置信度与规则层不一致即该行业模板兜底</b>，零新增事实）→
+ * 五区块周报落 {@code industry_weekly_report}（UNIQUE(week_start) 幂等 / FAILED 重生成替换）。
  *
- * <p><b>护栏语义</b>（沿日报先例）：FUSED 跳过（留痕，下周一补跑窗口覆盖）；DEGRADED 保留。<b>降级语义</b>：LLM 失败/输出不可解析 →
- * 纯统计模板直出 SUCCESS（narrativeDegraded=true 如实标注 + 不发完成通知）。<b>幂等语义</b>：已 SUCCESS 直返跳过（手动重生成仅
- * FAILED，30085 契约由端点把守）。
+ * <p><b>护栏语义</b>（沿日报先例）：FUSED 跳过（留痕，下周一补跑窗口覆盖）；DEGRADED 保留。<b>降级语义</b>：LLM 失败/输出不可解析 → 纯统计模板直出
+ * SUCCESS（narrativeDegraded=true 如实标注 + 不发完成通知）。<b>幂等语义</b>：已 SUCCESS 直返跳过（手动重生成仅 FAILED，30085
+ * 契约由端点把守）。
  */
 @Service
 public class WeeklyReportService implements PlaceholderProvider {
@@ -163,7 +162,10 @@ public class WeeklyReportService implements PlaceholderProvider {
                 today.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         GenerationOutcome outcome = generateFor(monday.toString());
         String detail =
-                "weekStart=" + monday + ";status=" + outcome.status()
+                "weekStart="
+                        + monday
+                        + ";status="
+                        + outcome.status()
                         + (outcome.skipped() ? ";reason=" + outcome.reason() : "");
         log.info("行业周报定时窗口完成: {}", detail);
         return new WindowReport(outcome.skipped() ? 0 : 1, outcome.skipped() ? 1 : 0, detail);
@@ -182,7 +184,8 @@ public class WeeklyReportService implements PlaceholderProvider {
         // ① 热度双窗现算（本周 vs 上周等长窗——快照表 62 行常驻无时序，沿 HeatSnapshotService 现算先例）
         HeatCalculator.HeatParams params = settings.heatParams();
         Map<String, HeatCalculator.IndustryHeat> weekHeat =
-                HeatCalculator.compute(heatItems(windowStart, windowEnd), params, windowEnd, windowLength);
+                HeatCalculator.compute(
+                        heatItems(windowStart, windowEnd), params, windowEnd, windowLength);
         Map<String, HeatCalculator.IndustryHeat> prevHeat =
                 HeatCalculator.compute(
                         heatItems(windowStart.minus(windowLength), windowStart),
@@ -223,7 +226,16 @@ public class WeeklyReportService implements PlaceholderProvider {
         }
 
         // ④ LLM 语言组织（AI 只写叙述与下周关注点；走向判断叙述经篡改校验）
-        NarrativeAttempt attempt = requestNarrative(weekStart, todayDate, weekHeat, prevHeat, signals, events, newsByIndustry, totalNews);
+        NarrativeAttempt attempt =
+                requestNarrative(
+                        weekStart,
+                        todayDate,
+                        weekHeat,
+                        prevHeat,
+                        signals,
+                        events,
+                        newsByIndustry,
+                        totalNews);
 
         String contentJson =
                 assembleContent(
@@ -281,7 +293,13 @@ public class WeeklyReportService implements PlaceholderProvider {
                     promptTemplateService.render(
                             template,
                             buildContext(
-                                    weekStart, weekEnd, weekHeat, signals, events, newsByIndustry, totalNews));
+                                    weekStart,
+                                    weekEnd,
+                                    weekHeat,
+                                    signals,
+                                    events,
+                                    newsByIndustry,
+                                    totalNews));
             LlmRequest request =
                     LlmRequest.pipeline(
                             messages,
@@ -297,7 +315,10 @@ public class WeeklyReportService implements PlaceholderProvider {
             return new NarrativeAttempt(narrative, null, template.getVersion());
         } catch (LlmException | BusinessException e) {
             log.warn("行业周报 LLM 调用失败（降级模板直出）: weekStart={} {}", weekStart, e.toString());
-            return new NarrativeAttempt(null, String.valueOf(e.getMessage() == null ? e.toString() : e.getMessage()), null);
+            return new NarrativeAttempt(
+                    null,
+                    String.valueOf(e.getMessage() == null ? e.toString() : e.getMessage()),
+                    null);
         } catch (RuntimeException e) {
             log.warn("行业周报 LLM 调用异常（降级模板直出）: weekStart={} {}", weekStart, e.toString());
             return new NarrativeAttempt(null, e.toString(), null);
@@ -305,8 +326,8 @@ public class WeeklyReportService implements PlaceholderProvider {
     }
 
     /**
-     * 模型叙述解析 + <b>篡改校验</b>（T146 红线）：summary/watchPoints 直取；trendNarratives 逐条校验——行业 ∈
-     * 规则信号选中集 且（无置信度字段或与规则层一致）方采纳，越界/篡改条目丢弃（该行业叙述走模板兜底，置信度恒规则层值）。
+     * 模型叙述解析 + <b>篡改校验</b>（T146 红线）：summary/watchPoints 直取；trendNarratives 逐条校验——行业 ∈ 规则信号选中集
+     * 且（无置信度字段或与规则层一致）方采纳，越界/篡改条目丢弃（该行业叙述走模板兜底，置信度恒规则层值）。
      */
     private Narrative parseNarrative(
             String content, Map<String, TrendSignalCalculator.TrendResult> signals) {
@@ -380,7 +401,9 @@ public class WeeklyReportService implements PlaceholderProvider {
         boolean degraded = narrative == null;
         content.put(
                 "summary",
-                degraded ? templateSummary(weekStart, weekEnd, totalNews, events) : narrative.summary());
+                degraded
+                        ? templateSummary(weekStart, weekEnd, totalNews, events)
+                        : narrative.summary());
         content.put("narrativeDegraded", degraded);
         content.put("weekStart", weekStart);
         content.put("weekEnd", weekEnd);
@@ -390,12 +413,31 @@ public class WeeklyReportService implements PlaceholderProvider {
         // 区块 1：热度总览（Top 升/降行业 + 周环比）
         ArrayNode risers = content.putArray("topRisers");
         ArrayNode fallers = content.putArray("topFallers");
-        movers(signals, true).forEach(industry -> addMover(risers, industry, weekHeat, prevHeat, signals, newsByIndustry));
-        movers(signals, false).forEach(industry -> addMover(fallers, industry, weekHeat, prevHeat, signals, newsByIndustry));
+        movers(signals, true)
+                .forEach(
+                        industry ->
+                                addMover(
+                                        risers,
+                                        industry,
+                                        weekHeat,
+                                        prevHeat,
+                                        signals,
+                                        newsByIndustry));
+        movers(signals, false)
+                .forEach(
+                        industry ->
+                                addMover(
+                                        fallers,
+                                        industry,
+                                        weekHeat,
+                                        prevHeat,
+                                        signals,
+                                        newsByIndustry));
 
         // 区块 2：事件回顾（主键归并，重要度降序 ≤20）
         ArrayNode review = content.putArray("eventReview");
-        for (DailyReportRepository.ReportEvent event : events.stream().limit(EVENT_REVIEW_LIMIT).toList()) {
+        for (DailyReportRepository.ReportEvent event :
+                events.stream().limit(EVENT_REVIEW_LIMIT).toList()) {
             ObjectNode node = review.addObject();
             node.put("eventId", event.eventId());
             node.put("newsId", event.newsId());
@@ -412,10 +454,11 @@ public class WeeklyReportService implements PlaceholderProvider {
 
         // 区块 3：政策动向（POLICY_RELEASE 周窗清单）
         ArrayNode policies = content.putArray("policyMoves");
-        for (DailyReportRepository.ReportEvent event : events.stream()
-                .filter(event -> event.eventType() == EventType.POLICY_RELEASE)
-                .limit(EVENT_REVIEW_LIMIT)
-                .toList()) {
+        for (DailyReportRepository.ReportEvent event :
+                events.stream()
+                        .filter(event -> event.eventType() == EventType.POLICY_RELEASE)
+                        .limit(EVENT_REVIEW_LIMIT)
+                        .toList()) {
             ObjectNode node = policies.addObject();
             node.put("eventId", event.eventId());
             node.put("summary", event.summary());
@@ -454,7 +497,8 @@ public class WeeklyReportService implements PlaceholderProvider {
             item.put("prevScore", prev.score());
             item.put("eventCount", week.eventCount());
             item.put("policyCount", policyCountOf(events, industry));
-            String aiNarrative = narrative == null ? null : narrative.trendNarratives().get(industry);
+            String aiNarrative =
+                    narrative == null ? null : narrative.trendNarratives().get(industry);
             item.put(
                     "narrative",
                     aiNarrative != null
@@ -495,7 +539,8 @@ public class WeeklyReportService implements PlaceholderProvider {
         return new HeatCalculator.IndustryHeat(0.0, 0, 0);
     }
 
-    private static long policyCountOf(List<DailyReportRepository.ReportEvent> events, String industry) {
+    private static long policyCountOf(
+            List<DailyReportRepository.ReportEvent> events, String industry) {
         return events.stream()
                 .filter(event -> event.eventType() == EventType.POLICY_RELEASE)
                 .filter(event -> event.industries().contains(industry))
@@ -515,8 +560,8 @@ public class WeeklyReportService implements PlaceholderProvider {
         entries.sort(
                 rising
                         ? java.util.Comparator.comparingDouble(
-                                        (Map.Entry<String, TrendSignalCalculator.TrendResult> entry) ->
-                                                entry.getValue().deltaPct())
+                                        (Map.Entry<String, TrendSignalCalculator.TrendResult>
+                                                        entry) -> entry.getValue().deltaPct())
                                 .reversed()
                         : java.util.Comparator.comparingDouble(
                                 (Map.Entry<String, TrendSignalCalculator.TrendResult> entry) ->
@@ -534,9 +579,12 @@ public class WeeklyReportService implements PlaceholderProvider {
                                                 == TrendSignalCalculator.TrendSignal.HEATING)
                         .sorted(
                                 java.util.Comparator.comparingDouble(
-                                                (Map.Entry<String, TrendSignalCalculator.TrendResult>
-                                                                entry)
-                                                        -> entry.getValue().deltaPct())
+                                                (Map.Entry<
+                                                                        String,
+                                                                        TrendSignalCalculator
+                                                                                .TrendResult>
+                                                                entry) ->
+                                                        entry.getValue().deltaPct())
                                         .reversed())
                         .limit(TREND_INDUSTRY_LIMIT)
                         .map(Map.Entry::getKey)
@@ -549,8 +597,8 @@ public class WeeklyReportService implements PlaceholderProvider {
                                                 == TrendSignalCalculator.TrendSignal.COOLING)
                         .sorted(
                                 java.util.Comparator.comparingDouble(
-                                        (Map.Entry<String, TrendSignalCalculator.TrendResult> entry)
-                                                -> entry.getValue().deltaPct()))
+                                        (Map.Entry<String, TrendSignalCalculator.TrendResult>
+                                                        entry) -> entry.getValue().deltaPct()))
                         .limit(TREND_INDUSTRY_LIMIT)
                         .map(Map.Entry::getKey)
                         .toList();
@@ -576,7 +624,11 @@ public class WeeklyReportService implements PlaceholderProvider {
     }
 
     /** 降级模板 summary（结构化统计直出）。 */
-    private String templateSummary(String weekStart, String weekEnd, long totalNews, List<DailyReportRepository.ReportEvent> events) {
+    private String templateSummary(
+            String weekStart,
+            String weekEnd,
+            long totalNews,
+            List<DailyReportRepository.ReportEvent> events) {
         return String.format(
                 "本周（%s ~ %s）行业面结构化统计：资讯 %d 条、事件 %d 条；本版为纯统计模板直出（AI 叙述暂不可用），"
                         + "热度总览/事件回顾/政策动向/走向判断见各区块。",
@@ -584,7 +636,8 @@ public class WeeklyReportService implements PlaceholderProvider {
     }
 
     /** 降级模板下周关注点（规则直出：升温行业延续 + 政策动向 + 免责口径）。 */
-    private List<String> templateWatchPoints(Map<String, TrendSignalCalculator.TrendResult> signals) {
+    private List<String> templateWatchPoints(
+            Map<String, TrendSignalCalculator.TrendResult> signals) {
         List<String> points = new ArrayList<>();
         List<String> heating = trendIndustries(signals);
         if (!heating.isEmpty()) {
@@ -635,9 +688,11 @@ public class WeeklyReportService implements PlaceholderProvider {
 
     /** basis = trend-v1 + heat + cost 口径串。 */
     private String basisOf() {
-        return TrendSignalCalculator.BASIS + " | "
+        return TrendSignalCalculator.BASIS
+                + " | "
                 + com.info.platform.domain.analysis.HeatCalculator.basis(settings.heatParams())
-                + " | " + settings.costBasis();
+                + " | "
+                + settings.costBasis();
     }
 
     /** 渲染上下文（六占位符；与 {@link #provided()} 同源同序）。 */
@@ -674,7 +729,8 @@ public class WeeklyReportService implements PlaceholderProvider {
         }
         StringBuilder eventLines = new StringBuilder();
         int index = 1;
-        for (DailyReportRepository.ReportEvent event : events.stream().limit(EVENT_REVIEW_LIMIT).toList()) {
+        for (DailyReportRepository.ReportEvent event :
+                events.stream().limit(EVENT_REVIEW_LIMIT).toList()) {
             if (!eventLines.isEmpty()) {
                 eventLines.append('\n');
             }

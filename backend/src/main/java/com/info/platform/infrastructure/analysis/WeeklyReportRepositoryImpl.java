@@ -18,8 +18,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 /**
- * {@link WeeklyReportRepository} 端口的 SQLite 实现（M17 T145，V29）。UPSERT {@code ON CONFLICT(week_start) DO
- * UPDATE}（FAILED 重生成整体替换收敛一行，created_at 不覆写）；列表 week_start DESC 游标分页；周窗事件区间取数跨 {@code
+ * {@link WeeklyReportRepository} 端口的 SQLite 实现（M17 T145，V29）。UPSERT {@code ON CONFLICT(week_start)
+ * DO UPDATE}（FAILED 重生成整体替换收敛一行，created_at 不覆写）；列表 week_start DESC 游标分页；周窗事件区间取数跨 {@code
  * event_item}（主键归并——一行一主线，重要度排序落 SQL CASE 与日报同构）。
  */
 @Repository
@@ -127,7 +127,8 @@ public class WeeklyReportRepositoryImpl implements WeeklyReportRepository {
         jdbcTemplate.update(
                 con -> {
                     PreparedStatement ps =
-                            con.prepareStatement(UPSERT_SQL, java.sql.Statement.RETURN_GENERATED_KEYS);
+                            con.prepareStatement(
+                                    UPSERT_SQL, java.sql.Statement.RETURN_GENERATED_KEYS);
                     ps.setString(1, report.getWeekStart());
                     ps.setString(2, report.getStatus().name());
                     ps.setString(3, report.getContent());
@@ -135,19 +136,23 @@ public class WeeklyReportRepositoryImpl implements WeeklyReportRepository {
                     ps.setString(5, report.getErrorMessage());
                     ps.setString(6, report.getPromptVersion());
                     ps.setString(7, report.getBasis());
-                    ps.setString(8, isoOf(report.getCreatedAt() == null ? now : report.getCreatedAt()));
+                    ps.setString(
+                            8, isoOf(report.getCreatedAt() == null ? now : report.getCreatedAt()));
                     ps.setString(9, isoOf(now));
                     return ps;
                 });
         return findByWeekStart(report.getWeekStart())
                 .orElseThrow(
-                        () -> new IllegalStateException("周报 UPSERT 后回读失败: " + report.getWeekStart()));
+                        () ->
+                                new IllegalStateException(
+                                        "周报 UPSERT 后回读失败: " + report.getWeekStart()));
     }
 
     @Override
     public List<DailyReportRepository.ReportEvent> findEventsBetween(
             String eventDateFrom, String eventDateTo, int cap) {
-        return jdbcTemplate.query(FIND_EVENTS_BETWEEN_SQL, EVENT_ROW, eventDateFrom, eventDateTo, cap);
+        return jdbcTemplate.query(
+                FIND_EVENTS_BETWEEN_SQL, EVENT_ROW, eventDateFrom, eventDateTo, cap);
     }
 
     private static List<String> jsonList(String json) {

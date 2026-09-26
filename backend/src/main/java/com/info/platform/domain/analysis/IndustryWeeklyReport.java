@@ -8,12 +8,12 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
- * 行业周报实体（{@code industry_weekly_report} 表，M17 T145，V29）：UNIQUE(week_start) 每周一锚一行 UPSERT（FAILED
- * 重生成 / SUCCESS 幂等跳过——30085 契约由应用层把守）。周窗 = [week_start 周一 00:00 Asia/Shanghai, 生成时刻]。
+ * 行业周报实体（{@code industry_weekly_report} 表，M17 T145，V29）：UNIQUE(week_start) 每周一锚一行 UPSERT（FAILED 重生成
+ * / SUCCESS 幂等跳过——30085 契约由应用层把守）。周窗 = [week_start 周一 00:00 Asia/Shanghai, 生成时刻]。
  *
- * <p>{@code content} 为五区块 JSON 契约（summary / topRisers+topFallers 热度总览 / eventReview 事件回顾 / policyMoves
- * 政策动向 / nextWeekWatch 下周关注点 / trendJudgement 走向判断）；关键数字全部来自统计与规则层（AI 只写叙述，幻觉防线）； {@code
- * heat_top} 为生成时点周窗热度留存 JSON；{@code basis} 为 trend-v1 + heat + cost 口径串。
+ * <p>{@code content} 为五区块 JSON 契约（summary / topRisers+topFallers 热度总览 / eventReview 事件回顾 /
+ * policyMoves 政策动向 / nextWeekWatch 下周关注点 / trendJudgement 走向判断）；关键数字全部来自统计与规则层（AI 只写叙述，幻觉防线）；
+ * {@code heat_top} 为生成时点周窗热度留存 JSON；{@code basis} 为 trend-v1 + heat + cost 口径串。
  */
 public class IndustryWeeklyReport {
 
@@ -79,14 +79,31 @@ public class IndustryWeeklyReport {
             String basis,
             Instant now) {
         return new IndustryWeeklyReport(
-                null, weekStart, ReportStatus.SUCCESS, content, heatTop, errorMessage,
-                promptVersion, basis, now, now);
+                null,
+                weekStart,
+                ReportStatus.SUCCESS,
+                content,
+                heatTop,
+                errorMessage,
+                promptVersion,
+                basis,
+                now,
+                now);
     }
 
     /** 新建失败周报（聚合阶段失败留痕，retry 端点重生成）。 */
     public static IndustryWeeklyReport failed(String weekStart, String errorMessage, Instant now) {
         return new IndustryWeeklyReport(
-                null, weekStart, ReportStatus.FAILED, null, null, errorMessage, null, null, now, now);
+                null,
+                weekStart,
+                ReportStatus.FAILED,
+                null,
+                null,
+                errorMessage,
+                null,
+                null,
+                now,
+                now);
     }
 
     /** 从持久化数据重建（基础设施层回读）。 */
@@ -102,8 +119,16 @@ public class IndustryWeeklyReport {
             Instant createdAt,
             Instant updatedAt) {
         return new IndustryWeeklyReport(
-                id, weekStart, status, content, heatTop, errorMessage, promptVersion, basis,
-                createdAt, updatedAt);
+                id,
+                weekStart,
+                status,
+                content,
+                heatTop,
+                errorMessage,
+                promptVersion,
+                basis,
+                createdAt,
+                updatedAt);
     }
 
     public Long getId() {

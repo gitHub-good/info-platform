@@ -27,9 +27,8 @@ import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.GuardLevel;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
-import com.info.platform.domain.analysis.IndustryWeeklyReport;
 import com.info.platform.domain.analysis.Importance;
-import com.info.platform.domain.analysis.ReportStatus;
+import com.info.platform.domain.analysis.IndustryWeeklyReport;
 import com.info.platform.domain.analysis.WeeklyReportRepository;
 import com.info.platform.domain.push.IndustryWeeklyReportReadyEvent;
 import java.time.Clock;
@@ -46,8 +45,7 @@ import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * 行业周报生成服务单测（M17 T145/T146，REQ 拍板四/六 / 故事 2 场景 1/2/4/5）：周窗聚合口径（事件主键归并跨日去重 = event_item
- * 天然主键行集）、五区块结构完整、走向判断置信度 trend-v1 规则层锁定（AI 篡改拦截 → 模板兜底）、FUSED 跳过留痕、SUCCESS 幂等、LLM
- * 失败模板降级、通知事件发布。
+ * 天然主键行集）、五区块结构完整、走向判断置信度 trend-v1 规则层锁定（AI 篡改拦截 → 模板兜底）、FUSED 跳过留痕、SUCCESS 幂等、LLM 失败模板降级、通知事件发布。
  */
 class WeeklyReportServiceTest {
 
@@ -150,14 +148,20 @@ class WeeklyReportServiceTest {
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.WindowItem(
-                                        "银行", Instant.parse("2026-09-24T02:00:00Z"),
-                                        Importance.HIGH, List.of("银行")),
+                                        "银行",
+                                        Instant.parse("2026-09-24T02:00:00Z"),
+                                        Importance.HIGH,
+                                        List.of("银行")),
                                 new HeatSnapshotRepository.WindowItem(
-                                        "银行", Instant.parse("2026-09-25T02:00:00Z"),
-                                        Importance.MEDIUM, List.of("银行")),
+                                        "银行",
+                                        Instant.parse("2026-09-25T02:00:00Z"),
+                                        Importance.MEDIUM,
+                                        List.of("银行")),
                                 new HeatSnapshotRepository.WindowItem(
-                                        "银行", Instant.parse("2026-09-26T02:00:00Z"),
-                                        Importance.LOW, List.of("银行"))));
+                                        "银行",
+                                        Instant.parse("2026-09-26T02:00:00Z"),
+                                        Importance.LOW,
+                                        List.of("银行"))));
         when(weeklyRepository.upsert(any(IndustryWeeklyReport.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -254,14 +258,16 @@ class WeeklyReportServiceTest {
         assertThat(content.path("disclaimer").asText()).isEqualTo("AI 分析仅供参考");
         assertThat(captor.getValue().getBasis()).contains("trend-v1");
 
-        verify(eventPublisher)
-                .publishEvent(any(IndustryWeeklyReportReadyEvent.class));
+        verify(eventPublisher).publishEvent(any(IndustryWeeklyReportReadyEvent.class));
     }
 
     @Test
     @DisplayName("周窗聚合口径：事件按主键归并（event_item 一行一主线，跨日去重天然成立）")
     void generateFor_eventMergeByPrimaryKey() throws Exception {
-        when(llmGateway.chat(any(LlmRequest.class))).thenReturn(llmResponse("{\"summary\":\"s\",\"watchPoints\":[],\"trendNarratives\":[]}"));
+        when(llmGateway.chat(any(LlmRequest.class)))
+                .thenReturn(
+                        llmResponse(
+                                "{\"summary\":\"s\",\"watchPoints\":[],\"trendNarratives\":[]}"));
 
         service.generateFor(WEEK_START);
 
@@ -343,9 +349,7 @@ class WeeklyReportServiceTest {
                 ArgumentCaptor.forClass(IndustryWeeklyReport.class);
         verify(weeklyRepository).upsert(captor.capture());
         JsonNode items =
-                JSON.readTree(captor.getValue().getContent())
-                        .path("trendJudgement")
-                        .path("items");
+                JSON.readTree(captor.getValue().getContent()).path("trendJudgement").path("items");
         for (JsonNode item : items) {
             assertThat(item.path("industry").asText()).isNotEqualTo("煤炭");
         }
@@ -371,15 +375,18 @@ class WeeklyReportServiceTest {
         assertThat(service.provided())
                 .extracting("key")
                 .containsExactly(
-                        "weekStart", "weekEnd", "heatStats", "topEvents", "policyLines",
+                        "weekStart",
+                        "weekEnd",
+                        "heatStats",
+                        "topEvents",
+                        "policyLines",
                         "trendSignals");
     }
 
     @Test
     @DisplayName("非周一/非法日期拒（400 语义）")
     void generateFor_nonMonday_rejected() {
-        org.assertj.core.api.Assertions.assertThatThrownBy(
-                        () -> service.generateFor("2026-09-22"))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.generateFor("2026-09-22"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("周一");
     }

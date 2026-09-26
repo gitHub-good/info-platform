@@ -6,8 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * 走向判断规则信号层单测（M17 T146，REQ 拍板六 / 故事 2 场景 4）：信号矩阵（升温/降温/平稳阈值 ±20%）、置信度 trend-v1 锁定映射（高 =
- * 强度 ≥50% 且事件密度 ≥3 且密度环比上升；中 = 信号达成；低 = 平稳/弱信号）、prev=0 记 100 口径、basis 版本串。
+ * 走向判断规则信号层单测（M17 T146，REQ 拍板六 / 故事 2 场景 4）：信号矩阵（升温/降温/平稳阈值 ±20%）、置信度 trend-v1 锁定映射（高 = 强度 ≥50%
+ * 且事件密度 ≥3 且密度环比上升；中 = 信号达成；低 = 平稳/弱信号）、prev=0 记 100 口径、basis 版本串。
  */
 class TrendSignalCalculatorTest {
 
@@ -43,8 +43,7 @@ class TrendSignalCalculatorTest {
     @Test
     @DisplayName("置信度映射：高=强度≥50% 且密度≥3 且环比上升")
     void confidence_highRequiresStrongDeltaAndDensityUp() {
-        assertThat(
-                        TrendSignalCalculator.compute(input(200, 100, 3, 1, 0)).confidence())
+        assertThat(TrendSignalCalculator.compute(input(200, 100, 3, 1, 0)).confidence())
                 .isEqualTo(TrendSignalCalculator.TrendConfidence.HIGH);
         // 密度未超阈值 → 中
         assertThat(TrendSignalCalculator.compute(input(200, 100, 2, 1, 0)).confidence())
