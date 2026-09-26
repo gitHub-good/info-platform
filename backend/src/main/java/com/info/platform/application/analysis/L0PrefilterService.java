@@ -86,9 +86,6 @@ public class L0PrefilterService {
             List<NewsAnalysisRepository.NewsCandidate> candidates,
             List<NewsAnalysisRepository.NewsCandidate> pool) {
         NoiseRuleEngine engine = settings.noiseRuleEngine();
-        NearDuplicateDetector detector = new NearDuplicateDetector();
-        DupParams params = settings.dupParams();
-
         List<NewsAnalysisRepository.NewsCandidate> survived = new ArrayList<>(candidates.size());
         List<NewsAnalysis> rows = new ArrayList<>(candidates.size());
         for (NewsAnalysisRepository.NewsCandidate candidate : candidates) {
@@ -104,6 +101,23 @@ public class L0PrefilterService {
             }
             survived.add(candidate);
         }
+        rows.addAll(buildRowsForSurvived(survived, pool));
+        return rows;
+    }
+
+    /**
+     * 对已过 noise 筛的候选执行近重复判定建行（PIPELINE_EXPRESS 复用入口，M16 T131 方案 §4.3——express 自行做 noise 快判
+     * 后仅高分条目走本段建行，含 T130 序列豁免）。
+     *
+     * @param survived 已过 noise 筛的候选（时间序由调用方保证）
+     * @param pool 24h 近重复比较池
+     */
+    public List<NewsAnalysis> buildRowsForSurvived(
+            List<NewsAnalysisRepository.NewsCandidate> survived,
+            List<NewsAnalysisRepository.NewsCandidate> pool) {
+        NearDuplicateDetector detector = new NearDuplicateDetector();
+        DupParams params = settings.dupParams();
+        List<NewsAnalysis> rows = new ArrayList<>(survived.size());
         for (Verdict verdict : detector.evaluate(pool, survived, params)) {
             rows.add(
                     NewsAnalysis.newForL0(

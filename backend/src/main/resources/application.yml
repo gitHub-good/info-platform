@@ -180,6 +180,12 @@ pipeline:
   daily-report:
     enabled: true
     cron: 0 0 8 * * ?
+  # 高价值快速通道 Job（M16 T131，ADR-0051 裁决 1）：job.PIPELINE_EXPRESS 种子来源（ManagedJob 第 13 键）。
+  # tick 默认 2min（可配 1~5min=60000~300000）：高分条目（纯规则预筛分 ≥4.0）直通 L0→L1→L2，入库→事件落库 ≤4.5min；
+  # 低分条目不动等常规批（NEWS_PIPELINE 零改动）；预筛阈值/批大小热改在 runtime_config recommendation.express 键。
+  express:
+    enabled: true
+    interval-millis: 120000
 
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED

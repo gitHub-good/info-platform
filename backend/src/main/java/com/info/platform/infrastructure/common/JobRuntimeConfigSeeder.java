@@ -13,7 +13,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 任务域种子（{@code job.*} 8 键，T34；T53 增 {@code job.SUBJECT_SYNC}，T71 增 {@code job.RETENTION_CLEANUP}，
- * M13 T103 增 {@code job.SOURCE_POLL}，ADR-0040）。
+ * M13 T103 增 {@code job.SOURCE_POLL}，ADR-0040；M16 T131 增第 13 键 {@code
+ * job.PIPELINE_EXPRESS}，ADR-0051 裁决 1）。
  *
  * <p>键值对照方案 §4.1「任务键与既有 Job 对照表」：jobKey/jobName 对齐既有 yml 开关与 {@code job_execution_log.job_name}。
  * 种子值取当前 yml（测试 profile 各开关为 false → 种子 enabled=false → T37 调度中心零注册，隔离语义等价平移）。消费与 校验器随 T37 落地。
@@ -107,6 +108,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
 
     @Value("${source.stale-check.cron:0 10 4 * * ?}")
     private String staleCheckCron;
+
+    /** 高价值快速通道开关/tick 间隔（M16 T131：PIPELINE_EXPRESS 第 13 键，默认 2min 可配 1~5min，ADR-0051 裁决 1）。 */
+    @Value("${pipeline.express.enabled:true}")
+    private boolean pipelineExpressEnabled;
+
+    @Value("${pipeline.express.interval-millis:120000}")
+    private long pipelineExpressIntervalMillis;
 
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -206,6 +214,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         write(staleCheck),
                         "疑似停更检查调度（SourceStaleCheckJob，每日 04:10 各启用源滚动窗净入库判定 → config.staleSince"
                                 + " 标记/恢复解除，不自动停用，M15 方案 §4.7 / REQ AMB-01）"));
+        seeds.add(
+                fixedDelay(
+                        "PIPELINE_EXPRESS",
+                        "管道快速通道调度（PipelineExpressJob，tick 2min：高分条目纯规则预筛分 ≥4.0 直通 L0→L1→L2 复用既有服务，"
+                                + "入库→事件落库 ≤4.5min；低分条目不动等常规批，M16 ADR-0051 裁决 1）",
+                        pipelineExpressEnabled,
+                        pipelineExpressIntervalMillis));
         return seeds;
     }
 

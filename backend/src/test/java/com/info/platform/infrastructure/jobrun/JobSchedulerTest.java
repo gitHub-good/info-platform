@@ -222,11 +222,13 @@ class JobSchedulerTest {
     }
 
     @Test
-    void poolSize_expandedToTwelveForPipelineJobs() {
-        // M15 ADR-0046 裁决 4：4 个管道 Job（FIXED_DELAY tick 长驻占线程）入编后池 8→12，防与既有 8 Job 抢占
+    void poolSize_expandedToFourteenForPipelineAndRecommendationJobs() {
+        // M15 ADR-0046 裁决 4：4 个管道 Job（FIXED_DELAY tick 长驻占线程）入编后池 8→12；
+        // M16 ADR-0051 裁决 1/2：PIPELINE_EXPRESS/RECOMMENDATION_FEED 两 tick Job 预扩 12→14，防与既有 12 Job
+        // 抢占
         Object poolSize =
                 org.springframework.test.util.ReflectionTestUtils.getField(
                         JobScheduler.class, "POOL_SIZE");
-        assertThat(poolSize).isEqualTo(12);
+        assertThat(poolSize).isEqualTo(14);
     }
 }

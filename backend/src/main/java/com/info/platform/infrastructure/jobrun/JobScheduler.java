@@ -48,10 +48,10 @@ public class JobScheduler {
     private static final Logger log = LoggerFactory.getLogger(JobScheduler.class);
 
     /**
-     * 调度线程数：每任务一线程上限（M15 增 4 个管道 Job——NEWS_PIPELINE tick 长驻占用线程，8→12 防与既有 8 Job 抢占， ADR-0046 裁决 4 与
-     * ADR-0040 同款论证）。
+     * 调度线程数：每任务一线程上限（M15 增 4 个管道 Job 8→12；M16 增 PIPELINE_EXPRESS/RECOMMENDATION_FEED 两 FIXED_DELAY
+     * tick Job，12→14——长驻占用线程防与既有 12 Job 抢占，ADR-0046 裁决 4 与 ADR-0051 裁决 1/2 同款论证）。
      */
-    private static final int POOL_SIZE = 12;
+    private static final int POOL_SIZE = 14;
 
     private final ThreadPoolTaskScheduler taskScheduler;
     private final JobRegistry registry;

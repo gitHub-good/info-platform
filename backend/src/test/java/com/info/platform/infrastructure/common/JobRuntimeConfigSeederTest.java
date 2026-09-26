@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllTwelveJobKeys() {
+    void seeds_carriesAllThirteenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 11 键不被增补挤占（SOURCE_STALE_CHECK 第 12 键追加在尾部，M15 T128 / ADR-0046）
+        // 纯增量守卫：既有 12 键不被增补挤占（PIPELINE_EXPRESS 第 13 键追加在尾部，M16 T131 / ADR-0051 裁决 1）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -65,7 +65,41 @@ class JobRuntimeConfigSeederTest {
                         "job.NEWS_PIPELINE",
                         "job.INDUSTRY_HEAT_SNAPSHOT",
                         "job.INDUSTRY_DAILY_REPORT",
-                        "job.SOURCE_STALE_CHECK");
+                        "job.SOURCE_STALE_CHECK",
+                        "job.PIPELINE_EXPRESS");
+    }
+
+    // ---- PIPELINE_EXPRESS 种子（T131，M16 / ADR-0051 裁决 1：第 13 键）----
+
+    private RuntimeConfigSeed pipelineExpressSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "pipelineExpressEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "pipelineExpressIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.PIPELINE_EXPRESS"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.PIPELINE_EXPRESS 种子"));
+    }
+
+    @Test
+    void seeds_pipelineExpress_productionDefaults_enabledFixedDelay2min() {
+        // 生产默认：启用 + FIXED_DELAY 120000ms（可配 60000~300000，方案 §4.9）
+        RuntimeConfigSeed seed = pipelineExpressSeed(true, 120000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.PIPELINE_EXPRESS");
+        assertThat(seed.description()).contains("PipelineExpressJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":120000");
+    }
+
+    @Test
+    void seeds_pipelineExpress_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：pipeline.express.enabled=false → 种子停用 → 调度零注册（十三 Job 惯例）
+        RuntimeConfigSeed seed = pipelineExpressSeed(false, 120000L);
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"intervalMillis\":120000");
     }
 
     // ---- NEWS_PIPELINE 种子（T121，M15 / ADR-0046）----
