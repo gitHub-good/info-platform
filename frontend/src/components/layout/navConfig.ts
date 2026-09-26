@@ -6,6 +6,7 @@ import {
   FileText,
   Flame,
   LayoutDashboard,
+  Library,
   LineChart,
   MessageSquareText,
   Newspaper,
@@ -34,7 +35,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 18 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页，事件流为 M15 第 17 页）。 */
+/** 4 分组 19 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页，事件流为 M15 第 17 页，资讯库为 M19 第 19 页）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -47,6 +48,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // 标的详情入口不带参：无参路由回退最近浏览标的，无历史落默认标的（UI 方案 §6.3）
       { to: '/subjects', label: '标的详情', icon: LineChart },
       { to: '/policies', label: '政策时事', icon: Newspaper },
+      // 资讯库（M19 T161，数据组第 4 项 / 全站第 19 页）：news_item 原始库全量列表——
+      // 与「信息流」（分析组，订阅过滤后的个人化消费流）形成 库 → 流 两级心智（REQ 拍板一）
+      { to: '/news-library', label: '资讯库', icon: Library },
     ],
   },
   {

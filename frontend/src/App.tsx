@@ -18,6 +18,7 @@ import { IndustryHeat } from '@/pages/IndustryHeat';
 import { Events } from '@/pages/Events';
 import { Recommendations } from '@/pages/Recommendations';
 import { InfoSources } from '@/pages/InfoSources';
+import { NewsLibrary } from '@/pages/NewsLibrary';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
 import { getToken } from '@/api/http';
@@ -65,6 +66,10 @@ function renderPage(route: string) {
   }
   if (route.startsWith('/policies')) {
     return <Policy />;
+  }
+  // 资讯库（M19 T161）：第 19 页，「数据」组第 4 项——news_item 原始库全量列表（自带 main+max-w-4xl）
+  if (route.startsWith('/news-library')) {
+    return <NewsLibrary />;
   }
   if (route.startsWith('/job-logs')) {
     // URL 参数初始化预过滤（#/job-logs?jobName=xxx，T41 任务中心「历史」跳转用）；

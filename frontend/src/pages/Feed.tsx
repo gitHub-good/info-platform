@@ -215,6 +215,14 @@ export function Feed() {
             <h1 className="text-xl font-medium">个人信息流</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               按时间倒序 · 命中你的主题 / 标的 / 事件类型订阅
+              {/* 资讯库互链（M19 T161，REQ 故事 1 Should）：库 → 流 两级心智引导 */}
+              <a
+                href="#/news-library"
+                data-testid="feed-library-link"
+                className="ml-2 text-primary underline-offset-4 hover:underline"
+              >
+                查看原始库 →
+              </a>
             </p>
           </div>
           {/* 行业筛选（M18 T156）：31 行业下拉，切换即重拉首页；推荐条目不入筛选视图 */}

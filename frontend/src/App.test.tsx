@@ -215,6 +215,22 @@ function makeFetch() {
         traceId: 't',
       });
     }
+    if (path.includes('/news-items')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: { items: [], total: 0, page: 1, size: 20 },
+        traceId: 't',
+      });
+    }
+    if (path.includes('/info-sources')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: { groups: [], archived: [] },
+        traceId: 't',
+      });
+    }
     if (path.includes('/recommendations')) {
       return mockResponse(200, {
         code: 0,
@@ -453,6 +469,22 @@ describe('App 路由与登录守卫（T38）', () => {
         fetchMock.mock.calls.some((call) => String(call[0]).includes('/api/v1/recommendations')),
       ).toBe(true),
     );
+  });
+
+  it('#/news-library 挂载资讯库页（M19 T161 第 19 页）并按默认口径请求 news-items 接口，「数据」组侧栏项可达', async () => {
+    const fetchMock = renderLoggedIn('#/news-library');
+
+    expect(await screen.findByTestId('news-library-page')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-item-news-library')).toHaveAttribute('aria-current', 'page');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (call) => String(call[0]).includes('/api/v1/news-items') && String(call[0]).includes('l0=PASS'),
+        ),
+      ).toBe(true),
+    );
+    // 信息流页顶互链（REQ 故事 1 Should）：库 → 流 引导可达
+    expect(screen.getByTestId('nav-item-feed')).toBeInTheDocument();
   });
 
   it('未知路由已登录时无内容区崩坏（侧栏仍在，内容区空）', () => {
