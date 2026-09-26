@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getFeedDashboard } from '@/api/feedDashboard';
+import { getNorthStar } from '@/api/northStar';
 import { ApiError } from '@/api/http';
+import { NorthStarBlock } from '@/components/feed/NorthStarBlock';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { navigate } from '@/lib/navigation';
+import { cn } from '@/lib/utils';
 import type { FeedDashboardSourceRow, FeedDashboardView } from '@/types/feedDashboard';
+import type { NorthStarView } from '@/types/northStar';
 
-// 抓取大盘页（M14 T116，#/feed-dashboard 运维组第 15 页——REQ 故事 2 / 拍板二）。
+// 抓取大盘页 2.0（M14 T116 → M18 T155/T158 大盘 2.0：北极星区块 + >30 源形态，REQ 拍板三/四）。
+// 北极星区块（顶置）：六指标卡 + 达标徽章 + 7 天入库迷你趋势（ns-v1），独立三态、失败单区块降级；
 // 三区块只读：全局统计卡四指标 + 感知延迟 P50/P90 徽章（仅增量轮口径标注）、
-// 源维度表（异常置顶/五态徽章复用源管理页语义/归档源默认折叠）、近期失败列表（点击跳源管理页定位）。
+// 源维度表（异常置顶/五态徽章/归档源默认折叠；行数超阈值启用纵向滚动 + 表头吸附的 >30 源形态）、
+// 近期失败列表（点击跳源管理页定位）。
 // 近实时：30s 自动刷新（document.hidden 暂停）+ 手动刷新 +「更新于 N 秒前」；三态（加载/错误/数据）与空态引导。
 
-/** 自动刷新间隔（蓝图 30 秒级建议值）。 */
+/** 自动刷新间隔（蓝图 30 秒级建议值，大盘与北极星同节奏）。 */
 const AUTO_REFRESH_MILLIS = 30_000;
 
 /** 「更新于 N 秒前」计时精度。 */
 const NOW_TICK_MILLIS = 1_000;
+
+/** 源表纵向滚动阈值（>30 源形态：30+ 行启用滚动 + 表头吸附，渲染不退化）。 */
+const SOURCE_TABLE_SCROLL_THRESHOLD = 20;
 
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.msg : fallback;
@@ -113,7 +122,12 @@ export function FeedDashboard() {
   const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [showArchived, setShowArchived] = useState(false);
+  // 北极星区块独立三态（失败单区块降级，不阻断大盘三区块）
+  const [nsView, setNsView] = useState<NorthStarView | null>(null);
+  const [nsLoading, setNsLoading] = useState(true);
+  const [nsError, setNsError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const nsAbortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
     abortRef.current?.abort();
@@ -133,19 +147,45 @@ export function FeedDashboard() {
     }
   }, []);
 
+  const loadNorthStar = useCallback(async () => {
+    nsAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    nsAbortRef.current = ctrl;
+    try {
+      const data = await getNorthStar(ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      // 契约形状防御：缺 basis/latency 视为载荷异常（测试桩/网关错报不白屏）
+      if (!data || typeof data.basis !== 'string' || !data.latency) {
+        throw new Error('north-star payload shape mismatch');
+      }
+      setNsView(data);
+      setNsError(null);
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      setNsError(messageOf(err, '北极星数据加载失败'));
+    } finally {
+      if (!ctrl.signal.aborted) setNsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-    return () => abortRef.current?.abort();
-  }, [load]);
+    void loadNorthStar();
+    return () => {
+      abortRef.current?.abort();
+      nsAbortRef.current?.abort();
+    };
+  }, [load, loadNorthStar]);
 
-  // 30s 近实时刷新：document.hidden 暂停（隐藏期间跳过本轮不请求）
+  // 30s 近实时刷新：document.hidden 暂停（隐藏期间跳过本轮不请求）；大盘与北极星同节奏
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.hidden) return;
       void load();
+      void loadNorthStar();
     }, AUTO_REFRESH_MILLIS);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, loadNorthStar]);
 
   // 「更新于 N 秒前」秒级计时
   useEffect(() => {
@@ -153,11 +193,17 @@ export function FeedDashboard() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const refreshAll = useCallback(() => {
+    void load();
+    void loadNorthStar();
+  }, [load, loadNorthStar]);
+
   const secondsAgo =
     lastFetchedAt == null ? null : Math.max(0, Math.floor((nowTick - lastFetchedAt) / 1000));
 
   const sources = view?.sources ?? [];
   const visibleSources = showArchived ? sources : sources.filter((row) => !row.deleted);
+  const sourceTableScrollable = visibleSources.length > SOURCE_TABLE_SCROLL_THRESHOLD;
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="feed-dashboard-page">
@@ -165,7 +211,7 @@ export function FeedDashboard() {
         <h1 className="text-xl font-medium">抓取大盘</h1>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="max-w-3xl text-sm text-muted-foreground">
-            全部资讯源今日入库、运行状态与近期失败的一屏近实时视图（只读）；处置动作跳「资讯源管理」页完成。
+            V2.0 北极星六指标、全部资讯源今日入库、运行状态与近期失败的一屏近实时视图（只读）；处置动作跳「资讯源管理」页完成。
           </p>
           <span className="ml-auto flex items-center gap-3">
             <span
@@ -177,7 +223,7 @@ export function FeedDashboard() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void load()}
+              onClick={refreshAll}
               data-testid="dashboard-refresh"
             >
               刷新
@@ -188,6 +234,7 @@ export function FeedDashboard() {
 
       {loading ? (
         <div className="flex flex-col gap-4" data-testid="dashboard-loading">
+          <Skeleton className="h-40 w-full" />
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
               <Skeleton key={i} className="h-24 w-full" />
@@ -200,12 +247,34 @@ export function FeedDashboard() {
           <p className="text-sm text-destructive" role="alert">
             {error}
           </p>
-          <Button variant="outline" size="sm" onClick={() => void load()} data-testid="dashboard-retry">
+          <Button variant="outline" size="sm" onClick={refreshAll} data-testid="dashboard-retry">
             重试
           </Button>
         </div>
       ) : view ? (
         <div className="flex flex-col gap-4">
+          {/* —— V2.0 北极星区块（M18 T158）：独立三态，失败降级不阻断大盘三区块 —— */}
+          {nsLoading ? (
+            <Skeleton className="h-40 w-full" data-testid="north-star-loading" />
+          ) : nsError ? (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+              role="status"
+              data-testid="north-star-error"
+            >
+              {nsError}
+              <button
+                type="button"
+                className="text-primary underline underline-offset-4"
+                onClick={() => void loadNorthStar()}
+                data-testid="north-star-retry"
+              >
+                重试
+              </button>
+            </div>
+          ) : nsView ? (
+            <NorthStarBlock view={nsView} />
+          ) : null}
           {sources.length === 0 ? (
             <p
               className="py-10 text-center text-sm text-muted-foreground"
@@ -286,12 +355,19 @@ export function FeedDashboard() {
                     显示停用/归档源
                   </label>
                 </div>
-                <div className="overflow-x-auto rounded-lg border">
+                {/* >30 源形态（M18 T155）：行数超阈值启用纵向滚动 + 表头吸附，渲染不退化 */}
+                <div
+                  className={cn(
+                    'overflow-x-auto rounded-lg border',
+                    sourceTableScrollable && 'max-h-[34rem] overflow-y-auto',
+                  )}
+                  data-testid={sourceTableScrollable ? 'dashboard-source-scroll' : undefined}
+                >
                   <table
                     className="w-full min-w-[860px] text-sm"
                     data-testid="dashboard-source-table"
                   >
-                    <thead>
+                    <thead className={sourceTableScrollable ? 'sticky top-0 z-10 bg-card' : undefined}>
                       <tr className="border-b text-left text-xs text-muted-foreground">
                         <th className="px-3 py-2 font-normal">源</th>
                         <th className="px-3 py-2 font-normal">类型</th>

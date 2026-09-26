@@ -46,6 +46,12 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+    /* —— A 层间距阶基准（M18 T154）：新代码统一取值，存量页面不回改（布局零变化红线） ——
+       页面内边距 p-4 sm:p-6 / 区块纵向 gap-6 / 卡片网格 gap-4 / 卡内条目 gap-2~3。 */
+    --spacing-page: 1.5rem;
+    --spacing-section: 1.5rem;
+    --spacing-card-grid: 1rem;
+    --spacing-card-inner: 0.5rem;
 }
 
 :root {
@@ -66,65 +72,102 @@
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    --ring: oklch(0.556 0.12 250);
+    --chart-1: oklch(0.62 0.16 255);
+    --chart-2: oklch(0.68 0.12 190);
+    --chart-3: oklch(0.75 0.14 80);
+    --chart-4: oklch(0.62 0.16 300);
+    --chart-5: oklch(0.65 0.18 15);
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary: oklch(0.556 0.12 250);
     --sidebar-primary-foreground: oklch(0.985 0 0);
     --sidebar-accent: oklch(0.97 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-ring: oklch(0.556 0.12 250);
 }
 
+/*
+ * 暗色主题 A 层微升级（M18 T154，UI 2.0 拍板三）：
+ * - 暗色深化：背景 0.145→0.13、卡片 0.205→0.185——层次拉开一档，深而不糊；
+ * - 色彩对比：muted-foreground 0.708→0.75（次要文字对比度补足）、border 10%→12% / input 15%→18%（边界可辨）；
+ * - 焦点环：纯灰 → 蓝系低饱和（键盘可达性可见一跃，不引入品牌色喧宾夺主）；
+ * - 图表色板：灰阶五阶 → 蓝/青/琥珀/紫/玫红带色相五色（蓝图 G 域「图表组件」基准，随 token 全局生效）。
+ * 只调变量值与下列全局类，布局/信息架构/导航分组零变化（REQ 拍板三 A 层红线）。
+ */
 .dark {
-    --background: oklch(0.145 0 0);
+    --background: oklch(0.13 0 0);
     --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
+    --card: oklch(0.185 0 0);
     --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
+    --popover: oklch(0.185 0 0);
     --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
+    --primary: oklch(0.94 0 0);
+    --primary-foreground: oklch(0.185 0 0);
+    --secondary: oklch(0.245 0 0);
     --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
+    --muted: oklch(0.235 0 0);
+    --muted-foreground: oklch(0.75 0 0);
+    --accent: oklch(0.25 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 18%);
+    --ring: oklch(0.68 0.11 250);
+    --chart-1: oklch(0.62 0.16 255);
+    --chart-2: oklch(0.68 0.12 190);
+    --chart-3: oklch(0.75 0.14 80);
+    --chart-4: oklch(0.62 0.16 300);
+    --chart-5: oklch(0.65 0.18 15);
+    --sidebar: oklch(0.165 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary: oklch(0.62 0.16 255);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent: oklch(0.235 0 0);
     --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: oklch(0.68 0.11 250);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
-    }
   html {
     @apply font-sans;
     }
-}
+  .dark {
+    color-scheme: dark;
+    }
+  body {
+    @apply bg-background text-foreground antialiased;
+    }
+  /* 字阶细节：大标题轻收字距（字阶统一基准的排版层，18 页被动受益） */
+  h1 {
+    letter-spacing: -0.015em;
+    }
+  /* 数值排版：表格数字等宽对齐（大盘/热度/成本等数字密集页可读性） */
+  table {
+    font-variant-numeric: tabular-nums;
+    }
+  ::selection {
+    background: oklch(0.62 0.16 255 / 30%);
+    }
+  /* 暗色滚动条：细而低饱和（横向滚动表格/下拉容器的视觉一致性） */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    }
+  .dark ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 14%);
+    border-radius: 9999px;
+    }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 22%);
+    }
+  .dark ::-webkit-scrollbar-track {
+    background: transparent;
+    }
+  }
