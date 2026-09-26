@@ -65,6 +65,7 @@
 | ADR-0049 | T124/T128 实现裁量对齐（日报重试端点 /retry 与 30077 已成功 409 / 30078 不存在 404 按方案冻结——任务文本 regenerate 与两码对调不落地；任意 FAILED 日可重试经 JobCenterFacade.trigger 202 受理 armRetry/disarm 回滚；FUSED 留痕次日补 = 定时窗口 [前日, 昨日]；空数据日不调 LLM；T128 停更标记载体 config.staleSince 零 DDL + PATCH 编辑保留 + 月频源 em_macro 35 天窗 + Should 通知裁剪；REQ-20260926-12 / V2.0-M15 T124/T128） | 已决 |
 | ADR-0050 | T127 实现裁量对齐（事件流卡片主键字段名 id 按方案 §4.8 冻结——任务文本 eventId 不落地；/events 全参数错误统一 30079 EVENT_FILTER_INVALID/400 单码承载而 30076 留 heat 域；newsTitle/newsUrl 核实在 news_item 列走 JOIN 取数而 event_item 无该两列；REQ-20260926-12 / V2.0-M15 T127） | 已决 |
 | ADR-0051 | 高价值快速通道与事件轮询消费及事实白名单与 P2 行业命中双通道（PIPELINE_EXPRESS 2min 纯规则预筛分 ≥4.0 直通复用 L0/L1/L2、NEWS_PIPELINE 零改动；事件消费 = RECOMMENDATION_FEED 60s LEFT JOIN 轮询非进程内挂钩〔重启丢事件/事务边界/双机制复杂度〕；FactWhitelistValidator 标的/行业/数字/方向四类白名单集合比对拒即模板兜底；P2 硬阻塞解法 = 行业关注集双通道〔订阅主题经 IndustryDirectory 31 行业别名目录映射为主力 + 标的池行业 best-effort 东财主链恢复自动增强，不以回填为前置〕+ P1 判定集并入 SUBJECT 订阅；基建扩位 PushType RECOMMENDATION(10)/PushStatus SILENT(3) 静默留痕态/BriefType 8 scene 入护栏/recscore-v1 画像系数 [1.0,1.25]；REQ-20260926-13 / V2.0-M16） | 已决 |
+| ADR-0052 | T134/T136 实现裁量对齐（任务文本与方案原文三处出入以方案为准——retention 两表共享 recommendationCardDays 单键 180/30 同窗同清页面五→六字段而非 90/180 两键七字段；SSE 推荐载荷 type=recommend 沿 T133 eventName 四点同源〔事件名=载荷 type=history type=前端键〕而任务文本示例 type:"recommendation" 不落地视为方案笔误；采纳当日口径 = ACT 埋点 distinct 卡与 adopted 条件首置同点写入恒等而非 card.updated_at 近似〔重复 USEFUL 不重复落 ACT〕；REQ-20260926-13 / V2.0-M16 T134/T136） | 已决 |
 
 ## 🔍 关联调研
 
