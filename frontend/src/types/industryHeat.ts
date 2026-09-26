@@ -30,7 +30,10 @@ export interface IndustryHeatBoardView {
 /** 下钻清单类型（news = 该行业 L1 DONE 条目 / events = 影响该行业的事件，与事件流同口径）。 */
 export type IndustryItemsType = 'news' | 'events';
 
-/** 下钻条目卡（news 行与 events 行共用容器，未用字段 null）。 */
+/**
+ * 下钻条目卡（news 行与 events 行共用容器，未用字段 null）。
+ * T162 trace-v1 溯源增量：news 行 url（A 级原文外链）；events 行 newsUrl（A 级）+ quote/sourceName（B 级兜底）。
+ */
 export interface IndustryHeatItem {
   newsId: number;
   eventId: number | null;
@@ -43,6 +46,9 @@ export interface IndustryHeatItem {
   direction: string | null;
   importance: string | null;
   eventTime: string | null;
+  url: string | null;
+  newsUrl: string | null;
+  quote: string | null;
 }
 
 /** 下钻视图（total 与榜单 newsCount/eventCount 对账相等；nextBeforeId 尾页 null）。 */
@@ -84,7 +90,10 @@ export interface ReportFigure {
   unit: string | null;
 }
 
-/** 日报精选事件（L2 结构化列直读，quote/figures 可回溯）。 */
+/**
+ * 日报精选事件（L2 结构化列直读，quote/figures 可回溯）。
+ * T163 trace-v1 增量：sourceName 来源灰字 + newsUrl 原文外链（新报告起；历史报告两字段缺失按 null 降级）。
+ */
 export interface ReportEvent {
   eventId: number;
   newsId: number;
@@ -96,6 +105,8 @@ export interface ReportEvent {
   quote: string | null;
   figures: ReportFigure[];
   eventTime: string | null;
+  sourceName?: string | null;
+  newsUrl?: string | null;
 }
 
 /** 日报 Top 行业动态（统计数字 + AI 点评合并）。 */
@@ -217,7 +228,7 @@ export interface WeeklyMoverRow {
   eventCount: number;
 }
 
-/** 周报事件回顾行（主键归并，quote 原文可回溯）。 */
+/** 周报事件回顾行（主键归并，quote 原文可回溯；T163 增 sourceName/newsUrl 溯源字段）。 */
 export interface WeeklyEventRow {
   eventId: number;
   newsId: number;
@@ -229,9 +240,11 @@ export interface WeeklyEventRow {
   quote: string | null;
   eventDate: string | null;
   eventTime: string | null;
+  sourceName?: string | null;
+  newsUrl?: string | null;
 }
 
-/** 周报政策动向行（POLICY_RELEASE 周窗清单）。 */
+/** 周报政策动向行（POLICY_RELEASE 周窗清单；T163 增 sourceName/newsUrl 溯源字段）。 */
 export interface WeeklyPolicyRow {
   eventId: number;
   summary: string;
@@ -239,6 +252,8 @@ export interface WeeklyPolicyRow {
   direction: string;
   quote: string | null;
   eventTime: string | null;
+  sourceName?: string | null;
+  newsUrl?: string | null;
 }
 
 /** 走向判断行（信号/置信度 trend-v1 规则层锁定；narrativeSource=LLM/TEMPLATE）。 */

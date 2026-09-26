@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatDateTime, formatNumber, formatPct } from '@/lib/format';
+import { currentRoute, queryOf } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 import {
   DIRECTION_LABELS,
@@ -92,6 +93,45 @@ function DirectionBadge({ direction }: { direction: string | null }) {
         ? 'bg-green-500/15 text-green-500'
         : 'bg-muted text-muted-foreground';
   return <Badge className={tone}>{label}</Badge>;
+}
+
+/** T163 trace-v1 溯源行：来源灰字 + 「查看原文」外链（历史数据无 newsUrl 时仅来源——判空降级不渲染死链）。 */
+function TraceSourceRow({
+  sourceName,
+  newsUrl,
+  testId,
+}: {
+  sourceName?: string | null;
+  newsUrl?: string | null;
+  testId: string;
+}) {
+  if (!sourceName && !newsUrl) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid={testId}>
+      {sourceName ? <span className="min-w-0 truncate">来源：{sourceName}</span> : null}
+      {newsUrl ? (
+        <a
+          href={newsUrl}
+          target="_blank"
+          rel="noreferrer"
+          data-testid={`${testId}-link`}
+          className="shrink-0 underline underline-offset-2 hover:text-foreground"
+        >
+          查看原文
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/** T163 历史报告脚注：任一事件缺 newsUrl（上线前物化）时提示外链溯源口径（quote B 级兜底，不回填）。 */
+function TraceFootnote({ anyMissingUrl }: { anyMissingUrl: boolean }) {
+  if (!anyMissingUrl) return null;
+  return (
+    <p className="mt-1 text-xs text-muted-foreground" data-testid="report-trace-footnote">
+      注：新版报告起支持「查看原文」外链溯源；历史报告保留原文引用兜底（不回填）。
+    </p>
+  );
 }
 
 // —— 热度榜 Tab：下钻面板 ——
@@ -221,9 +261,23 @@ function IndustryDrillDown({ industry, window }: DrillDownProps) {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm"
                 data-testid={`drill-item-${item.newsId}`}
               >
-                <span className="min-w-0 flex-1 truncate" title={item.title ?? undefined}>
-                  {item.title ?? `#${item.newsId}`}
-                </span>
+                {item.url ? (
+                  // T162 trace-v1 A 级：标题即原文外链（新窗口直达源站）；无 url 行降级纯文本
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate underline decoration-border underline-offset-2 hover:text-foreground"
+                    title={item.title ?? undefined}
+                    data-testid={`drill-news-link-${item.newsId}`}
+                  >
+                    {item.title ?? `#${item.newsId}`}
+                  </a>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate" title={item.title ?? undefined}>
+                    {item.title ?? `#${item.newsId}`}
+                  </span>
+                )}
                 {item.hasEvent ? (
                   <Badge className="bg-violet-500/15 text-violet-400" data-testid={`drill-has-event-${item.newsId}`}>
                     含事件
@@ -256,6 +310,19 @@ function IndustryDrillDown({ industry, window }: DrillDownProps) {
                 {item.summary ? (
                   <p className="text-xs text-muted-foreground">{item.summary}</p>
                 ) : null}
+                {item.quote ? (
+                  <p
+                    className="border-l-2 border-border pl-2 text-xs text-muted-foreground"
+                    data-testid={`drill-event-quote-${item.eventId ?? item.newsId}`}
+                  >
+                    原文引用：「{item.quote}」
+                  </p>
+                ) : null}
+                <TraceSourceRow
+                  sourceName={item.sourceName}
+                  newsUrl={item.newsUrl}
+                  testId={`drill-event-source-${item.eventId ?? item.newsId}`}
+                />
               </div>
             ),
           )}
@@ -279,8 +346,8 @@ function IndustryDrillDown({ industry, window }: DrillDownProps) {
 
 // —— 热度榜 Tab ——
 
-/** 热度榜（窗口切换 + 榜单行 + 页内下钻 + 护栏横幅 + 口径脚注）。 */
-function HeatBoardTab() {
+/** 热度榜（窗口切换 + 榜单行 + 页内下钻 + 护栏横幅 + 口径脚注；focusIndustry 为 C 级溯源链直达参数）。 */
+function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
   const [window, setWindow] = useState<HeatWindow>('H24');
   const [board, setBoard] = useState<IndustryHeatBoardView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -310,10 +377,12 @@ function HeatBoardTab() {
 
   useEffect(() => {
     setLoading(true);
-    setExpanded(null);
+    // C 级溯源链落地：#/industry-heat?industry=X（报告行业名/工作台 Top5 行）→ 展开该行业下钻；
+    // 切窗重置后若直达参数仍在（URL 未变）则保持展开（focus 粘性）
+    setExpanded(focusIndustry ?? null);
     void load(window);
     return () => abortRef.current?.abort();
-  }, [load, window]);
+  }, [load, window, focusIndustry]);
 
   const rows = board?.industries ?? [];
   const topScore = rows.length > 0 ? Math.max(...rows.map((row) => row.heatScore)) : 0;
@@ -498,7 +567,14 @@ function ReportDetail({ detail, onBack }: { detail: IndustryReportDetailView; on
                   data-testid={`report-detail-top-${top.industry}`}
                 >
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-medium">{top.industry}</span>
+                    <a
+                      href={`#/industry-heat?industry=${encodeURIComponent(top.industry)}`}
+                      className="font-medium underline decoration-border underline-offset-2 hover:text-foreground"
+                      data-testid={`report-detail-top-link-${top.industry}`}
+                      title="跳转热度榜并展开该行业下钻"
+                    >
+                      {top.industry}
+                    </a>
                     <span className="text-xs text-muted-foreground">
                       资讯 <span className="text-foreground tabular-nums">{top.newsCount}</span> · 事件{' '}
                       <span className="text-foreground tabular-nums">{top.eventCount}</span>
@@ -567,11 +643,17 @@ function ReportDetail({ detail, onBack }: { detail: IndustryReportDetailView; on
                       原文引用：「{event.quote}」
                     </p>
                   ) : null}
+                  <TraceSourceRow
+                    sourceName={event.sourceName}
+                    newsUrl={event.newsUrl}
+                    testId={`report-detail-event-source-${event.eventId}`}
+                  />
                 </div>
               ))}
               {content.events.length === 0 ? (
                 <p className="text-xs text-muted-foreground">当日无高价值事件</p>
               ) : null}
+              <TraceFootnote anyMissingUrl={content.events.some((event) => !event.newsUrl)} />
             </CardContent>
           </Card>
 
@@ -907,7 +989,14 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
                 ) : (
                   content.topRisers.map((row) => (
                     <div key={row.industry} className="flex items-center gap-2 py-1 text-sm" data-testid={`weekly-riser-${row.industry}`}>
-                      <span className="font-medium">{row.industry}</span>
+                      <a
+                        href={`#/industry-heat?industry=${encodeURIComponent(row.industry)}`}
+                        className="font-medium underline decoration-border underline-offset-2 hover:text-foreground"
+                        data-testid={`weekly-riser-link-${row.industry}`}
+                        title="跳转热度榜并展开该行业下钻"
+                      >
+                        {row.industry}
+                      </a>
                       <span className="text-xs text-muted-foreground tabular-nums">
                         热度 {formatNumber(row.score)} · 事件 {row.eventCount}
                       </span>
@@ -923,7 +1012,14 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
                 ) : (
                   content.topFallers.map((row) => (
                     <div key={row.industry} className="flex items-center gap-2 py-1 text-sm" data-testid={`weekly-faller-${row.industry}`}>
-                      <span className="font-medium">{row.industry}</span>
+                      <a
+                        href={`#/industry-heat?industry=${encodeURIComponent(row.industry)}`}
+                        className="font-medium underline decoration-border underline-offset-2 hover:text-foreground"
+                        data-testid={`weekly-faller-link-${row.industry}`}
+                        title="跳转热度榜并展开该行业下钻"
+                      >
+                        {row.industry}
+                      </a>
                       <span className="text-xs text-muted-foreground tabular-nums">
                         热度 {formatNumber(row.score)} · 事件 {row.eventCount}
                       </span>
@@ -958,11 +1054,17 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
                       原文引用：「{event.quote}」
                     </p>
                   ) : null}
+                  <TraceSourceRow
+                    sourceName={event.sourceName}
+                    newsUrl={event.newsUrl}
+                    testId={`weekly-event-source-${event.eventId}`}
+                  />
                 </div>
               ))}
               {content.eventReview.length === 0 ? (
                 <p className="text-xs text-muted-foreground">本周无结构化事件</p>
               ) : null}
+              <TraceFootnote anyMissingUrl={content.eventReview.some((event) => !event.newsUrl)} />
             </CardContent>
           </Card>
 
@@ -985,6 +1087,11 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
                       原文引用：「{policy.quote}」
                     </p>
                   ) : null}
+                  <TraceSourceRow
+                    sourceName={policy.sourceName}
+                    newsUrl={policy.newsUrl}
+                    testId={`weekly-policy-source-${policy.eventId}`}
+                  />
                 </div>
               ))}
               {content.policyMoves.length === 0 ? (
@@ -1279,6 +1386,22 @@ interface IndustryHeatProps {
 /** 行业热度与日报页（第 16 页，三 Tab：热度榜 / 日报 / 周报——M17 T145 扩三 Tab）。 */
 export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHeatProps = {}) {
   const [tab, setTab] = useState<'heat' | 'report' | 'weekly'>('heat');
+  // C 级溯源链直达：#/industry-heat?industry=X（日报/周报行业名、工作台 Top5 行）→ 切热度榜并展开下钻；
+  // 挂载期惰性读一次 + hashchange 监听（报告 Tab 页内点击自身路由参数变化不重挂载，由监听承接）
+  const [focusIndustry, setFocusIndustry] = useState<string | null>(() =>
+    queryOf(currentRoute()).get('industry'),
+  );
+  useEffect(() => {
+    const onHashChange = () => {
+      const industry = queryOf(currentRoute()).get('industry');
+      if (industry) {
+        setFocusIndustry(industry);
+        setTab('heat');
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="industry-heat-page">
@@ -1309,7 +1432,13 @@ export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHe
         </TabsList>
       </Tabs>
 
-      {tab === 'heat' ? <HeatBoardTab /> : tab === 'report' ? <ReportTab retryPollMs={retryPollMs} /> : <WeeklyTab retryPollMs={retryPollMs} />}
+      {tab === 'heat' ? (
+        <HeatBoardTab focusIndustry={focusIndustry} />
+      ) : tab === 'report' ? (
+        <ReportTab retryPollMs={retryPollMs} />
+      ) : (
+        <WeeklyTab retryPollMs={retryPollMs} />
+      )}
     </main>
   );
 }

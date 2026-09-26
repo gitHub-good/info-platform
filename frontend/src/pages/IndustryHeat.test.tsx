@@ -58,6 +58,9 @@ function newsItemsOf(total = 2, nextBeforeId: number | null = null): IndustryHea
         direction: null,
         importance: null,
         eventTime: null,
+        url: 'https://example.com/n/101',
+        newsUrl: null,
+        quote: null,
       },
       {
         newsId: 100,
@@ -71,6 +74,9 @@ function newsItemsOf(total = 2, nextBeforeId: number | null = null): IndustryHea
         direction: null,
         importance: null,
         eventTime: null,
+        url: null, // 无 url 行：降级纯文本（历史/缺链兜底）
+        newsUrl: null,
+        quote: null,
       },
     ],
     nextBeforeId,
@@ -88,7 +94,7 @@ function eventItemsOf(total = 2, nextBeforeId: number | null = null): IndustryHe
         newsId: 101,
         eventId: 9,
         title: '半导体设备出口管制收紧',
-        sourceName: null,
+        sourceName: '财联社',
         publishedAt: null,
         hasEvent: null,
         eventType: 'POLICY_RELEASE',
@@ -96,6 +102,9 @@ function eventItemsOf(total = 2, nextBeforeId: number | null = null): IndustryHe
         direction: 'BEARISH',
         importance: 'HIGH',
         eventTime: '2026-09-22T07:30:00Z',
+        url: null,
+        newsUrl: 'https://example.com/n/101',
+        quote: '半导体设备出口管制收紧',
       },
       {
         newsId: 95,
@@ -109,6 +118,9 @@ function eventItemsOf(total = 2, nextBeforeId: number | null = null): IndustryHe
         direction: 'BULLISH',
         importance: 'MEDIUM',
         eventTime: '2026-09-21T15:00:00Z',
+        url: null,
+        newsUrl: null, // 无 newsUrl 行：不渲染死链（trace-v1 判空降级）
+        quote: null,
       },
     ],
     nextBeforeId,
@@ -181,6 +193,8 @@ function reportDetail(): IndustryReportDetailView {
           quote: '半导体设备出口管制收紧',
           figures: [{ label: '涉及品类', value: '3 类', unit: '' }],
           eventTime: '2026-09-22T07:30:00Z',
+          sourceName: '财联社',
+          newsUrl: 'https://example.com/n/101',
         },
       ],
       disclaimer: 'AI 分析仅供参考',
@@ -676,6 +690,8 @@ function weeklyDetail(): Record<string, unknown> {
           quote: '下调金融机构存款准备金率 0.5 个百分点',
           eventDate: '2026-09-23',
           eventTime: '2026-09-23T02:00:00Z',
+          sourceName: '央行官网',
+          newsUrl: 'https://example.com/pboc/1009',
         },
       ],
       policyMoves: [
@@ -686,6 +702,8 @@ function weeklyDetail(): Record<string, unknown> {
           direction: 'BULLISH',
           quote: '下调金融机构存款准备金率 0.5 个百分点',
           eventTime: '2026-09-23T02:00:00Z',
+          sourceName: '央行官网',
+          newsUrl: 'https://example.com/pboc/1009',
         },
       ],
       nextWeekWatch: ['关注货币政策延续性与银行板块热度延续'],
@@ -836,7 +854,8 @@ describe('IndustryHeat 行业周报 Tab（T145，#/industry-heat 三 Tab）', ()
     await userEvent.click(within(card).getByTestId('weekly-retry-2026-09-21'));
     await waitFor(
       () => expect(screen.getByTestId('weekly-status-2026-09-21')).toHaveTextContent('成功'),
-      { timeout: 3000 },
+      // 本用例走缺省 3s 轮询（未注入 retryPollMs），3s 超时零余量偶发竞态——放宽至 5s（批 1 遗留 P2 flaky）
+      { timeout: 5000 },
     );
     expect(retried).toBe(true); // retry 路由被 POST 命中（respond 内置位即受理）
 
@@ -863,5 +882,159 @@ describe('IndustryHeat 行业周报 Tab（T145，#/industry-heat 三 Tab）', ()
     failed = false;
     await userEvent.click(screen.getByTestId('weekly-retry'));
     expect(await screen.findByTestId('weekly-list-card-2026-09-21')).toBeInTheDocument();
+  });
+});
+
+// —— M19 T162/T163 trace-v1 溯源补全（下钻外链 / 报告来源与外链 / 行业跳转 / ?industry= 直达） ——
+
+describe('IndustryHeat 溯源补全（T162/T163，trace-v1）', () => {
+  const openDrillDown = async () => {
+    await screen.findByTestId('heat-row-电子');
+    await userEvent.click(screen.getByTestId('heat-row-电子'));
+    return screen.findByTestId('heat-drilldown-电子');
+  };
+
+  it('T162 news 行：标题即原文外链（href 与条目 url 一致，新窗口），无 url 行降级纯文本', async () => {
+    stubFetch([
+      { path: '/api/v1/industry-heat?window=H24', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-heat/%E7%94%B5%E5%AD%90/items', respond: () => ok(newsItemsOf(42)) },
+    ]);
+
+    render(<IndustryHeat />);
+    const drill = await openDrillDown();
+
+    const link = within(drill).getByTestId('drill-news-link-101');
+    expect(link).toHaveAttribute('href', 'https://example.com/n/101');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveTextContent('半导体设备出口管制收紧');
+    // 无 url 行（newsId=100）：不渲染外链，标题纯文本保留
+    expect(within(drill).queryByTestId('drill-news-link-100')).toBeNull();
+    expect(within(drill).getByText('消费电子出货量回升')).toBeInTheDocument();
+  });
+
+  it('T162 events 行：查看原文外链 + 原文引用块 + 来源名；无 newsUrl 行不渲染死链', async () => {
+    stubFetch([
+      { path: '/api/v1/industry-heat?window=H24', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-heat/%E7%94%B5%E5%AD%90/items', respond: () => ok(newsItemsOf(42)) },
+    ]);
+
+    render(<IndustryHeat />);
+    await openDrillDown();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('type=events')) return ok(eventItemsOf(3));
+        return fail(404, 50000, `unexpected: ${url}`);
+      }),
+    );
+    await userEvent.click(screen.getByTestId('drill-type-events-电子'));
+
+    const drill = await screen.findByTestId('heat-drilldown-电子');
+    const source = within(drill).getByTestId('drill-event-source-9');
+    expect(source).toHaveTextContent('来源：财联社');
+    expect(within(source).getByTestId('drill-event-source-9-link')).toHaveAttribute(
+      'href',
+      'https://example.com/n/101',
+    );
+    expect(within(drill).getByTestId('drill-event-quote-9')).toHaveTextContent(
+      '原文引用：「半导体设备出口管制收紧」',
+    );
+    // 无 newsUrl 且无来源行（eventId=8）：溯源行不渲染（判空降级，无死链）
+    expect(within(drill).queryByTestId('drill-event-source-8')).toBeNull();
+  });
+
+  it('T163 日报详情：事件精选来源灰字 + 查看原文外链；行业动态行业名跳 #/industry-heat?industry=', async () => {
+    stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-reports/2026-09-21', respond: () => ok(reportDetail()) },
+      { path: '/api/v1/industry-reports', respond: () => ok(reportList()) },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-report'));
+    await userEvent.click(await screen.findByTestId('report-list-card-2026-09-21'));
+    const detail = await screen.findByTestId('report-detail-page');
+
+    const source = within(detail).getByTestId('report-detail-event-source-9');
+    expect(source).toHaveTextContent('来源：财联社');
+    expect(within(source).getByTestId('report-detail-event-source-9-link')).toHaveAttribute(
+      'href',
+      'https://example.com/n/101',
+    );
+    expect(within(detail).queryByTestId('report-trace-footnote')).toBeNull(); // 全量带外链不提示
+    expect(within(detail).getByTestId('report-detail-top-link-电子')).toHaveAttribute(
+      'href',
+      `#/industry-heat?industry=${encodeURIComponent('电子')}`,
+    );
+  });
+
+  it('T163 历史日报（content 无 newsUrl/sourceName）：quote 兜底不渲染死链 + 脚注提示', async () => {
+    const legacy = reportDetail();
+    // 模拟上线前物化报告：事件仅 newsId+quote（REQ #15 不回填）
+    (legacy.content!.events[0] as Record<string, unknown>).sourceName = undefined;
+    (legacy.content!.events[0] as Record<string, unknown>).newsUrl = undefined;
+    stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-reports/2026-09-21', respond: () => ok(legacy) },
+      { path: '/api/v1/industry-reports', respond: () => ok(reportList()) },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-report'));
+    await userEvent.click(await screen.findByTestId('report-list-card-2026-09-21'));
+    const detail = await screen.findByTestId('report-detail-page');
+
+    expect(within(detail).queryByTestId('report-detail-event-source-9')).toBeNull();
+    expect(within(detail).getByText(/原文引用：「半导体设备出口管制收紧」/)).toBeInTheDocument();
+    expect(within(detail).getByTestId('report-trace-footnote')).toHaveTextContent(
+      '新版报告起支持「查看原文」外链溯源',
+    );
+  });
+
+  it('T163 周报详情：热度总览行业名跳转 + 事件回顾/政策动向来源与外链齐备', async () => {
+    stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-reports/weekly/2026-09-21', respond: () => ok(weeklyDetail()) },
+      { path: '/api/v1/industry-reports/weekly', respond: () => ok(weeklyList()) },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-weekly'));
+    await userEvent.click(await screen.findByTestId('weekly-list-card-2026-09-21'));
+    const detail = await screen.findByTestId('weekly-detail-page');
+
+    expect(within(detail).getByTestId('weekly-riser-link-银行')).toHaveAttribute(
+      'href',
+      `#/industry-heat?industry=${encodeURIComponent('银行')}`,
+    );
+    expect(within(detail).getByTestId('weekly-faller-link-食品饮料')).toHaveAttribute(
+      'href',
+      `#/industry-heat?industry=${encodeURIComponent('食品饮料')}`,
+    );
+    const source = within(detail).getByTestId('weekly-event-source-9');
+    expect(source).toHaveTextContent('来源：央行官网');
+    expect(within(source).getByTestId('weekly-event-source-9-link')).toHaveAttribute(
+      'href',
+      'https://example.com/pboc/1009',
+    );
+    const policy = within(detail).getByTestId('weekly-policy-source-9');
+    expect(policy).toHaveTextContent('来源：央行官网');
+    expect(within(detail).queryByTestId('report-trace-footnote')).toBeNull();
+  });
+
+  it('C 级溯源链落地：#/industry-heat?industry=电子 直达展开该行业下钻', async () => {
+    window.location.hash = `#/industry-heat?industry=${encodeURIComponent('电子')}`;
+    stubFetch([
+      { path: '/api/v1/industry-heat?window=H24', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-heat/%E7%94%B5%E5%AD%90/items', respond: () => ok(newsItemsOf(42)) },
+    ]);
+
+    render(<IndustryHeat />);
+
+    // 未点击行即展开（focus 参数消费）
+    const drill = await screen.findByTestId('heat-drilldown-电子');
+    expect(within(drill).getByTestId('drill-total-电子')).toHaveTextContent('42');
   });
 });
