@@ -18,6 +18,7 @@ import com.info.platform.domain.valuation.IndustryAssociator.NewsLink;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository.MarketDailyRow;
 import com.info.platform.domain.valuation.RiskFactor;
+import com.info.platform.domain.valuation.ScoreComposer;
 import com.info.platform.domain.valuation.ValuationEvent;
 import com.info.platform.domain.valuation.ValuationFactor;
 import com.info.platform.domain.valuation.ValuationParams;
@@ -188,17 +189,24 @@ public class FactorSnapshotService {
 
         List<String> flags = flagsOf(subjectAssociations, marketRow, f5, f4);
         String detail = detailJson(f1, f2, f3, f4, f5);
+        double f1r = round1(f1.score());
+        double f2r = round1(f2.score());
+        double f3r = round1(f3.score());
+        double f4r = round1(f4.score());
+        double f5r = round1(f5.score());
+        // T171 ScoreComposer：总分 = Σ w×F / Σw（展示总分 = 展示分维加权均值，审计自洽）；标签三阈值可配
+        ScoreComposer.Composed composed = ScoreComposer.compose(f1r, f2r, f3r, f4r, f5r, params);
         FactorSnapshotRow row =
                 new FactorSnapshotRow(
                         subject.id(),
                         snapshotDate.toString(),
-                        round1(f1.score()),
-                        round1(f2.score()),
-                        round1(f3.score()),
-                        round1(f4.score()),
-                        round1(f5.score()),
-                        0.0, // T171 ScoreComposer 接管（归一合成 + 三阈值标签）
-                        false,
+                        f1r,
+                        f2r,
+                        f3r,
+                        f4r,
+                        f5r,
+                        composed.totalScore(),
+                        composed.breakthrough(),
                         detail,
                         writeJson(flags),
                         params.basis(),

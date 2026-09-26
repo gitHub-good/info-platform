@@ -6,9 +6,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.valuation.FactorSnapshotRepository;
+import com.info.platform.domain.valuation.FactorSnapshotRow;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +30,7 @@ class ValueScoreQueryServiceTest {
     void setUp() {
         repository = mock(FactorSnapshotRepository.class);
         marketRepository = mock(MarketDailySnapshotRepository.class);
-        service = new ValueScoreQueryService(repository, marketRepository);
+        service = new ValueScoreQueryService(repository, marketRepository, new ObjectMapper());
     }
 
     @Test
@@ -131,5 +133,146 @@ class ValueScoreQueryServiceTest {
         assertThat(view.missingCount()).isZero();
         assertThat(view.flagCounts()).hasSize(4); // 四 canonical 键常驻（0 值不隐藏口径）
         assertThat(view.flagCounts().values()).allMatch(v -> v == 0L);
+    }
+
+    // ---- value-score（T171，方案 §4.7.1）----
+
+    private static final String DETAIL_JSON =
+            "{\"catalyst\":{\"raw\":10.0,\"entries\":[{\"eventId\":101,\"summary\":\"业绩预增\","
+                    + "\"eventDate\":\"2026-09-22\",\"direction\":\"BULLISH\","
+                    + "\"importance\":\"HIGH\",\"coef\":1.0,\"decay\":1.0}]},"
+                    + "\"conduction\":{\"assoc\":[{\"industry\":\"银行\",\"heatH24\":812.4,"
+                    + "\"heatNorm\":1.0,\"lastSeenAge\":0,\"source\":\"EVENT\"}]},"
+                    + "\"fundamental\":{\"raw\":1.0,\"entries\":[]},"
+                    + "\"risk\":{\"stFlag\":false,\"eventPenalty\":0.0,\"entries\":[]},"
+                    + "\"valuation\":{\"basis\":\"PE\",\"pe\":17.37,\"pct\":62.1,\"pb\":6.15}}";
+
+    private static FactorSnapshotRow snapshotRow(String basis) {
+        return new FactorSnapshotRow(
+                101L,
+                "2026-09-21",
+                76.9,
+                100.0,
+                100.0,
+                100.0,
+                37.9,
+                90.8,
+                true,
+                DETAIL_JSON,
+                "[\"ST_RISK\"]",
+                basis,
+                "2026-09-21T09:30:00Z");
+    }
+
+    @Test
+    void valueScore_composedView_withQueryLayerPercentile() {
+        when(repository.findLatestBySubject(101L))
+                .thenReturn(
+                        Optional.of(
+                                snapshotRow(
+                                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80")));
+        when(repository.countByDate("2026-09-21")).thenReturn(100L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(17L);
+
+        ValueScoreQueryService.ScoreView view = service.valueScore(101L);
+
+        assertThat(view.subjectId()).isEqualTo(101L);
+        assertThat(view.snapshotDate()).isEqualTo("2026-09-21");
+        assertThat(view.totalScore()).isEqualTo(90.8);
+        assertThat(view.breakthrough()).isTrue();
+        // rank = 17 + 1 = 18；percentile = round(100×(100−18)/99) = 83
+        assertThat(view.rank()).isEqualTo(18L);
+        assertThat(view.percentile()).isEqualTo(83L);
+        assertThat(view.computedAt()).isEqualTo("2026-09-21T09:30:00Z");
+        assertThat(view.disclaimer()).contains("不构成投资建议");
+        assertThat(view.dataFlags()).containsExactly("ST_RISK");
+        // 五维分解按当时权重（weight_basis 回读——历史快照不被当前配置改写）
+        assertThat(view.factors()).hasSize(5);
+        assertThat(view.factors().get(0).key()).isEqualTo("catalyst");
+        assertThat(view.factors().get(0).name()).isEqualTo("事件催化");
+        assertThat(view.factors().get(0).score()).isEqualTo(76.9);
+        assertThat(view.factors().get(0).weight()).isEqualTo(0.40);
+        assertThat(view.factors().get(4).key()).isEqualTo("valuation");
+        assertThat(view.factors().get(4).weight()).isEqualTo(0.00);
+        assertThat(view.factors().get(4).neutral()).isFalse(); // detail.basis=PE 非缺数
+        // detail 原样透传（§4.5 契约，trace-v1 下钻原料）
+        assertThat(view.detail().path("catalyst").path("entries").get(0).path("eventId").asLong())
+                .isEqualTo(101L);
+        assertThat(view.detail().path("valuation").path("basis").asText()).isEqualTo("PE");
+    }
+
+    @Test
+    void valueScore_valuationNeutral_flaggedNeutral() {
+        String neutralDetail = DETAIL_JSON.replace("\"basis\":\"PE\"", "\"basis\":null");
+        FactorSnapshotRow row =
+                snapshotRow(
+                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80");
+        FactorSnapshotRow neutralRow =
+                new FactorSnapshotRow(
+                        row.subjectId(),
+                        row.snapshotDate(),
+                        row.fCatalyst(),
+                        row.fConduction(),
+                        row.fFundamental(),
+                        row.fRisk(),
+                        50.0,
+                        row.totalScore(),
+                        row.breakthrough(),
+                        neutralDetail,
+                        row.dataFlagsJson(),
+                        row.weightBasis(),
+                        row.computedAtIso());
+        when(repository.findLatestBySubject(101L)).thenReturn(Optional.of(neutralRow));
+        when(repository.countByDate("2026-09-21")).thenReturn(1L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(0L);
+
+        ValueScoreQueryService.ScoreView view = service.valueScore(101L);
+
+        assertThat(view.factors().get(4).neutral()).isTrue(); // 缺数中性态（前端弱化样式依据）
+        assertThat(view.percentile()).isZero(); // 单行样本：rank1/N=1 → percentile 0（除零守卫）
+        assertThat(view.rank()).isEqualTo(1L);
+    }
+
+    @Test
+    void valueScore_topRank_percentileHundred_withTies() {
+        // 并列最高：严格大于计数 0 → rank 1 → percentile 100（并列同名次）
+        when(repository.findLatestBySubject(1L))
+                .thenReturn(
+                        Optional.of(
+                                snapshotRow(
+                                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80")));
+        when(repository.countByDate("2026-09-21")).thenReturn(5221L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(0L);
+
+        assertThat(service.valueScore(1L).percentile()).isEqualTo(100L);
+    }
+
+    @Test
+    void valueScore_noSnapshot_404_30086() {
+        when(repository.findLatestBySubject(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.valueScore(999L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex ->
+                                assertThat(ex.getErrorCode())
+                                        .isEqualTo(ErrorCode.VALUE_SCORE_NOT_FOUND));
+    }
+
+    @Test
+    void valueScore_weightsParsedFromHistoricalBasis_notCurrentConfig() {
+        // 权重改过之后的旧快照：分解展示仍按当时权重（0.50|0.10|…——审计口径不被现值污染）
+        when(repository.findLatestBySubject(101L))
+                .thenReturn(
+                        Optional.of(
+                                snapshotRow(
+                                        "vs-v1:w=0.50|0.10|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80")));
+        when(repository.countByDate("2026-09-21")).thenReturn(10L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(0L);
+
+        ValueScoreQueryService.ScoreView view = service.valueScore(101L);
+
+        assertThat(view.factors().get(0).weight()).isEqualTo(0.50);
+        assertThat(view.factors().get(1).weight()).isEqualTo(0.10);
     }
 }

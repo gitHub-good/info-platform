@@ -24,6 +24,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -305,21 +306,67 @@ class FactorSnapshotServiceTest {
     }
 
     @Test
-    void totalAndBreakthrough_placeholderUntilComposerLands() {
-        // T170 落层、T171 落合成（ScoreComposer）：本提交 total/breakthrough 占位 0/false，
-        // 权重指纹已入行（T171 合成接管后由其验收用例断言真值）
+    void composedTotal_weightedMeanOfFiveFactors() {
+        // T171 ScoreComposer：total = Σ w×F / Σw（F5 权重 0 不进基线——茅台 F5=100 不抬分）
         stubHappyPath();
 
         service.snapshotAll(SNAPSHOT);
 
-        org.mockito.ArgumentCaptor<List<FactorSnapshotRow>> captor =
-                org.mockito.ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<FactorSnapshotRow>> captor = ArgumentCaptor.forClass(List.class);
         verify(repository).upsertAll(captor.capture());
-        for (FactorSnapshotRow row : captor.getValue()) {
-            assertThat(row.totalScore()).isZero();
-            assertThat(row.breakthrough()).isFalse();
-            assertThat(row.weightBasis()).startsWith("vs-v1:");
+        FactorSnapshotRow maotai = rowOf(captor.getValue(), 1);
+
+        // 0.4×22.5 + 0.2×91.2 + 0.2×76.1 + 0.2×100 = 62.46 → 62.5（round1）
+        assertThat(maotai.totalScore()).isCloseTo(62.5, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(maotai.breakthrough()).isFalse(); // F1≈22.5 < 60
+        assertThat(maotai.weightBasis()).startsWith("vs-v1:");
+    }
+
+    @Test
+    void breakthroughRequiresAllThreeThresholds() {
+        // 10 条 HIGH BULLISH 业绩事件（age0）+ 高热度行业回联 → F1≈76.9/F2=100/F4=100 → 标签真
+        when(repository.findActiveSubjects())
+                .thenReturn(
+                        List.of(new FactorSnapshotRepository.SubjectRef(9, "SH999999", "突破标的")));
+        List<FactorSnapshotRepository.EventRef> burst = new ArrayList<>();
+        for (long i = 1; i <= 10; i++) {
+            burst.add(
+                    new FactorSnapshotRepository.EventRef(
+                            new ValuationEvent(
+                                    i,
+                                    "业绩预增" + i,
+                                    SNAPSHOT,
+                                    Direction.BULLISH,
+                                    Importance.HIGH,
+                                    EventType.EARNINGS_FORECAST),
+                            List.of("SH999999"),
+                            List.of()));
         }
+        when(repository.findEventsInWindow(anyString(), anyString())).thenReturn(burst);
+        when(repository.findMatchedNewsInWindow(anyString(), anyString()))
+                .thenReturn(
+                        List.of(
+                                new FactorSnapshotRepository.NewsLinkRow(
+                                        List.of("SH999999"), "银行", null, SNAPSHOT)));
+        when(repository.findH24Heat()).thenReturn(List.of(new HeatRow("银行", 100.0)));
+        when(marketRepository.findByDate(anyString())).thenReturn(Map.of());
+        when(marketService.refresh(any(LocalDate.class), anyList()))
+                .thenReturn(new MarketDataSnapshotService.RefreshReport(true, 1, 0));
+
+        service.snapshotAll(SNAPSHOT);
+
+        ArgumentCaptor<List<FactorSnapshotRow>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAll(captor.capture());
+        FactorSnapshotRow row = captor.getValue().get(0);
+
+        assertThat(row.fCatalyst()).isCloseTo(76.9, org.assertj.core.data.Offset.offset(0.01));
+        assertThat(row.fConduction()).isEqualTo(100.0);
+        assertThat(row.fRisk()).isEqualTo(100.0);
+        // total = 0.4×76.9 + 0.2×100 + 0.2×100 + 0.2×100 = 90.77 → 90.8
+        assertThat(row.totalScore()).isCloseTo(90.8, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(row.breakthrough()).isTrue();
+        // 缺行情仍如实标注（标签不豁免 flags）
+        assertThat(flags(row)).contains("NO_MARKET_DATA");
     }
 
     @Test

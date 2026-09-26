@@ -1,30 +1,49 @@
 package com.info.platform.application.valuation;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.valuation.FactorSnapshotRepository;
+import com.info.platform.domain.valuation.FactorSnapshotRow;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository;
+import com.info.platform.domain.valuation.ValuationParams;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 评分查询服务（应用层，M20 方案 §4.7.2 coverage 对账口径）：快照行数 vs 活跃标的数数量对账（无资金语义， 方案库 09 裁剪）——M20
- * 验收口径常驻。日期缺省最新快照日；非法日期 30088。
+ * 评分查询服务（应用层，M20 方案 §4.7）：coverage 数量对账（T170，验收口径常驻）+ 标的价值评分详情（T171）—— 最新快照 + 五维分解（权重按当时
+ * weight_basis 回读，不被当前配置改写）+ 全市场百分位查询层算（rank = 严格大于 + 1， 并列同名次——不入库不进合成，ADR-0058 裁决 3）+
+ * 依据明细透传（trace-v1 下钻原料）。
  */
 @Service
 public class ValueScoreQueryService {
+
+    /** 区块级免责一行常驻（§4.8；页级三处必载在 M21）。 */
+    static final String DISCLAIMER = "评分为多因子信息整理，不构成投资建议";
+
+    private static final Logger log = LoggerFactory.getLogger(ValueScoreQueryService.class);
 
     private final FactorSnapshotRepository repository;
 
     private final MarketDailySnapshotRepository marketRepository;
 
+    private final ObjectMapper objectMapper;
+
     public ValueScoreQueryService(
-            FactorSnapshotRepository repository, MarketDailySnapshotRepository marketRepository) {
+            FactorSnapshotRepository repository,
+            MarketDailySnapshotRepository marketRepository,
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.marketRepository = marketRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -56,6 +75,99 @@ public class ValueScoreQueryService {
                 marketRows,
                 flagCountsOf(date));
     }
+
+    /**
+     * 标的价值评分（GET /api/v1/subjects/{subjectId}/value-score，§4.7.1）：最新快照行 + 查询层百分位 + 五维分解（权重按快照行
+     * weight_basis 回读——历史快照按当时权重复现）。
+     *
+     * @throws BusinessException 30086 该标的无任何快照（Job 未跑过/标的不存在）
+     */
+    public ScoreView valueScore(long subjectId) {
+        FactorSnapshotRow row =
+                repository
+                        .findLatestBySubject(subjectId)
+                        .orElseThrow(
+                                () ->
+                                        new BusinessException(
+                                                ErrorCode.VALUE_SCORE_NOT_FOUND,
+                                                "标的无评分快照: subjectId=" + subjectId));
+        long total = repository.countByDate(row.snapshotDate());
+        long rank = repository.countScoreGreaterThan(row.snapshotDate(), row.totalScore()) + 1;
+        long percentile = Math.round(100.0 * (total - rank) / Math.max(1, total - 1));
+        ValuationParams params = ValuationParams.fromBasis(row.weightBasis());
+        log.debug(
+                "价值评分查询 subjectId={} date={} total={} rank={}/{}",
+                subjectId,
+                row.snapshotDate(),
+                row.totalScore(),
+                rank,
+                total);
+        return new ScoreView(
+                row.subjectId(),
+                row.snapshotDate(),
+                row.totalScore(),
+                row.breakthrough(),
+                rank,
+                percentile,
+                factorsOf(row, params),
+                readTree(row.factorDetailJson()),
+                flagsOf(row.dataFlagsJson()),
+                row.weightBasis(),
+                row.computedAtIso(),
+                DISCLAIMER);
+    }
+
+    // ---- value-score 组装 ----
+
+    private List<FactorView> factorsOf(FactorSnapshotRow row, ValuationParams params) {
+        boolean valuationNeutral = valuationBasisMissing(row);
+        List<FactorView> factors = new ArrayList<>(5);
+        factors.add(new FactorView("catalyst", "事件催化", row.fCatalyst(), params.wCatalyst(), false));
+        factors.add(
+                new FactorView(
+                        "conduction", "行业传导", row.fConduction(), params.wConduction(), false));
+        factors.add(
+                new FactorView(
+                        "fundamental", "基本面边际", row.fFundamental(), params.wFundamental(), false));
+        factors.add(new FactorView("risk", "风险安全", row.fRisk(), params.wRisk(), false));
+        factors.add(
+                new FactorView(
+                        "valuation",
+                        "估值水平",
+                        row.fValuation(),
+                        params.wValuation(),
+                        valuationNeutral));
+        return factors;
+    }
+
+    /** 估值维缺数态（detail.valuation.basis 为 null → 前端「未启用/缺数」弱化依据）。 */
+    private boolean valuationBasisMissing(FactorSnapshotRow row) {
+        JsonNode basis = readTree(row.factorDetailJson()).path("valuation").path("basis");
+        return basis.isMissingNode() || basis.isNull();
+    }
+
+    private JsonNode readTree(String json) {
+        try {
+            return objectMapper.readTree(json == null ? "{}" : json);
+        } catch (Exception e) {
+            log.warn("评分明细 JSON 解析失败（回退空对象）: {}", e.getMessage());
+            return objectMapper.createObjectNode();
+        }
+    }
+
+    private List<String> flagsOf(String dataFlagsJson) {
+        try {
+            return objectMapper.readValue(
+                    dataFlagsJson == null ? "[]" : dataFlagsJson,
+                    objectMapper
+                            .getTypeFactory()
+                            .constructCollectionType(List.class, String.class));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    // ---- coverage 组装 ----
 
     private String resolveDate(String dateParam) {
         if (dateParam == null || dateParam.isBlank()) {
@@ -99,4 +211,23 @@ public class ValueScoreQueryService {
             double coverageRate,
             long marketDataRows,
             Map<String, Long> flagCounts) {}
+
+    /** 五维分解条目（weight 按当时 weight_basis；neutral 仅估值维缺数态为 true）。 */
+    public record FactorView(
+            String key, String name, double score, double weight, boolean neutral) {}
+
+    /** 标的价值评分视图（§4.7.1 契约：总分/标签/排名百分位/分解/明细/flags/指纹/免责）。 */
+    public record ScoreView(
+            long subjectId,
+            String snapshotDate,
+            double totalScore,
+            boolean breakthrough,
+            long rank,
+            long percentile,
+            List<FactorView> factors,
+            JsonNode detail,
+            List<String> dataFlags,
+            String weightBasis,
+            String computedAt,
+            String disclaimer) {}
 }

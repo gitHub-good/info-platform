@@ -85,6 +85,51 @@ public record ValuationParams(
         return String.format(Locale.ROOT, "%.2f", value);
     }
 
+    /**
+     * weight_basis 指纹串回读（详情端点按<b>当时权重</b>展示分解的解析锚，ADR-0058 裁决 4）： {@code
+     * vs-v1:w=…;win=…;hl=…;k=…;bt=…} → 参数；损坏段回退缺省（历史快照不因解析失败 500）。
+     */
+    public static ValuationParams fromBasis(String basis) {
+        ValuationParams defaults = defaults();
+        if (basis == null || basis.isBlank() || !basis.startsWith("vs-v1:")) {
+            return defaults;
+        }
+        try {
+            ValuationParams params = defaults;
+            for (String section : basis.substring("vs-v1:".length()).split(";")) {
+                int eq = section.indexOf('=');
+                if (eq <= 0) {
+                    continue;
+                }
+                String key = section.substring(0, eq);
+                String[] values = section.substring(eq + 1).split("\\|");
+                params = assign(params, key, values);
+            }
+            return params;
+        } catch (Exception e) {
+            return defaults;
+        }
+    }
+
+    private static ValuationParams assign(ValuationParams params, String key, String[] values) {
+        return switch (key) {
+            case "w" -> params.withWCatalyst(Double.parseDouble(values[0]))
+                    .withWConduction(Double.parseDouble(values[1]))
+                    .withWFundamental(Double.parseDouble(values[2]))
+                    .withWRisk(Double.parseDouble(values[3]))
+                    .withWValuation(Double.parseDouble(values[4]));
+            case "win" -> params.withCatalystWindowDays(Integer.parseInt(values[0]))
+                    .withAssocWindowDays(Integer.parseInt(values[1]));
+            case "hl" -> params.withHalfLifeDays(Double.parseDouble(values[0]));
+            case "k" -> params.withK1Saturation(Double.parseDouble(values[0]))
+                    .withK3Saturation(Double.parseDouble(values[1]));
+            case "bt" -> params.withBtCatalystMin(Integer.parseInt(values[0]))
+                    .withBtConductionMin(Integer.parseInt(values[1]))
+                    .withBtRiskMin(Integer.parseInt(values[2]));
+            default -> params;
+        };
+    }
+
     // ---- 单参数 wither（配置读取侧逐字段回退用；记录不可变） ----
 
     public ValuationParams withWCatalyst(double value) {
