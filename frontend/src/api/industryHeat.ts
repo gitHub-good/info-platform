@@ -11,6 +11,8 @@ import type {
   IndustryReportDetailView,
   IndustryReportListView,
   IndustryReportRetryAcceptance,
+  IndustryWeeklyReportDetailView,
+  IndustryWeeklyReportListView,
 } from '@/types/industryHeat';
 
 /** 下钻查询参数（beforeId 游标 + limit 缺省 20 ≤50，越界后端拒绝不截断）。 */
@@ -71,6 +73,40 @@ export function getIndustryReportDetail(
 export function retryIndustryReport(reportDate: string): Promise<IndustryReportRetryAcceptance> {
   return request<IndustryReportRetryAcceptance>(
     `/industry-reports/${encodeURIComponent(reportDate)}/retry`,
+    { method: 'POST' },
+  );
+}
+
+// —— 行业周报（M17 T145）：/industry-reports/weekly 三端点（错误码 30084 不存在 / 30085 已成功） ——
+
+/** 周报列表（week_start DESC，beforeId 游标 + limit 缺省 10）。 */
+export function getIndustryWeeklyReports(
+  beforeId?: number,
+  limit?: number,
+  signal?: AbortSignal,
+): Promise<IndustryWeeklyReportListView> {
+  const params = new URLSearchParams();
+  if (beforeId != null) params.set('beforeId', String(beforeId));
+  if (limit != null) params.set('limit', String(limit));
+  const qs = params.size > 0 ? `?${params}` : '';
+  return request<IndustryWeeklyReportListView>(`/industry-reports/weekly${qs}`, { signal });
+}
+
+/** 周报详情（content/heatTop 五区块 JSON 全量；不存在 30084/404）。 */
+export function getIndustryWeeklyReportDetail(
+  weekStart: string,
+  signal?: AbortSignal,
+): Promise<IndustryWeeklyReportDetailView> {
+  return request<IndustryWeeklyReportDetailView>(
+    `/industry-reports/weekly/${encodeURIComponent(weekStart)}`,
+    { signal },
+  );
+}
+
+/** 重试 FAILED 周报（202 受理；已 SUCCESS 30085/409；不存在 30084/404）。 */
+export function retryIndustryWeeklyReport(weekStart: string): Promise<IndustryReportRetryAcceptance> {
+  return request<IndustryReportRetryAcceptance>(
+    `/industry-reports/weekly/${encodeURIComponent(weekStart)}/retry`,
     { method: 'POST' },
   );
 }

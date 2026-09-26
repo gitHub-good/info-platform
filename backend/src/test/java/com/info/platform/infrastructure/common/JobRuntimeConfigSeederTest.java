@@ -51,7 +51,7 @@ class JobRuntimeConfigSeederTest {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 13 键不被增补挤占（RECOMMENDATION_FEED 第 14 键追加在尾部，M16 T133 / ADR-0051 裁决 2）
+        // 纯增量守卫：既有 14 键不被增补挤占（INDUSTRY_WEEKLY_REPORT 第 15 键追加在尾部，M17 T145 / REQ 拍板四-2）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -67,7 +67,29 @@ class JobRuntimeConfigSeederTest {
                         "job.INDUSTRY_DAILY_REPORT",
                         "job.SOURCE_STALE_CHECK",
                         "job.PIPELINE_EXPRESS",
-                        "job.RECOMMENDATION_FEED");
+                        "job.RECOMMENDATION_FEED",
+                        "job.INDUSTRY_WEEKLY_REPORT");
+    }
+
+    // ---- INDUSTRY_WEEKLY_REPORT 种子（T145，M17 / REQ 拍板四-2：第 15 键，周日晚 20:00 CRON）----
+
+    @Test
+    void seeds_industryWeeklyReport_cronSundayEvening() {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "weeklyReportEnabled", true);
+        ReflectionTestUtils.setField(seeder, "weeklyReportCron", "0 0 20 * * SUN");
+        RuntimeConfigSeed seed =
+                seeder.seeds().stream()
+                        .filter(s -> s.configKey().equals("job.INDUSTRY_WEEKLY_REPORT"))
+                        .findFirst()
+                        .orElseThrow(
+                                () -> new IllegalStateException("缺 job.INDUSTRY_WEEKLY_REPORT 种子"));
+
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 0 20 * * SUN\"");
+        assertThat(seed.description()).contains("周报");
     }
 
     // ---- RECOMMENDATION_FEED 种子（T133，M16 / ADR-0051 裁决 2：第 14 键）----

@@ -123,6 +123,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${recommendation.feed.interval-millis:60000}")
     private long recommendationFeedIntervalMillis;
 
+    /** 行业周报开关/CRON（M17 T145：INDUSTRY_WEEKLY_REPORT 第 15 键，缺省周日晚 20:00，REQ 拍板四-2）。 */
+    @Value("${pipeline.weekly-report.enabled:true}")
+    private boolean weeklyReportEnabled;
+
+    @Value("${pipeline.weekly-report.cron:0 0 20 * * SUN}")
+    private String weeklyReportCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -235,6 +242,16 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 + "→ 推送闸门（降频/排序/日上限/SILENT 静默留痕），M16 ADR-0051 裁决 2）",
                         recommendationFeedEnabled,
                         recommendationFeedIntervalMillis));
+        Map<String, Object> weeklyReport = new LinkedHashMap<>();
+        weeklyReport.put("enabled", weeklyReportEnabled);
+        weeklyReport.put("scheduleType", CRON);
+        weeklyReport.put("cron", weeklyReportCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.INDUSTRY_WEEKLY_REPORT",
+                        write(weeklyReport),
+                        "行业周报调度（IndustryWeeklyReportJob，周日晚 20:00 生成当周周报：周窗聚合热度环比/事件主键归并/政策动向"
+                                + "→ 五区块含走向判断 v1（置信度 trend-v1 规则层锁定）——FUSED 跳过下周一覆盖，M17 REQ 拍板四）"));
         return seeds;
     }
 

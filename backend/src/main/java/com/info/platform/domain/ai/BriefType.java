@@ -30,7 +30,12 @@ public enum BriefType {
      * 推荐卡片逻辑链（M16 T132 / ADR-0051 裁决 3；V27 播种 v1.0——LLM 仅语言组织零新增事实，输出经 FactWhitelistValidator
      * 四类白名单校验拒即模板兜底）。
      */
-    RECOMMEND_CARD(8, "推荐卡片");
+    RECOMMEND_CARD(8, "推荐卡片"),
+    /**
+     * 行业周报（M17 T145/T146 / REQ-20260926-14 拍板四；V29 播种 v1.0——数字全部统计注入、走向判断置信度 trend-v1 规则层锁定
+     * AI 仅语言组织，输出校验拒篡改即模板兜底）。
+     */
+    INDUSTRY_WEEKLY(9, "行业周报");
 
     private final int code;
     private final String displayName;

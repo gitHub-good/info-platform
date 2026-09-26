@@ -6,7 +6,10 @@ import {
   getIndustryHeatItems,
   getIndustryReportDetail,
   getIndustryReports,
+  getIndustryWeeklyReportDetail,
+  getIndustryWeeklyReports,
   retryIndustryReport,
+  retryIndustryWeeklyReport,
 } from '@/api/industryHeat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +30,8 @@ import {
   type IndustryItemsType,
   type IndustryReportDetailView,
   type IndustryReportListView,
+  type IndustryWeeklyReportDetailView,
+  type IndustryWeeklyReportListView,
 } from '@/types/industryHeat';
 
 // 行业热度与日报页（M15 T126，#/industry-heat 全站第 16 页——方案 §4.8 + REQ 故事 2/3）。
@@ -841,6 +846,429 @@ function ReportTab({ retryPollMs }: { retryPollMs: number }) {
   );
 }
 
+// —— 周报 Tab（M17 T145：列表回看 + 五区块详情 + FAILED 重试） ——
+
+/** 周报详情（五区块：热度总览 / 事件回顾 / 政策动向 / 下周关注点 / 走向判断；置信度与免责标注）。 */
+function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDetailView; onBack: () => void }) {
+  const content = detail.content;
+  return (
+    <div className="flex flex-col gap-4" data-testid="weekly-detail-page">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack} data-testid="weekly-detail-back">
+          ← 返回列表
+        </Button>
+        <span className="text-base font-medium">{detail.weekStart} 起本周周报</span>
+        <Badge
+          className={
+            detail.status === 'SUCCESS'
+              ? 'bg-emerald-500/15 text-emerald-400'
+              : 'bg-rose-500/15 text-rose-400'
+          }
+        >
+          {detail.status === 'SUCCESS' ? '成功' : '失败'}
+        </Badge>
+        {content?.narrativeDegraded ? (
+          <Badge className="bg-amber-500/15 text-amber-400" title="AI 叙述生成失败或降级，本版为纯统计模板直出">
+            纯统计版
+          </Badge>
+        ) : null}
+      </div>
+
+      {!content ? (
+        <p className="text-sm text-muted-foreground">
+          该周周报无内容（生成失败）：{detail.errorMessage ?? '未留失败原因'}，可返回列表重试。
+        </p>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">本周总结（AI 组织，数字来自统计）</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed" data-testid="weekly-detail-summary">
+                {content.summary}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                周窗 {content.weekStart} ~ {content.weekEnd} · 资讯 {content.totalNews} 条 · 事件{' '}
+                {content.totalEvents} 条（主键归并，跨日去重）
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">热度总览（周环比）</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex-1">
+                <p className="mb-1 text-xs text-red-500">升温 Top</p>
+                {content.topRisers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">本周无显著升温行业</p>
+                ) : (
+                  content.topRisers.map((row) => (
+                    <div key={row.industry} className="flex items-center gap-2 py-1 text-sm" data-testid={`weekly-riser-${row.industry}`}>
+                      <span className="font-medium">{row.industry}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        热度 {formatNumber(row.score)} · 事件 {row.eventCount}
+                      </span>
+                      <DeltaBadge deltaPct={row.deltaPct} testId={`weekly-riser-delta-${row.industry}`} />
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="mb-1 text-xs text-green-500">降温 Top</p>
+                {content.topFallers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">本周无显著降温行业</p>
+                ) : (
+                  content.topFallers.map((row) => (
+                    <div key={row.industry} className="flex items-center gap-2 py-1 text-sm" data-testid={`weekly-faller-${row.industry}`}>
+                      <span className="font-medium">{row.industry}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        热度 {formatNumber(row.score)} · 事件 {row.eventCount}
+                      </span>
+                      <DeltaBadge deltaPct={row.deltaPct} testId={`weekly-faller-delta-${row.industry}`} />
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">事件回顾（主键归并，重要度降序）</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {content.eventReview.map((event) => (
+                <div key={event.eventId} className="flex flex-col gap-1 rounded-lg border px-3 py-2" data-testid={`weekly-event-${event.eventId}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-sky-500/15 text-sky-400">
+                      {labelOf(EVENT_TYPE_LABELS, event.eventType)}
+                    </Badge>
+                    <DirectionBadge direction={event.direction} />
+                    <Badge className="bg-amber-500/15 text-amber-400">
+                      重要度 {labelOf(IMPORTANCE_LABELS, event.importance)}
+                    </Badge>
+                    <span className="ml-auto text-xs text-muted-foreground">{event.eventDate}</span>
+                  </div>
+                  <p className="text-sm">{event.summary}</p>
+                  {event.quote ? (
+                    <p className="border-l-2 border-border pl-2 text-xs text-muted-foreground">
+                      原文引用：「{event.quote}」
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+              {content.eventReview.length === 0 ? (
+                <p className="text-xs text-muted-foreground">本周无结构化事件</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">政策动向（官方源周窗清单）</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {content.policyMoves.map((policy) => (
+                <div key={policy.eventId} className="flex flex-col gap-1 rounded-lg border px-3 py-2" data-testid={`weekly-policy-${policy.eventId}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DirectionBadge direction={policy.direction} />
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {formatDateTime(policy.eventTime)}
+                    </span>
+                  </div>
+                  <p className="text-sm">{policy.summary}</p>
+                  {policy.quote ? (
+                    <p className="border-l-2 border-border pl-2 text-xs text-muted-foreground">
+                      原文引用：「{policy.quote}」
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+              {content.policyMoves.length === 0 ? (
+                <p className="text-xs text-muted-foreground">本周无政策发布事件</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">下周关注点</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="flex list-disc flex-col gap-1 pl-4 text-sm" data-testid="weekly-watchpoints">
+                {content.nextWeekWatch.map((point, idx) => (
+                  <li key={idx}>{point}</li>
+                ))}
+              </ul>
+              {content.nextWeekWatch.length === 0 ? (
+                <p className="text-xs text-muted-foreground">无</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                走向判断 v1（{content.trendJudgement.basis} · 置信度规则层锁定）
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {content.trendJudgement.items.map((item) => (
+                <div key={item.industry} className="flex flex-col gap-1 rounded-lg border px-3 py-2" data-testid={`weekly-trend-${item.industry}`}>
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium">{item.industry}</span>
+                    <Badge
+                      className={
+                        item.signal === 'HEATING'
+                          ? 'bg-red-500/15 text-red-500'
+                          : item.signal === 'COOLING'
+                            ? 'bg-green-500/15 text-green-500'
+                            : 'bg-muted text-muted-foreground'
+                      }
+                    >
+                      {item.signalLabel}
+                    </Badge>
+                    <Badge className="bg-amber-500/15 text-amber-400">置信度 {item.confidenceLabel}</Badge>
+                    <DeltaBadge deltaPct={item.deltaPct} testId={`weekly-trend-delta-${item.industry}`} />
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {item.narrativeSource === 'TEMPLATE' ? '模板直出' : 'AI 组织'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{item.narrative}</p>
+                  <p className="text-xs text-muted-foreground">
+                    依据：周内事件 {item.eventCount} 条 · 政策 {item.policyCount} 条 · 证据事件{' '}
+                    {item.evidenceEventIds.join(' / ') || '--'}
+                  </p>
+                </div>
+              ))}
+              {content.trendJudgement.items.length === 0 ? (
+                <p className="text-xs text-muted-foreground">本周无显著升温/降温行业（走向判断缺省不叙述）</p>
+              ) : null}
+              <p className="mt-2 text-xs text-muted-foreground" data-testid="weekly-detail-disclaimer">
+                {content.disclaimer} · 走向判断为行业信息面趋势描述，不构成买卖建议与点位预测。
+              </p>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 周报 Tab（列表回看 + 详情 + FAILED 重试 202 轻轮询）。 */
+function WeeklyTab({ retryPollMs }: { retryPollMs: number }) {
+  const [list, setList] = useState<IndustryWeeklyReportListView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [detailWeek, setDetailWeek] = useState<string | null>(null);
+  const [detail, setDetail] = useState<IndustryWeeklyReportDetailView | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [retryingWeeks, setRetryingWeeks] = useState<Set<string>>(new Set());
+  const abortRef = useRef<AbortController | null>(null);
+  const pollTimerRef = useRef<number | null>(null);
+  const pollTicksRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      if (pollTimerRef.current != null) window.clearInterval(pollTimerRef.current);
+    },
+    [],
+  );
+
+  const load = useCallback(async (): Promise<IndustryWeeklyReportListView | null> => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      const data = await getIndustryWeeklyReports(undefined, undefined, ctrl.signal);
+      if (ctrl.signal.aborted) return null;
+      setList(data);
+      setError(null);
+      return data;
+    } catch (err) {
+      if (ctrl.signal.aborted) return null;
+      setError(messageOf(err, '周报列表加载失败'));
+      return null;
+    } finally {
+      if (!ctrl.signal.aborted) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const stopPoll = useCallback(() => {
+    if (pollTimerRef.current != null) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    pollTicksRef.current = 0;
+  }, []);
+
+  const retryingWeeksRef = useRef(retryingWeeks);
+  retryingWeeksRef.current = retryingWeeks;
+
+  const startPoll = useCallback(() => {
+    stopPoll();
+    pollTimerRef.current = window.setInterval(() => {
+      pollTicksRef.current += 1;
+      if (document.hidden) return;
+      void load().then((fresh) => {
+        if (!fresh) return;
+        const stillFailed = fresh.reports
+          .filter((report) => retryingWeeksRef.current.has(report.weekStart))
+          .every((report) => report.status === 'FAILED');
+        if (!stillFailed || pollTicksRef.current >= RETRY_POLL_MAX_TICKS) {
+          setRetryingWeeks(new Set());
+          stopPoll();
+        }
+      });
+    }, retryPollMs);
+  }, [load, retryPollMs, stopPoll]);
+
+  const openDetail = async (weekStart: string) => {
+    setDetailWeek(weekStart);
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const data = await getIndustryWeeklyReportDetail(weekStart);
+      setDetail(data);
+    } catch (err) {
+      setDetailError(messageOf(err, '周报详情加载失败'));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleRetry = async (weekStart: string) => {
+    try {
+      await retryIndustryWeeklyReport(weekStart);
+      setRetryingWeeks((prev) => new Set(prev).add(weekStart));
+      startPoll();
+    } catch (err) {
+      setError(messageOf(err, '重试请求失败，请稍后再试'));
+    }
+  };
+
+  if (detailWeek != null) {
+    return (
+      <div className="flex flex-col gap-3">
+        {detailLoading ? (
+          <div className="flex flex-col gap-3" data-testid="weekly-detail-loading">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-40 w-full" />
+          </div>
+        ) : detailError ? (
+          <div className="flex flex-col items-start gap-2" data-testid="weekly-detail-error">
+            <p className="text-sm text-destructive" role="alert">
+              {detailError}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setDetailWeek(null)}>
+              返回列表
+            </Button>
+          </div>
+        ) : detail ? (
+          <WeeklyReportDetail detail={detail} onBack={() => setDetailWeek(null)} />
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {loading ? (
+        <div className="flex flex-col gap-3" data-testid="weekly-loading">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      ) : error && !list ? (
+        <div className="flex flex-col items-start gap-2" data-testid="weekly-error">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void load()} data-testid="weekly-retry">
+            重试
+          </Button>
+        </div>
+      ) : (list?.reports.length ?? 0) === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="weekly-empty">
+          暂无行业周报：周报每周日晚 20:00 自动生成本周报告（热度总览/事件回顾/政策动向/下周关注点/走向判断）。
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3" data-testid="weekly-list">
+          {list?.reports.map((report) => {
+            const retrying = retryingWeeks.has(report.weekStart);
+            return (
+              <Card
+                key={report.weekStart}
+                className="cursor-pointer transition-colors hover:bg-muted/30"
+                data-testid={`weekly-list-card-${report.weekStart}`}
+                onClick={() => void openDetail(report.weekStart)}
+              >
+                <CardHeader>
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                    <span className="font-medium">{report.weekStart} 起</span>
+                    <Badge
+                      className={
+                        report.status === 'SUCCESS'
+                          ? 'bg-emerald-500/15 text-emerald-400'
+                          : 'bg-rose-500/15 text-rose-400'
+                      }
+                      data-testid={`weekly-status-${report.weekStart}`}
+                    >
+                      {report.status === 'SUCCESS' ? '成功' : '失败'}
+                    </Badge>
+                    {report.narrativeDegraded ? (
+                      <Badge className="bg-amber-500/15 text-amber-400" data-testid={`weekly-degraded-${report.weekStart}`}>
+                        纯统计版
+                      </Badge>
+                    ) : null}
+                    {retrying ? (
+                      <span className="text-xs text-amber-400" data-testid={`weekly-retrying-${report.weekStart}`}>
+                        重试已受理 · 生成中…
+                      </span>
+                    ) : null}
+                    {report.status !== 'SUCCESS' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto"
+                        disabled={retrying}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleRetry(report.weekStart);
+                        }}
+                        data-testid={`weekly-retry-${report.weekStart}`}
+                      >
+                        重试生成
+                      </Button>
+                    ) : null}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{report.summary}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    资讯 <span className="text-foreground tabular-nums">{report.totalNews}</span> 条 · 事件{' '}
+                    <span className="text-foreground tabular-nums">{report.totalEvents}</span> 条
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // —— 页面 ——
 
 interface IndustryHeatProps {
@@ -848,22 +1276,24 @@ interface IndustryHeatProps {
   retryPollMs?: number;
 }
 
-/** 行业热度与日报页（第 16 页，双 Tab）。 */
+/** 行业热度与日报页（第 16 页，三 Tab：热度榜 / 日报 / 周报——M17 T145 扩三 Tab）。 */
 export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHeatProps = {}) {
-  const [tab, setTab] = useState<'heat' | 'report'>('heat');
+  const [tab, setTab] = useState<'heat' | 'report' | 'weekly'>('heat');
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="industry-heat-page">
       <header className="mb-4">
         <h1 className="text-xl font-medium">行业热度与日报</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          按行业看信息、按事件抓重点：热度榜 31 行业分钟级快照，行业日报每日 08:00 晨读。
+          按行业看信息、按事件抓重点：热度榜 31 行业分钟级快照，行业日报每日 08:00 晨读，行业周报周日晚 20:00 纵深复盘。
         </p>
       </header>
 
       <Tabs
         value={tab}
-        onValueChange={(value) => setTab(value === 'report' ? 'report' : 'heat')}
+        onValueChange={(value) =>
+          setTab(value === 'report' ? 'report' : value === 'weekly' ? 'weekly' : 'heat')
+        }
         className="gap-3"
       >
         <TabsList>
@@ -873,10 +1303,13 @@ export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHe
           <TabsTrigger value="report" data-testid="heat-tab-report">
             行业日报
           </TabsTrigger>
+          <TabsTrigger value="weekly" data-testid="heat-tab-weekly">
+            行业周报
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {tab === 'heat' ? <HeatBoardTab /> : <ReportTab retryPollMs={retryPollMs} />}
+      {tab === 'heat' ? <HeatBoardTab /> : tab === 'report' ? <ReportTab retryPollMs={retryPollMs} /> : <WeeklyTab retryPollMs={retryPollMs} />}
     </main>
   );
 }

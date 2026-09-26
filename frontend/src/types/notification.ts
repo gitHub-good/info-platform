@@ -2,7 +2,7 @@
 // - SSE 实时事件与 history 端点记录归一为 NotificationItem，供面板统一渲染。
 // - 事件名对齐技术方案 §4.1.3：anomaly / event / policy / ai_brief / daily_recommend。
 
-/** SSE 事件名（后端 PushType.eventName，对齐 §4.1.3 + M14 T115 源异常扩展 + M15 T124/T125 两新类型）。 */
+/** SSE 事件名（后端 PushType.eventName，对齐 §4.1.3 + M14 T115 源异常扩展 + M15 T124/T125 两新类型 + M17 T145 周报）。 */
 export const NOTIFICATION_EVENT_TYPES = [
   'anomaly',
   'event',
@@ -14,6 +14,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'pipeline_fused',
   'industry_report',
   'recommendation',
+  'industry_weekly_report',
 ] as const;
 
 /** SSE data 载荷（后端 NotificationEvent 序列化 JSON）。 */
@@ -73,4 +74,5 @@ export const TYPE_LABELS: Record<string, string> = {
   pipeline_fused: '管道熔断',
   industry_report: '行业日报',
   recommendation: '动态推荐',
+  industry_weekly_report: '行业周报',
 };

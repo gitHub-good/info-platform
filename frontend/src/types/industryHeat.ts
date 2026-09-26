@@ -185,3 +185,120 @@ export function labelOf(map: Record<string, string>, key: string | null | undefi
   if (!key) return '--';
   return map[key] ?? key;
 }
+
+// —— 行业周报（M17 T145，对齐后端 IndustryWeeklyReportListView/DetailView——GET /api/v1/industry-reports/weekly 契约） ——
+
+/** 周报列表行。 */
+export interface IndustryWeeklyReportListItem {
+  id: number;
+  weekStart: string;
+  status: ReportStatus;
+  summary: string | null;
+  totalNews: number;
+  totalEvents: number;
+  narrativeDegraded: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** 周报列表视图（beforeId 游标）。 */
+export interface IndustryWeeklyReportListView {
+  reports: IndustryWeeklyReportListItem[];
+  nextBeforeId: number | null;
+}
+
+/** 周报热度总览行（升/降温 Top + 周环比）。 */
+export interface WeeklyMoverRow {
+  industry: string;
+  score: number;
+  prevScore: number;
+  deltaPct: number;
+  newsCount: number;
+  eventCount: number;
+}
+
+/** 周报事件回顾行（主键归并，quote 原文可回溯）。 */
+export interface WeeklyEventRow {
+  eventId: number;
+  newsId: number;
+  eventType: string;
+  summary: string;
+  industries: string[];
+  direction: string;
+  importance: string;
+  quote: string | null;
+  eventDate: string | null;
+  eventTime: string | null;
+}
+
+/** 周报政策动向行（POLICY_RELEASE 周窗清单）。 */
+export interface WeeklyPolicyRow {
+  eventId: number;
+  summary: string;
+  industries: string[];
+  direction: string;
+  quote: string | null;
+  eventTime: string | null;
+}
+
+/** 走向判断行（信号/置信度 trend-v1 规则层锁定；narrativeSource=LLM/TEMPLATE）。 */
+export interface WeeklyTrendItem {
+  industry: string;
+  signal: string;
+  signalLabel: string;
+  confidence: string;
+  confidenceLabel: string;
+  deltaPct: number;
+  weekScore: number;
+  prevScore: number;
+  eventCount: number;
+  policyCount: number;
+  narrative: string;
+  narrativeSource: string;
+  evidenceEventIds: number[];
+}
+
+/** 周报 content 五区块 JSON。 */
+export interface IndustryWeeklyReportContent {
+  summary: string;
+  narrativeDegraded: boolean;
+  weekStart: string;
+  weekEnd: string;
+  totalNews: number;
+  totalEvents: number;
+  topRisers: WeeklyMoverRow[];
+  topFallers: WeeklyMoverRow[];
+  eventReview: WeeklyEventRow[];
+  policyMoves: WeeklyPolicyRow[];
+  nextWeekWatch: string[];
+  trendJudgement: { basis: string; items: WeeklyTrendItem[] };
+  disclaimer: string;
+}
+
+/** 周报详情视图。 */
+export interface IndustryWeeklyReportDetailView {
+  id: number;
+  weekStart: string;
+  status: ReportStatus;
+  content: IndustryWeeklyReportContent | null;
+  heatTop: Array<Record<string, unknown>> | null;
+  errorMessage: string | null;
+  promptVersion: string | null;
+  basis: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** 走向判断信号中文展示（TrendSignal.displayName 镜像）。 */
+export const TREND_SIGNAL_LABELS: Record<string, string> = {
+  HEATING: '升温',
+  COOLING: '降温',
+  STABLE: '平稳',
+};
+
+/** 走向判断置信度中文展示（TrendConfidence 镜像——trend-v1 规则层锁定）。 */
+export const TREND_CONFIDENCE_LABELS: Record<string, string> = {
+  HIGH: '高',
+  MEDIUM: '中',
+  LOW: '低',
+};

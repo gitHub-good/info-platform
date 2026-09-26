@@ -6,6 +6,7 @@ import com.info.platform.domain.push.AnomalyDetectedEvent;
 import com.info.platform.domain.push.AnomalyRecord;
 import com.info.platform.domain.push.AnomalyRepository;
 import com.info.platform.domain.push.IndustryReportReadyEvent;
+import com.info.platform.domain.push.IndustryWeeklyReportReadyEvent;
 import com.info.platform.domain.push.NotificationEvent;
 import com.info.platform.domain.push.PipelineFusedEvent;
 import com.info.platform.domain.push.PushRecord;
@@ -308,6 +309,31 @@ public class PushService {
                                 "[行业日报] %s 行业日报已生成：昨日行业统计、Top5 行业点评与事件精选可回看。", event.reportDate());
         broadcast(PushType.INDUSTRY_REPORT, refId, content);
         log.info("行业日报推送完成 refId={} degraded={}", refId, event.narrativeDegraded());
+    }
+
+    /**
+     * 行业周报生成完成推送（M17 T145 Should，REQ 条目 11）：{@code @Async @EventListener} 消费 {@link
+     * IndustryWeeklyReportReadyEvent}（WeeklyReportService SUCCESS 落库后发布），广播全量用户。异常兜底记 ERROR 不上抛（异步监听器纪律）。
+     */
+    @Async("pushAsyncExecutor")
+    @EventListener
+    public void onIndustryWeeklyReportReady(IndustryWeeklyReportReadyEvent event) {
+        try {
+            handleIndustryWeeklyReportReady(event);
+        } catch (Exception e) {
+            log.error("行业周报推送处理异常 weekStart={}: {}", event.weekStart(), e.toString(), e);
+        }
+    }
+
+    /** 周报推送编排（包内可见，单测直调绕过 @Async 代理）：refId 含周锚（每周一条天然幂等）。 */
+    void handleIndustryWeeklyReportReady(IndustryWeeklyReportReadyEvent event) {
+        String refId = "industry_weekly_report:" + event.weekStart();
+        String content =
+                String.format(
+                        "[行业周报] %s 起本周行业周报已生成：热度总览、事件回顾、政策动向、下周关注点与走向判断可回看（AI 分析仅供参考）。",
+                        event.weekStart());
+        broadcast(PushType.INDUSTRY_WEEKLY_REPORT, refId, content);
+        log.info("行业周报推送完成 refId={}", refId);
     }
 
     // ---- 推荐卡片推送与静默留痕（M16 T133，方案 §4.6/§3.5）----

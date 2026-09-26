@@ -186,6 +186,11 @@ pipeline:
   daily-report:
     enabled: true
     cron: 0 0 8 * * ?
+  # 行业周报 Job（M17 T145，REQ 拍板四-2）：周日晚 20:00 可配 CRON，周窗聚合五区块单次 LLM（调度键 job.INDUSTRY_WEEKLY_REPORT，
+  # ManagedJob 第 15 键）——走向判断置信度 trend-v1 规则层锁定，AI 仅语言组织
+  weekly-report:
+    enabled: true
+    cron: 0 0 20 * * SUN
   # 高价值快速通道 Job（M16 T131，ADR-0051 裁决 1）：job.PIPELINE_EXPRESS 种子来源（ManagedJob 第 13 键）。
   # tick 默认 2min（可配 1~5min=60000~300000）：高分条目（纯规则预筛分 ≥4.0）直通 L0→L1→L2，入库→事件落库 ≤4.5min；
   # 低分条目不动等常规批（NEWS_PIPELINE 零改动）；预筛阈值/批大小热改在 runtime_config recommendation.express 键。

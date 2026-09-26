@@ -868,4 +868,37 @@ class PushServiceTest {
         verify(channel, never()).send(anyLong(), any(NotificationEvent.class), anyLong());
         verify(pushRepository, never()).update(any(PushRecord.class));
     }
+
+    // ---- 周报生成完成推送（M17 T145 Should，REQ 条目 11——沿日报 INDUSTRY_REPORT 先例）----
+
+    @Test
+    void handleIndustryWeeklyReportReady_broadcastsWeeklyNoticeToAllUsers() throws Exception {
+        when(userRepository.findAll())
+                .thenReturn(
+                        List.of(
+                                com.info.platform.domain.common.User.reconstruct(
+                                        USER_ID, "admin", "hash", 0L, null, null)));
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        service.handleIndustryWeeklyReportReady(
+                new com.info.platform.domain.push.IndustryWeeklyReportReadyEvent(
+                        "2026-09-21", false, FIXED_CLOCK.instant()));
+
+        // push_record：类型 INDUSTRY_WEEKLY_REPORT(11)、幂等键含周锚点（每周一条天然节流）
+        ArgumentCaptor<PushRecord> saved = ArgumentCaptor.forClass(PushRecord.class);
+        verify(pushRepository).saveIfAbsent(saved.capture());
+        assertThat(saved.getValue().getPushType())
+                .isEqualTo(com.info.platform.domain.push.PushType.INDUSTRY_WEEKLY_REPORT);
+        assertThat(saved.getValue().getIdempotencyKey())
+                .isEqualTo(USER_ID + ":11:industry_weekly_report:2026-09-21");
+        // SSE 载荷：type=industry_weekly_report（GAP-03 契约对账面同步覆盖新类型）
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().type()).isEqualTo("industry_weekly_report");
+        assertThat(payload.getValue().content()).contains("2026-09-21");
+        assertThat(payload.getValue().content()).contains("周报");
+    }
 }

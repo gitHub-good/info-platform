@@ -611,3 +611,259 @@ describe('IndustryHeat 行业热度与日报页（T126）· 日报 Tab', () => {
     expect(screen.queryByTestId('report-list-card-2026-09-21')).toBeNull();
   });
 });
+
+// —— T145（M17）：周报三 Tab ——
+
+function weeklyList(): {
+  reports: Array<{
+    id: number;
+    weekStart: string;
+    status: string;
+    summary: string | null;
+    totalNews: number;
+    totalEvents: number;
+    narrativeDegraded: boolean;
+    createdAt: string | null;
+    updatedAt: string | null;
+  }>;
+  nextBeforeId: number | null;
+} {
+  return {
+    reports: [
+      {
+        id: 1,
+        weekStart: '2026-09-21',
+        status: 'SUCCESS',
+        summary: '本周银行板块显著升温，政策密度抬升',
+        totalNews: 120,
+        totalEvents: 30,
+        narrativeDegraded: false,
+        createdAt: '2026-09-27T12:00:00Z',
+        updatedAt: '2026-09-27T12:00:00Z',
+      },
+    ],
+    nextBeforeId: null,
+  };
+}
+
+function weeklyDetail(): Record<string, unknown> {
+  return {
+    id: 1,
+    weekStart: '2026-09-21',
+    status: 'SUCCESS',
+    content: {
+      summary: '本周银行板块显著升温，降准落地流动性改善。',
+      narrativeDegraded: false,
+      weekStart: '2026-09-21',
+      weekEnd: '2026-09-27',
+      totalNews: 120,
+      totalEvents: 30,
+      topRisers: [
+        { industry: '银行', score: 88, prevScore: 40, deltaPct: 120, newsCount: 30, eventCount: 6 },
+      ],
+      topFallers: [
+        { industry: '食品饮料', score: 10, prevScore: 25, deltaPct: -60, newsCount: 8, eventCount: 1 },
+      ],
+      eventReview: [
+        {
+          eventId: 9,
+          newsId: 1009,
+          eventType: 'POLICY_RELEASE',
+          summary: '央行降准 0.5 个百分点',
+          industries: ['银行'],
+          direction: 'BULLISH',
+          importance: 'HIGH',
+          quote: '下调金融机构存款准备金率 0.5 个百分点',
+          eventDate: '2026-09-23',
+          eventTime: '2026-09-23T02:00:00Z',
+        },
+      ],
+      policyMoves: [
+        {
+          eventId: 9,
+          summary: '央行降准 0.5 个百分点',
+          industries: ['银行'],
+          direction: 'BULLISH',
+          quote: '下调金融机构存款准备金率 0.5 个百分点',
+          eventTime: '2026-09-23T02:00:00Z',
+        },
+      ],
+      nextWeekWatch: ['关注货币政策延续性与银行板块热度延续'],
+      trendJudgement: {
+        basis: 'trend-v1',
+        items: [
+          {
+            industry: '银行',
+            signal: 'HEATING',
+            signalLabel: '升温',
+            confidence: 'HIGH',
+            confidenceLabel: '高',
+            deltaPct: 120,
+            weekScore: 88,
+            prevScore: 40,
+            eventCount: 6,
+            policyCount: 2,
+            narrative: '银行板块本周热度显著升温，事件与政策密度同步抬升。',
+            narrativeSource: 'LLM',
+            evidenceEventIds: [9],
+          },
+        ],
+      },
+      disclaimer: 'AI 分析仅供参考',
+    },
+    heatTop: [],
+    errorMessage: null,
+    promptVersion: 'v1.0',
+    basis: 'trend-v1 | heat-v1:k1=10',
+    createdAt: '2026-09-27T12:00:00Z',
+    updatedAt: '2026-09-27T12:00:00Z',
+  };
+}
+
+describe('IndustryHeat 行业周报 Tab（T145，#/industry-heat 三 Tab）', () => {
+  it('三 Tab 承载：周报 Tab 拉列表，周锚/状态/摘要/计数/纯统计版标识齐备', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-reports/weekly', respond: () => ok(weeklyList()) },
+    ]);
+
+    render(<IndustryHeat />);
+
+    expect(screen.getByTestId('heat-tab-heat')).toBeInTheDocument();
+    expect(screen.getByTestId('heat-tab-report')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('heat-tab-weekly'));
+    const card = await screen.findByTestId('weekly-list-card-2026-09-21');
+    expect(card).toHaveTextContent('2026-09-21');
+    expect(within(card).getByTestId('weekly-status-2026-09-21')).toHaveTextContent('成功');
+    expect(within(card).getByText('120')).toBeInTheDocument();
+    expect(within(card).getByText('30')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).startsWith('/api/v1/industry-reports/weekly'),
+      ),
+    ).toBe(true);
+  });
+
+  it('首周无周报空态：引导文案（周日晚 20:00 生成）', async () => {
+    stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-reports/weekly', respond: () => ok({ reports: [], nextBeforeId: null }) },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-weekly'));
+
+    expect(await screen.findByTestId('weekly-empty')).toHaveTextContent('周日');
+  });
+
+  it('周报详情五区块：热度总览/事件回顾/政策动向/下周关注点/走向判断（信号+置信度+免责）', async () => {
+    stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      { path: '/api/v1/industry-reports/weekly/2026-09-21', respond: () => ok(weeklyDetail()) },
+      { path: '/api/v1/industry-reports/weekly', respond: () => ok(weeklyList()) },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-weekly'));
+    await screen.findByTestId('weekly-list-card-2026-09-21');
+    await userEvent.click(screen.getByTestId('weekly-list-card-2026-09-21'));
+
+    const detail = await screen.findByTestId('weekly-detail-page');
+    expect(within(detail).getByTestId('weekly-detail-summary')).toHaveTextContent('银行板块');
+    // 区块一：热度总览（升/降 + 环比）
+    expect(within(detail).getByTestId('weekly-riser-银行')).toHaveTextContent('银行');
+    expect(within(detail).getByTestId('weekly-faller-食品饮料')).toBeInTheDocument();
+    // 区块二：事件回顾（主键归并 + 引用回溯）
+    expect(within(detail).getByTestId('weekly-event-9')).toHaveTextContent('央行降准');
+    // 区块三：政策动向
+    expect(within(detail).getByTestId('weekly-policy-9')).toBeInTheDocument();
+    // 区块四：下周关注点
+    expect(within(detail).getByTestId('weekly-watchpoints')).toHaveTextContent('货币政策');
+    // 区块五：走向判断（信号/置信度规则锁定 + 免责）
+    const trend = within(detail).getByTestId('weekly-trend-银行');
+    expect(trend).toHaveTextContent('升温');
+    expect(trend).toHaveTextContent('高');
+    expect(within(detail).getByTestId('weekly-detail-disclaimer')).toHaveTextContent(
+      'AI 分析仅供参考',
+    );
+
+    await userEvent.click(within(detail).getByTestId('weekly-detail-back'));
+    expect(await screen.findByTestId('weekly-list-card-2026-09-21')).toBeInTheDocument();
+  });
+
+  it('FAILED 周报重试：POST 202 受理 → 轻轮询翻成功；三 Tab 互不干扰', async () => {
+    let retried = false;
+    const fetchMock = stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      {
+        path: '/api/v1/industry-reports/weekly/2026-09-21/retry',
+        respond: () => {
+          retried = true;
+          return ok({ executionId: 88 });
+        },
+      },
+      {
+        path: '/api/v1/industry-reports/weekly',
+        respond: () =>
+          ok(
+            retried
+              ? weeklyList()
+              : {
+                  reports: [
+                    {
+                      id: 1,
+                      weekStart: '2026-09-21',
+                      status: 'FAILED',
+                      summary: null,
+                      totalNews: 0,
+                      totalEvents: 0,
+                      narrativeDegraded: false,
+                      createdAt: '2026-09-27T12:00:00Z',
+                      updatedAt: '2026-09-27T12:00:00Z',
+                    },
+                  ],
+                  nextBeforeId: null,
+                },
+          ),
+      },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-weekly'));
+    const card = await screen.findByTestId('weekly-list-card-2026-09-21');
+    expect(within(card).getByTestId('weekly-status-2026-09-21')).toHaveTextContent('失败');
+
+    await userEvent.click(within(card).getByTestId('weekly-retry-2026-09-21'));
+    await waitFor(
+      () => expect(screen.getByTestId('weekly-status-2026-09-21')).toHaveTextContent('成功'),
+      { timeout: 3000 },
+    );
+    expect(
+      fetchMock.mock.calls.some((call) => call[1]?.method === 'POST' && String(call[0]).includes('/retry')),
+    ).toBe(true);
+
+    // 三 Tab 互不干扰：回热度榜榜单仍在
+    await userEvent.click(screen.getByTestId('heat-tab-heat'));
+    expect(await screen.findByTestId('heat-row-电子')).toBeInTheDocument();
+    expect(screen.queryByTestId('weekly-list-card-2026-09-21')).toBeNull();
+  });
+
+  it('周报列表加载失败：错误态 + 重试入口恢复', async () => {
+    let failed = true;
+    stubFetch([
+      { path: '/api/v1/industry-heat', respond: () => ok(boardOf()) },
+      {
+        path: '/api/v1/industry-reports/weekly',
+        respond: () => (failed ? fail(500, 50000, '服务异常') : ok(weeklyList())),
+      },
+    ]);
+
+    render(<IndustryHeat />);
+    await userEvent.click(screen.getByTestId('heat-tab-weekly'));
+    expect(await screen.findByTestId('weekly-error')).toBeInTheDocument();
+
+    failed = false;
+    await userEvent.click(screen.getByTestId('weekly-retry'));
+    expect(await screen.findByTestId('weekly-list-card-2026-09-21')).toBeInTheDocument();
+  });
+});

@@ -102,6 +102,10 @@ public enum ErrorCode {
     RECOMMENDATION_FILTER_INVALID(30082, "推荐筛选参数非法", 400),
     /** 结构化事件不存在（影响链区块查询 404，M17 T144 方案 §4.8） */
     EVENT_NOT_FOUND(30083, "事件不存在", 404),
+    /** 行业周报不存在（详情/重试 404，M17 T145 方案 §4.8） */
+    INDUSTRY_WEEKLY_REPORT_NOT_FOUND(30084, "该周周报不存在", 404),
+    /** 该周周报已成功生成（重试 409，M17 T145 方案 §4.8——SUCCESS 幂等跳过语义） */
+    INDUSTRY_WEEKLY_REPORT_ALREADY_SUCCESS(30085, "该周周报已成功生成，无需重试", 409),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
