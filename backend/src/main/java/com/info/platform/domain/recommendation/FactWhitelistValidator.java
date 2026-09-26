@@ -9,8 +9,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 事实白名单校验器（领域纯函数，M16 T132，ADR-0051 裁决 3 / 方案 §3.3/§4.5）：对 LLM 输出的 logicChain 做
- * <b>四类白名单集合比对 + 长度护栏</b>，任一违规即拒（调用方同步切模板拼接，不重试 LLM——时效优先）。
+ * 事实白名单校验器（领域纯函数，M16 T132，ADR-0051 裁决 3 / 方案 §3.3/§4.5）：对 LLM 输出的 logicChain 做 <b>四类白名单集合比对 +
+ * 长度护栏</b>，任一违规即拒（调用方同步切模板拼接，不重试 LLM——时效优先）。
  *
  * <p>零新增事实红线（REQ「逻辑链三环节全部来自结构化事实」抽检 100%）的机制化防线——幻觉防线不建立在提示词自觉上：
  *
@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
  *       拒（池外未知词不判——只拦「换了/加了标的」不拦普通词汇）。
  *   <li><b>行业</b>：文本出现申万行业名或 {@link IndustryDirectory} 别名目录词（词长 ≥2）但所属行业 ∉ 允许行业集
  *       （event.affected_industries ∪ 关联命中行业）→ 拒。单字目录词（铜/铝）不作文本命中判据——contains 误拦面大于收益。
- *   <li><b>数字</b>：正则抽取文本数字串（含 %/小数/负号/千分位逗号拆分），任一数值 ∉ 结构化数字集
- *       （key_figures[].value ∪ quote/title/summary 数字，{@link #numbersIn}）→ 拒。
+ *   <li><b>数字</b>：正则抽取文本数字串（含 %/小数/负号/千分位逗号拆分），任一数值 ∉ 结构化数字集 （key_figures[].value ∪
+ *       quote/title/summary 数字，{@link #numbersIn}）→ 拒。
  *   <li><b>方向</b>：方向词表命中方向 ≠ event.direction → 拒；NEUTRAL 卡出现强方向词（利好/利空系任一）→ 拒。
  *   <li><b>长度护栏</b>：logicChain &gt; {@link #LOGIC_CHAIN_MAX_LENGTH} 字 → 拒（走模板）。
  * </ol>
@@ -37,12 +37,10 @@ public final class FactWhitelistValidator {
     private static final Pattern NUMBER_PATTERN = Pattern.compile("[-+]?[0-9]+(?:\\.[0-9]+)?");
 
     /** 方向词表——利好系（BULLISH 事件文本命中不冲突；BEARISH/NEUTRAL 事件命中即拒）。 */
-    private static final Set<String> BULLISH_WORDS =
-            Set.of("利好", "上涨", "偏多", "提振", "走强", "攀升");
+    private static final Set<String> BULLISH_WORDS = Set.of("利好", "上涨", "偏多", "提振", "走强", "攀升");
 
     /** 方向词表——利空系（BEARISH 事件文本命中不冲突；BULLISH/NEUTRAL 事件命中即拒）。 */
-    private static final Set<String> BEARISH_WORDS =
-            Set.of("利空", "下跌", "偏空", "承压", "走弱", "下滑");
+    private static final Set<String> BEARISH_WORDS = Set.of("利空", "下跌", "偏空", "承压", "走弱", "下滑");
 
     private FactWhitelistValidator() {}
 
@@ -167,8 +165,10 @@ public final class FactWhitelistValidator {
             Direction direction) {
 
         public Whitelist {
-            allowedSubjectNames = Set.copyOf(allowedSubjectNames == null ? Set.of() : allowedSubjectNames);
-            allowedIndustries = Set.copyOf(allowedIndustries == null ? Set.of() : allowedIndustries);
+            allowedSubjectNames =
+                    Set.copyOf(allowedSubjectNames == null ? Set.of() : allowedSubjectNames);
+            allowedIndustries =
+                    Set.copyOf(allowedIndustries == null ? Set.of() : allowedIndustries);
             Set<BigDecimal> normalized = new LinkedHashSet<>();
             if (allowedNumbers != null) {
                 for (BigDecimal number : allowedNumbers) {

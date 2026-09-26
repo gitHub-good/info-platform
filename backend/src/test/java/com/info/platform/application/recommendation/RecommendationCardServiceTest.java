@@ -2,7 +2,6 @@ package com.info.platform.application.recommendation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -11,8 +10,8 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.info.platform.application.analysis.PipelineGuardService;
 import com.info.platform.application.ai.PromptTemplateService;
+import com.info.platform.application.analysis.PipelineGuardService;
 import com.info.platform.application.recommendation.RecommendationAssociationService.AssociationResult;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.ai.BriefType;
@@ -45,8 +44,8 @@ import org.mockito.ArgumentCaptor;
 
 /**
  * 推荐卡片生成服务单测（T132，方案 §4.5）：LLM 语言组织（briefType=8/scene "8"/cacheable=false/0.1/512）→
- * FactWhitelistValidator 四类违规矩阵拒走模板（不重试 LLM）→ LLM 超时/失败模板兜底 → 降级态直接模板（不调 LLM）→
- * logic_inputs 快照留档 → INSERT OR IGNORE 幂等落卡。LLM 全 Mock 零外呼。
+ * FactWhitelistValidator 四类违规矩阵拒走模板（不重试 LLM）→ LLM 超时/失败模板兜底 → 降级态直接模板（不调 LLM）→ logic_inputs 快照留档 →
+ * INSERT OR IGNORE 幂等落卡。LLM 全 Mock 零外呼。
  */
 class RecommendationCardServiceTest {
 
@@ -77,8 +76,7 @@ class RecommendationCardServiceTest {
         subjectRepository = mock(SubjectRepository.class);
         when(guardService.currentLevel()).thenReturn(GuardLevel.NORMAL);
         when(cardRepository.insertIgnore(any(RecommendationCard.class))).thenReturn(1);
-        when(subjectRepository.findAllNames())
-                .thenReturn(List.of("贵州茅台", "宁德时代", "五粮液", "中芯国际"));
+        when(subjectRepository.findAllNames()).thenReturn(List.of("贵州茅台", "宁德时代", "五粮液", "中芯国际"));
         PromptTemplate template =
                 PromptTemplate.reconstruct(
                         1L,
@@ -202,7 +200,8 @@ class RecommendationCardServiceTest {
         // Act
         service.generate(USER_ID, event(), "贵州茅台拟回购不超30亿元", association());
 
-        // Assert：7 占位符全注入（level/eventTypeLabel/directionLabel/summary/industries/subjects/watchSubjects）
+        // Assert：7
+        // 占位符全注入（level/eventTypeLabel/directionLabel/summary/industries/subjects/watchSubjects）
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> ctxCaptor =
                 ArgumentCaptor.forClass((Class<Map<String, String>>) (Class<?>) Map.class);
@@ -314,7 +313,8 @@ class RecommendationCardServiceTest {
     void generate_unparsableLlmOutput_fallsBackToTemplate() {
         // Arrange：输出非法 JSON（解析失败）
         when(llmGateway.chat(any(LlmRequest.class)))
-                .thenReturn(new LlmResponse("not-json", new LlmUsage(1, 1), LlmProvider.DEEPSEEK, "m"));
+                .thenReturn(
+                        new LlmResponse("not-json", new LlmUsage(1, 1), LlmProvider.DEEPSEEK, "m"));
 
         // Act
         RecommendationCardService.GenerationOutcome outcome =

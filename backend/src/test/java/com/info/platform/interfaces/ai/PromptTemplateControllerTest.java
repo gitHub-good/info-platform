@@ -360,7 +360,8 @@ class PromptTemplateControllerTest {
                     .thenReturn(List.of(new PlaceholderDescriptor("subjectName", "标的名称")));
         }
 
-        // Act + Assert：场景按 briefType 升序（M16 T132 起 8 组——行业归类/事件提取/行业日报/推荐卡片自动可见）；场景 2 dormant=true 带
+        // Act + Assert：场景按 briefType 升序（M16 T132 起 8 组——行业归类/事件提取/行业日报/推荐卡片自动可见）；场景 2 dormant=true
+        // 带
         // note，其余无 note 字段
         mockMvc.perform(get("/api/v1/prompt-placeholders"))
                 .andExpect(status().isOk())

@@ -1,12 +1,8 @@
 package com.info.platform.infrastructure.analysis;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventItem;
 import com.info.platform.domain.analysis.EventItemRepository;
-import com.info.platform.domain.analysis.EventType;
-import com.info.platform.domain.analysis.Importance;
 import java.sql.PreparedStatement;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -51,24 +47,7 @@ public class EventItemRepositoryImpl implements EventItemRepository {
               updated_at = excluded.updated_at
             """;
 
-    private static final RowMapper<EventItem> EVENT_ROW =
-            (rs, rowNum) ->
-                    EventItem.reconstruct(
-                            rs.getLong("id"),
-                            rs.getLong("news_id"),
-                            EventType.fromName(rs.getString("event_type")),
-                            rs.getString("summary"),
-                            jsonList(rs.getString("affected_industries")),
-                            Direction.fromName(rs.getString("direction")),
-                            Importance.fromName(rs.getString("importance")),
-                            jsonFigures(rs.getString("key_figures")),
-                            jsonSubjects(rs.getString("subjects")),
-                            rs.getString("quote"),
-                            nullableInstant(rs.getString("event_time")),
-                            rs.getString("event_date"),
-                            rs.getString("prompt_version"),
-                            nullableInstant(rs.getString("created_at")),
-                            nullableInstant(rs.getString("updated_at")));
+    private static final RowMapper<EventItem> EVENT_ROW = EventItemRowSupport.EVENT_ROW;
 
     /** 事件流卡片行（EVENT_ROW 复用 + news 标题/链接 join 列，列别名避让 e.* 标签）。 */
     private static final RowMapper<EventItemRepository.EventStreamItem> STREAM_ROW =
@@ -140,6 +119,22 @@ public class EventItemRepositoryImpl implements EventItemRepository {
     }
 
     @Override
+    public List<EventItemRepository.EventStreamItem> findStreamItemsByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbcTemplate.query(
+                "SELECT e.*, ni.title AS news_title, ni.url AS news_url"
+                        + " FROM event_item e LEFT JOIN news_item ni ON ni.id = e.news_id"
+                        + " WHERE e.id IN ("
+                        + placeholders
+                        + ")",
+                STREAM_ROW,
+                ids.toArray());
+    }
+
+    @Override
     public List<EventItemRepository.EventStreamItem> findStreamItems(
             EventItemRepository.EventStreamFilter filter, Long beforeId, int limit) {
         StringBuilder sql = new StringBuilder(FIND_STREAM_SQL);
@@ -193,37 +188,6 @@ public class EventItemRepositoryImpl implements EventItemRepository {
             log.warn("event_item JSON 序列化失败（落空表）: {}", e.getMessage());
             return "[]";
         }
-    }
-
-    private static List<String> jsonList(String json) {
-        try {
-            return json == null ? List.of() : MAPPER.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            return List.of();
-        }
-    }
-
-    private static List<EventItem.KeyFigure> jsonFigures(String json) {
-        try {
-            return json == null ? List.of() : MAPPER.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            return List.of();
-        }
-    }
-
-    private static List<EventItem.SubjectRef> jsonSubjects(String json) {
-        try {
-            return json == null ? List.of() : MAPPER.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            return List.of();
-        }
-    }
-
-    /** RowMapper 静态上下文共享解码器（无状态，与实例 MAPPER 同配置）。 */
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    private static Instant nullableInstant(String iso) {
-        return iso == null || iso.isBlank() ? null : Instant.parse(iso);
     }
 
     private static String isoOrNull(Instant instant) {

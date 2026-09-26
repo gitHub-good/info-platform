@@ -98,6 +98,12 @@ recommendation:
   poll-interval-millis: 500
   max-wait-millis: 30000
   pool-metrics-timeout-millis: 2000
+  # 推荐事件消费 Job（M16 T133，ADR-0051 裁决 2）：job.RECOMMENDATION_FEED 种子来源（ManagedJob 第 14 键）。
+  # tick 默认 60s（可配 30s~5min=30000~300000）：扫未消费事件 → 三级关联 → 卡片生成 → 推送闸门；
+  # 降频阈值/日上限等热改在 runtime_config recommendation.push 键。
+  feed:
+    enabled: true
+    interval-millis: 60000
 
 # 政策时事流（T24，§4.1.5 + PRD 故事 4）：PolicyFetchJob @Scheduled 复用 T07 GovPolicyClient
 # 抓 gov.cn/zhengce 最近政策 → existsBySourceUrl 去重 → PolicyIndustryClassifier 标 related_industries → saveAll。

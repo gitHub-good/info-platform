@@ -800,4 +800,72 @@ class PushServiceTest {
         verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
         assertThat(payload.getValue().content()).contains("统计");
     }
+
+    // ---- 推荐卡片推送与 SILENT 静默留痕（M16 T133，方案 §4.6/§3.5）----
+
+    @Test
+    void pushRecommendation_onlineUser_deliversRecommendationSseWithCardRefId() {
+        // Arrange：在线用户 → SSE 事件名 recommend、refId=cardId、subject 维空
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+        when(channel.send(eq(USER_ID), any(NotificationEvent.class), eq(PUSH_RECORD_ID)))
+                .thenReturn(true);
+
+        // Act
+        service.pushRecommendation(USER_ID, 123L, "【动态推荐】回购·增持·减持·利好｜贵州茅台公告回购计划");
+
+        // Assert
+        ArgumentCaptor<NotificationEvent> payload =
+                ArgumentCaptor.forClass(NotificationEvent.class);
+        verify(channel).send(eq(USER_ID), payload.capture(), eq(PUSH_RECORD_ID));
+        assertThat(payload.getValue().type()).isEqualTo("recommendation");
+        assertThat(payload.getValue().refId()).isEqualTo("123");
+        assertThat(payload.getValue().subjectId()).isNull();
+        assertThat(payload.getValue().subjectCode()).isNull();
+        verify(pushRepository).update(any(PushRecord.class)); // 状态翻转（SUCCESS）
+    }
+
+    @Test
+    void pushRecommendation_offlineUser_leavesPendingForReconnectPull() {
+        // Arrange：离线 → push_record 留 status=0 待重连补拉（既有 SSE 补拉链复用）
+        when(channel.isOnline(USER_ID)).thenReturn(false);
+
+        // Act
+        service.pushRecommendation(USER_ID, 123L, "【动态推荐】内容");
+
+        // Assert
+        verify(channel, never()).send(anyLong(), any(NotificationEvent.class), anyLong());
+        verify(pushRepository, never()).update(any(PushRecord.class));
+    }
+
+    @Test
+    void pushRecommendation_duplicateCard_skipsWithoutResend() {
+        // Arrange：幂等键 userId:10:cardId 已存在（同事件重复消费防线）
+        when(pushRepository.saveIfAbsent(any(PushRecord.class))).thenReturn(Optional.empty());
+
+        // Act
+        service.pushRecommendation(USER_ID, 123L, "【动态推荐】内容");
+
+        // Assert：绝不重推（一卡一推）
+        verify(channel, never()).send(anyLong(), any(NotificationEvent.class), anyLong());
+    }
+
+    @Test
+    void recordSilent_persistsSilentRecordWithoutSseAndRetry() {
+        // Arrange：超限/降频卡静默留痕（入通知历史可见，不弹 SSE）
+        when(channel.isOnline(USER_ID)).thenReturn(true);
+
+        // Act
+        service.recordSilent(USER_ID, 123L, "【动态推荐】内容");
+
+        // Assert：写 push_record status=SILENT(3)；不进 SSE 通道（不 send、不 update 重试态）
+        ArgumentCaptor<PushRecord> saved = ArgumentCaptor.forClass(PushRecord.class);
+        verify(pushRepository).saveIfAbsent(saved.capture());
+        assertThat(saved.getValue().getPushType())
+                .isEqualTo(com.info.platform.domain.push.PushType.RECOMMENDATION);
+        assertThat(saved.getValue().getStatus())
+                .isEqualTo(com.info.platform.domain.push.PushStatus.SILENT);
+        assertThat(saved.getValue().getIdempotencyKey()).isEqualTo(USER_ID + ":10:123");
+        verify(channel, never()).send(anyLong(), any(NotificationEvent.class), anyLong());
+        verify(pushRepository, never()).update(any(PushRecord.class));
+    }
 }

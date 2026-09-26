@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllThirteenJobKeys() {
+    void seeds_carriesAllFourteenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 12 键不被增补挤占（PIPELINE_EXPRESS 第 13 键追加在尾部，M16 T131 / ADR-0051 裁决 1）
+        // 纯增量守卫：既有 13 键不被增补挤占（RECOMMENDATION_FEED 第 14 键追加在尾部，M16 T133 / ADR-0051 裁决 2）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -66,7 +66,41 @@ class JobRuntimeConfigSeederTest {
                         "job.INDUSTRY_HEAT_SNAPSHOT",
                         "job.INDUSTRY_DAILY_REPORT",
                         "job.SOURCE_STALE_CHECK",
-                        "job.PIPELINE_EXPRESS");
+                        "job.PIPELINE_EXPRESS",
+                        "job.RECOMMENDATION_FEED");
+    }
+
+    // ---- RECOMMENDATION_FEED 种子（T133，M16 / ADR-0051 裁决 2：第 14 键）----
+
+    private RuntimeConfigSeed recommendationFeedSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "recommendationFeedEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "recommendationFeedIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.RECOMMENDATION_FEED"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.RECOMMENDATION_FEED 种子"));
+    }
+
+    @Test
+    void seeds_recommendationFeed_productionDefaults_enabledFixedDelay60s() {
+        // 生产默认：启用 + FIXED_DELAY 60000ms（可配 30s~5min，方案 §4.9）
+        RuntimeConfigSeed seed = recommendationFeedSeed(true, 60000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.RECOMMENDATION_FEED");
+        assertThat(seed.description()).contains("RecommendationFeedJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":60000");
+    }
+
+    @Test
+    void seeds_recommendationFeed_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：recommendation.feed.enabled=false → 种子停用 → 调度零注册（十四 Job 惯例）
+        RuntimeConfigSeed seed = recommendationFeedSeed(false, 60000L);
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"intervalMillis\":60000");
     }
 
     // ---- PIPELINE_EXPRESS 种子（T131，M16 / ADR-0051 裁决 1：第 13 键）----

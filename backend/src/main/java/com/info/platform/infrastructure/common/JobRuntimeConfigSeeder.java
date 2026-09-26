@@ -116,6 +116,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${pipeline.express.interval-millis:120000}")
     private long pipelineExpressIntervalMillis;
 
+    /** 推荐事件消费开关/tick 间隔（M16 T133：RECOMMENDATION_FEED 第 14 键，默认 60s 可配 30s~5min，ADR-0051 裁决 2）。 */
+    @Value("${recommendation.feed.enabled:true}")
+    private boolean recommendationFeedEnabled;
+
+    @Value("${recommendation.feed.interval-millis:60000}")
+    private long recommendationFeedIntervalMillis;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -221,6 +228,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 + "入库→事件落库 ≤4.5min；低分条目不动等常规批，M16 ADR-0051 裁决 1）",
                         pipelineExpressEnabled,
                         pipelineExpressIntervalMillis));
+        seeds.add(
+                fixedDelay(
+                        "RECOMMENDATION_FEED",
+                        "推荐事件消费调度（RecommendationFeedJob，tick 60s：扫 24h 内未消费事件 → 每用户三级关联 → 卡片生成"
+                                + "→ 推送闸门（降频/排序/日上限/SILENT 静默留痕），M16 ADR-0051 裁决 2）",
+                        recommendationFeedEnabled,
+                        recommendationFeedIntervalMillis));
         return seeds;
     }
 

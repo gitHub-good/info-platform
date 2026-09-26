@@ -26,7 +26,10 @@ public enum BriefType {
     L2_EXTRACT(6, "事件提取"),
     /** 行业日报（L3 日报叙述模板，briefType=7，M15 T124 / ADR-0046 裁决 3；V25 播种 v1.0——数字全部统计注入，AI 只写叙述）。 */
     INDUSTRY_DAILY(7, "行业日报"),
-    /** 推荐卡片逻辑链（M16 T132 / ADR-0051 裁决 3；V27 播种 v1.0——LLM 仅语言组织零新增事实，输出经 FactWhitelistValidator 四类白名单校验拒即模板兜底）。 */
+    /**
+     * 推荐卡片逻辑链（M16 T132 / ADR-0051 裁决 3；V27 播种 v1.0——LLM 仅语言组织零新增事实，输出经 FactWhitelistValidator
+     * 四类白名单校验拒即模板兜底）。
+     */
     RECOMMEND_CARD(8, "推荐卡片");
 
     private final int code;

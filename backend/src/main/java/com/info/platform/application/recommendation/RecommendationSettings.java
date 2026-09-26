@@ -13,8 +13,9 @@ import org.springframework.stereotype.Service;
  * 推荐域运行参数（应用层，M16 T131，方案 §4.9 {@code recommendation.*} 配置键的消费点）。
  *
  * <p>每次消费现读（配置中心快照，页面保存即对下一轮生效）；键缺失或字段损坏回落代码缺省并记 WARN（不阻断链路——沿 {@code PipelineSettings}
- * 降级惯例）。已消费三键：{@code recommendation.global}（关联全局）、{@code recommendation.score}（recscore-v1
- * 参数）、{@code recommendation.express}（快速通道预筛）； {@code recommendation.push}（日上限/降噪参数）随 T133 消费方落地。
+ * 降级惯例）。已消费四键：{@code recommendation.global}（关联全局 + T133 feedBufferSeconds/scanWindowHours）、 {@code
+ * recommendation.score}（recscore-v1 参数）、{@code recommendation.express}（快速通道预筛）、 {@code
+ * recommendation.push}（T133 dailyLimit；mutedDays/escalated* 随 T134 反馈服务消费）。
  */
 @Service
 public class RecommendationSettings {
@@ -32,6 +33,15 @@ public class RecommendationSettings {
 
     /** 卡片标的区上限缺省（方案 §4.1：subjects ≤5）。 */
     static final int DEFAULT_CARD_SUBJECT_LIMIT = 5;
+
+    /** FEED 落库缓冲缺省秒（方案 §3.2：20s——防 L2 落库事务竞态）。 */
+    static final int DEFAULT_FEED_BUFFER_SECONDS = 20;
+
+    /** FEED 补跑窗缺省小时（方案 §3.2：24h——对齐管道补跑窗口，降级期积压恢复后照常处理）。 */
+    static final int DEFAULT_SCAN_WINDOW_HOURS = 24;
+
+    /** 日推送上限缺省（REQ：10 可配；SILENT 不占）。 */
+    static final int DEFAULT_DAILY_LIMIT = 10;
 
     static final String KEY_GLOBAL = "recommendation.global";
 
@@ -54,6 +64,24 @@ public class RecommendationSettings {
     public int cardSubjectLimit() {
         int limit = intOf(doc(KEY_GLOBAL), "cardSubjectLimit", DEFAULT_CARD_SUBJECT_LIMIT);
         return limit <= 0 ? DEFAULT_CARD_SUBJECT_LIMIT : limit;
+    }
+
+    /** FEED 落库缓冲秒（feedBufferSeconds，T133 消费——消费扫描上界 now−buffer）。 */
+    public int feedBufferSeconds() {
+        int seconds = intOf(doc(KEY_GLOBAL), "feedBufferSeconds", DEFAULT_FEED_BUFFER_SECONDS);
+        return seconds < 0 ? DEFAULT_FEED_BUFFER_SECONDS : seconds;
+    }
+
+    /** FEED 补跑窗小时（scanWindowHours，T133 消费——消费扫描下界 now−window）。 */
+    public int scanWindowHours() {
+        int hours = intOf(doc(KEY_GLOBAL), "scanWindowHours", DEFAULT_SCAN_WINDOW_HOURS);
+        return hours <= 0 ? DEFAULT_SCAN_WINDOW_HOURS : hours;
+    }
+
+    /** 日推送上限（dailyLimit，T133 推送闸门消费——SILENT 态不占配额）。 */
+    public int dailyLimit() {
+        int limit = intOf(doc(KEY_PUSH), "dailyLimit", DEFAULT_DAILY_LIMIT);
+        return limit < 0 ? DEFAULT_DAILY_LIMIT : limit;
     }
 
     /** recscore-v1 参数组装（RecommendationScoreCalculator 消费形态；basis 版本串随参数配置）。 */

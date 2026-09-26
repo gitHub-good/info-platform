@@ -39,8 +39,10 @@ public class PipelineGuardService {
     /** 统计日界（Asia/Shanghai——与 PipelineStatusService 同口径）。 */
     static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
 
-    /** 管道成本口径 scene 集（L1 归类 5 / L2 事件提取 6 / 行业日报 7——T124 消费 7；M16 T132 扩 8 推荐卡片——卡片 LLM
-     * 计入管道日成本，REQ 非功能「成本护栏联动」；DEGRADED/FUSED 态卡片直接走模板不调 LLM）。 */
+    /**
+     * 管道成本口径 scene 集（L1 归类 5 / L2 事件提取 6 / 行业日报 7——T124 消费 7；M16 T132 扩 8 推荐卡片——卡片 LLM 计入管道日成本，REQ
+     * 非功能「成本护栏联动」；DEGRADED/FUSED 态卡片直接走模板不调 LLM）。
+     */
     static final List<String> PIPELINE_SCENES = List.of("5", "6", "7", "8");
 
     /** 成本读取 llm_call_log 上限护栏（个人量级日 ~90 行，上限防御）。 */

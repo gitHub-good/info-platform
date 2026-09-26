@@ -28,7 +28,12 @@ public enum PushType {
     /** 管道成本熔断告警（M15 T125：scene 5/6/7 当日成本 ≥90% 日预算，PipelineGuardService 发布，全量用户广播）。 */
     PIPELINE_FUSED(8, "pipeline_fused"),
     /** 行业日报生成完成提醒（M15 T124 Should：INDUSTRY_DAILY_REPORT 成功落库后发布，全量用户广播）。 */
-    INDUSTRY_REPORT(9, "industry_report");
+    INDUSTRY_REPORT(9, "industry_report"),
+    /**
+     * 动态推荐推送（M16 T133：推荐闸门通过者经既有 SSE 链送达，refId=recommendation_card.id；超限/降频卡走 PushStatus.SILENT
+     * 留痕不弹本类型事件）。
+     */
+    RECOMMENDATION(10, "recommendation");
 
     private final int code;
     private final String eventName;

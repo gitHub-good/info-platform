@@ -18,7 +18,13 @@ public enum PushStatus {
     /** 已推：SSE 推送在线用户成功。 */
     SUCCESS(1),
     /** 失败：重试 1 次仍失败，记 ERROR 告警。 */
-    FAILED(2);
+    FAILED(2),
+    /**
+     * 静默留痕（M16 T133 / 方案 §3.5）：推荐卡超日上限/降频拦截时写入——入通知历史（history 可见）但<b>不进 SSE 通道、 不计
+     * PUSH_RETRY（findPending 按 status=0 天然排除）、不占日配额</b>。V6 status 列 TINYINT 无 CHECK 约束（仅注释），
+     * 扩码免迁移（ADR-0045 PushType 同款先例）；仅 type=10（RECOMMENDATION）使用。
+     */
+    SILENT(3);
 
     private final int code;
 

@@ -11,13 +11,12 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * 事实白名单校验器单测（T132，方案 §3.3 裁决 3 / §4.5）：四类违规矩阵（虚构标的 / 越界行业 / 编造数字 / 方向反转）+ 长度护栏
- * + 各类合法通过 + 数字抽取归一（%/小数/负号）。零新增事实红线（REQ 抽检 100%）的机制化防线——任一违规即拒走模板兜底。
+ * 事实白名单校验器单测（T132，方案 §3.3 裁决 3 / §4.5）：四类违规矩阵（虚构标的 / 越界行业 / 编造数字 / 方向反转）+ 长度护栏 + 各类合法通过 +
+ * 数字抽取归一（%/小数/负号）。零新增事实红线（REQ 抽检 100%）的机制化防线——任一违规即拒走模板兜底。
  */
 class FactWhitelistValidatorTest {
 
-    private static final Set<String> POOL =
-            Set.of("贵州茅台", "宁德时代", "五粮液", "中芯国际", "长江电力", "a");
+    private static final Set<String> POOL = Set.of("贵州茅台", "宁德时代", "五粮液", "中芯国际", "长江电力", "a");
 
     private static Whitelist whitelist(Direction direction) {
         return new Whitelist(

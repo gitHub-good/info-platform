@@ -8,8 +8,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * 模板拼接兜底单测（T132，方案 §4.5 步骤 6 / REQ 拍板二三形态原文）：P1/P2/P3 三分支文案结构（三环节完整——事件环节 summary
- * 前置 + 逻辑环节关联判定 + 用户环节「你关注的…」）、P2 空标的双形态（有/无订阅主题）、P3 主题/事件类型双来源。
+ * 模板拼接兜底单测（T132，方案 §4.5 步骤 6 / REQ 拍板二三形态原文）：P1/P2/P3 三分支文案结构（三环节完整——事件环节 summary 前置 + 逻辑环节关联判定 +
+ * 用户环节「你关注的…」）、P2 空标的双形态（有/无订阅主题）、P3 主题/事件类型双来源。
  */
 class LogicChainTemplatesTest {
 
@@ -58,8 +58,7 @@ class LogicChainTemplatesTest {
         String chain = LogicChainTemplates.render(input);
 
         // Assert：因该事件{方向词}{行业}行业，你关注的标的属于该行业
-        assertThat(chain)
-                .isEqualTo(SUMMARY + "——因该事件利好电子行业，你关注的标的属于该行业。");
+        assertThat(chain).isEqualTo(SUMMARY + "——因该事件利好电子行业，你关注的标的属于该行业。");
     }
 
     @Test
@@ -79,9 +78,7 @@ class LogicChainTemplatesTest {
         String chain = LogicChainTemplates.render(input);
 
         // Assert
-        assertThat(chain)
-                .isEqualTo(
-                        SUMMARY + "——你关注的电子行业受该事件利空影响（源于你订阅的半导体）。");
+        assertThat(chain).isEqualTo(SUMMARY + "——你关注的电子行业受该事件利空影响（源于你订阅的半导体）。");
     }
 
     @Test

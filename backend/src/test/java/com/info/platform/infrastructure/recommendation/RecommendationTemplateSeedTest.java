@@ -9,8 +9,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * V27 模板播种集成断言（T132，方案 §4.1/§4.5）：brief_type=8 v1.0 启用行就位、模板正文含 SYSTEM/USER 分段与全部 7
- * 占位符（渲染不残留 {@code {{key}}}）。护栏 scene 扩 '8' 同批核验（PIPELINE_SCENES 包含型断言在应用层包内单测）。
+ * V27 模板播种集成断言（T132，方案 §4.1/§4.5）：brief_type=8 v1.0 启用行就位、模板正文含 SYSTEM/USER 分段与全部 7 占位符（渲染不残留
+ * {@code {{key}}}）。护栏 scene 扩 '8' 同批核验（PIPELINE_SCENES 包含型断言在应用层包内单测）。
  */
 @SpringBootTest
 @ActiveProfiles("test")

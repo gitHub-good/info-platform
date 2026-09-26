@@ -94,6 +94,12 @@ public enum ErrorCode {
     INDUSTRY_REPORT_NOT_FOUND(30078, "该日日报不存在", 404),
     /** 事件流筛选参数非法（type/industry/importance/direction 非法枚举、limit 越界，msg 字段级，400，M15 T127 方案 §4.8） */
     EVENT_FILTER_INVALID(30079, "事件流筛选参数非法", 400),
+    /** 推荐卡片不存在/非本人（404，M16 方案 §4.8：详情/反馈/已读端点统一语义——不泄露他人卡存在性） */
+    RECOMMENDATION_NOT_FOUND(30080, "推荐卡片不存在", 404),
+    /** 推荐反馈参数非法（action 枚举外/ADD_WATCHLIST 缺 subjectCode，400，M16 方案 §4.8——T134 反馈端点消费） */
+    RECOMMENDATION_FEEDBACK_INVALID(30081, "推荐反馈参数非法", 400),
+    /** 推荐卡片流筛选参数非法（level/eventType/direction/read 非法值、limit 越界，msg 字段级，400，M16 方案 §4.8） */
+    RECOMMENDATION_FILTER_INVALID(30082, "推荐筛选参数非法", 400),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

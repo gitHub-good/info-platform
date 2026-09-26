@@ -8,7 +8,6 @@ import com.info.platform.application.analysis.PipelineGuardService;
 import com.info.platform.application.recommendation.RecommendationAssociationService.AssociationResult;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.ai.BriefType;
-import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmException;
 import com.info.platform.domain.ai.LlmGateway;
 import com.info.platform.domain.ai.LlmRequest;
@@ -38,16 +37,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 推荐卡片生成服务（应用层，M16 T132，方案 §4.5 / ADR-0051 裁决 3）：AssociationResult → logic_inputs 快照组装 →
- * LLM 语言组织（briefType=8，scene "8"，{@code cacheable=false} 绕缓存，temperature 0.1 / maxTokens 512，软超时 =
- * LlmGateway 既有 30s Future 兜底）→ {@link FactWhitelistValidator} 四类白名单校验（任一违规拒 →
- * {@link LogicChainTemplates} 模板拼接兜底，<b>不重试 LLM</b>——时效优先）→ gen_method 留痕（LLM/TEMPLATE）→
- * INSERT OR IGNORE 幂等落卡（pushStatus 起 PENDING，推送闸门 T133 迁移）。
+ * 推荐卡片生成服务（应用层，M16 T132，方案 §4.5 / ADR-0051 裁决 3）：AssociationResult → logic_inputs 快照组装 → LLM
+ * 语言组织（briefType=8，scene "8"，{@code cacheable=false} 绕缓存，temperature 0.1 / maxTokens 512，软超时 =
+ * LlmGateway 既有 30s Future 兜底）→ {@link FactWhitelistValidator} 四类白名单校验（任一违规拒 → {@link
+ * LogicChainTemplates} 模板拼接兜底，<b>不重试 LLM</b>——时效优先）→ gen_method 留痕（LLM/TEMPLATE）→ INSERT OR IGNORE
+ * 幂等落卡（pushStatus 起 PENDING，推送闸门 T133 迁移）。
  *
  * <p><b>降级联动</b>：护栏非 NORMAL（DEGRADED/FUSED）直接模板分支（不调 LLM，成本红线联动，REQ 故事 6 场景 4）。
  *
- * <p>实现 {@link PlaceholderProvider} 自述 7 键（level/eventTypeLabel/directionLabel/summary/industries/subjects/
- * watchSubjects，与 {@link #buildContext} ctx.put 同源同序维护，ADR-0022 惯例）。
+ * <p>实现 {@link PlaceholderProvider} 自述 7
+ * 键（level/eventTypeLabel/directionLabel/summary/industries/subjects/ watchSubjects，与 {@link
+ * #buildContext} ctx.put 同源同序维护，ADR-0022 惯例）。
  */
 @Service
 public class RecommendationCardService implements PlaceholderProvider {
@@ -141,10 +141,7 @@ public class RecommendationCardService implements PlaceholderProvider {
 
     /** LLM 分支：降级态直接跳过；模板缺失/调用失败/解析失败/白名单被拒 → 无效（走模板兜底）。 */
     private LlmOutcome callLlm(
-            EventItem event,
-            String newsTitle,
-            AssociationResult association,
-            Whitelist whitelist) {
+            EventItem event, String newsTitle, AssociationResult association, Whitelist whitelist) {
         if (guardService.currentLevel() != GuardLevel.NORMAL) {
             return LlmOutcome.invalid(); // 降级态不调 LLM（成本红线联动）
         }
@@ -164,7 +161,9 @@ public class RecommendationCardService implements PlaceholderProvider {
                             BriefType.RECOMMEND_CARD.key(),
                             CARD_TEMPERATURE,
                             CARD_MAX_TOKENS);
-            response = llmGateway.chat(request); // 软超时 30s = 网关既有 Future 兜底（超时切 fallback，耗尽抛 LlmException）
+            response =
+                    llmGateway.chat(
+                            request); // 软超时 30s = 网关既有 Future 兜底（超时切 fallback，耗尽抛 LlmException）
         } catch (LlmException | BusinessException e) {
             log.warn("推荐卡片 LLM 调用失败（切模板兜底，不重试）: {}", e.getMessage());
             return LlmOutcome.invalid();
@@ -178,17 +177,16 @@ public class RecommendationCardService implements PlaceholderProvider {
                 FactWhitelistValidator.validate(
                         logicChain, whitelist, subjectRepository.findAllNames());
         if (!result.valid()) {
-            log.warn(
-                    "推荐卡片白名单被拒（切模板兜底，不重试）: eventId={} reason={}",
-                    event.getId(),
-                    result.reason());
+            log.warn("推荐卡片白名单被拒（切模板兜底，不重试）: eventId={} reason={}", event.getId(), result.reason());
             return LlmOutcome.invalid();
         }
         return new LlmOutcome(true, logicChain, template.getVersion());
     }
 
-    /** 四类允许集组装（① 标的名 = 标的区 ∪ event.subjects；② 行业 = event.affected ∪ 关联命中；③ 数字 = figures ∪
-     * quote/title/summary；④ 方向 = event.direction）。 */
+    /**
+     * 四类允许集组装（① 标的名 = 标的区 ∪ event.subjects；② 行业 = event.affected ∪ 关联命中；③ 数字 = figures ∪
+     * quote/title/summary；④ 方向 = event.direction）。
+     */
     private static Whitelist buildWhitelist(
             EventItem event, String newsTitle, AssociationResult association) {
         Set<String> subjectNames = new LinkedHashSet<>();
@@ -209,8 +207,7 @@ public class RecommendationCardService implements PlaceholderProvider {
             numbers.addAll(FactWhitelistValidator.numbersIn(figure.value()));
         }
         numbers.addAll(
-                FactWhitelistValidator.numbersIn(
-                        event.getSummary(), newsTitle, event.getQuote()));
+                FactWhitelistValidator.numbersIn(event.getSummary(), newsTitle, event.getQuote()));
         return new Whitelist(subjectNames, industries, numbers, event.getDirection());
     }
 
@@ -243,10 +240,7 @@ public class RecommendationCardService implements PlaceholderProvider {
 
     /** logic_inputs 快照 JSON（结构化事实 + 四类允许集，抽检对账与复现面；序列化失败回落 null 不阻断）。 */
     private String snapshotInputs(
-            EventItem event,
-            String newsTitle,
-            AssociationResult association,
-            Whitelist whitelist) {
+            EventItem event, String newsTitle, AssociationResult association, Whitelist whitelist) {
         Map<String, Object> inputs = new LinkedHashMap<>();
         inputs.put("level", association.level().name());
         inputs.put("eventType", event.getEventType().name());

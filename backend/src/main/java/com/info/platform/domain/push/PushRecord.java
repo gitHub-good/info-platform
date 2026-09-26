@@ -146,6 +146,14 @@ public class PushRecord {
         this.status = PushStatus.FAILED;
     }
 
+    /**
+     * 静默留痕（M16 T133）：推荐卡超限/降频拦截时落 push_record 即 SILENT——通知历史可见、不进 SSE/重试/配额 （幂等：重复调用安全；pushed_at
+     * 保持空——未实际送达）。
+     */
+    public void markSilent() {
+        this.status = PushStatus.SILENT;
+    }
+
     public Long getId() {
         return id;
     }

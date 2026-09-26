@@ -25,6 +25,12 @@ public interface EventItemRepository {
     List<EventItem> findByIds(List<Long> ids);
 
     /**
+     * 批量按 id 取事件 + news 标题/链接 join（M16 T133 推荐中心卡片流数据面：figures/quote/summary/eventTime/newsTitle/
+     * newsUrl 由 event_item + news_item join 直出，卡片表不冗余大字段）。缺失 id 静默跳过。
+     */
+    List<EventStreamItem> findStreamItemsByIds(List<Long> ids);
+
+    /**
      * 事件流分页（M15 T127，方案 §4.8）：四维可空筛选 + beforeId 游标（id &lt; beforeId）+ id DESC； 与行业下钻 events
      * 清单同口径（affected ∋ 行业引号定界 LIKE），卡片 news 标题/链接 join news_item。
      *

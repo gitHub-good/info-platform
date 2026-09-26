@@ -8,6 +8,7 @@ import com.info.platform.domain.recommendation.CardPushStatus;
 import com.info.platform.domain.recommendation.RecLevel;
 import com.info.platform.domain.recommendation.RecommendationCard;
 import com.info.platform.domain.recommendation.RecommendationCardRepository;
+import com.info.platform.infrastructure.analysis.EventItemRowSupport;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -23,7 +24,9 @@ import org.springframework.stereotype.Repository;
  * {@link RecommendationCardRepository} 端口的 SQLite 实现（M16 T131，方案 §4.1/§4.5）。
  *
  * <p>建卡 {@code INSERT OR IGNORE}（{@code UNIQUE(user_id, event_id)} 幂等最后防线——同事件重复消费直返
- * 0）；industries/subjects JSON 序列化由本层承担（领域实体保持结构化集合，序列化失败回落空数组不阻断）。推送状态条件 UPDATE 由 T133 推送闸门追加。
+ * 0）；industries/subjects JSON 序列化由本层承担（领域实体保持结构化集合，序列化失败回落空数组不阻断）。 T133 扩面：FEED 消费扫描 （LEFT JOIN 去重
+ * + 缓冲/补跑窗，event 行映射复用 {@link EventItemRowSupport} 单一事实源）、推送闸门数据面 （PENDING
+ * 扫描/当日已推计数/条件迁移）、卡片流游标与四维筛选。
  */
 @Repository
 public class RecommendationCardRepositoryImpl implements RecommendationCardRepository {
@@ -48,6 +51,62 @@ public class RecommendationCardRepositoryImpl implements RecommendationCardRepos
                    created_at, updated_at
               FROM recommendation_card
              WHERE user_id = ? AND event_id = ?
+            """;
+
+    /** FEED 消费扫描（方案 §3.2 裁决 2 原文 SQL 形态）：user 维 LEFT JOIN 去重 + 缓冲/补跑窗 + news 标题 join。 */
+    private static final String FIND_UNCONSUMED_SQL =
+            """
+            SELECT e.*, ni.title AS news_title
+              FROM event_item e
+              LEFT JOIN recommendation_card c ON c.event_id = e.id AND c.user_id = ?
+              LEFT JOIN news_item ni ON ni.id = e.news_id
+             WHERE c.id IS NULL
+               AND e.created_at <= ?
+               AND e.created_at >= ?
+             ORDER BY e.id ASC
+             LIMIT ?
+            """;
+
+    private static final String FIND_PENDING_BY_USER_SQL =
+            """
+            SELECT id, user_id, event_id, news_id, event_type, importance, direction, level,
+                   industries, subjects, logic_chain, logic_inputs, gen_method, prompt_version,
+                   recscore, basis, combo_key, push_status, pushed_at, read, adopted,
+                   created_at, updated_at
+              FROM recommendation_card
+             WHERE user_id = ? AND push_status = 'PENDING'
+             ORDER BY id ASC
+            """;
+
+    private static final String COUNT_PUSHED_SINCE_SQL =
+            """
+            SELECT COUNT(*)
+              FROM recommendation_card
+             WHERE user_id = ? AND push_status = 'PUSHED' AND pushed_at >= ?
+            """;
+
+    private static final String MARK_PUSHED_SQL =
+            """
+            UPDATE recommendation_card
+               SET push_status = 'PUSHED', pushed_at = ?, updated_at = ?
+             WHERE id = ? AND push_status = 'PENDING'
+            """;
+
+    private static final String MARK_SKIPPED_SQL =
+            """
+            UPDATE recommendation_card
+               SET push_status = ?, updated_at = ?
+             WHERE id = ? AND push_status = 'PENDING'
+            """;
+
+    private static final String FIND_BY_ID_SQL =
+            """
+            SELECT id, user_id, event_id, news_id, event_type, importance, direction, level,
+                   industries, subjects, logic_chain, logic_inputs, gen_method, prompt_version,
+                   recscore, basis, combo_key, push_status, pushed_at, read, adopted,
+                   created_at, updated_at
+              FROM recommendation_card
+             WHERE id = ?
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -128,6 +187,112 @@ public class RecommendationCardRepositoryImpl implements RecommendationCardRepos
         List<RecommendationCard> cards =
                 jdbcTemplate.query(FIND_BY_USER_AND_EVENT_SQL, cardRow, userId, eventId);
         return cards.isEmpty() ? Optional.empty() : Optional.of(cards.get(0));
+    }
+
+    @Override
+    public List<RecommendationCardRepository.FeedEvent> findUnconsumedEvents(
+            long userId,
+            java.time.Instant createdBefore,
+            java.time.Instant createdSince,
+            int limit) {
+        return jdbcTemplate.query(
+                FIND_UNCONSUMED_SQL,
+                (rs, rowNum) ->
+                        new RecommendationCardRepository.FeedEvent(
+                                EventItemRowSupport.EVENT_ROW.mapRow(rs, rowNum),
+                                rs.getString("news_title")),
+                userId,
+                createdBefore.toString(),
+                createdSince.toString(),
+                limit);
+    }
+
+    @Override
+    public List<RecommendationCard> findPendingByUser(long userId) {
+        return jdbcTemplate.query(FIND_PENDING_BY_USER_SQL, cardRow, userId);
+    }
+
+    @Override
+    public long countPushedSince(long userId, java.time.Instant since) {
+        Long count =
+                jdbcTemplate.queryForObject(
+                        COUNT_PUSHED_SINCE_SQL, Long.class, userId, since.toString());
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public int markPushed(long cardId, java.time.Instant pushedAt) {
+        String now = java.time.Instant.now().toString();
+        return jdbcTemplate.update(MARK_PUSHED_SQL, pushedAt.toString(), now, cardId);
+    }
+
+    @Override
+    public int markSkipped(long cardId, CardPushStatus target) {
+        String now = java.time.Instant.now().toString();
+        return jdbcTemplate.update(MARK_SKIPPED_SQL, target.name(), now, cardId);
+    }
+
+    @Override
+    public List<RecommendationCard> findByUserCursor(
+            long userId, RecommendationCardRepository.CardFilter filter, Long beforeId, int limit) {
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT id, user_id, event_id, news_id, event_type, importance, direction, level,
+                               industries, subjects, logic_chain, logic_inputs, gen_method, prompt_version,
+                               recscore, basis, combo_key, push_status, pushed_at, read, adopted,
+                               created_at, updated_at
+                          FROM recommendation_card
+                         WHERE user_id = ?
+                        """);
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        appendCardFilters(sql, args, filter);
+        if (beforeId != null) {
+            sql.append(" AND id < ?");
+            args.add(beforeId);
+        }
+        sql.append(" ORDER BY id DESC LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), cardRow, args.toArray());
+    }
+
+    @Override
+    public long countByUser(long userId, RecommendationCardRepository.CardFilter filter) {
+        StringBuilder sql =
+                new StringBuilder("SELECT COUNT(*) FROM recommendation_card WHERE user_id = ?");
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        appendCardFilters(sql, args, filter);
+        Long count = jdbcTemplate.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public Optional<RecommendationCard> findById(long cardId) {
+        List<RecommendationCard> cards = jdbcTemplate.query(FIND_BY_ID_SQL, cardRow, cardId);
+        return cards.isEmpty() ? Optional.empty() : Optional.of(cards.get(0));
+    }
+
+    /** 四维筛选拼装（null 维度跳过；read 三态 Boolean 直传 0/1）。 */
+    private static void appendCardFilters(
+            StringBuilder sql, List<Object> args, RecommendationCardRepository.CardFilter filter) {
+        if (filter.level() != null) {
+            sql.append(" AND level = ?");
+            args.add(filter.level().name());
+        }
+        if (filter.eventType() != null) {
+            sql.append(" AND event_type = ?");
+            args.add(filter.eventType().name());
+        }
+        if (filter.direction() != null) {
+            sql.append(" AND direction = ?");
+            args.add(filter.direction().name());
+        }
+        if (filter.read() != null) {
+            sql.append(" AND read = ?");
+            args.add(filter.read() ? 1 : 0);
+        }
     }
 
     private String writeJson(Object value) {

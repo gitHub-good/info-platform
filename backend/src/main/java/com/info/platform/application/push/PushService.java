@@ -310,6 +310,40 @@ public class PushService {
         log.info("行业日报推送完成 refId={} degraded={}", refId, event.narrativeDegraded());
     }
 
+    // ---- 推荐卡片推送与静默留痕（M16 T133，方案 §4.6/§3.5）----
+
+    /**
+     * 推荐卡片推送（闸门通过者）：{@code PushType.RECOMMENDATION(10)} + refId=cardId，幂等键 {@code userId:10:cardId}
+     * （一卡一推）；复用 {@link #pushToOne} 既有编排——在线走 SSE（失败重试 1 次语义同通用链），离线留 status=0 待重连补拉。
+     *
+     * @param cardId recommendation_card.id（SSE 载荷 refId，前端跳 {@code #/recommendations?focus=})
+     * @param content 摘要行（【动态推荐】{事件类型中文}·{方向词}｜{logicChain}，≤80 字）
+     */
+    public void pushRecommendation(long userId, long cardId, String content) {
+        pushToOne(userId, null, PushType.RECOMMENDATION, String.valueOf(cardId), content);
+    }
+
+    /**
+     * 推荐卡片静默留痕（超日上限/降频拦截）：push_record 落 {@code status=SILENT(3)}——入通知历史可见，<b>不进 SSE 通道、 不计
+     * PUSH_RETRY、不占日配额</b>（findPending 按 status=0 天然排除，无需改通道实现）。幂等键同上：已存在（重复消费）直返。
+     */
+    public void recordSilent(long userId, long cardId, String content) {
+        PushRecord record =
+                PushRecord.create(
+                        userId, null, PushType.RECOMMENDATION, String.valueOf(cardId), content);
+        record.markSilent();
+        Optional<PushRecord> saved = pushRepository.saveIfAbsent(record);
+        if (saved.isEmpty()) {
+            log.debug("静默留痕防重跳过: userId={} cardId={}", userId, cardId);
+            return;
+        }
+        log.info(
+                "推荐卡静默留痕: userId={} cardId={} pushRecordId={}",
+                userId,
+                cardId,
+                saved.get().getId());
+    }
+
     /** 源告警文案：源名/失败摘要/持续时长（REQ 故事 3 场景 1 字段要求）。 */
     private String contentOf(SourceAlertEvent event) {
         if (event.kind() == SourceAlertEvent.Kind.RECOVERED) {
