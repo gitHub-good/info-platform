@@ -394,6 +394,13 @@ export function Events() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // 落点聚焦（M20 T173 依据事件下钻）：#/events?focus=<eventId> 定位高亮该事件卡——命中已加载页即滚入视口，
+  // 更早事件经「加载更多」逐页带出后同样生效（首屏语义足够，不做定向游标回溯）
+  const [focusId] = useState<number | null>(() => {
+    const raw = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('focus');
+    const parsed = raw == null ? null : Number(raw);
+    return parsed != null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  });
 
   const fetchPage = useCallback(
     async (beforeId?: number) => {
@@ -427,6 +434,15 @@ export function Events() {
     void fetchPage();
     return () => abortRef.current?.abort();
   }, [fetchPage]);
+
+  // 聚焦卡命中已加载页 → 滚入视口（jsdom 无 scrollIntoView 实现时静默跳过，高亮仍生效）
+  useEffect(() => {
+    if (focusId == null) return;
+    const el = document.querySelector(`[data-testid="event-focus-${focusId}"]`);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'center' });
+    }
+  }, [focusId, items]);
 
   const updateFilter = (key: keyof FilterState, value: string) => {
     // 事件驱动重置清单（不依赖 effect 内 setState）：切筛选立即清旧列表回骨架态
@@ -490,9 +506,19 @@ export function Events() {
         </p>
       ) : (
         <div className="flex flex-col gap-3" data-testid="events-list">
-          {items.map((event) => (
-            <EventCardView key={event.id} event={event} />
-          ))}
+          {items.map((event) =>
+            event.id === focusId ? (
+              <div
+                key={event.id}
+                className="rounded-lg ring-2 ring-primary/60"
+                data-testid={`event-focus-${event.id}`}
+              >
+                <EventCardView event={event} />
+              </div>
+            ) : (
+              <EventCardView key={event.id} event={event} />
+            ),
+          )}
           {nextBeforeId != null ? (
             <Button
               variant="ghost"

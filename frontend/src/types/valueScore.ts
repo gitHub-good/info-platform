@@ -34,3 +34,59 @@ export type ScoreWeightField = keyof Pick<
   ScoreWeights,
   'wCatalyst' | 'wConduction' | 'wFundamental' | 'wRisk' | 'wValuation' | 'btCatalystMin' | 'btConductionMin' | 'btRiskMin'
 >;
+
+// —— 标的价值评分（详情区块，M20 T173，§4.7.1 契约） ——
+
+/** 五维分解条目（weight 按快照行当时 weight_basis 回读；neutral 仅估值维缺数态为 true）。 */
+export interface ValueScoreFactor {
+  key: 'catalyst' | 'conduction' | 'fundamental' | 'risk' | 'valuation';
+  name: string;
+  score: number;
+  weight: number;
+  neutral: boolean;
+}
+
+/** 依据事件条目（factor_detail.catalyst/fundamental/risk.entries[] 项；eventId 跳事件流 focus）。 */
+export interface ValueScoreEntry {
+  eventId: number;
+  summary: string;
+  eventDate: string;
+  direction: string;
+  importance: string;
+  coef: number;
+  decay: number;
+}
+
+/** 行业关联条目（factor_detail.conduction.assoc[] 项）。 */
+export interface ValueScoreAssoc {
+  industry: string;
+  heatH24: number;
+  heatNorm: number;
+  lastSeenAge: number;
+  source: string;
+}
+
+/** factor_detail 明细（§4.5 契约子集——前端消费面：catalyst 依据事件 + conduction 关联 + valuation 缺数判定）。 */
+export interface ValueScoreDetail {
+  catalyst?: { raw: number; entries: ValueScoreEntry[] };
+  conduction?: { assoc: ValueScoreAssoc[] };
+  fundamental?: { raw: number; entries: ValueScoreEntry[] };
+  risk?: { stFlag: boolean; eventPenalty: number; entries: ValueScoreEntry[] };
+  valuation?: { basis: string | null; pe: number | null; pct: number | null; pb: number | null };
+}
+
+/** GET /subjects/{subjectId}/value-score 响应（最新快照 + 查询层百分位 + 分解 + 明细 + 免责）。 */
+export interface ValueScoreView {
+  subjectId: number;
+  snapshotDate: string;
+  totalScore: number;
+  breakthrough: boolean;
+  rank: number;
+  percentile: number;
+  factors: ValueScoreFactor[];
+  detail: ValueScoreDetail;
+  dataFlags: string[];
+  weightBasis: string;
+  computedAt: string;
+  disclaimer: string;
+}

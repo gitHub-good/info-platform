@@ -458,4 +458,35 @@ describe('Events 事件流页（T127，#/events 第 17 页）', () => {
     await userEvent.click(screen.getByTestId('impact-chain-retry-9'));
     expect(await screen.findByTestId('impact-chain-row-银行')).toBeInTheDocument();
   });
+
+  // —— 落点聚焦（M20 T173 依据事件下钻：价值评分区块 detail.catalyst.entries[].eventId → #/events?focus=） ——
+
+  it('focus 参数命中已加载页：该事件卡高亮环（value-score 下钻落点）', async () => {
+    stubFetch([
+      {
+        path: '/api/v1/events',
+        respond: () => ok(viewOf([cardOf({ id: 8 }), cardOf({ id: 9 })])),
+      },
+    ]);
+    window.location.hash = '#/events?focus=9';
+
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
+    const focusWrap = screen.getByTestId('event-focus-9');
+    expect(focusWrap.className).toContain('ring');
+    expect(screen.queryByTestId('event-focus-8')).toBeNull();
+    expect(screen.getByTestId('event-card-8')).toBeInTheDocument();
+  });
+
+  it('无 focus 参数：零高亮环（存量直进行为零回归）', async () => {
+    stubFetch([{ path: '/api/v1/events', respond: () => ok(viewOf([cardOf()])) }]);
+
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
+    expect(screen.queryByTestId('event-focus-9')).toBeNull();
+  });
 });

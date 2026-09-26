@@ -13,6 +13,7 @@ import { NewsSection } from '@/components/subject/NewsSection';
 import { PolicySection } from '@/components/subject/PolicySection';
 import { QuoteSection } from '@/components/subject/QuoteSection';
 import { ValuationSection } from '@/components/subject/ValuationSection';
+import { ValueScoreSection } from '@/components/subject/ValueScoreSection';
 import { navigate, rememberSubject } from '@/lib/navigation';
 import type { Subject, SubjectMarket } from '@/types/subject-detail';
 
@@ -163,6 +164,8 @@ export function SubjectDetail({ subjectId = 'SH600519' }: SubjectDetailProps) {
           total={data.sectionPagination?.event?.total}
         />
       </div>
+      {/* 第 8 分区：价值评分（M20 T173，方案 §4.8——独立取数，零耦合既有分区契约；resolvedId 未解析时静默不渲染） */}
+      <ValueScoreSection subjectId={resolvedId} />
     </div>
   );
 }

@@ -131,6 +131,10 @@ function stubFetch(detail: Record<string, SubjectDetailData>) {
       const data = id === ID_B ? detail[CODE_B] : detail[CODE_A];
       return mockResponse(200, { code: 0, msg: 'ok', data, traceId: 't' });
     }
+    // 价值评分第 8 分区（M20 T173）：独立取数，统一 30086 空态（分区交互在 ValueScoreSection.test 覆盖）
+    if (/\/subjects\/\d+\/value-score/.test(path)) {
+      return mockResponse(404, { code: 30086, msg: '该标的无评分快照', data: null, traceId: 't' });
+    }
     // 阅读埋点等旁路请求：统一成功空响应
     return mockResponse(200, { code: 0, msg: 'ok', data: null, traceId: 't' });
   });
@@ -167,11 +171,14 @@ describe('SubjectDetail 分区分页接入（M12 T95）', () => {
     expect(screen.getByTestId('event-pagination-total')).toHaveTextContent('共 37 条（近 7 天）');
     expect(screen.getByTestId('news-load-more')).toBeInTheDocument();
     expect(screen.getByTestId('policy-more-link')).toBeInTheDocument();
-    // 仅 by-code + detail 两跳 + 首屏阅读埋点一次，零子端点请求
+    // by-code + detail + 阅读埋点一次 + 价值评分第 8 分区一次（M20 T173 起首屏四跳），零子端点请求
     await vi.waitFor(() => {
       expect(sectionCalls(fetchMock, 'reading-events')).toHaveLength(1);
     });
-    expect(fetchMock.mock.calls).toHaveLength(3);
+    await vi.waitFor(() => {
+      expect(sectionCalls(fetchMock, '/value-score')).toHaveLength(1);
+    });
+    expect(fetchMock.mock.calls).toHaveLength(4);
     expect(sectionCalls(fetchMock, '/announcements')).toHaveLength(0);
     expect(sectionCalls(fetchMock, '/events')).toHaveLength(0);
     expect(sectionCalls(fetchMock, '/news')).toHaveLength(0);
