@@ -16,6 +16,7 @@ import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventItem;
 import com.info.platform.domain.analysis.EventItemRepository;
 import com.info.platform.domain.analysis.EventType;
+import com.info.platform.domain.analysis.ImpactCacheState;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.analysis.ImportanceScorer;
 import com.info.platform.domain.analysis.IndustryCategory;
@@ -73,6 +74,7 @@ public class EventExtractionService implements PlaceholderProvider {
     private final PipelineSettings settings;
     private final Clock clock;
     private final ObjectMapper objectMapper;
+    private final ImpactChainService impactChainService;
 
     public EventExtractionService(
             NewsAnalysisRepository repository,
@@ -83,7 +85,8 @@ public class EventExtractionService implements PlaceholderProvider {
             AiExclusionResolver exclusionResolver,
             PipelineSettings settings,
             Clock clock,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ImpactChainService impactChainService) {
         this.repository = repository;
         this.eventRepository = eventRepository;
         this.llmGateway = llmGateway;
@@ -93,6 +96,7 @@ public class EventExtractionService implements PlaceholderProvider {
         this.settings = settings;
         this.clock = clock;
         this.objectMapper = objectMapper;
+        this.impactChainService = impactChainService;
     }
 
     /**
@@ -249,22 +253,42 @@ public class EventExtractionService implements PlaceholderProvider {
             }
         }
         Instant eventTime = row.eventTime() != null ? row.eventTime() : item.publishedAt();
-        eventRepository.upsert(
-                EventItem.create(
-                        item.newsId(),
-                        row.type(),
-                        row.summary(),
-                        industries,
-                        row.direction(),
-                        row.importance(),
-                        mergeFigures(row.figures()),
-                        mergeSubjects(row.subjects(), matched),
-                        row.quote(),
-                        eventTime,
-                        LocalDate.ofInstant(eventTime, STAT_ZONE).toString(),
-                        promptVersion));
+        EventItem saved =
+                eventRepository.upsert(
+                        EventItem.create(
+                                item.newsId(),
+                                row.type(),
+                                row.summary(),
+                                industries,
+                                row.direction(),
+                                row.importance(),
+                                mergeFigures(row.figures()),
+                                mergeSubjects(row.subjects(), matched),
+                                row.quote(),
+                                eventTime,
+                                LocalDate.ofInstant(eventTime, STAT_ZONE).toString(),
+                                promptVersion));
         repository.applyL2Result(
                 new NewsAnalysisRepository.L2Write(item.newsId(), L2Status.EXTRACTED));
+        autoGenerateImpactChain(saved);
+    }
+
+    /**
+     * HIGH 事件落库自动生成影响链（M17 T144，REQ 拍板五-5「挂 L2 落库后」裁量）：纯规则渲染不阻塞 tick； 生成失败段式容错不回退 L2
+     * 落库（影响链可用性优先级低于事件本身）。
+     */
+    private void autoGenerateImpactChain(EventItem saved) {
+        if (saved == null || saved.getImportance() != Importance.HIGH) {
+            return;
+        }
+        try {
+            impactChainService.generateFor(saved, ImpactCacheState.AUTO);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "HIGH 事件影响链自动生成失败（不阻断 L2，查询侧自愈兜底）: newsId={} {}",
+                    saved.getNewsId(),
+                    e.toString());
+        }
     }
 
     /** 模型 subjects 与池回联并集（回联命中优先——code 非 null 可跳标的详情；去重 by code+name）。 */

@@ -51,6 +51,38 @@ export interface EventStreamView {
   nextBeforeId: number | null;
 }
 
+// —— 行业影响链（M17 T144，对齐后端 ImpactChainView——GET /api/v1/events/{id}/impact-chains 契约） ——
+
+/** 影响链依据回溯（信号来源条目 id 集 / 事件结构化字段 / 原文引用）。 */
+export interface ImpactChainBasis {
+  newsId?: number;
+  signalNewsIds?: number[];
+  quote?: string | null;
+  [key: string]: unknown;
+}
+
+/** 单链行（行业 / 方向 / 逻辑链 / 依据 / 模板键 / 缓存态 / 生成方式）。 */
+export interface ImpactChainItem {
+  id: number;
+  industry: string;
+  direction: string;
+  logicChain: string;
+  basis: ImpactChainBasis | null;
+  templateKey: string;
+  cacheState: 'AUTO' | 'ON_DEMAND';
+  genMethod: 'TEMPLATE';
+}
+
+/** 影响链视图（eligibility：AUTO 落库自动 / ON_DEMAND 按需生成 / CACHED 已缓存 / LOW_SKIPPED 低重要度空态）。 */
+export interface ImpactChainView {
+  eventId: number;
+  importance: string;
+  eligibility: 'AUTO' | 'ON_DEMAND' | 'CACHED' | 'LOW_SKIPPED';
+  chains: ImpactChainItem[];
+  disclaimer: string;
+}
+
+
 /** 申万一级行业 31 枚举（后端 IndustryCategory.SW_INDUSTRIES 镜像，行业筛选下拉；容器 4 枚举不入选）。 */
 export const SW_INDUSTRIES: readonly string[] = [
   '农林牧渔',

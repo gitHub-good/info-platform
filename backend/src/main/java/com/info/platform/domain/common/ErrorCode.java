@@ -100,6 +100,8 @@ public enum ErrorCode {
     RECOMMENDATION_FEEDBACK_INVALID(30081, "推荐反馈参数非法", 400),
     /** 推荐卡片流筛选参数非法（level/eventType/direction/read 非法值、limit 越界，msg 字段级，400，M16 方案 §4.8） */
     RECOMMENDATION_FILTER_INVALID(30082, "推荐筛选参数非法", 400),
+    /** 结构化事件不存在（影响链区块查询 404，M17 T144 方案 §4.8） */
+    EVENT_NOT_FOUND(30083, "事件不存在", 404),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

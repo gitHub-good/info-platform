@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -29,6 +30,7 @@ import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventItem;
 import com.info.platform.domain.analysis.EventItemRepository;
 import com.info.platform.domain.analysis.EventType;
+import com.info.platform.domain.analysis.ImpactCacheState;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.analysis.L2Status;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
@@ -60,6 +62,7 @@ class EventExtractionServiceTest {
     private PromptTemplateService promptTemplateService;
     private SubjectMatcher subjectMatcher;
     private AiExclusionResolver exclusionResolver;
+    private ImpactChainService impactChainService;
     private EventExtractionService service;
 
     @BeforeEach
@@ -72,6 +75,7 @@ class EventExtractionServiceTest {
         when(subjectMatcher.match(anyString(), anyString())).thenReturn(List.of());
         exclusionResolver = mock(AiExclusionResolver.class);
         when(exclusionResolver.excludedSourceIds(any())).thenReturn(List.of());
+        impactChainService = mock(ImpactChainService.class);
         RuntimeConfigService configService = mock(RuntimeConfigService.class);
         when(configService.read(anyString())).thenReturn(Optional.empty());
         PipelineSettings settings = new PipelineSettings(configService, new ObjectMapper());
@@ -85,7 +89,8 @@ class EventExtractionServiceTest {
                         exclusionResolver,
                         settings,
                         Clock.fixed(NOW, ZoneId.of("Asia/Shanghai")),
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        impactChainService);
         when(promptTemplateService.loadActiveTemplate(BriefType.L2_EXTRACT))
                 .thenReturn(
                         PromptTemplate.reconstruct(
@@ -444,5 +449,70 @@ class EventExtractionServiceTest {
         assertThat(service.provided())
                 .extracting("key")
                 .containsExactly("today", "batchSize", "items");
+    }
+
+    // ---- T144（M17）：HIGH 落库自动生成影响链挂勾 ----
+
+    @Test
+    void extractBatch_highEvent_triggersAutoImpactChain() {
+        when(llmGateway.chat(any(LlmRequest.class)))
+                .thenReturn(
+                        llmResponse(response(event(1, "POLICY_RELEASE", "[\"银行\"]", "HIGH"), "")));
+        when(eventRepository.upsert(any(EventItem.class)))
+                .thenAnswer(
+                        invocation -> {
+                            EventItem item = invocation.getArgument(0);
+                            return EventItem.reconstruct(
+                                    501L,
+                                    item.getNewsId(),
+                                    item.getEventType(),
+                                    item.getSummary(),
+                                    item.getAffectedIndustries(),
+                                    item.getDirection(),
+                                    item.getImportance(),
+                                    item.getKeyFigures(),
+                                    item.getSubjects(),
+                                    item.getQuote(),
+                                    item.getEventTime(),
+                                    item.getEventDate(),
+                                    item.getPromptVersion(),
+                                    item.getCreatedAt(),
+                                    item.getUpdatedAt());
+                        });
+
+        service.extractBatch(List.of(hit(1)));
+
+        ArgumentCaptor<EventItem> captor = ArgumentCaptor.forClass(EventItem.class);
+        verify(impactChainService).generateFor(captor.capture(), eq(ImpactCacheState.AUTO));
+        assertThat(captor.getValue().getImportance()).isEqualTo(Importance.HIGH);
+        assertThat(captor.getValue().getId()).isEqualTo(501L);
+    }
+
+    @Test
+    void extractBatch_mediumEvent_noAutoImpactChain() {
+        when(llmGateway.chat(any(LlmRequest.class)))
+                .thenReturn(
+                        llmResponse(
+                                response(event(1, "EARNINGS_FORECAST", "[\"银行\"]", "MEDIUM"), "")));
+
+        service.extractBatch(List.of(hit(1)));
+
+        verify(impactChainService, never()).generateFor(any(), any());
+    }
+
+    @Test
+    void extractBatch_impactChainFailure_doesNotBreakL2() {
+        when(llmGateway.chat(any(LlmRequest.class)))
+                .thenReturn(
+                        llmResponse(response(event(1, "POLICY_RELEASE", "[\"银行\"]", "HIGH"), "")));
+        when(eventRepository.upsert(any(EventItem.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0)); // id 缺位 → 挂勾防御跳过
+        doThrow(new RuntimeException("impact chain boom"))
+                .when(impactChainService)
+                .generateFor(any(), any());
+
+        EventExtractionService.BatchOutcome outcome = service.extractBatch(List.of(hit(1)));
+
+        assertThat(outcome.extracted()).as("影响链生成失败不阻断 L2 落库（段式容错）").isEqualTo(1);
     }
 }

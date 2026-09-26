@@ -333,4 +333,129 @@ describe('Events 事件流页（T127，#/events 第 17 页）', () => {
     await screen.findByTestId('event-card-7');
     expect(screen.queryByTestId('event-quote-7')).toBeNull();
   });
+
+  // —— T144（M17）：事件详情影响链区块 ——
+
+  function impactView(overrides: Record<string, unknown> = {}) {
+    return {
+      eventId: 9,
+      importance: 'HIGH',
+      eligibility: 'CACHED',
+      chains: [
+        {
+          id: 1,
+          industry: '银行',
+          direction: 'BULLISH',
+          logicChain: '流动性宽松降低银行负债成本，信贷投放预期改善',
+          basis: { newsId: 1009, signalNewsIds: [1009], quote: '下调存款准备金率 0.5 个百分点' },
+          templateKey: 'POLICY_MONETARY',
+          cacheState: 'AUTO',
+          genMethod: 'TEMPLATE',
+        },
+        {
+          id: 2,
+          industry: '房地产',
+          direction: 'BULLISH',
+          logicChain: '资金面宽松支撑按揭利率下行与销售预期',
+          basis: { newsId: 1009, signalNewsIds: [1009], quote: null },
+          templateKey: 'POLICY_MONETARY',
+          cacheState: 'AUTO',
+          genMethod: 'TEMPLATE',
+        },
+      ],
+      disclaimer: 'AI 分析仅供参考',
+      ...overrides,
+    };
+  }
+
+  it('影响链区块：首展拉取并渲染行业/方向/逻辑链 + 依据回溯展开 + 模板态与免责标注；再展不重复请求', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/events/9/impact-chains', respond: () => ok(impactView()) },
+      { path: '/api/v1/events', respond: () => ok(viewOf([cardOf()])) },
+    ]);
+
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    await screen.findByTestId('event-card-9');
+    expect(screen.queryByTestId(`impact-chain-section-9`)).toBeNull(); // 未展开不渲染
+
+    await userEvent.click(screen.getByTestId('impact-chain-toggle-9'));
+    const section = await screen.findByTestId('impact-chain-section-9');
+    expect(within(section).getByTestId('impact-chain-row-银行')).toHaveTextContent(
+      '流动性宽松降低银行负债成本',
+    );
+    expect(within(section).getByTestId('impact-chain-row-银行')).toHaveTextContent('利好');
+    expect(within(section).getByTestId('impact-chain-row-房地产')).toBeInTheDocument();
+    expect(within(section).getByTestId('impact-chain-disclaimer-9')).toHaveTextContent(
+      'AI 分析仅供参考',
+    );
+    expect(within(section).getByTestId('impact-chain-genmethod-9')).toHaveTextContent('模板');
+
+    // 依据展开：引用原文回溯
+    await userEvent.click(within(section).getByTestId('impact-chain-basis-银行'));
+    expect(
+      within(section).getByTestId('impact-chain-basis-detail-银行'),
+    ).toHaveTextContent('下调存款准备金率 0.5 个百分点');
+
+    // 收起再展开：读组件内缓存，不重复请求
+    await userEvent.click(screen.getByTestId('impact-chain-toggle-9'));
+    expect(screen.queryByTestId('impact-chain-section-9')).toBeNull();
+    await userEvent.click(screen.getByTestId('impact-chain-toggle-9'));
+    await screen.findByTestId('impact-chain-section-9');
+    const chainCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes('/events/9/impact-chains'),
+    );
+    expect(chainCalls).toHaveLength(1);
+  });
+
+  it('影响链区块：LOW 事件空态说明（不生成）', async () => {
+    stubFetch([
+      {
+        path: '/api/v1/events/10/impact-chains',
+        respond: () =>
+          ok(
+            impactView({
+              eventId: 10,
+              importance: 'LOW',
+              eligibility: 'LOW_SKIPPED',
+              chains: [],
+            }),
+          ),
+      },
+      {
+        path: '/api/v1/events',
+        respond: () => ok(viewOf([cardOf({ id: 10, importance: 'LOW' })])),
+      },
+    ]);
+
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    await screen.findByTestId('event-card-10');
+    await userEvent.click(screen.getByTestId('impact-chain-toggle-10'));
+    expect(await screen.findByTestId('impact-chain-empty-10')).toHaveTextContent('低重要度事件');
+  });
+
+  it('影响链区块：请求失败错误态 + 重试可恢复', async () => {
+    let failed = true;
+    stubFetch([
+      {
+        path: '/api/v1/events/9/impact-chains',
+        respond: () => (failed ? fail(500, 50000, '服务异常') : ok(impactView())),
+      },
+      { path: '/api/v1/events', respond: () => ok(viewOf([cardOf()])) },
+    ]);
+
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    await screen.findByTestId('event-card-9');
+    await userEvent.click(screen.getByTestId('impact-chain-toggle-9'));
+    expect(await screen.findByTestId('impact-chain-error-9')).toBeInTheDocument();
+
+    failed = false;
+    await userEvent.click(screen.getByTestId('impact-chain-retry-9'));
+    expect(await screen.findByTestId('impact-chain-row-银行')).toBeInTheDocument();
+  });
 });

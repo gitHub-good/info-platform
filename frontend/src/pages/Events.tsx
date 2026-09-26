@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
-import { getEvents } from '@/api/eventStream';
+import { getEventImpactChains, getEvents } from '@/api/eventStream';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,7 +13,7 @@ import {
   IMPORTANCE_LABELS,
   labelOf,
 } from '@/types/industryHeat';
-import { SW_INDUSTRIES, type EventCard } from '@/types/eventStream';
+import { SW_INDUSTRIES, type EventCard, type ImpactChainView } from '@/types/eventStream';
 
 // 事件流页（M15 T127，#/events 全站第 17 页——方案 §4.8 + REQ 故事 3）。
 // L2 结构化事件全字段卡片流：类型/方向（沿 A 股惯例利好红利空绿）/重要度（高>中>低）徽章、
@@ -57,8 +57,137 @@ function ImportanceBadge({ importance, testId }: { importance: string; testId: s
   );
 }
 
-/** 事件卡片（全字段面：徽章行 / 摘要 / 行业与关键数字 chips / 标的 / 引用与外链）。 */
+/** 事件影响链区块（M17 T144，事件详情扩展承载）：首展按需拉取（HIGH 缓存直返/MEDIUM 服务端按需生成/LOW 空态）； 命中缓存由父级（卡片）持有，收起再展开不重复请求；行业/方向/逻辑链/依据展开 + 模板态与免责标注。 */
+function ImpactChainSection({
+  eventId,
+  initialView,
+  onView,
+}: {
+  eventId: number;
+  initialView: ImpactChainView | null;
+  onView: (view: ImpactChainView) => void;
+}) {
+  const [reloadToken, setReloadToken] = useState(0);
+  const [loading, setLoading] = useState(initialView == null);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedBasis, setExpandedBasis] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const hasCache = initialView != null;
+
+  useEffect(() => {
+    if (hasCache) return; // 卡片级缓存命中：不重复请求
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    getEventImpactChains(eventId, ctrl.signal)
+      .then((data) => {
+        if (ctrl.signal.aborted) return;
+        onView(data);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return;
+        setError(err instanceof ApiError ? err.msg : '影响链加载失败');
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setLoading(false);
+      });
+    return () => abortRef.current?.abort();
+  }, [eventId, reloadToken, hasCache, onView]);
+
+  const view = initialView;
+
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3"
+      data-testid={`impact-chain-section-${eventId}`}
+    >
+      {loading ? (
+        <div className="flex flex-col gap-2" data-testid={`impact-chain-loading-${eventId}`}>
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-start gap-1" data-testid={`impact-chain-error-${eventId}`}>
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              setReloadToken((token) => token + 1);
+            }}
+            data-testid={`impact-chain-retry-${eventId}`}
+          >
+            重试
+          </Button>
+        </div>
+      ) : view?.eligibility === 'LOW_SKIPPED' || (view?.chains.length ?? 0) === 0 ? (
+        <p
+          className="py-2 text-center text-xs text-muted-foreground"
+          data-testid={`impact-chain-empty-${eventId}`}
+        >
+          低重要度事件不生成行业影响链（高重要度自动生成、中重要度首次展开生成）。
+        </p>
+      ) : (
+        <>
+          {view?.chains.map((chain) => (
+            <div
+              key={chain.id}
+              className="flex flex-col gap-1"
+              data-testid={`impact-chain-row-${chain.industry}`}
+            >
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">{chain.industry}</span>
+                <DirectionBadge
+                  direction={chain.direction}
+                  testId={`impact-chain-direction-${chain.industry}`}
+                />
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                  {chain.logicChain}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs text-primary underline underline-offset-2"
+                  onClick={() =>
+                    setExpandedBasis(expandedBasis === chain.industry ? null : chain.industry)
+                  }
+                  data-testid={`impact-chain-basis-${chain.industry}`}
+                >
+                  依据
+                </button>
+              </div>
+              {expandedBasis === chain.industry ? (
+                <p
+                  className="border-l-2 border-border pl-2 text-xs text-muted-foreground"
+                  data-testid={`impact-chain-basis-detail-${chain.industry}`}
+                >
+                  信号来源：资讯 #{String(chain.basis?.newsId ?? '--')}
+                  {chain.basis?.quote ? ` ｜ 原文引用：「${chain.basis.quote}」` : ''}（模板：
+                  {chain.templateKey}）
+                </p>
+              ) : null}
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge className="bg-muted" data-testid={`impact-chain-genmethod-${eventId}`}>
+              模板规则生成
+            </Badge>
+            <span data-testid={`impact-chain-disclaimer-${eventId}`}>{view?.disclaimer}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 事件卡片（全字段面：徽章行 / 摘要 / 行业与关键数字 chips / 标的 / 引用与外链 / 影响链扩展区块）。 */
 function EventCardView({ event }: { event: EventCard }) {
+  const [chainOpen, setChainOpen] = useState(false);
+  const [chainView, setChainView] = useState<ImpactChainView | null>(null);
   return (
     <Card data-testid={`event-card-${event.id}`}>
       <CardContent className="flex flex-col gap-2 p-4">
@@ -151,7 +280,24 @@ function EventCardView({ event }: { event: EventCard }) {
               查看原文
             </a>
           ) : null}
+          <button
+            type="button"
+            className="ml-auto shrink-0 text-primary underline underline-offset-2"
+            aria-expanded={chainOpen}
+            onClick={() => setChainOpen((prev) => !prev)}
+            data-testid={`impact-chain-toggle-${event.id}`}
+          >
+            行业影响链
+          </button>
         </div>
+
+        {chainOpen ? (
+          <ImpactChainSection
+            eventId={event.id}
+            initialView={chainView}
+            onView={setChainView}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -77,7 +77,8 @@ class PromptPlaceholderRegistryTest {
                         mock(com.info.platform.application.common.RuntimeConfigService.class),
                         new com.fasterxml.jackson.databind.ObjectMapper()),
                 Clock.systemUTC(),
-                new com.fasterxml.jackson.databind.ObjectMapper());
+                new com.fasterxml.jackson.databind.ObjectMapper(),
+                mock(com.info.platform.application.analysis.ImpactChainService.class));
     }
 
     /** 场景 7（行业日报）供给方：全部依赖 mock（注册表只读 provided()，不触发调用，M15 T124）。 */
