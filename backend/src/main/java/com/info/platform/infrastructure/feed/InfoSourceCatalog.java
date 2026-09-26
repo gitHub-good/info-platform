@@ -306,6 +306,77 @@ public final class InfoSourceCatalog {
                     {"cursorType":"NONE","aiExclusion":"L2"}""",
                     30);
 
+    /**
+     * 工信部政策文件（M17 T140，REQ-20260926-14 拍板一 #1）：预置 adapter（{@code miitPolicyAdapter}）。REQ 记
+     * {@code /zwgk/zcwj/} 路径实测为 JS 跳转壳（新站列表客户端渲染），现行数据端点为站点公开检索 API {@code
+     * search-front-server/api/search/info}（参数与字段口径见适配器类注释，2026-09-22 预检实测，ADR-0053）。
+     *
+     * <p>robots：miit.gov.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」；历史 WAF 风险（普查预告）实测未触发， 单源退避兜底。频控 60min（REQ 官方频段上限，日级源礼貌抓取）。
+     */
+    private static final PresetEntry MIIT_POLICY =
+            new PresetEntry(
+                    "miit_policy",
+                    "工业和信息化部·政策文件",
+                    "政策",
+                    AdapterType.PRESET,
+                    "miitPolicyAdapter",
+                    "https://www.miit.gov.cn/search-front-server/api/search/info"
+                            + "?websiteid=110000000000000&searchid=51&tpl=14&category=51"
+                            + "&scope=basic&q=&pg=10&cateid=&pos=&_cus_eq_typename="
+                            + "&_cus_eq_publishgroupname=&_cus_eq_themename=&begin=&end="
+                            + "&dateField=deploytime&selectFields=title,deploytime,url"
+                            + "&group=distinct&level=6&sortFields=&p=1",
+                    """
+                    {"cursorType":"NONE"}""",
+                    60);
+
+    /**
+     * 财政部政策发布（M17 T140，拍板一 #2）：预置 adapter（{@code mofPolicyAdapter}），szs.mof.gov.cn/zhengcefabu
+     * 列表页 HTML 解析口径与 URL 尾号 externalId 见适配器类注释（2026-09-22 预检实测，ADR-0053）。
+     *
+     * <p>robots：szs.mof.gov.cn robots 302 跳主站 404 页（非 robots 文件）→ 按「无 robots 文件 = 无限制」留档。 频控 60min（REQ 官方频段上限）。
+     */
+    private static final PresetEntry MOF_POLICY =
+            new PresetEntry(
+                    "mof_policy",
+                    "财政部·政策发布",
+                    "政策",
+                    AdapterType.PRESET,
+                    "mofPolicyAdapter",
+                    "https://szs.mof.gov.cn/zhengcefabu/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    60);
+
+    /**
+     * 东财要闻频道（M17 T140，拍板一 #3）：np-weblist 宿主 getNewsByColumns（与 7×24 快讯同宿主，频道纵深形态）。
+     *
+     * <p>实测口径（2026-09-22 预检）：端点必带 {@code client=web&req_trace}；条目数组 {@code data.list[]}，{@code code}
+     * 日期前缀数值游标、{@code showTime} {@code yyyy-MM-dd HH:mm:ss} 墙钟、title/summary 齐全且<b>自带直链字段 url</b>（与
+     * 7×24 快讯通道的差异点）。robots：np-weblist 404 → 无限制（M14 T110 已档，同宿主复核一致）。频控 15min（REQ 要闻频段下限，高更新密度）。
+     */
+    private static final PresetEntry EM_HEADLINES =
+            new PresetEntry(
+                    "em_headlines",
+                    "东方财富·要闻",
+                    "媒体",
+                    AdapterType.JSON_API,
+                    null,
+                    "https://np-weblist.eastmoney.com/comm/web/getNewsByColumns"
+                            + "?client=web&biz=web_news&column=350&order=1&needInteractData=0"
+                            + "&page_index=1&page_size=20&req_trace=1",
+                    """
+                    {"listPath":"data.list",\
+                    "itemMapping":[\
+                    {"source":"code","target":"externalId","transform":"to_string"},\
+                    {"source":"showTime","target":"publishedAt","transform":"to_iso_datetime"},\
+                    {"source":"title","target":"title","transform":"to_string"},\
+                    {"source":"summary","target":"summary","transform":"to_string"},\
+                    {"source":"url","target":"url","transform":"to_string"}],\
+                    "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://finance.eastmoney.com/"},\
+                    "cursorType":"ID","cursorField":"externalId"}""",
+                    15);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -321,6 +392,9 @@ public final class InfoSourceCatalog {
                 STATS_RELEASE,
                 STCN_NEWS,
                 YICAI_NEWS,
-                JINGJI21_FINANCE);
+                JINGJI21_FINANCE,
+                MIIT_POLICY,
+                MOF_POLICY,
+                EM_HEADLINES);
     }
 }

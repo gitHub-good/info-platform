@@ -1,0 +1,178 @@
+{
+ "roles": null,
+ "permissions": null,
+ "code": "200",
+ "success": true,
+ "traceId": "e88c691765a14c33aa5fdf0c25ec5372",
+ "data": {
+  "searchResult": {
+   "dataResults": [
+    {
+     "score": 0.0,
+     "docId": 0,
+     "groupCount": 1,
+     "groupValue": "2066172522",
+     "similarRate": 0.0,
+     "groupData": [
+      {
+       "score": "NaN",
+       "docId": 0,
+       "groupCount": 0,
+       "groupValue": "",
+       "similarRate": 0.0,
+       "groupData": [],
+       "pkValue": "c3b698fbaf0d42259de3e48d36a0d107",
+       "data": {
+        "deploytime": "1790132090256",
+        "title": "工业和信息化部关于印发《创新型产业集群建设管理办法》的通知",
+        "url": "/zwgk/zcwj/wjfb/tz/art/2026/art_c3b698fbaf0d42259de3e48d36a0d107.html",
+        "jsearch_url": "visit/link?url=%2Fzwgk%2Fzcwj%2Fwjfb%2Ftz%2Fart%2F2026%2Fart_c3b698fbaf0d42259de3e48d36a0d107.html&websiteid=110000000000000&searchid=51"
+       },
+       "tableName": "cms_info"
+      }
+     ],
+     "pkValue": null,
+     "data": {
+      "_value": "2066172522",
+      "_count": "1",
+      "max_cdate": "1790092800000"
+     },
+     "tableName": null
+    },
+    {
+     "score": 0.0,
+     "docId": 0,
+     "groupCount": 1,
+     "groupValue": "-637752335",
+     "similarRate": 0.0,
+     "groupData": [
+      {
+       "score": "NaN",
+       "docId": 0,
+       "groupCount": 0,
+       "groupValue": "",
+       "similarRate": 0.0,
+       "groupData": [],
+       "pkValue": "9fb9b35709f941d4805d064092032bd0",
+       "data": {
+        "deploytime": "1790039123015",
+        "title": "三部门关于印发《轻工纺织产业发展“十五五”规划》的通知",
+        "url": "/zwgk/zcwj/wjfb/tz/art/2026/art_9fb9b35709f941d4805d064092032bd0.html",
+        "jsearch_url": "visit/link?url=%2Fzwgk%2Fzcwj%2Fwjfb%2Ftz%2Fart%2F2026%2Fart_9fb9b35709f941d4805d064092032bd0.html&websiteid=110000000000000&searchid=51"
+       },
+       "tableName": "cms_info"
+      }
+     ],
+     "pkValue": null,
+     "data": {
+      "_value": "-637752335",
+      "_count": "1",
+      "max_cdate": "1790006400000"
+     },
+     "tableName": null
+    },
+    {
+     "score": 0.0,
+     "docId": 0,
+     "groupCount": 1,
+     "groupValue": "-540599614",
+     "similarRate": 0.0,
+     "groupData": [
+      {
+       "score": "NaN",
+       "docId": 0,
+       "groupCount": 0,
+       "groupValue": "",
+       "similarRate": 0.0,
+       "groupData": [],
+       "pkValue": "ced716be0a094e82937064b815ecba28",
+       "data": {
+        "deploytime": "1790038536069",
+        "title": "《轻工纺织产业发展“十五五”规划》解读",
+        "url": "/zwgk/zcjd/art/2026/art_ced716be0a094e82937064b815ecba28.html",
+        "jsearch_url": "visit/link?url=%2Fzwgk%2Fzcjd%2Fart%2F2026%2Fart_ced716be0a094e82937064b815ecba28.html&websiteid=110000000000000&searchid=51"
+       },
+       "tableName": "cms_info"
+      }
+     ],
+     "pkValue": null,
+     "data": {
+      "_value": "-540599614",
+      "_count": "1",
+      "max_cdate": "1790006400000"
+     },
+     "tableName": null
+    },
+    {
+     "score": 0.0,
+     "docId": 0,
+     "groupCount": 1,
+     "groupValue": "1982694562",
+     "similarRate": 0.0,
+     "groupData": [
+      {
+       "score": "NaN",
+       "docId": 0,
+       "groupCount": 0,
+       "groupValue": "",
+       "similarRate": 0.0,
+       "groupData": [],
+       "pkValue": "f6bb487a7469411d92a3af9eb8d73aae",
+       "data": {
+        "deploytime": "1790038626691",
+        "title": "《轻工纺织产业发展“十五五”规划》一图读懂",
+        "url": "/zwgk/zcjd/art/2026/art_f6bb487a7469411d92a3af9eb8d73aae.html",
+        "jsearch_url": "visit/link?url=%2Fzwgk%2Fzcjd%2Fart%2F2026%2Fart_f6bb487a7469411d92a3af9eb8d73aae.html&websiteid=110000000000000&searchid=51"
+       },
+       "tableName": "cms_info"
+      }
+     ],
+     "pkValue": null,
+     "data": {
+      "_value": "1982694562",
+      "_count": "1",
+      "max_cdate": "1790006400000"
+     },
+     "tableName": null
+    },
+    {
+     "score": 0.0,
+     "docId": 0,
+     "groupCount": 1,
+     "groupValue": "-555752394",
+     "similarRate": 0.0,
+     "groupData": [
+      {
+       "score": "NaN",
+       "docId": 0,
+       "groupCount": 0,
+       "groupValue": "",
+       "similarRate": 0.0,
+       "groupData": [],
+       "pkValue": "8d9e7eef55664db9bf672bcd4d3464d9",
+       "data": {
+        "deploytime": "1789952449067",
+        "title": "一图读懂《关于组织开展2026年度国家绿色算力设施推荐工作的通知》",
+        "url": "/zwgk/zcjd/art/2026/art_8d9e7eef55664db9bf672bcd4d3464d9.html",
+        "jsearch_url": "visit/link?url=%2Fzwgk%2Fzcjd%2Fart%2F2026%2Fart_8d9e7eef55664db9bf672bcd4d3464d9.html&websiteid=110000000000000&searchid=51"
+       },
+       "tableName": "cms_info"
+      }
+     ],
+     "pkValue": null,
+     "data": {
+      "_value": "-555752394",
+      "_count": "1",
+      "max_cdate": "1789920000000"
+     },
+     "tableName": null
+    }
+   ],
+   "total": 6032,
+   "totalHits": 6154,
+   "costTime": 130.0,
+   "times": 0
+  }
+ },
+ "message": "查询成功"
+}

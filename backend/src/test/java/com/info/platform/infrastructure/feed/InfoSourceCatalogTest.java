@@ -25,7 +25,7 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        // M13 试点三源 + M14 T110 批次一一级 JSON 四源 + T111/T112 官方与报纸 HTML 六源（种子顺序即展示顺序）
+        // M13 试点三源 + M14 批次一十源 + M17 T140~T142 批次二九源（种子顺序即展示顺序）
         assertThat(codes)
                 .containsExactly(
                         "mw_topstories",
@@ -40,7 +40,10 @@ class InfoSourceCatalogTest {
                         "stats_release",
                         "stcn_news",
                         "yicai_news",
-                        "jingji21_finance");
+                        "jingji21_finance",
+                        "miit_policy",
+                        "mof_policy",
+                        "em_headlines");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -66,8 +69,35 @@ class InfoSourceCatalogTest {
                         "stats_release",
                         "stcn_news",
                         "yicai_news",
-                        "jingji21_finance");
-        assertThat(codes).hasSize(13);
+                        "jingji21_finance",
+                        "miit_policy",
+                        "mof_policy",
+                        "em_headlines");
+        assertThat(codes).hasSize(16);
+    }
+
+    @Test
+    void presets_containsM17BatchTwoSources_channelsAndIntervalsPerReq() {
+        // M17 批次二源（REQ-20260926-14 拍板一）通道与频控落位断言：preset（HTML/检索 API 适配在代码内）+ json_api + rss；
+        // 频控官方 60min、东财要闻 15min
+        var byCode =
+                InfoSourceCatalog.presets().stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                        InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
+        assertThat(byCode).containsKeys("miit_policy", "mof_policy", "em_headlines");
+        assertThat(byCode.get("em_headlines").adapterType()).isEqualTo(AdapterType.JSON_API);
+        for (String code : new String[] {"miit_policy", "mof_policy"}) {
+            assertThat(byCode.get(code).adapterType())
+                    .as("%s 通道", code)
+                    .isEqualTo(AdapterType.PRESET);
+            assertThat(byCode.get(code).adapterRef()).as("%s adapter_ref", code).isNotBlank();
+            assertThat(codec.parse(byCode.get(code).configJson()).effectiveCursorType().name())
+                    .as("%s cursorType", code)
+                    .isEqualTo("NONE");
+        }
+        assertThat(byCode.get("miit_policy").intervalMinutes()).isEqualTo(60);
+        assertThat(byCode.get("mof_policy").intervalMinutes()).isEqualTo(60);
+        assertThat(byCode.get("em_headlines").intervalMinutes()).isEqualTo(15);
     }
 
     @Test
@@ -88,7 +118,9 @@ class InfoSourceCatalogTest {
                         "stats_release",
                         "stcn_news",
                         "yicai_news",
-                        "jingji21_finance");
+                        "jingji21_finance",
+                        "miit_policy",
+                        "mof_policy");
         for (String code :
                 new String[] {
                     "ndrc_policy",
@@ -96,7 +128,9 @@ class InfoSourceCatalogTest {
                     "stats_release",
                     "stcn_news",
                     "yicai_news",
-                    "jingji21_finance"
+                    "jingji21_finance",
+                    "miit_policy",
+                    "mof_policy"
                 }) {
             var entry =
                     htmlCodes.stream()
