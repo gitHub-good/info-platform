@@ -9,8 +9,14 @@
 
 import { request } from './http';
 
-/** 阅读内容类型（对齐后端 ReadingEventType 枚举名；FEED=信息流「点原文」阅读）。 */
-export type ReadingContentType = 'SUBJECT_DETAIL' | 'POLICY' | 'AI_BRIEF' | 'FEED';
+/** 阅读内容类型（对齐后端 ReadingEventType 枚举名；FEED=信息流「点原文」阅读，RECOMMENDATION_VIEW=推荐卡视口曝光[M16 T135]）。 */
+export type ReadingContentType =
+  | 'SUBJECT_DETAIL'
+  | 'POLICY'
+  | 'AI_BRIEF'
+  | 'FEED'
+  | 'RECOMMENDATION_VIEW'
+  | 'RECOMMENDATION_ACT';
 
 /** 阅读留痕请求体：contentType/contentRef 必填；subjectCode/subjectId 二选一可空（政策等无标的阅读）。 */
 export interface ReadingEventPayload {

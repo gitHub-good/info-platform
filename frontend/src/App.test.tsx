@@ -215,6 +215,14 @@ function makeFetch() {
         traceId: 't',
       });
     }
+    if (path.includes('/recommendations')) {
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: { total: 0, items: [], nextBeforeId: null },
+        traceId: 't',
+      });
+    }
     if (path.includes('/feed/personal')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
     }
@@ -431,6 +439,18 @@ describe('App 路由与登录守卫（T38）', () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some((call) => String(call[0]).includes('/api/v1/events')),
+      ).toBe(true),
+    );
+  });
+
+  it('#/recommendations 挂载推荐中心页（M16 T135 第 18 页）并请求卡片流接口，「分析」组侧栏项可达', async () => {
+    const fetchMock = renderLoggedIn('#/recommendations');
+
+    expect(await screen.findByTestId('recommendations-page')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-item-recommendations')).toHaveAttribute('aria-current', 'page');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/api/v1/recommendations')),
       ).toBe(true),
     );
   });

@@ -30,7 +30,7 @@ function StatusIndicator({ status }: { status: ConnectionStatus }) {
   );
 }
 
-/** 单条通知行：未读圆点 + 类型徽章 + 异动标的代码 + 摘要 + 时间；可点跳标的详情。 */
+/** 单条通知行：未读圆点 + 类型徽章 + 异动标的代码 + 摘要 + 时间；可点跳标的详情 / 推荐中心。 */
 function NotificationRow({
   item,
   unread,
@@ -40,13 +40,14 @@ function NotificationRow({
   unread: boolean;
   onClick: () => void;
 }) {
-  const clickable = Boolean(item.subjectCode);
+  // 推荐类无 subjectCode 但有 refId（cardId）——跳推荐中心 focus 定位（M16 T136）
+  const clickable = Boolean(item.subjectCode) || (item.type === 'recommend' && Boolean(item.refId));
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={!clickable}
-      title={clickable ? `查看 ${item.subjectCode}` : '无关联标的'}
+      title={clickable ? `查看${item.subjectCode ? ` ${item.subjectCode}` : '推荐卡片'}` : '无关联标的'}
       data-testid={`notification-item-${item.id}`}
       className={cn(
         'flex w-full flex-col gap-1 rounded-lg px-2 py-2 text-left text-sm transition-colors',
@@ -118,7 +119,13 @@ export function NotificationBell() {
   const handleClick = (item: NotificationItem) => {
     markItemRead(item.id);
     setOpen(false);
-    if (item.subjectCode) navigate(`/subjects/${item.subjectCode}`);
+    if (item.subjectCode) {
+      navigate(`/subjects/${item.subjectCode}`);
+      return;
+    }
+    if (item.type === 'recommend' && item.refId) {
+      navigate(`/recommendations?focus=${item.refId}`);
+    }
   };
 
   return (

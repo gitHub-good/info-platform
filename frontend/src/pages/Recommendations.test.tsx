@@ -1,0 +1,416 @@
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RecommendationCardItem, RecommendationListView } from '@/types/recommendation';
+import { resetReadingTrackerForTest } from '@/api/readingEvent';
+
+// —— fetch mock：对齐后端 RecommendationCardController 契约（M16 方案 §4.8：
+//    GET /recommendations 卡片流 + POST /{id}/feedback + POST /{id}/read + POST /reading-events 埋点） ——
+
+const ok = (data: unknown) => ({
+  ok: true,
+  status: 200,
+  json: async () => ({ code: 0, msg: 'ok', data, traceId: 't' }),
+});
+const fail = (status: number, code: number, msg: string) => ({
+  ok: false,
+  status,
+  json: async () => ({ code, msg, data: null, traceId: 't' }),
+});
+
+function cardOf(overrides: Partial<RecommendationCardItem> = {}): RecommendationCardItem {
+  return {
+    id: 9,
+    eventId: 9009,
+    eventType: 'BUYBACK_CHANGE',
+    importance: 'HIGH',
+    direction: 'BULLISH',
+    level: 'P1',
+    industries: ['食品饮料'],
+    subjects: [
+      { code: 'SH600519', name: '贵州茅台', industry: '食品饮料', inWatchlist: false },
+      { code: null, name: '未回联公司', industry: null, inWatchlist: false },
+    ],
+    logicChain: '贵州茅台公告回购计划——该事件直接涉及你关注的标的贵州茅台。',
+    summary: '贵州茅台公告回购计划，拟回购金额不超过30亿元',
+    figures: [{ label: '回购金额上限', value: '30', unit: '亿元' }],
+    quote: '拟回购金额不超过30亿元',
+    newsId: 8009,
+    newsTitle: '贵州茅台拟回购不超30亿元',
+    newsUrl: 'https://example.com/n/8009',
+    eventTime: '2026-09-22T07:30:00Z',
+    pushStatus: 'PUSHED',
+    pushedAt: '2026-09-22T07:31:00Z',
+    createdAt: '2026-09-22T07:30:30Z',
+    read: false,
+    muted: false,
+    feedbackAction: null,
+    ...overrides,
+  };
+}
+
+function viewOf(
+  items: RecommendationCardItem[],
+  total = items.length,
+  nextBeforeId: number | null = null,
+): RecommendationListView {
+  return { total, items, nextBeforeId };
+}
+
+interface RouteStub {
+  path: string;
+  respond: (url: string, init?: RequestInit) => ReturnType<typeof ok> | ReturnType<typeof fail>;
+}
+
+function stubFetch(routes: RouteStub[]) {
+  // 长前缀优先匹配：/recommendations/9/feedback 不被 /recommendations 卡片流路由抢先命中
+  const ordered = [...routes].sort((a, b) => b.path.length - a.path.length);
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    for (const route of ordered) {
+      if (url.startsWith(route.path)) return route.respond(url, init);
+    }
+    return fail(404, 50000, `unexpected fetch: ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  resetReadingTrackerForTest();
+  cleanup();
+  localStorage.clear();
+  window.location.hash = '';
+});
+
+describe('Recommendations 推荐中心页（T135，#/recommendations 第 18 页）', () => {
+  it('默认拉取卡片流：事件头徽章（类型/方向/重要度/层级）/逻辑链突出/标的区 chips（加自选入口）/关键数字/引用外链/时间齐备', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    expect(await screen.findByTestId('rec-card-9')).toBeInTheDocument();
+    expect(screen.getByTestId('rec-type-9')).toHaveTextContent('回购');
+    expect(screen.getByTestId('rec-direction-9')).toHaveTextContent('利好');
+    expect(screen.getByTestId('rec-importance-9')).toHaveTextContent('高');
+    expect(screen.getByTestId('rec-level-9')).toHaveTextContent('标的直接');
+    // 逻辑链突出展示（可解释红线：零新增事实）
+    expect(screen.getByTestId('rec-logic-9')).toHaveTextContent('直接涉及你关注的标的贵州茅台');
+    // 标的区：可点跳标的详情 + 未自选展示「加自选」；未回联标的仅留名不可点
+    expect(screen.getByTestId('rec-subject-SH600519')).toHaveAttribute('href', '#/subjects/SH600519');
+    expect(screen.getByTestId('rec-addwatch-9-SH600519')).toBeInTheDocument();
+    expect(screen.queryByTestId('rec-addwatch-9-null')).toBeNull();
+    // 关键数字 chips + 原文引用 + 外链（新窗口 + rel=noreferrer）
+    expect(screen.getByTestId('rec-figures-9')).toHaveTextContent('回购金额上限: 30亿元');
+    expect(screen.getByTestId('rec-quote-9')).toHaveTextContent('拟回购金额不超过30亿元');
+    const link = screen.getByTestId('rec-link-9');
+    expect(link).toHaveAttribute('href', 'https://example.com/n/8009');
+    expect(link).toHaveAttribute('rel', 'noreferrer');
+    expect(screen.getByTestId('rec-time-9')).toHaveTextContent('2026-09-22');
+    expect(screen.getByTestId('rec-total')).toHaveTextContent('1');
+    // 请求线格式：无筛选参数
+    const firstCall = String(fetchMock.mock.calls[0][0]);
+    expect(firstCall).toContain('/recommendations');
+    expect(firstCall).not.toContain('level=');
+  });
+
+  it('卡片曝光埋点：页面拉取后按卡 fire-and-forget 上报 RECOMMENDATION_VIEW（adopt-v1 曝光②）', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf({ id: 9 })])) },
+      { path: '/api/v1/reading-events', respond: () => ok(null) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    await screen.findByTestId('rec-card-9');
+
+    await waitFor(() => {
+      const viewCalls = fetchMock.mock.calls.filter(
+        (call) => String(call[0]).includes('/reading-events'),
+      );
+      expect(viewCalls).toHaveLength(1);
+      expect(String(viewCalls[0][1]?.body)).toContain('"contentType":"RECOMMENDATION_VIEW"');
+      expect(String(viewCalls[0][1]?.body)).toContain('"contentRef":"9"');
+    });
+  });
+
+  it('逻辑链可回溯三环节：行业跳行业热度下钻、标的跳标的详情、摘要/引用取自原文', async () => {
+    stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    const industries = await screen.findByTestId('rec-industries-9');
+    const industryChip = within(industries).getByText('食品饮料');
+    expect(industryChip.closest('a')).toHaveAttribute(
+      'href',
+      `#/industry-heat?industry=${encodeURIComponent('食品饮料')}`,
+    );
+    expect(screen.getByTestId('rec-subject-SH600519')).toHaveAttribute(
+      'href',
+      '#/subjects/SH600519',
+    );
+  });
+
+  it('已自选标的不展示加自选按钮（inWatchlist=true 徽章标识）', async () => {
+    stubFetch([
+      {
+        path: '/api/v1/recommendations',
+        respond: () =>
+          ok(
+            viewOf([
+              cardOf({
+                subjects: [
+                  { code: 'SH600519', name: '贵州茅台', industry: '食品饮料', inWatchlist: true },
+                ],
+              }),
+            ]),
+          ),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    expect(await screen.findByTestId('rec-card-9')).toBeInTheDocument();
+    expect(screen.queryByTestId('rec-addwatch-9-SH600519')).toBeNull();
+    expect(screen.getByTestId('rec-inwatch-SH600519')).toBeInTheDocument();
+  });
+
+  it('加自选：POST feedback（action=ADD_WATCHLIST + subjectCode）→ 即时态更新（按钮消失/已自选徽章出现）', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+      {
+        path: '/api/v1/recommendations/9/feedback',
+        respond: () => ok({ muteUntil: null, escalated: null }),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    await user.click(await screen.findByTestId('rec-addwatch-9-SH600519'));
+
+    const feedbackCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/recommendations/9/feedback'),
+    );
+    expect(feedbackCalls).toHaveLength(1);
+    expect(String(feedbackCalls[0][1]?.body)).toContain('"action":"ADD_WATCHLIST"');
+    expect(String(feedbackCalls[0][1]?.body)).toContain('"subjectCode":"SH600519"');
+    await waitFor(() =>
+      expect(screen.queryByTestId('rec-addwatch-9-SH600519')).toBeNull(),
+    );
+    expect(screen.getByTestId('rec-inwatch-SH600519')).toBeInTheDocument();
+  });
+
+  it('有用反馈：POST feedback（action=USEFUL）→ 操作条已点态（按钮禁用 + 已点文案）', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+      {
+        path: '/api/v1/recommendations/9/feedback',
+        respond: () => ok({ muteUntil: null, escalated: null }),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    await user.click(await screen.findByTestId('rec-useful-9'));
+
+    const feedbackCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/recommendations/9/feedback'),
+    );
+    expect(String(feedbackCalls[0][1]?.body)).toContain('"action":"USEFUL"');
+    await waitFor(() => expect(screen.getByTestId('rec-useful-9')).toBeDisabled());
+  });
+
+  it('不感兴趣：POST feedback（action=DISLIKE）→ 卡片降频标记出现 + 撤销降频入口', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+      {
+        path: '/api/v1/recommendations/9/feedback',
+        respond: () => ok({ muteUntil: '2026-09-29T08:00:00Z', escalated: false }),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    await user.click(await screen.findByTestId('rec-dislike-9'));
+
+    const feedbackCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/recommendations/9/feedback'),
+    );
+    expect(String(feedbackCalls[0][1]?.body)).toContain('"action":"DISLIKE"');
+    expect(await screen.findByTestId('rec-muted-9')).toBeInTheDocument();
+    expect(screen.getByTestId('rec-undomute-9')).toBeInTheDocument();
+  });
+
+  it('撤销降频：POST feedback（action=UNDO_MUTE）→ 降频标记消失', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch([
+      {
+        path: '/api/v1/recommendations',
+        respond: () => ok(viewOf([cardOf({ muted: true, feedbackAction: 'DISLIKE' })])),
+      },
+      {
+        path: '/api/v1/recommendations/9/feedback',
+        respond: () => ok({ muteUntil: null, escalated: null }),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    expect(await screen.findByTestId('rec-muted-9')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('rec-undomute-9'));
+
+    const feedbackCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/recommendations/9/feedback'),
+    );
+    expect(String(feedbackCalls[0][1]?.body)).toContain('"action":"UNDO_MUTE"');
+    await waitFor(() => expect(screen.queryByTestId('rec-muted-9')).toBeNull());
+  });
+
+  it('点击原文外链前 fire-and-forget 已读：POST /read + 未读点消失（展开即采纳）', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+      { path: '/api/v1/recommendations/9/read', respond: () => ok(null) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    expect(await screen.findByTestId('rec-unread-9')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('rec-link-9'));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/recommendations/9/read')),
+      ).toBe(true);
+    });
+    await waitFor(() => expect(screen.queryByTestId('rec-unread-9')).toBeNull());
+  });
+
+  it('筛选行（级别/类型/方向）：变更回第 1 页带参重拉', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([])) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    await screen.findByTestId('rec-empty');
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByTestId('rec-filter-level'), 'P1');
+    await user.selectOptions(screen.getByTestId('rec-filter-type'), 'BUYBACK_CHANGE');
+    await user.selectOptions(screen.getByTestId('rec-filter-direction'), 'BULLISH');
+
+    await waitFor(() => {
+      const last = String(fetchMock.mock.calls.at(-1)?.[0]);
+      expect(last).toContain('level=P1');
+      expect(last).toContain('eventType=BUYBACK_CHANGE');
+      expect(last).toContain('direction=BULLISH');
+    });
+  });
+
+  it('游标分页：满页展示加载更多（beforeId 续拉），尾页收起', async () => {
+    const fetchMock = stubFetch([
+      {
+        path: '/api/v1/recommendations',
+        respond: (url) =>
+          ok(
+            url.includes('beforeId=9')
+              ? viewOf([cardOf({ id: 8, logicChain: '尾部卡片' })])
+              : viewOf([cardOf()], 2, 9),
+          ),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('rec-load-more'));
+    expect(await screen.findByTestId('rec-card-8')).toBeInTheDocument();
+    const paged = fetchMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes('/recommendations?'));
+    expect(paged.at(-1)).toContain('beforeId=9');
+    await waitFor(() => expect(screen.queryByTestId('rec-load-more')).toBeNull());
+  });
+
+  it('focus 参数定位：SSE 跳转落地 #/recommendations?focus=9 → 高亮目标卡 + 自动已读', async () => {
+    window.location.hash = '#/recommendations?focus=9';
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+      { path: '/api/v1/recommendations/9/read', respond: () => ok(null) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    expect(await screen.findByTestId('rec-focus-9')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/recommendations/9/read')),
+      ).toBe(true);
+    });
+  });
+
+  it('三态齐备：首屏骨架 / 错误重试恢复 / 空态引导文案', async () => {
+    let failing = true;
+    stubFetch([
+      {
+        path: '/api/v1/recommendations',
+        respond: () => (failing ? fail(500, 50000, '服务异常') : ok(viewOf([cardOf()]))),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    expect(screen.getByTestId('rec-loading')).toBeInTheDocument();
+    expect(await screen.findByTestId('rec-error')).toHaveTextContent('服务异常');
+
+    failing = false;
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('rec-retry'));
+    expect(await screen.findByTestId('rec-card-9')).toBeInTheDocument();
+  });
+
+  it('空态：暂无动态推荐（触发门槛与关联命中说明）', async () => {
+    stubFetch([{ path: '/api/v1/recommendations', respond: () => ok(viewOf([])) }]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    expect(await screen.findByTestId('rec-empty')).toHaveTextContent('暂无动态推荐');
+  });
+
+  it('反馈失败（30081）：错误就地提示，不打断卡片流', async () => {
+    const user = userEvent.setup();
+    stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()])) },
+      {
+        path: '/api/v1/recommendations/9/feedback',
+        respond: () => fail(400, 30081, 'action: 须为 USEFUL / DISLIKE / ADD_WATCHLIST / UNDO_MUTE'),
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+    await user.click(await screen.findByTestId('rec-useful-9'));
+
+    expect(await screen.findByTestId('rec-feedback-error-9')).toBeInTheDocument();
+    expect(screen.getByTestId('rec-useful-9')).not.toBeDisabled();
+  });
+});

@@ -13,6 +13,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'source_recovered',
   'pipeline_fused',
   'industry_report',
+  'recommend',
 ] as const;
 
 /** SSE data 载荷（后端 NotificationEvent 序列化 JSON）。 */
@@ -71,4 +72,5 @@ export const TYPE_LABELS: Record<string, string> = {
   source_recovered: '源恢复',
   pipeline_fused: '管道熔断',
   industry_report: '行业日报',
+  recommend: '动态推荐',
 };

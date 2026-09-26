@@ -13,6 +13,7 @@ import {
   RadioTower,
   Rss,
   ScrollText,
+  Sparkles,
   Star,
   Gauge,
   Zap,
@@ -33,7 +34,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 17 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页，事件流为 M15 第 17 页）。 */
+/** 4 分组 18 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页，事件流为 M15 第 17 页）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -56,6 +57,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/industry-heat', label: '行业热度', icon: Flame },
       // 事件流（M15 T127，分析组第 5 项 / 全站第 17 页）：L2 结构化事件卡片流，插「行业热度」后
       { to: '/events', label: '事件流', icon: Zap },
+      // 推荐中心（M16 T135，分析组第 6 项 / 全站第 18 页）：动态推荐卡片流 + 反馈闭环，紧邻事件流
+      { to: '/recommendations', label: '推荐中心', icon: Sparkles },
       // 订阅管理（体检 P1-3）：信息流的数据源头，排在信息流之前
       { to: '/subscriptions', label: '订阅管理', icon: Bookmark },
       { to: '/feed', label: '信息流', icon: Rss },

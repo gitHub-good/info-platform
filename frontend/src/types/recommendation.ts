@@ -28,3 +28,75 @@ export const DAILY_RECOMMENDATION_STATUS = {
   FALLBACK: 2,
   EMPTY: 3,
 } as const;
+
+// —— 推荐中心（M16 T134/T135，对齐后端 RecommendationCardListView / FeedbackResult 契约，方案 §4.8） ——
+
+/** 关联层级（P1 标的直接 / P2 行业 / P3 订阅；多级命中取最高）。 */
+export const REC_LEVEL_LABELS: Record<string, string> = {
+  P1: '标的直接',
+  P2: '行业',
+  P3: '订阅',
+};
+
+/** 反馈动作（对齐后端 FeedbackAction 枚举名）。 */
+export type RecommendationFeedbackAction =
+  | 'USEFUL'
+  | 'DISLIKE'
+  | 'ADD_WATCHLIST'
+  | 'UNDO_MUTE';
+
+/** 卡片标的区条目（≤5；inWatchlist=false 展示「加自选」）。 */
+export interface RecommendationSubject {
+  code: string | null;
+  name: string | null;
+  industry: string | null;
+  inWatchlist: boolean;
+}
+
+/** 关键数字 chips（结构化事实直出，禁编造）。 */
+export interface RecommendationFigure {
+  label: string | null;
+  value: string | null;
+  unit: string | null;
+}
+
+/** 推荐卡片（字段面 = 方案 §4.8 冻结契约；pushStatus 含 SILENT 语义态）。 */
+export interface RecommendationCardItem {
+  id: number;
+  eventId: number;
+  eventType: string;
+  importance: string;
+  direction: string;
+  level: string;
+  industries: string[];
+  subjects: RecommendationSubject[];
+  logicChain: string;
+  summary: string | null;
+  figures: RecommendationFigure[];
+  quote: string | null;
+  newsId: number;
+  newsTitle: string | null;
+  newsUrl: string | null;
+  eventTime: string | null;
+  pushStatus: string;
+  pushedAt: string | null;
+  createdAt: string | null;
+  read: boolean;
+  /** 该卡组合当前降频中（撤销入口展示判定）。 */
+  muted: boolean;
+  /** 操作条已点动作回显（最近一条反馈；null = 未反馈）。 */
+  feedbackAction: RecommendationFeedbackAction | null;
+}
+
+/** 卡片流视图（total 无筛选 = 全量卡，§4.11 对账基准）。 */
+export interface RecommendationListView {
+  total: number;
+  items: RecommendationCardItem[];
+  nextBeforeId: number | null;
+}
+
+/** 反馈响应（{muteUntil?, escalated?}：DISLIKE 返回降频到期与是否升级）。 */
+export interface RecommendationFeedbackResult {
+  muteUntil: string | null;
+  escalated: boolean | null;
+}

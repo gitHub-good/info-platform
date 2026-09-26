@@ -19,9 +19,9 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     for (const group of NAV_GROUPS) {
       expect(screen.getByText(group.label)).toBeInTheDocument();
     }
-    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：17 页 + 底部登出共 18 项
+    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：18 页 + 底部登出共 19 项
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(17);
+    expect(allItems).toHaveLength(18);
     for (const item of allItems) {
       expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
     }

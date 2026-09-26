@@ -398,4 +398,78 @@ describe('通知铃铛与面板交互', () => {
     expect(await screen.findByTestId('notification-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('notification-retry')).toBeNull();
   });
+
+  // —— T136（M16）：recommendation 类型渲染与跳转 ——
+
+  it('M16 推荐事件入列：recommend 命名事件进入面板并显示「动态推荐」徽章 + content 摘要渲染', async () => {
+    const { renderBell } = setupEnvironment();
+    renderBell();
+    fireEvent.click(screen.getByTestId('notification-bell'));
+
+    MockEventSource.instances[0].dispatch(
+      'recommend',
+      {
+        type: 'recommend',
+        subjectId: null,
+        subjectCode: null,
+        refId: '901',
+        content: '【动态推荐】回购·增持·减持·利好｜贵州茅台公告回购计划——该事件直接涉及你关注的标的贵州茅台。',
+      },
+      '301',
+    );
+
+    expect(await screen.findByTestId('notification-item-301')).toBeInTheDocument();
+    expect(screen.getByText('动态推荐')).toBeInTheDocument();
+    expect(screen.getByText(/贵州茅台公告回购计划/)).toBeInTheDocument();
+  });
+
+  it('推荐条目点击：跳推荐中心并带 focus 定位（#/recommendations?focus=901）+ 面板关闭', async () => {
+    const user = userEvent.setup();
+    const { renderBell } = setupEnvironment();
+    renderBell();
+    MockEventSource.instances[0].dispatch(
+      'recommend',
+      {
+        type: 'recommend',
+        subjectId: null,
+        subjectCode: null,
+        refId: '901',
+        content: '【动态推荐】逻辑链摘要',
+      },
+      '302',
+    );
+    await user.click(screen.getByTestId('notification-bell'));
+    await user.click(await screen.findByTestId('notification-item-302'));
+
+    expect(window.location.hash).toBe('#/recommendations?focus=901');
+    expect(screen.queryByTestId('notification-panel')).toBeNull();
+  });
+
+  it('history 兜底含推荐行（type=recommend）：渲染「动态推荐」徽章并可跳推荐中心（无 subjectCode 也可点）', async () => {
+    const user = userEvent.setup();
+    const { renderBell } = setupEnvironment({
+      historyItems: [
+        {
+          id: 303,
+          type: 'recommend',
+          subjectId: null,
+          subjectCode: null,
+          refId: '903',
+          content: '【动态推荐】历史推荐行',
+          status: 1,
+          pushedAt: '2026-09-22T07:31:00Z',
+          createdAt: '2026-09-22T07:31:00Z',
+        },
+      ],
+    });
+    renderBell();
+    await user.click(screen.getByTestId('notification-bell'));
+
+    const row = await screen.findByTestId('notification-item-303');
+    expect(screen.getByText('动态推荐')).toBeInTheDocument();
+    expect(row).not.toBeDisabled();
+    await user.click(row);
+    expect(window.location.hash).toBe('#/recommendations?focus=903');
+  });
 });
+
