@@ -15,7 +15,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 /**
  * InfoSourceSeeder 集成测试（T100，ADR-0032 同系列 seed-if-absent）：启动种子落库（M13 三源 + M14 批次一十源 + M17 批次二九源 +
- * M18 批次三门户与媒体 6 席（T150/T151））、 幂等重跑零新增、 运行态行随种子初始化（错峰 next_due_at ∈ [now,
+ * M18 批次三九源 = 31 默认启用预置 + 示例包 ×2 默认停用）、 幂等重跑零新增、 运行态行随种子初始化（错峰 next_due_at ∈ [now,
  * now+interval]）。共享内存库 + Flyway V22 建表，直连断言。
  */
 @SpringBootTest
@@ -55,13 +55,16 @@ class InfoSourceSeederIntegrationTest {
                     "people_finance",
                     "nasdaq_markets",
                     "wsj_markets",
-                    // M18 批次三门户与媒体 6 席（T150/T151，ADR-0055 预检终局）
+                    // M18 批次三 9 席（T150~T152，ADR-0055 预检终局）
                     "netease_money",
                     "ifeng_finance",
                     "jrj_home",
                     "nbd_news",
                     "cnfin_flash",
-                    "cctv_economy"
+                    "cctv_economy",
+                    "em_finance_column",
+                    "gelonghui_live",
+                    "ce_news"
                 }) {
             Optional<InfoSource> found = infoSourceRepository.findBySourceCode(code);
             assertThat(found).as("预置源缺失: %s", code).isPresent();
@@ -79,6 +82,19 @@ class InfoSourceSeederIntegrationTest {
             assertThat(pollState.nextDueAt())
                     .isBeforeOrEqualTo(now.plusSeconds(60L * source.getIntervalMinutes() + 60));
             assertThat(pollState.consecutiveFailures()).isZero();
+        }
+    }
+
+    @Test
+    void bootSeedsExamplePacks_disabledByDefault() {
+        // 通用 RSS 示例包 ×2（REQ-20260926-15 条目 6）：预置但默认停用（不计 30 口径），用户启用后按通用源语义管理
+        for (String code : new String[] {"example_wsj_world", "example_ithome"}) {
+            Optional<InfoSource> found = infoSourceRepository.findBySourceCode(code);
+            assertThat(found).as("示例包缺失: %s", code).isPresent();
+            InfoSource pack = found.orElseThrow();
+            assertThat(pack.isPreset()).isTrue();
+            assertThat(pack.isEnabled()).as("示例包默认停用: %s", code).isFalse();
+            assertThat(pack.isDeleted()).isFalse();
         }
     }
 

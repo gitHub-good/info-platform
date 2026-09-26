@@ -46,7 +46,11 @@ public class InfoSourceSeeder {
         seedIfAbsent();
     }
 
-    /** 幂等播种：预置源 INSERT OR IGNORE（按 source_code）+ 新行初始化运行态（hash 错峰）。 */
+    /**
+     * 幂等播种：预置源 INSERT OR IGNORE（按 source_code）+ 新行初始化运行态（hash 错峰）。
+     *
+     * <p>启停取目录 {@code defaultEnabled}（M18 示例包 ×2 默认停用播种不计 30 口径；其余预置源默认启用）。
+     */
     public void seedIfAbsent() {
         int seeded = 0;
         for (InfoSourceCatalog.PresetEntry entry : InfoSourceCatalog.presets()) {
@@ -60,7 +64,7 @@ public class InfoSourceSeeder {
                             entry.endpoint(),
                             codec.parse(entry.configJson()),
                             entry.intervalMinutes(),
-                            true,
+                            entry.defaultEnabled(),
                             true);
             if (infoSourceRepository.insertIfAbsent(source)) {
                 Instant now = clock.instant();

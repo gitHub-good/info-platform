@@ -55,7 +55,12 @@ class InfoSourceCatalogTest {
                         "jrj_home",
                         "nbd_news",
                         "cnfin_flash",
-                        "cctv_economy");
+                        "cctv_economy",
+                        "em_finance_column",
+                        "gelonghui_live",
+                        "ce_news",
+                        "example_wsj_world",
+                        "example_ithome");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -91,14 +96,15 @@ class InfoSourceCatalogTest {
                         "people_finance",
                         "nasdaq_markets",
                         "wsj_markets");
-        // 28 = 22 现役目录 + 批次三门户 3 席（T150）+ 媒体 3 席（T151）
-        assertThat(codes).hasSize(28);
+        // 33 = 22 现役目录 + 批次三 9 席 + 示例包 ×2（默认停用不计 30 口径）；Nasdaq 行留档待软删（21 现役 + 9 = 30）
+        assertThat(codes).hasSize(33);
     }
 
     @Test
     void presets_containsM18BatchThreeSources_channelsAndIntervalsPerReq() {
-        // M18 T150 门户三源（REQ-20260926-15 拍板一 #1/#2/#6 + T153 预检终局，ADR-0055）：preset 通道 + 频控 15~30min
-        // （REQ 门户频段）；金融界 www 根无参数路径合规注记（robots 仅禁搜索/翻页参数路径）
+        // M18 批次三（REQ-20260926-15 拍板一 + T153 预检终局，ADR-0055）：门户 3 preset + 媒体 2 preset/1 json_api +
+        // 纵深席 json_api（东财 column=352）+ 竞争席 preset（格隆汇 payload）+ 条件席 preset（中国经济网）；
+        // 频控全部 15~30min（REQ 门户/媒体频段 + 间隔 ≥2min 红线）；金融界 www 根无参数路径合规注记
         var byCode =
                 InfoSourceCatalog.presets().stream()
                         .collect(
@@ -111,31 +117,83 @@ class InfoSourceCatalogTest {
                         "jrj_home",
                         "nbd_news",
                         "cnfin_flash",
-                        "cctv_economy");
+                        "cctv_economy",
+                        "em_finance_column",
+                        "gelonghui_live",
+                        "ce_news");
         for (String code :
-                new String[] {"netease_money", "ifeng_finance", "jrj_home", "nbd_news", "cnfin_flash"}) {
+                new String[] {
+                    "netease_money",
+                    "ifeng_finance",
+                    "jrj_home",
+                    "nbd_news",
+                    "cnfin_flash",
+                    "gelonghui_live",
+                    "ce_news"
+                }) {
             assertThat(byCode.get(code).adapterType())
                     .as("%s 通道", code)
                     .isEqualTo(AdapterType.PRESET);
             assertThat(byCode.get(code).adapterRef()).as("%s adapter_ref", code).isNotBlank();
-            assertThat(byCode.get(code).intervalMinutes()).as("%s 频控", code).isBetween(15, 30);
-            assertThat(codec.parse(byCode.get(code).configJson()).effectiveCursorType().name())
-                    .as("%s cursorType", code)
-                    .isEqualTo("NONE");
         }
-        // 央视走 jsonp 数据端点（jingji 首页客户端渲染壳，沿工信部检索 API 先例）
+        // 央视走 jsonp 数据端点（首页客户端渲染，沿工信部先例）；纵深席东财 column=352 同宿主同构
         assertThat(byCode.get("cctv_economy").adapterType()).isEqualTo(AdapterType.JSON_API);
         assertThat(byCode.get("cctv_economy").endpoint())
                 .contains("cmsdatainterface/page/economy_zixun_1.jsonp");
         assertThat(byCode.get("cctv_economy").intervalMinutes()).isEqualTo(15);
+        assertThat(byCode.get("em_finance_column").adapterType()).isEqualTo(AdapterType.JSON_API);
+        assertThat(byCode.get("em_finance_column").endpoint()).contains("column=352");
+        assertThat(byCode.get("em_finance_column").intervalMinutes()).isEqualTo(15);
+        // 东财纵深席沿 em_headlines 的 code 数值 ID 游标口径
         assertThat(
-                        codec.parse(byCode.get("cctv_economy").configJson())
+                        codec.parse(byCode.get("em_finance_column").configJson())
                                 .effectiveCursorType()
                                 .name())
-                .isEqualTo("NONE");
+                .isEqualTo("ID");
+        // 九源频控落 REQ 门户/媒体频段（15~30min），全部 ≥2min 礼貌红线
+        for (String code :
+                new String[] {
+                    "netease_money",
+                    "ifeng_finance",
+                    "jrj_home",
+                    "nbd_news",
+                    "cnfin_flash",
+                    "cctv_economy",
+                    "em_finance_column",
+                    "gelonghui_live",
+                    "ce_news"
+                }) {
+            assertThat(byCode.get(code).intervalMinutes()).as("%s 频控", code).isBetween(15, 30);
+        }
         // 金融界端点为无参数 www 根（robots 合规注记：仅禁搜索/翻页参数路径）
         assertThat(byCode.get("jrj_home").endpoint()).isEqualTo("https://www.jrj.com.cn/");
         assertThat(byCode.get("jrj_home").endpoint()).doesNotContain("?");
+    }
+
+    @Test
+    void presets_exampleRssPacks_defaultDisabledNotCounted() {
+        // 通用 RSS 示例包 ×2（REQ 条目 6，默认停用播种不计 30 口径）：rss 通道 + TIME 游标 + defaultEnabled=false
+        var byCode =
+                InfoSourceCatalog.presets().stream()
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
+        assertThat(byCode).containsKeys("example_wsj_world", "example_ithome");
+        for (String code : new String[] {"example_wsj_world", "example_ithome"}) {
+            var entry = byCode.get(code);
+            assertThat(entry.adapterType()).as("%s 通道", code).isEqualTo(AdapterType.RSS);
+            assertThat(entry.defaultEnabled()).as("%s 默认停用", code).isFalse();
+            assertThat(codec.parse(entry.configJson()).effectiveCursorType().name())
+                    .as("%s 游标", code)
+                    .isEqualTo("TIME");
+            assertThat(entry.intervalMinutes()).as("%s 频控", code).isBetween(15, 60);
+        }
+        // 其余 31 行（22 现役目录 + 批次三 9 席）默认启用
+        long enabled =
+                InfoSourceCatalog.presets().stream()
+                        .filter(InfoSourceCatalog.PresetEntry::defaultEnabled)
+                        .count();
+        assertThat(enabled).isEqualTo(31);
     }
 
     @Test
@@ -229,7 +287,9 @@ class InfoSourceCatalogTest {
                         "ifeng_finance",
                         "jrj_home",
                         "nbd_news",
-                        "cnfin_flash");
+                        "cnfin_flash",
+                        "gelonghui_live",
+                        "ce_news");
         for (String code :
                 new String[] {
                     "ndrc_policy",

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0"
+>
+<channel>
+<title>WSJ.com: World News</title>
+<description>World News</description>
+<link>https://www.wsj.com/world</link>
+<language>en-us</language>
+<copyright>Copyright &#169; Dow Jones &amp; Company, Inc. All rights reserved.</copyright>
+<lastBuildDate>Sat, 26 Sep 2026 06:27:25 GMT</lastBuildDate>
+<image>
+<title>WSJ.com: World News</title>
+<url>http://online.wsj.com/img/wsj_sm_logo.gif</url>
+<link>https://www.wsj.com/world</link>
+</image>
+<item>
+<guid isPermaLink="false">WP-WSJ-0003901156</guid>
+<title>Overwhelmed by Ukraine&#x2019;s Drones, Russia Tells Businesses to Defend Themselves</title>
+<description>Russia&#x2019;s private industries are increasingly having to fend for themselves as Ukrainian strikes intensify.</description>
+<link>https://www.wsj.com/world/russia/overwhelmed-by-ukraines-drones-russia-tells-businesses-to-defend-themselves-731f294f?mod=rss_worldnews</link>
+<pubDate>Sat, 26 Sep 2026 02:00:00 GMT</pubDate>
+<dc:creator>Thomas Grove</dc:creator>
+<media:content url="https://images.wsj.net/im-98686882" medium="image" type="image/jpeg">
+<media:credit>Social Media/UGC/Reuters</media:credit>
+</media:content>
+</item>
+<item>
+<guid isPermaLink="false">WP-WSJ-0003924325</guid>
+<title>A U.S. Arm-Twisting Campaign Is Cutting Iran Off From the Rest of the World</title>
+<description>A former Citi banker now with the Treasury Department made a secretive trip, warning countries to end flights and cut off banks.</description>
+<link>https://www.wsj.com/world/middle-east/a-u-s-arm-twisting-campaign-is-cutting-iran-off-from-the-rest-of-the-world-ebcd990e?mod=rss_worldnews</link>
+<pubDate>Sat, 26 Sep 2026 02:00:00 GMT</pubDate>
+<dc:creator>Benoit Faucon</dc:creator>
+<media:content url="https://images.wsj.net/im-93062551" medium="image" type="image/jpeg">
+<media:credit>-/Agence France-Presse/Getty Images</media:credit>
+</media:content>
+</item>
+<item>
+<guid isPermaLink="false">WP-WSJ-0003925797</guid>
+<title>Trump Rejects Iran Ceasefire, Expects Renewed Bombing After Midterms</title>
+<description>The president is skeptical that Tehran will meet his demands.</description>
+<link>https://www.wsj.com/world/middle-east/trump-rejects-iran-ceasefire-expects-renewed-bombing-after-midterms-5982ee50?mod=rss_worldnews</link>
+<pubDate>Sat, 26 Sep 2026 00:26:00 GMT</pubDate>
+<dc:creator>Alexander Ward</dc:creator>
+<dc:creator>Summer Said</dc:creator>
+<media:content url="https://images.wsj.net/im-68253177" medium="image" type="image/jpeg">
+<media:credit>Aaron Schwartz - Pool Via Cnp/Aaron Schwartz/Pool/Cnp/ZUMA Press</media:credit>
+</media:content>
+</item>
+</channel>
+</rss>

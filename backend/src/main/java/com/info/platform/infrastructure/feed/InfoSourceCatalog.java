@@ -6,8 +6,11 @@ import java.util.List;
 /**
  * 预置源目录（M13 T100，方案 §4.6/§3.4）：预置源<b>单一事实源</b>（对齐 SourceProviders/DataSourceDefaults 惯例）。
  *
- * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150/T151 批次三门户与媒体六源入目录（T153 预检终局 ADR-0055，累计 28 预置）；M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
- * 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集）。
+ * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150~T152
+ * 批次三九源（门户 3/媒体 3/纵深/竞争/条件席，T153 预检终局 ADR-0055）+ 通用 RSS 示例包 ×2（<b>默认停用</b>播种不计 30 口径）——目录 33 行、默认启用
+ * 31（Nasdaq 行留档待编排者软删后现役 30，精确命中蓝图达标线）；M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
+ * 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集；腾讯端点 WAF JS
+ * 盾即预检永久关闭不入目录，ADR-0055）。
  *
  * <p>合规预检留档（T106 复核）：MarketWatch robots 403 → RFC 9309 无 robots 即无限制（落地复核注记）；金十/新浪 7×24 无 robots。
  * M14 T110 复核：np-weblist/news.10jqka/cache.thepaper robots 404、datacenter-web robots 为 JSON 错误页 →
@@ -635,9 +638,113 @@ public final class InfoSourceCatalog {
                     "cursorType":"NONE"}""",
                     15);
 
+    /**
+     * 东财财经频道（M18 T152 纵深席，拍板一 #7 预检锁定）：np-weblist getNewsByColumns <b>column=352</b>（与在役
+     * em_headlines column=350 同宿主同端点同构——四期实证基础设施复用，ADR-0055）。
+     *
+     * <p>实测口径（2026-09-26 预检）：{@code data.list[]}，{@code code} 日期前缀数值游标、{@code showTime}
+     * 墙钟、title/summary/url 直链齐全。robots：np-weblist 404 → 无限制（M14 T110 已档）。频控 15min（沿 em_headlines）。
+     */
+    private static final PresetEntry EM_FINANCE_COLUMN =
+            new PresetEntry(
+                    "em_finance_column",
+                    "东方财富·财经",
+                    "媒体",
+                    AdapterType.JSON_API,
+                    null,
+                    "https://np-weblist.eastmoney.com/comm/web/getNewsByColumns"
+                            + "?client=web&biz=web_news&column=352&order=1&needInteractData=0"
+                            + "&page_index=1&page_size=20&req_trace=1",
+                    """
+                    {"listPath":"data.list",\
+                    "itemMapping":[\
+                    {"source":"code","target":"externalId","transform":"to_string"},\
+                    {"source":"showTime","target":"publishedAt","transform":"to_iso_datetime"},\
+                    {"source":"title","target":"title","transform":"to_string"},\
+                    {"source":"summary","target":"summary","transform":"to_string"},\
+                    {"source":"url","target":"url","transform":"to_string"}],\
+                    "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://finance.eastmoney.com/"},\
+                    "cursorType":"ID","cursorField":"externalId"}""",
+                    15);
+
+    /**
+     * 格隆汇快讯（M18 T152 竞争席，拍板二四验全过）：预置 adapter（{@code gelonghuiLiveAdapter}），/live/ 页 Nuxt payload
+     * IIFE 参数绑定解析（createTimestamp 尾参表解 epoch 秒 + route 直链还原），口径见适配器类注释（2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p>robots：gelonghui robots 404 → 无限制。频控 15min（REQ 竞争席频段下限）。跨时段结构稳定性由 7 天观察期承载。
+     */
+    private static final PresetEntry GELONGHUI_LIVE =
+            new PresetEntry(
+                    "gelonghui_live",
+                    "格隆汇·快讯",
+                    "快讯",
+                    AdapterType.PRESET,
+                    "gelonghuiLiveAdapter",
+                    "https://www.gelonghui.com/live/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    15);
+
+    /**
+     * 中国经济网滚动新闻（M18 T152 条件席〔第 9 席〕，Nasdaq 终局停用触发、补位序首位和讯瑞数盾 FAIL 顶替）：预置 adapter（{@code
+     * ceNewsAdapter}），首页 gdxw 滚动新闻块与 URL 内嵌 t 日期日粒度墙钟口径见适配器类注释（2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p>robots：ce.cn robots 200 {@code Allow:/} 仅禁 /guanggao/（REQ 记 301 循环已落地失效）。频控
+     * 30min（首页大页礼貌抓取）。
+     */
+    private static final PresetEntry CE_NEWS =
+            new PresetEntry(
+                    "ce_news",
+                    "中国经济网·滚动",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "ceNewsAdapter",
+                    "http://www.ce.cn/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
+    /**
+     * 通用 RSS 示例包 1（M18 T152，REQ-20260926-15 条目 6）：WSJ WorldNews（feeds.content.dowjones.io，200/72
+     * 条可达性实测 2026-09-26 ——M17 ADR-0053 曾以时政密度未入选正席，此处仅作<b>默认停用模板</b>复用结构实证）。
+     *
+     * <p><b>默认停用播种，不计 30 口径</b>（REQ 拍板一口径：稳定源 = 默认启用且周成功率 ≥95%）；接入指引：源管理页启用 → 按 通用 RSS
+     * 源语义调间隔/启停（M13 裁决 1）。robots：dowjones feeds 宿主 403 → 无 robots（MW T106 同族留档）。
+     */
+    private static final PresetEntry EXAMPLE_WSJ_WORLD =
+            new PresetEntry(
+                    "example_wsj_world",
+                    "示例·华尔街日报·国际",
+                    "国际",
+                    AdapterType.RSS,
+                    null,
+                    "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
+                    """
+                    {"cursorType":"TIME","cursorField":"publishedAt"}""",
+                    30,
+                    false);
+
+    /**
+     * 通用 RSS 示例包 2（M18 T152，REQ-20260926-15 条目 6）：IT之家（ithome.com/rss，200/60 条境内可达异宿主 2026-09-26
+     * 实测—— 演示通用 RSS 通道非财经专属宿主同样可接）。默认停用播种不计 30 口径，接入指引同示例包 1。
+     */
+    private static final PresetEntry EXAMPLE_ITHOME =
+            new PresetEntry(
+                    "example_ithome",
+                    "示例·IT之家·科技",
+                    "科技",
+                    AdapterType.RSS,
+                    null,
+                    "https://www.ithome.com/rss/",
+                    """
+                    {"cursorType":"TIME","cursorField":"publishedAt"}""",
+                    30,
+                    false);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
-        return List.of(                MARKETWATCH,
+        return List.of(
+                MARKETWATCH,
                 JIN10_FLASH,
                 SINA_ZHIBO,
                 EM_FASTNEWS,
@@ -664,6 +771,11 @@ public final class InfoSourceCatalog {
                 JRJ_HOME,
                 NBD_NEWS,
                 CNFIN_FLASH,
-                CCTV_ECONOMY);
+                CCTV_ECONOMY,
+                EM_FINANCE_COLUMN,
+                GELONGHUI_LIVE,
+                CE_NEWS,
+                EXAMPLE_WSJ_WORLD,
+                EXAMPLE_ITHOME);
     }
 }
