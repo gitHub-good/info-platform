@@ -25,7 +25,7 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        // M13 试点三源 + M14 批次一十源 + M17 T140~T142 批次二九源（种子顺序即展示顺序）
+        // M13 试点三源 + M14 批次一十源 + M17 T140~T142 批次二九源 + M18 T150~T152 批次三九源与示例包 ×2（种子顺序即展示顺序）
         assertThat(codes)
                 .containsExactly(
                         "mw_topstories",
@@ -49,7 +49,10 @@ class InfoSourceCatalogTest {
                         "cs_news",
                         "people_finance",
                         "nasdaq_markets",
-                        "wsj_markets");
+                        "wsj_markets",
+                        "netease_money",
+                        "ifeng_finance",
+                        "jrj_home");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -58,7 +61,7 @@ class InfoSourceCatalogTest {
 
     @Test
     void presets_containsM14BatchOneJsonSources_thirteenPresetsTotal() {
-        // M14 T110 一级 JSON 四源 + T111/T112 官方报纸六源入目录（REQ 累计 13 源口径）
+        // M14 T110 一级 JSON 四源 + T111/T112 官方报纸六源入目录（REQ 累计 13 源口径）；M17 批二 + M18 批三后目录共 33 行
         var codes =
                 InfoSourceCatalog.presets().stream()
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
@@ -85,7 +88,33 @@ class InfoSourceCatalogTest {
                         "people_finance",
                         "nasdaq_markets",
                         "wsj_markets");
-        assertThat(codes).hasSize(22);
+        // 25 = 22 现役目录 + 批次三门户 3 席（T150）
+        assertThat(codes).hasSize(25);
+    }
+
+    @Test
+    void presets_containsM18BatchThreePortalSources_channelsAndIntervalsPerReq() {
+        // M18 T150 门户三源（REQ-20260926-15 拍板一 #1/#2/#6 + T153 预检终局，ADR-0055）：preset 通道 + 频控 15~30min
+        // （REQ 门户频段）；金融界 www 根无参数路径合规注记（robots 仅禁搜索/翻页参数路径）
+        var byCode =
+                InfoSourceCatalog.presets().stream()
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
+        assertThat(byCode).containsKeys("netease_money", "ifeng_finance", "jrj_home");
+        for (String code : new String[] {"netease_money", "ifeng_finance", "jrj_home"}) {
+            assertThat(byCode.get(code).adapterType())
+                    .as("%s 通道", code)
+                    .isEqualTo(AdapterType.PRESET);
+            assertThat(byCode.get(code).adapterRef()).as("%s adapter_ref", code).isNotBlank();
+            assertThat(byCode.get(code).intervalMinutes()).as("%s 频控", code).isBetween(15, 30);
+            assertThat(codec.parse(byCode.get(code).configJson()).effectiveCursorType().name())
+                    .as("%s cursorType", code)
+                    .isEqualTo("NONE");
+        }
+        // 金融界端点为无参数 www 根（robots 合规注记：仅禁搜索/翻页参数路径）
+        assertThat(byCode.get("jrj_home").endpoint()).isEqualTo("https://www.jrj.com.cn/");
+        assertThat(byCode.get("jrj_home").endpoint()).doesNotContain("?");
     }
 
     @Test
@@ -152,7 +181,8 @@ class InfoSourceCatalogTest {
     @Test
     void presets_containsM14BatchOneHtmlSources_presetChannelCursorNone() {
         // T111/T112 六源：全部 preset 通道（HTML 列表适配在代码内）+ cursorType=NONE（增量靠唯一索引，
-        // 日期粒度过粗/列表乱序/相对时间的裁量见 ADR-0044）+ 频控落 REQ 频段（官方 60min、报纸 15~30min）
+        // 日期粒度过粗/列表乱序/相对时间的裁量见 ADR-0044）+ 频控落 REQ 频段（官方 60min、报纸 15~30min）；
+        // M18 批次三 preset 七源（门户 3/媒体 2/格隆汇 payload/中国经济网）追加于后
         var htmlCodes =
                 InfoSourceCatalog.presets().stream()
                         .filter(p -> p.adapterType() == AdapterType.PRESET)
@@ -173,7 +203,10 @@ class InfoSourceCatalogTest {
                         "jiemian_finance",
                         "cnstock_news",
                         "cs_news",
-                        "people_finance");
+                        "people_finance",
+                        "netease_money",
+                        "ifeng_finance",
+                        "jrj_home");
         for (String code :
                 new String[] {
                     "ndrc_policy",

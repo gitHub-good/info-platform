@@ -6,8 +6,7 @@ import java.util.List;
 /**
  * 预置源目录（M13 T100，方案 §4.6/§3.4）：预置源<b>单一事实源</b>（对齐 SourceProviders/DataSourceDefaults 惯例）。
  *
- * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 T110 批次一一级 JSON 四源 + T111/T112 官方与报纸 HTML
- * 六源入目录（累计 13 预置，REQ 累计源数口径）； M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
+ * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150 批次三门户三源入目录（T153 预检终局 ADR-0055，累计 25 预置）；M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
  * 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集）。
  *
  * <p>合规预检留档（T106 复核）：MarketWatch robots 403 → RFC 9309 无 robots 即无限制（落地复核注记）；金十/新浪 7×24 无 robots。
@@ -20,7 +19,11 @@ public final class InfoSourceCatalog {
 
     private InfoSourceCatalog() {}
 
-    /** 预置源条目（configJson 与 {@code info_source.config} 线格式一致，结构见方案 §4.3）。 */
+    /**
+     * 预置源条目（configJson 与 {@code info_source.config} 线格式一致，结构见方案 §4.3）。
+     *
+     * @param defaultEnabled 种子默认启停（M18 示例包 ×2 默认停用播种不计 30 口径，REQ-20260926-15 条目 6；其余缺省启用）
+     */
     public record PresetEntry(
             String sourceCode,
             String name,
@@ -29,7 +32,31 @@ public final class InfoSourceCatalog {
             String adapterRef,
             String endpoint,
             String configJson,
-            int intervalMinutes) {}
+            int intervalMinutes,
+            boolean defaultEnabled) {
+
+        /** 兼容构造（M13~M17 既有调用面：未声明即默认启用）。 */
+        public PresetEntry(
+                String sourceCode,
+                String name,
+                String category,
+                AdapterType adapterType,
+                String adapterRef,
+                String endpoint,
+                String configJson,
+                int intervalMinutes) {
+            this(
+                    sourceCode,
+                    name,
+                    category,
+                    adapterType,
+                    adapterRef,
+                    endpoint,
+                    configJson,
+                    intervalMinutes,
+                    true);
+        }
+    }
 
     /** MarketWatch Top Stories：标准 RSS 2.0（普查 🟢 200/2576B 实测），TIME 游标，30min。 */
     private static final PresetEntry MARKETWATCH =
@@ -490,10 +517,63 @@ public final class InfoSourceCatalog {
                     {"cursorType":"TIME","cursorField":"publishedAt"}""",
                     30);
 
+    /**
+     * 网易财经首页（M18 T150，REQ-20260926-15 拍板一 #1）：预置 adapter（{@code neteaseMoneyAdapter}），首页
+     * /dy/article/ 锚点 与 「无显式时间 → 发布时间回落摄取时刻」口径见适配器类注释（2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p>robots：money.163.com robots 200 全放行。频控 15min（REQ 门户频段下限）。
+     */
+    private static final PresetEntry NETEASE_MONEY =
+            new PresetEntry(
+                    "netease_money",
+                    "网易财经·要闻",
+                    "门户",
+                    AdapterType.PRESET,
+                    "neteaseMoneyAdapter",
+                    "https://money.163.com/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    15);
+
+    /**
+     * 凤凰财经首页（M18 T150，拍板一 #2）：预置 adapter（{@code ifengFinanceAdapter}），首页 /c/{base62} 短链锚点口径见适配器类注释
+     * （旧列表 api 已弃用走 HTML，2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p>robots：ifeng robots 200 全放行（附 llms.txt 指引，聚合展示不涉）。频控 15min。
+     */
+    private static final PresetEntry IFENG_FINANCE =
+            new PresetEntry(
+                    "ifeng_finance",
+                    "凤凰财经·资讯",
+                    "门户",
+                    AdapterType.PRESET,
+                    "ifengFinanceAdapter",
+                    "https://finance.ifeng.com/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    15);
+
+    /**
+     * 金融界首页（M18 T150，拍板一 #6）：预置 adapter（{@code jrjHomeAdapter}）。REQ 记「列表路径」实测 404/静态精选滞后 12 天——现行
+     * 窗口为 <b>www 根首页</b>（81 条带题锚点，URL 内嵌 ddHHmm 分钟墙钟），口径见适配器类注释（2026-09-26 预检实测，ADR-0055）。
+     *
+     * <p><b>合规注记（REQ 场景 6）</b>：robots 仅禁搜索/翻页参数路径——仅抓 www 根无参数路径。频控 15min。
+     */
+    private static final PresetEntry JRJ_HOME =
+            new PresetEntry(
+                    "jrj_home",
+                    "金融界·要闻",
+                    "门户",
+                    AdapterType.PRESET,
+                    "jrjHomeAdapter",
+                    "https://www.jrj.com.cn/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    15);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
-        return List.of(
-                MARKETWATCH,
+        return List.of(                MARKETWATCH,
                 JIN10_FLASH,
                 SINA_ZHIBO,
                 EM_FASTNEWS,
@@ -514,6 +594,9 @@ public final class InfoSourceCatalog {
                 CS_NEWS,
                 PEOPLE_FINANCE,
                 NASDAQ_MARKETS,
-                WSJ_MARKETS);
+                WSJ_MARKETS,
+                NETEASE_MONEY,
+                IFENG_FINANCE,
+                JRJ_HOME);
     }
 }
