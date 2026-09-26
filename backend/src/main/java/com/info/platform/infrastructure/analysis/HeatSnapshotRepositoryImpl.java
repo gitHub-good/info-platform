@@ -22,8 +22,8 @@ import org.springframework.stereotype.Repository;
  *
  * <p>UPSERT {@code ON CONFLICT(industry, window_type) DO UPDATE}（62 行常驻当前值，重跑收敛）；窗口现算与下钻 join
  * {@code news_analysis/news_item/event_item}（独立表代价 = 一次 join，24h 窗 ≤700 行毫秒级——裁决 1 论证）；事件行业匹配走 JSON
- * 文本包含（引号定界 {@code '%"银行"%'}——枚举名不含引号/百分号，无转义面，且不受「非银金融」等子串误配）。下钻 events 清单的
- * info_source 取 LEFT JOIN（软删源行不消失，sourceName 置空——行数与 countIndustryEventItems 对账保持相等）。
+ * 文本包含（引号定界 {@code '%"银行"%'}——枚举名不含引号/百分号，无转义面，且不受「非银金融」等子串误配）。下钻 events 清单的 info_source 取 LEFT
+ * JOIN（软删源行不消失，sourceName 置空——行数与 countIndustryEventItems 对账保持相等）。
  */
 @Repository
 public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {

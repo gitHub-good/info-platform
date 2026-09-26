@@ -286,8 +286,7 @@ class DailyReportServiceTest {
         assertThat(events.get(0).get("quote").asText()).isEqualTo("原文引用11");
         assertThat(events.get(0).get("figures").toString()).contains("100亿");
         assertThat(events.get(0).get("sourceName").asText()).isEqualTo("源11");
-        assertThat(events.get(0).get("newsUrl").asText())
-                .isEqualTo("https://example.com/n/1011");
+        assertThat(events.get(0).get("newsUrl").asText()).isEqualTo("https://example.com/n/1011");
         // watchPoints 叙述保留
         assertThat(content.get("watchPoints").size()).isEqualTo(3);
         // heat_top 快照留存（生成时点 H24 榜）

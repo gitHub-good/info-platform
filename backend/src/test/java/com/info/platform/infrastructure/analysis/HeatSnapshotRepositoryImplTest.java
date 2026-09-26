@@ -239,10 +239,8 @@ class HeatSnapshotRepositoryImplTest {
         assertThat(page1.get(1).hasEvent()).isTrue(); // L2 事件标记（条目二带事件）
         assertThat(page1.get(0).hasEvent()).isFalse();
         // T162 trace-v1 A 级：url 与库内 news_item.url join 一致（对账口径 = API 返回 = 库内）
-        assertThat(page1.get(0).url())
-                .isEqualTo("https://example.com/n/" + "银行下钻条目三".hashCode());
-        assertThat(page1.get(1).url())
-                .isEqualTo("https://example.com/n/" + "银行下钻条目二".hashCode());
+        assertThat(page1.get(0).url()).isEqualTo("https://example.com/n/" + "银行下钻条目三".hashCode());
+        assertThat(page1.get(1).url()).isEqualTo("https://example.com/n/" + "银行下钻条目二".hashCode());
         List<HeatSnapshotRepository.IndustryNewsItem> page2 =
                 repository.findIndustryNewsItems("银行", from, NOW.toString(), second, 2);
         assertThat(page2)

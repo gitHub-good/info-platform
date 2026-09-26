@@ -111,12 +111,7 @@ class IndustryHeatQueryServiceTest {
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.IndustryNewsItem(
-                                        5L,
-                                        "央行降准",
-                                        "新浪财经",
-                                        NOW,
-                                        true,
-                                        "https://example.com/n/5")));
+                                        5L, "央行降准", "新浪财经", NOW, true, "https://example.com/n/5")));
         when(repository.countIndustryNewsItems(eq("银行"), anyString(), anyString())).thenReturn(1L);
 
         IndustryHeatItemsView view = service.items("银行", "H24", "news", null, 20);

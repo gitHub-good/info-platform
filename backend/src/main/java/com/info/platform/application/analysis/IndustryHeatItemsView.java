@@ -27,8 +27,8 @@ public record IndustryHeatItemsView(
         Long nextBeforeId) {
 
     /**
-     * 下钻条目卡（news 行与 events 行共用外形容器，未用字段 null）。 T162 trace-v1 溯源增量：news 行 url（A 级原文外链）；
-     * events 行 newsUrl（A 级）+ quote/sourceName（B 级兜底面）。
+     * 下钻条目卡（news 行与 events 行共用外形容器，未用字段 null）。 T162 trace-v1 溯源增量：news 行 url（A 级原文外链）； events 行
+     * newsUrl（A 级）+ quote/sourceName（B 级兜底面）。
      */
     public record ItemView(
             Long newsId,

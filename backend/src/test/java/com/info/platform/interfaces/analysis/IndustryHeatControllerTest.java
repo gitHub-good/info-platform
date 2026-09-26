@@ -126,7 +126,8 @@ class IndustryHeatControllerTest {
                 .andExpect(jsonPath("$.data.items[0].hasEvent").value(true))
                 .andExpect(jsonPath("$.data.items[0].title").value("央行降准"))
                 // T162 trace-v1 A 级：news 行 url 原文外链透出
-                .andExpect(jsonPath("$.data.items[0].url").value("https://finance.sina.com.cn/n/5"));
+                .andExpect(
+                        jsonPath("$.data.items[0].url").value("https://finance.sina.com.cn/n/5"));
     }
 
     @Test
