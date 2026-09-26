@@ -54,7 +54,7 @@ function jobOf(overrides: Partial<JobView> = {}): JobView {
   };
 }
 
-/** 5 任务全量视图（对齐 PRD 场景 4.1）+ RETENTION_CLEANUP（M10 T71 起第 7 个收编任务）。 */
+/** 5 任务全量视图（对齐 PRD 场景 4.1）+ RETENTION_CLEANUP（M10 T71 起第 7 个收编任务）+ FACTOR_SNAPSHOT（M20 T170 起第 16 个收编任务）。 */
 function fiveJobs(): JobView[] {
   return [
     jobOf(),
@@ -111,6 +111,16 @@ function fiveJobs(): JobView[] {
       cron: '0 30 3 * * ?',
       lastExecution: null,
     }),
+    jobOf({
+      jobKey: 'FACTOR_SNAPSHOT',
+      jobName: 'FactorSnapshotJob',
+      name: '因子快照',
+      description: '盘后 17:30 全市场五因子计算与评分快照',
+      scheduleType: 'CRON',
+      intervalMillis: null,
+      cron: '0 30 17 * * ?',
+      lastExecution: null,
+    }),
   ];
 }
 
@@ -137,6 +147,27 @@ function retentionView() {
   };
 }
 
+/** 评分权重视图（对齐后端 GET /value-scores/weights 契约：五维 0.40|0.20|0.20|0.20|0.00 + 双窗 10/30 + 半衰期 5.0 + K 3.0|1.5 + 三阈值 60/50/80）。 */
+function weightsView() {
+  return {
+    wCatalyst: 0.4,
+    wConduction: 0.2,
+    wFundamental: 0.2,
+    wRisk: 0.2,
+    wValuation: 0,
+    catalystWindowDays: 10,
+    assocWindowDays: 30,
+    halfLifeDays: 5,
+    k1Saturation: 3,
+    k3Saturation: 1.5,
+    btCatalystMin: 60,
+    btConductionMin: 50,
+    btRiskMin: 80,
+    basis: 'vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80',
+    updatedAt: '2026-09-22T01:00:00Z',
+  };
+}
+
 interface StoreOpts {
   jobs?: JobView[];
   failGet?: boolean;
@@ -146,13 +177,28 @@ interface StoreOpts {
   runningRejectFor?: string[];
   /** 留痕窗口 GET 失败（Dialog 预填失败路径）。 */
   failWindowsGet?: boolean;
+  /** 评分权重 GET 失败（Dialog 预填失败路径）。 */
+  failWeightsGet?: boolean;
 }
 
-/** 状态化 mock：GET 返回任务列表副本；PATCH 合并返回；run 受理或按需失败/409；retention/windows 独立状态。 */
-function makeStore({ jobs = fiveJobs(), failGet = false, failRunFor = [], runningRejectFor = [], failWindowsGet = false }: StoreOpts = {}) {
-  const state = { jobs, retention: retentionView() };
+/** 状态化 mock：GET 返回任务列表副本；PATCH 合并返回；run 受理或按需失败/409；retention/windows 与 value-scores/weights 独立状态。 */
+function makeStore({ jobs = fiveJobs(), failGet = false, failRunFor = [], runningRejectFor = [], failWindowsGet = false, failWeightsGet = false }: StoreOpts = {}) {
+  const state = { jobs, retention: retentionView(), weights: weightsView() };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
+    if (path.endsWith('/value-scores/weights')) {
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, number | string>;
+        const { expectedUpdatedAt: _ignored, ...fields } = body;
+        const next = { ...state.weights, ...fields, updatedAt: '2026-09-22T07:00:00Z' };
+        state.weights = next;
+        return ok(next);
+      }
+      if (failWeightsGet) {
+        return fail(500, 50000, '服务异常');
+      }
+      return ok({ ...state.weights });
+    }
     if (path.endsWith('/retention/windows')) {
       if (init?.method === 'PATCH') {
         const body = JSON.parse(String(init.body)) as Record<string, number | string>;
@@ -629,6 +675,203 @@ describe('TaskCenter 页面（T41）', () => {
     expect(screen.queryByTestId('task-edit-window-DAILY_RECOMMEND-jobExecutionLogDays')).toBeNull();
     expect(
       store.fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/retention/windows')),
+    ).toHaveLength(1);
+  });
+
+  // —— FACTOR_SNAPSHOT 评分权重分组（M20 T172，方案 §4.7.3 + ADR-0058 裁决 4） ——
+
+  it('FACTOR_SNAPSHOT 行渲染 + 编辑 Dialog：GET 预填五维权重与三阈值 + 权重和提示', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId('task-row-FACTOR_SNAPSHOT')).toBeInTheDocument();
+    expect(screen.getByTestId('task-schedule-FACTOR_SNAPSHOT')).toHaveTextContent('cron 0 30 17 * * ?');
+
+    await user.click(screen.getByTestId('task-edit-FACTOR_SNAPSHOT'));
+
+    // Dialog 打开即 GET /value-scores/weights 预填（五权重 0.40|0.20|0.20|0.20|0.00 + 三阈值 60|50|80）
+    await waitFor(() =>
+      expect(
+        store.fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/value-scores/weights')),
+      ).toBe(true),
+    );
+    expect(await screen.findByTestId('task-edit-weight-FACTOR_SNAPSHOT-wCatalyst')).toHaveValue('0.4');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wConduction')).toHaveValue('0.2');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wFundamental')).toHaveValue('0.2');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wRisk')).toHaveValue('0.2');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wValuation')).toHaveValue('0');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-btCatalystMin')).toHaveValue('60');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-btConductionMin')).toHaveValue('50');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-btRiskMin')).toHaveValue('80');
+    // 权重和提示常驻（合成自动归一口径）
+    expect(screen.getByTestId('task-edit-weight-sum-FACTOR_SNAPSHOT')).toHaveTextContent('1（须 > 0 且 ≤ 1.05）');
+  });
+
+  it('权重非法值前端拦截不发请求（负权重/权重超 1/阈值越界，对齐后端 30087 区间）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-FACTOR_SNAPSHOT');
+
+    await user.click(screen.getByTestId('task-edit-FACTOR_SNAPSHOT'));
+    const wCatalyst = await screen.findByTestId('task-edit-weight-FACTOR_SNAPSHOT-wCatalyst');
+    await user.clear(wCatalyst);
+    await user.type(wCatalyst, '-0.1');
+    await user.click(screen.getByTestId('task-edit-save-FACTOR_SNAPSHOT'));
+    expect(await screen.findByText('事件催化权重须为 0 ~ 1 的数值')).toBeInTheDocument();
+    expect(store.fetchMock.mock.calls.filter((call) => call[1]?.method === 'PATCH')).toHaveLength(0);
+
+    const btRisk = screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-btRiskMin');
+    await user.clear(wCatalyst);
+    await user.type(wCatalyst, '0.4');
+    await user.clear(btRisk);
+    await user.type(btRisk, '120');
+    await user.click(screen.getByTestId('task-edit-save-FACTOR_SNAPSHOT'));
+    expect(await screen.findByText('「有突破」风险安全下限须为 0 ~ 100 的整数')).toBeInTheDocument();
+    expect(store.fetchMock.mock.calls.filter((call) => call[1]?.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('全零权重和前端拦截（Σ=0 除零无意义，对齐后端 30087 权重和口径）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-FACTOR_SNAPSHOT');
+
+    await user.click(screen.getByTestId('task-edit-FACTOR_SNAPSHOT'));
+    for (const field of ['wCatalyst', 'wConduction', 'wFundamental', 'wRisk', 'wValuation'] as const) {
+      const input = await screen.findByTestId(`task-edit-weight-FACTOR_SNAPSHOT-${field}`);
+      await user.clear(input);
+      await user.type(input, '0');
+    }
+    await user.click(screen.getByTestId('task-edit-save-FACTOR_SNAPSHOT'));
+    expect(await screen.findByText('五维权重和须 > 0（全零无意义）')).toBeInTheDocument();
+    expect(
+      store.fetchMock.mock.calls.filter(
+        (call) => String(call[0]).endsWith('/value-scores/weights') && call[1]?.method === 'PATCH',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('保存双 PATCH：cron 走既有 /jobs/{jobKey}、权重走新 /value-scores/weights（13 字段全量 + expectedUpdatedAt）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-FACTOR_SNAPSHOT');
+
+    await user.click(screen.getByTestId('task-edit-FACTOR_SNAPSHOT'));
+    const cronInput = await screen.findByTestId('task-edit-cron-FACTOR_SNAPSHOT');
+    await user.clear(cronInput);
+    await user.type(cronInput, '0 45 17 * * ?');
+    // 权重重配保持和为 1（0.40→0.30 + 0→0.10）：启用估值维同时不触权重和拦截
+    const wCatalystInput = screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wCatalyst');
+    await user.clear(wCatalystInput);
+    await user.type(wCatalystInput, '0.3');
+    const wValuation = screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wValuation');
+    await user.clear(wValuation);
+    await user.type(wValuation, '0.1');
+    await user.click(screen.getByTestId('task-edit-save-FACTOR_SNAPSHOT'));
+
+    // 分域提交：调度走 /jobs、权重走 /value-scores/weights（编辑字段取输入 + 未编辑五字段随当前值回传 + 防呆时间戳）
+    await waitFor(() =>
+      expect(
+        store.fetchMock.mock.calls.some(
+          (call) =>
+            String(call[0]).endsWith('/jobs/FACTOR_SNAPSHOT') &&
+            call[1]?.method === 'PATCH' &&
+            String(call[1]?.body).includes('"cron":"0 45 17 * * ?"'),
+        ),
+      ).toBe(true),
+    );
+    expect(
+      store.fetchMock.mock.calls.some(
+        (call) =>
+          String(call[0]).endsWith('/value-scores/weights') &&
+          call[1]?.method === 'PATCH' &&
+          String(call[1]?.body).includes('"wValuation":0.1') &&
+          String(call[1]?.body).includes('"wCatalyst":0.3') &&
+          String(call[1]?.body).includes('"catalystWindowDays":10') &&
+          String(call[1]?.body).includes('"halfLifeDays":5') &&
+          String(call[1]?.body).includes('"k3Saturation":1.5') &&
+          String(call[1]?.body).includes('"btRiskMin":80') &&
+          String(call[1]?.body).includes('"expectedUpdatedAt":"2026-09-22T01:00:00Z"'),
+      ),
+    ).toBe(true);
+
+    // 保存成功 Dialog 关闭 + 权重生效提示（下一轮快照按新参数）
+    await waitFor(() =>
+      expect(screen.queryByTestId('task-edit-save-FACTOR_SNAPSHOT')).toBeNull(),
+    );
+    expect(await screen.findByTestId('task-note-next-cycle')).toBeInTheDocument();
+  });
+
+  it('权重 PATCH 失败：Dialog 保持打开错误就地渲染；已保存的 cron 不重复提交（weightsSavedRef 同 cron 先例）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-FACTOR_SNAPSHOT');
+
+    await user.click(screen.getByTestId('task-edit-FACTOR_SNAPSHOT'));
+    const cronInput = await screen.findByTestId('task-edit-cron-FACTOR_SNAPSHOT');
+    await user.clear(cronInput);
+    await user.type(cronInput, '0 45 17 * * ?');
+    // 权重重配保持和为 1（0.40→0.30 + 0→0.10）
+    const wCatalystInput = screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wCatalyst');
+    await user.clear(wCatalystInput);
+    await user.type(wCatalystInput, '0.3');
+    const wValuation = screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wValuation');
+    await user.clear(wValuation);
+    await user.type(wValuation, '0.1');
+
+    // 首次保存：cron PATCH 成功、权重 PATCH 失败（按 URL 定向失败，避免 mockImplementationOnce 被先到的 /jobs PATCH 消耗）
+    const base = store.fetchMock.getMockImplementation();
+    let failWeightsOnce = true;
+    store.fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/value-scores/weights') && init?.method === 'PATCH' && failWeightsOnce) {
+        failWeightsOnce = false;
+        return fail(409, 30065, '配置已被并发修改，请刷新后重试');
+      }
+      return base?.(url, init) ?? ok(null);
+    });
+    await user.click(screen.getByTestId('task-edit-save-FACTOR_SNAPSHOT'));
+    expect(await screen.findByTestId('task-edit-error-FACTOR_SNAPSHOT')).toHaveTextContent('配置已被并发修改');
+
+    // Dialog 不关、输入保留
+    expect(screen.getByTestId('task-edit-cron-FACTOR_SNAPSHOT')).toHaveValue('0 45 17 * * ?');
+    expect(screen.getByTestId('task-edit-weight-FACTOR_SNAPSHOT-wValuation')).toHaveValue('0.1');
+
+    // 重试成功：/jobs PATCH 只发过一次（cron 已保存不重复提交），权重 PATCH 补齐后关闭
+    await user.click(screen.getByTestId('task-edit-save-FACTOR_SNAPSHOT'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('task-edit-cron-FACTOR_SNAPSHOT')).toBeNull(),
+    );
+    const jobPatches = store.fetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith('/jobs/FACTOR_SNAPSHOT') && call[1]?.method === 'PATCH',
+    );
+    const weightPatches = store.fetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith('/value-scores/weights') && call[1]?.method === 'PATCH',
+    );
+    expect(jobPatches).toHaveLength(1);
+    expect(weightPatches).toHaveLength(2);
+  });
+
+  it('权重 GET 失败：分组显示加载错误且字段禁用；非 FACTOR_SNAPSHOT 任务不触发权重请求', async () => {
+    const store = makeStore({ failWeightsGet: true });
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-FACTOR_SNAPSHOT');
+
+    await user.click(screen.getByTestId('task-edit-FACTOR_SNAPSHOT'));
+    expect(await screen.findByTestId('task-edit-weight-error-FACTOR_SNAPSHOT')).toHaveTextContent('评分权重加载失败');
+    const input = await screen.findByTestId('task-edit-weight-FACTOR_SNAPSHOT-wCatalyst');
+    expect((input as HTMLInputElement).disabled).toBe(true);
+
+    // 非 FACTOR_SNAPSHOT 任务（RETENTION_CLEANUP）：不渲染权重分组、不发 /value-scores/weights 请求
+    await user.click(screen.getByTestId('dialog-close'));
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+    expect(await screen.findByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-edit-weight-RETENTION_CLEANUP-wCatalyst')).toBeNull();
+    expect(
+      store.fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/value-scores/weights')),
     ).toHaveLength(1);
   });
 });

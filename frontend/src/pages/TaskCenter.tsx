@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
 import { getRetentionWindows, patchRetentionWindows } from '@/api/retention';
+import { getScoreWeights, patchScoreWeights } from '@/api/valueScore';
 import { getJobs, patchJob, runJob } from '@/api/taskCenter';
 import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/table';
 import { navigate } from '@/lib/navigation';
 import type { RetentionFieldLimits, RetentionWindowField } from '@/types/retention';
+import type { ScoreWeightField, ScoreWeightsView } from '@/types/valueScore';
 import type { JobConfigUpdate, JobEffectiveMode, JobView } from '@/types/taskCenter';
 
 // —— 常量与工具 ——
@@ -101,6 +103,67 @@ const RETENTION_FIELDS: { field: RetentionWindowField; label: string; fallbackMi
 function windowDaysError(label: string, raw: string, min: number): string | null {
   const n = Number(raw);
   return Number.isInteger(n) && n >= min ? null : `${label}须为 ≥ ${min} 的整数`;
+}
+
+// —— FACTOR_SNAPSHOT 评分权重分组（T172，M20 方案 §4.7.3 + ADR-0058 裁决 4：编辑面挂任务中心 Dialog 零新页） ——
+
+/** 因子快照任务键（权重分组仅该任务显示，对齐 RETENTION 窗口分组的条件渲染先例）。 */
+const FACTOR_JOB_KEY = 'FACTOR_SNAPSHOT';
+
+/** 五维权重字段（0~1；合成自动归一，Σ 须 > 0 且 ≤ 1.05 归一容差——对齐后端 ValuationConfigValidator）。 */
+const WEIGHT_FIELDS: { field: ScoreWeightField; label: string }[] = [
+  { field: 'wCatalyst', label: '事件催化权重' },
+  { field: 'wConduction', label: '行业传导权重' },
+  { field: 'wFundamental', label: '基本面边际权重' },
+  { field: 'wRisk', label: '风险安全权重' },
+  { field: 'wValuation', label: '估值水平权重' },
+];
+
+/** 「有突破」三阈值字段（0~100 整数）。 */
+const THRESHOLD_FIELDS: { field: ScoreWeightField; label: string }[] = [
+  { field: 'btCatalystMin', label: '「有突破」事件催化下限' },
+  { field: 'btConductionMin', label: '「有突破」行业传导下限' },
+  { field: 'btRiskMin', label: '「有突破」风险安全下限' },
+];
+
+const SCORE_WEIGHT_FIELDS = [...WEIGHT_FIELDS, ...THRESHOLD_FIELDS];
+
+/** 权重和归一容差上界（对齐后端 30087 拦截口径，提交前先拦）。 */
+const WEIGHT_SUM_TOLERANCE = 1.05;
+
+/** 权重字段粗校验：数值 0~1（对齐后端校验器区间）。 */
+function weightError(label: string, raw: string): string | null {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? null : `${label}须为 0 ~ 1 的数值`;
+}
+
+/** 阈值字段粗校验：0~100 整数。 */
+function thresholdError(label: string, raw: string): string | null {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 100 ? null : `${label}须为 0 ~ 100 的整数`;
+}
+
+/** 五维权重和校验（Σ=0 除零 / Σ>1.05 视为误配——合成按 Σ 归一）。 */
+function weightSumError(values: Record<ScoreWeightField, string>): string | null {
+  const sum = WEIGHT_FIELDS.reduce((acc, { field }) => acc + Number(values[field] || 0), 0);
+  const rounded = Math.round(sum * 1000) / 1000;
+  if (rounded <= 0) return '五维权重和须 > 0（全零无意义）';
+  if (rounded > WEIGHT_SUM_TOLERANCE) return `五维权重和须 ≤ ${WEIGHT_SUM_TOLERANCE}（当前 ${rounded}）`;
+  return null;
+}
+
+/** GET 视图 → 八个可编辑字段字符串态（预填与 dirty 基线同构）。 */
+function weightValuesOf(view: ScoreWeightsView): Record<ScoreWeightField, string> {
+  return {
+    wCatalyst: String(view.wCatalyst),
+    wConduction: String(view.wConduction),
+    wFundamental: String(view.wFundamental),
+    wRisk: String(view.wRisk),
+    wValuation: String(view.wValuation),
+    btCatalystMin: String(view.btCatalystMin),
+    btConductionMin: String(view.btConductionMin),
+    btRiskMin: String(view.btRiskMin),
+  };
 }
 
 // —— 上次执行徽章（三色 + 运行中 amber，沿用 JobLog 状态徽章惯例） ——
@@ -201,6 +264,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   const isCron = job.scheduleType === 'CRON';
   const showUserIds = job.jobKey === 'DAILY_RECOMMEND';
   const showWindows = job.jobKey === RETENTION_JOB_KEY;
+  const showWeights = job.jobKey === FACTOR_JOB_KEY;
   const [intervalSeconds, setIntervalSeconds] = useState(
     job.intervalMillis != null ? String(Math.round(job.intervalMillis / 1000)) : '',
   );
@@ -217,12 +281,22 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   const [windowsUpdatedAt, setWindowsUpdatedAt] = useState<string | null>(null);
   const [windowsError, setWindowsError] = useState<string | null>(null);
   const [windowFieldError, setWindowFieldError] = useState<string | null>(null);
+  // 评分权重分组（T172）：GET 全量视图（PATCH 13 字段全量——窗口/K/半衰期五字段随当前值回传）+
+  // 八个可编辑字段字符串态 + 加载基线 + 防呆时间戳
+  const [weightsView, setWeightsView] = useState<ScoreWeightsView | null>(null);
+  const [weightValues, setWeightValues] = useState<Record<ScoreWeightField, string> | null>(null);
+  const [weightValuesLoaded, setWeightValuesLoaded] = useState<
+    Record<ScoreWeightField, string> | null
+  >(null);
+  const [weightsError, setWeightsError] = useState<string | null>(null);
+  const [weightFieldError, setWeightFieldError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 保存失败文案（Dialog 内字段下方展示，保持 Dialog 打开不丢输入）
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // 双 PATCH 部分成功标记：cron 已保存后重试不再重复提交（避免 expectedUpdatedAt 过期 30065）
+  // 双 PATCH 部分成功标记：cron/权重已保存后重试不再重复提交（避免 expectedUpdatedAt 过期 30065）
   const cronSavedRef = useRef(false);
+  const weightsSavedRef = useRef(false);
 
   // Dialog 打开即 GET 预填（窗口的操作心智挂在这个清理任务上，方案 §3.5）
   useEffect(() => {
@@ -256,6 +330,30 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
     };
   }, [showWindows]);
 
+  // Dialog 打开即 GET 预填（权重分组的操作心智挂在因子快照任务上，M20 方案 §4.7.3）
+  useEffect(() => {
+    if (!showWeights) {
+      return;
+    }
+    let cancelled = false;
+    getScoreWeights()
+      .then((view) => {
+        if (cancelled) return;
+        const loaded = weightValuesOf(view);
+        setWeightsView(view);
+        setWeightValues(loaded);
+        setWeightValuesLoaded(loaded);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setWeightsError(`评分权重加载失败：${messageOf(err, '请稍后重试')}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showWeights]);
+
   const minOf = (field: RetentionWindowField): number => {
     const meta = RETENTION_FIELDS.find((item) => item.field === field);
     return windowsLimits?.[field]?.min ?? meta?.fallbackMin ?? 1;
@@ -267,11 +365,19 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
     windowsLoaded != null &&
     RETENTION_FIELDS.some(({ field }) => windows[field].trim() !== windowsLoaded[field]);
 
+  const weightsChanged =
+    showWeights &&
+    weightValues != null &&
+    weightValuesLoaded != null &&
+    SCORE_WEIGHT_FIELDS.some(({ field }) => weightValues[field].trim() !== weightValuesLoaded[field]);
+
   const dirty =
     (isCron
       ? cron.trim() !== (job.cron ?? '') ||
         (showUserIds && userIds.trim() !== (job.userIds ?? ''))
-      : Number(intervalSeconds) * 1000 !== job.intervalMillis) || windowsChanged;
+      : Number(intervalSeconds) * 1000 !== job.intervalMillis) ||
+    windowsChanged ||
+    weightsChanged;
 
   const handleSave = async () => {
     const validation = isCron ? cronError(cron) : positiveSecondsError(intervalSeconds);
@@ -282,16 +388,25 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
             windowDaysError(label, windows[field], minOf(field)),
           ).find((message) => message != null) ?? null)
         : null;
+    const weightValidation =
+      showWeights && weightValues != null
+        ? (SCORE_WEIGHT_FIELDS.map(({ field, label }) =>
+            THRESHOLD_FIELDS.some((item) => item.field === field)
+              ? thresholdError(label, weightValues[field])
+              : weightError(label, weightValues[field]),
+          ).find((message) => message != null) ?? weightSumError(weightValues))
+        : null;
     setError(validation ?? usersValidation);
     setWindowFieldError(windowValidation);
+    setWeightFieldError(weightValidation);
     setSaveError(null);
-    if (validation || usersValidation || windowValidation || !dirty) {
+    if (validation || usersValidation || windowValidation || weightValidation || !dirty) {
       return;
     }
     const changed: string[] = [];
     setSaving(true);
     try {
-      // 双 PATCH 分域提交（方案 §3.5）：调度走既有 /jobs/{jobKey}，窗口走新 /retention/windows
+      // 双 PATCH 分域提交（方案 §3.5 同款）：调度走既有 /jobs/{jobKey}，窗口走 /retention/windows，权重走 /value-scores/weights
       let saved: JobView | null = null;
       if (isCron && !cronSavedRef.current) {
         const body: JobConfigUpdate = { expectedUpdatedAt: job.updatedAt ?? undefined };
@@ -326,11 +441,34 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
         });
         changed.push('windows');
       }
+      if (weightsChanged && !weightsSavedRef.current) {
+        // 13 字段全量替换：八个编辑字段取输入，窗口/半衰期/K 五字段随 GET 视图当前值回传
+        const view = weightsView;
+        const values = weightValues as Record<ScoreWeightField, string>;
+        await patchScoreWeights({
+          wCatalyst: Number(values.wCatalyst),
+          wConduction: Number(values.wConduction),
+          wFundamental: Number(values.wFundamental),
+          wRisk: Number(values.wRisk),
+          wValuation: Number(values.wValuation),
+          catalystWindowDays: view?.catalystWindowDays ?? 10,
+          assocWindowDays: view?.assocWindowDays ?? 30,
+          halfLifeDays: view?.halfLifeDays ?? 5.0,
+          k1Saturation: view?.k1Saturation ?? 3.0,
+          k3Saturation: view?.k3Saturation ?? 1.5,
+          btCatalystMin: Number(values.btCatalystMin),
+          btConductionMin: Number(values.btConductionMin),
+          btRiskMin: Number(values.btRiskMin),
+          expectedUpdatedAt: view?.updatedAt ?? undefined,
+        });
+        weightsSavedRef.current = true;
+        changed.push('weights');
+      }
       onSaved({ saved, changed, jobKey: job.jobKey });
       onClose();
     } catch (err) {
       // 保存失败：Dialog 保持打开、输入保留，错误渲染在字段下方供就地重试
-      // （已成功的分域不重复提交：cronSavedRef 守卫）
+      // （已成功的分域不重复提交：cronSavedRef/weightsSavedRef 守卫）
       setSaveError(messageOf(err, '保存失败，请重试'));
     } finally {
       setSaving(false);
@@ -439,6 +577,66 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
           {windowFieldError ? (
             <span className="text-xs text-destructive" role="alert">
               {windowFieldError}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {showWeights ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">评分权重与「有突破」阈值</span>
+          <p className="text-xs text-muted-foreground">
+            保存即热生效——下一轮 17:30 快照按新参数计算；五维权重合成自动归一（估值水平默认 0 =
+            未启用）。
+          </p>
+          {weightsError ? (
+            <p
+              className="text-xs text-destructive"
+              role="alert"
+              data-testid={`task-edit-weight-error-${job.jobKey}`}
+            >
+              {weightsError}
+            </p>
+          ) : null}
+          {WEIGHT_FIELDS.map(({ field, label }) => (
+            <label key={field} className="flex flex-col gap-1 text-sm">
+              <span>{`${label}（0~1）`}</span>
+              <Input
+                value={weightValues ? weightValues[field] : ''}
+                onChange={(e) =>
+                  setWeightValues((prev) => (prev ? { ...prev, [field]: e.target.value } : prev))
+                }
+                aria-label={label}
+                inputMode="decimal"
+                disabled={weightValues == null || weightsError != null}
+                data-testid={`task-edit-weight-${job.jobKey}-${field}`}
+              />
+            </label>
+          ))}
+          {weightValues ? (
+            <p className="text-xs text-muted-foreground" data-testid={`task-edit-weight-sum-${job.jobKey}`}>
+              {`当前五维权重和 ${Math.round(
+                WEIGHT_FIELDS.reduce((acc, { field }) => acc + Number(weightValues[field] || 0), 0) * 1000,
+              ) / 1000}（须 > 0 且 ≤ ${WEIGHT_SUM_TOLERANCE}）`}
+            </p>
+          ) : null}
+          {THRESHOLD_FIELDS.map(({ field, label }) => (
+            <label key={field} className="flex flex-col gap-1 text-sm">
+              <span>{`${label}（0~100）`}</span>
+              <Input
+                value={weightValues ? weightValues[field] : ''}
+                onChange={(e) =>
+                  setWeightValues((prev) => (prev ? { ...prev, [field]: e.target.value } : prev))
+                }
+                aria-label={label}
+                inputMode="numeric"
+                disabled={weightValues == null || weightsError != null}
+                data-testid={`task-edit-weight-${job.jobKey}-${field}`}
+              />
+            </label>
+          ))}
+          {weightFieldError ? (
+            <span className="text-xs text-destructive" role="alert">
+              {weightFieldError}
             </span>
           ) : null}
         </div>
@@ -669,8 +867,8 @@ export function TaskCenter() {
       const restart = changed.some((field) => modes[field] === 'RESTART');
       const nextCycle = changed.some((field) => modes[field] === 'LIVE_NEXT_CYCLE');
       setNote(jobKey, restart ? 'restart' : nextCycle ? 'next-cycle' : 'done');
-    } else if (changed.includes('windows')) {
-      // 仅窗口变更（无调度 PATCH）：下一轮清理按新窗口（热生效，M10 T73）
+    } else if (changed.includes('windows') || changed.includes('weights')) {
+      // 仅窗口/权重变更（无调度 PATCH）：下一轮清理/快照按新参数（热生效，M10 T73 / M20 T172）
       setNote(jobKey, 'next-cycle');
     }
     void refresh(true);
