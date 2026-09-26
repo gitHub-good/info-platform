@@ -431,6 +431,16 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
         return count == null ? 0 : count;
     }
 
+    @Override
+    public List<String> findDistinctMainCategorySince(String createdSinceIso) {
+        // 北极星覆盖率数据面（M18 T158）：DISTINCT 全量值直读，白名单过滤归服务层（仓储零目录语义）
+        return jdbcTemplate.queryForList(
+                "SELECT DISTINCT main_category FROM news_analysis"
+                        + " WHERE l1_status = 'DONE' AND created_at >= ? AND main_category IS NOT NULL",
+                String.class,
+                createdSinceIso);
+    }
+
     private static final String FAIL_ORPHAN_EXTRACTED_SQL =
             """
             UPDATE news_analysis

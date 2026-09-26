@@ -60,6 +60,11 @@ class PipelineGuardServiceTest {
         }
 
         @Override
+        public java.util.List<String> findDistinctMainCategorySince(String createdSinceIso) {
+            return java.util.List.of(); // 北极星覆盖率数据面（T158）——护栏测试不消费
+        }
+
+        @Override
         public int failOrphanExtractedRows() {
             return 0; // OBS-04 一次性归位（T130）——护栏测试不消费
         }

@@ -150,6 +150,13 @@ public interface NewsAnalysisRepository {
     long countNewsItemsCreatedSince(String createdSinceIso);
 
     /**
+     * 指定时刻后 L1 DONE 行的去重主行业清单（北极星行业覆盖率，M18 T158 ns-v1：31 行业日命中口径）。
+     *
+     * <p>返回原始 distinct 值（含容器/null 防御），申万一级白名单过滤由服务层承担（仓储不持有目录语义）。
+     */
+    List<String> findDistinctMainCategorySince(String createdSinceIso);
+
+    /**
      * OBS-04 一次性归位（M16 T130，方案 §4.2）：{@code l2_status='EXTRACTED'} 但 {@code event_item} 无对应行的孤儿
      * 留痕行（BUG-01 处置残留）回置 {@code FAILED}——l2_attempts 留痕不动（未满上限的行由后续 L2 重扫窗口自然补提取）。
      *
