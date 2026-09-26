@@ -43,7 +43,10 @@ class InfoSourceCatalogTest {
                         "jingji21_finance",
                         "miit_policy",
                         "mof_policy",
-                        "em_headlines");
+                        "em_headlines",
+                        "jiemian_finance",
+                        "cnstock_news",
+                        "cs_news");
         assertThat(
                         InfoSourceCatalog.presets().stream()
                                 .map(InfoSourceCatalog.PresetEntry::adapterType))
@@ -72,8 +75,11 @@ class InfoSourceCatalogTest {
                         "jingji21_finance",
                         "miit_policy",
                         "mof_policy",
-                        "em_headlines");
-        assertThat(codes).hasSize(16);
+                        "em_headlines",
+                        "jiemian_finance",
+                        "cnstock_news",
+                        "cs_news");
+        assertThat(codes).hasSize(19);
     }
 
     @Test
@@ -84,9 +90,18 @@ class InfoSourceCatalogTest {
                 InfoSourceCatalog.presets().stream()
                         .collect(java.util.stream.Collectors.toMap(
                                         InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
-        assertThat(byCode).containsKeys("miit_policy", "mof_policy", "em_headlines");
+        assertThat(byCode).containsKeys(
+                        "miit_policy",
+                        "mof_policy",
+                        "em_headlines",
+                        "jiemian_finance",
+                        "cnstock_news",
+                        "cs_news");
         assertThat(byCode.get("em_headlines").adapterType()).isEqualTo(AdapterType.JSON_API);
-        for (String code : new String[] {"miit_policy", "mof_policy"}) {
+        for (String code :
+                new String[] {
+                    "miit_policy", "mof_policy", "jiemian_finance", "cnstock_news", "cs_news"
+                }) {
             assertThat(byCode.get(code).adapterType())
                     .as("%s 通道", code)
                     .isEqualTo(AdapterType.PRESET);
@@ -98,6 +113,9 @@ class InfoSourceCatalogTest {
         assertThat(byCode.get("miit_policy").intervalMinutes()).isEqualTo(60);
         assertThat(byCode.get("mof_policy").intervalMinutes()).isEqualTo(60);
         assertThat(byCode.get("em_headlines").intervalMinutes()).isEqualTo(15);
+        assertThat(byCode.get("jiemian_finance").intervalMinutes()).isEqualTo(30);
+        assertThat(byCode.get("cnstock_news").intervalMinutes()).isEqualTo(30);
+        assertThat(byCode.get("cs_news").intervalMinutes()).isEqualTo(30);
     }
 
     @Test
@@ -120,7 +138,10 @@ class InfoSourceCatalogTest {
                         "yicai_news",
                         "jingji21_finance",
                         "miit_policy",
-                        "mof_policy");
+                        "mof_policy",
+                        "jiemian_finance",
+                        "cnstock_news",
+                        "cs_news");
         for (String code :
                 new String[] {
                     "ndrc_policy",
@@ -130,7 +151,10 @@ class InfoSourceCatalogTest {
                     "yicai_news",
                     "jingji21_finance",
                     "miit_policy",
-                    "mof_policy"
+                    "mof_policy",
+                    "jiemian_finance",
+                    "cnstock_news",
+                    "cs_news"
                 }) {
             var entry =
                     htmlCodes.stream()

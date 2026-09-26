@@ -377,6 +377,61 @@ public final class InfoSourceCatalog {
                     "cursorType":"ID","cursorField":"externalId"}""",
                     15);
 
+    /**
+     * 界面新闻财经（M17 T141，拍板一 #4）：预置 adapter（{@code jiemianFinanceAdapter}）。REQ 记 {@code lists/2} 实测为
+     * 商业频道，财经频道预检修正为 {@code lists/800}——卡片结构与 MM/dd HH:mm 墙钟口径见适配器类注释（2026-09-22 预检实测，ADR-0053）。
+     *
+     * <p>robots：jiemian.com robots 200 仅禁 {@code Con} 前缀路径（列表页不涉，REQ 注记复核一致）。频控 30min（REQ 纸媒频段上限）。
+     */
+    private static final PresetEntry JIEMIAN_FINANCE =
+            new PresetEntry(
+                    "jiemian_finance",
+                    "界面新闻·财经",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "jiemianFinanceAdapter",
+                    "https://www.jiemian.com/lists/800.html",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
+    /**
+     * 上证报要闻（M17 T141，拍板一 #5，澎湃密度补位①）：预置 adapter（{@code cnstockNewsAdapter}）。旧 news 子域 302 进新站、
+     * 栏目列表客户端渲染——现行窗口为首页要闻卡块（沿证监会首页块先例），CSS-module 哈希类锚定与相对/MM-dd 混排墙钟见适配器类注释
+     * （2026-09-22 预检实测，ADR-0053）。
+     *
+     * <p>robots：cnstock.com robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」。频控 30min（首页大页礼貌抓取）。
+     */
+    private static final PresetEntry CNSTOCK_NEWS =
+            new PresetEntry(
+                    "cnstock_news",
+                    "上海证券报·要闻",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "cnstockNewsAdapter",
+                    "https://www.cnstock.com/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
+    /**
+     * 中证网要闻（M17 T141，拍板一 #6，Should，澎湃密度补位②）：预置 adapter（{@code csNewsAdapter}）。栏目列表页均 JS
+     * 模板渲染——现行窗口为首页中证快讯 7×24 块（em 时分 + URL 内嵌日期拼合墙钟），口径见适配器类注释（2026-09-22 预检实测， ADR-0053）。
+     *
+     * <p>robots：cs.com.cn robots 404 → 按 RFC 9309「无 robots 文件 = 无限制」。频控 30min。同质对冲：与证券时报同稿由跨源指纹去重拦截。
+     */
+    private static final PresetEntry CS_NEWS =
+            new PresetEntry(
+                    "cs_news",
+                    "中证网·要闻",
+                    "媒体",
+                    AdapterType.PRESET,
+                    "csNewsAdapter",
+                    "https://www.cs.com.cn/",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -395,6 +450,9 @@ public final class InfoSourceCatalog {
                 JINGJI21_FINANCE,
                 MIIT_POLICY,
                 MOF_POLICY,
-                EM_HEADLINES);
+                EM_HEADLINES,
+                JIEMIAN_FINANCE,
+                CNSTOCK_NEWS,
+                CS_NEWS);
     }
 }
