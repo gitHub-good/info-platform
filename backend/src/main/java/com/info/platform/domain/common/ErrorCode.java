@@ -108,6 +108,8 @@ public enum ErrorCode {
     INDUSTRY_WEEKLY_REPORT_ALREADY_SUCCESS(30085, "该周周报已成功生成，无需重试", 409),
     /** 该标的无任何评分快照（Job 未跑过/标的不存在，404，M20 T171 方案 §4.7.1） */
     VALUE_SCORE_NOT_FOUND(30086, "该标的无评分快照", 404),
+    /** 评分权重/阈值配置校验失败（score.weight 字段级，msg 逐条，400，M20 T172 方案 §4.3/§4.7.3） */
+    VALUATION_CONFIG_INVALID(30087, "评分权重配置校验失败", 400),
     /** 评分查询参数非法（coverage date 非 yyyy-MM-dd 等，400，M20 方案 §4.7.2） */
     VALUE_SCORE_QUERY_INVALID(30088, "评分查询参数非法", 400),
 

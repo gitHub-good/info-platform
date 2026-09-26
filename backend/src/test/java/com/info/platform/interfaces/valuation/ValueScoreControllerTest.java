@@ -1,12 +1,17 @@
 package com.info.platform.interfaces.valuation;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.application.valuation.ScoreWeightConfigFacade;
+import com.info.platform.application.valuation.ScoreWeightConfigFacade.WeightsUpdate;
+import com.info.platform.application.valuation.ScoreWeightConfigFacade.WeightsView;
 import com.info.platform.application.valuation.ValueScoreQueryService;
 import com.info.platform.application.valuation.ValueScoreQueryService.CoverageView;
 import com.info.platform.domain.common.BusinessException;
@@ -17,23 +22,28 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * ValueScoreController 切片测试（T170 coverage §4.7.2 + T171 value-score §4.7.1）：路由与 Result 包装、 非法日期
- * 400/30088、无快照 404/30086 映射（standalone MockMvc + service mock）。
+ * ValueScoreController 切片测试（T170 coverage §4.7.2 + T171 value-score §4.7.1 + T172 weights §4.7.3）：
+ * 路由与 Result 包装、非法日期 400/30088、无快照 404/30086、权重非法 400/30087、并发冲突 409/30065 映射 （standalone MockMvc +
+ * service mock）。
  */
 class ValueScoreControllerTest {
 
     private MockMvc mockMvc;
     private ValueScoreQueryService queryService;
+    private ScoreWeightConfigFacade weightFacade;
 
     @BeforeEach
     void setUp() {
         queryService = mock(ValueScoreQueryService.class);
+        weightFacade = mock(ScoreWeightConfigFacade.class);
         mockMvc =
-                MockMvcBuilders.standaloneSetup(new ValueScoreController(queryService))
+                MockMvcBuilders.standaloneSetup(
+                                new ValueScoreController(queryService, weightFacade))
                         .setControllerAdvice(new GlobalExceptionHandler())
                         .build();
     }
@@ -137,5 +147,115 @@ class ValueScoreControllerTest {
         mockMvc.perform(get("/api/v1/subjects/999/value-score"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(30086));
+    }
+
+    // ---- T172 weights（§4.7.3：任务中心 FACTOR_SNAPSHOT 编辑 Dialog 数据源） ----
+
+    private static WeightsView weightsView() {
+        return new WeightsView(
+                0.40,
+                0.20,
+                0.20,
+                0.20,
+                0.00,
+                10,
+                30,
+                5.0,
+                3.0,
+                1.5,
+                60,
+                50,
+                80,
+                "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80",
+                "2026-09-22T01:00:00Z");
+    }
+
+    @Test
+    void weights_wrappedViewWithParamsBasisAndUpdatedAt() throws Exception {
+        when(weightFacade.view()).thenReturn(weightsView());
+
+        mockMvc.perform(get("/api/v1/value-scores/weights"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.wCatalyst").value(0.40))
+                .andExpect(jsonPath("$.data.wConduction").value(0.20))
+                .andExpect(jsonPath("$.data.wValuation").value(0.00))
+                .andExpect(jsonPath("$.data.catalystWindowDays").value(10))
+                .andExpect(jsonPath("$.data.halfLifeDays").value(5.0))
+                .andExpect(jsonPath("$.data.k3Saturation").value(1.5))
+                .andExpect(jsonPath("$.data.btRiskMin").value(80))
+                .andExpect(
+                        jsonPath("$.data.basis")
+                                .value(
+                                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80"))
+                .andExpect(jsonPath("$.data.updatedAt").value("2026-09-22T01:00:00Z"));
+    }
+
+    @Test
+    void updateWeights_returnsRefreshedView() throws Exception {
+        when(weightFacade.update(any(WeightsUpdate.class))).thenReturn(weightsView());
+
+        mockMvc.perform(
+                        patch("/api/v1/value-scores/weights")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"wCatalyst\":0.5,\"wConduction\":0.2,\"wFundamental\":0.1,"
+                                                + "\"wRisk\":0.1,\"wValuation\":0.1,\"catalystWindowDays\":10,"
+                                                + "\"assocWindowDays\":30,\"halfLifeDays\":5.0,"
+                                                + "\"k1Saturation\":3.0,\"k3Saturation\":1.5,"
+                                                + "\"btCatalystMin\":60,\"btConductionMin\":50,"
+                                                + "\"btRiskMin\":80,"
+                                                + "\"expectedUpdatedAt\":\"2026-09-22T01:00:00Z\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.wCatalyst").value(0.40))
+                .andExpect(jsonPath("$.data.updatedAt").value("2026-09-22T01:00:00Z"));
+    }
+
+    @Test
+    void updateWeights_illegalValue_400With30087FieldLevelMessage() throws Exception {
+        when(weightFacade.update(any(WeightsUpdate.class)))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.VALUATION_CONFIG_INVALID,
+                                "wValuation: 须在 0.0 ~ 1.0 范围内; btRiskMin: 须在 0 ~ 100 范围内"));
+
+        mockMvc.perform(
+                        patch("/api/v1/value-scores/weights")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"wCatalyst\":0.4,\"wConduction\":0.2,\"wFundamental\":0.2,"
+                                                + "\"wRisk\":0.2,\"wValuation\":1.5,\"catalystWindowDays\":10,"
+                                                + "\"assocWindowDays\":30,\"halfLifeDays\":5.0,"
+                                                + "\"k1Saturation\":3.0,\"k3Saturation\":1.5,"
+                                                + "\"btCatalystMin\":60,\"btConductionMin\":50,"
+                                                + "\"btRiskMin\":120}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30087))
+                .andExpect(
+                        jsonPath("$.msg")
+                                .value("wValuation: 须在 0.0 ~ 1.0 范围内; btRiskMin: 须在 0 ~ 100 范围内"));
+    }
+
+    @Test
+    void updateWeights_concurrentConflict_409With30065() throws Exception {
+        when(weightFacade.update(any(WeightsUpdate.class)))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.CONFIG_CONFLICT, "配置已被并发修改: score.weight，请刷新后重试"));
+
+        mockMvc.perform(
+                        patch("/api/v1/value-scores/weights")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"wCatalyst\":0.5,\"wConduction\":0.2,\"wFundamental\":0.1,"
+                                                + "\"wRisk\":0.1,\"wValuation\":0.1,\"catalystWindowDays\":10,"
+                                                + "\"assocWindowDays\":30,\"halfLifeDays\":5.0,"
+                                                + "\"k1Saturation\":3.0,\"k3Saturation\":1.5,"
+                                                + "\"btCatalystMin\":60,\"btConductionMin\":50,"
+                                                + "\"btRiskMin\":80,"
+                                                + "\"expectedUpdatedAt\":\"2026-09-22T00:00:00Z\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(30065));
     }
 }
