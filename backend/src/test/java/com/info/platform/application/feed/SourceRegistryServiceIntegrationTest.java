@@ -773,7 +773,7 @@ class SourceRegistryServiceIntegrationTest {
         InfoSourceCardView card =
                 service.list().groups().stream()
                         .flatMap(group -> group.sources().stream())
-                        .filter(c -> c.id() == created.id())
+                        .filter(c -> java.util.Objects.equals(c.id(), created.id()))
                         .findFirst()
                         .orElseThrow();
         assertThat(card.config().staleSince()).isEqualTo("2026-09-20");

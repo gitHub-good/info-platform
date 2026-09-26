@@ -48,7 +48,8 @@ class PromptPlaceholderRegistryTest {
                             classifyProvider(),
                             extractProvider(),
                             dailyReportProvider(),
-                            recommendCardProvider()));
+                            recommendCardProvider(),
+                            weeklyReportProvider()));
 
     /** 场景 5（行业归类）供给方：全部依赖 mock（注册表只读 provided()，不触发调用）。 */
     private static com.info.platform.application.analysis.ClassificationService classifyProvider() {
@@ -97,6 +98,24 @@ class PromptPlaceholderRegistryTest {
                 Clock.systemUTC());
     }
 
+    /** 场景 9（行业周报）供给方：全部依赖 mock（注册表只读 provided()，不触发调用，M17 T145）。 */
+    private static com.info.platform.application.analysis.WeeklyReportService
+            weeklyReportProvider() {
+        return new com.info.platform.application.analysis.WeeklyReportService(
+                mock(com.info.platform.domain.analysis.WeeklyReportRepository.class),
+                mock(com.info.platform.domain.analysis.DailyReportRepository.class),
+                mock(com.info.platform.domain.analysis.HeatSnapshotRepository.class),
+                mock(com.info.platform.application.analysis.PipelineGuardService.class),
+                new com.info.platform.application.analysis.PipelineSettings(
+                        mock(com.info.platform.application.common.RuntimeConfigService.class),
+                        new com.fasterxml.jackson.databind.ObjectMapper()),
+                mock(LlmGateway.class),
+                mock(PromptTemplateService.class),
+                mock(org.springframework.context.ApplicationEventPublisher.class),
+                new com.fasterxml.jackson.databind.ObjectMapper(),
+                Clock.systemUTC());
+    }
+
     /** 场景 8（推荐卡片逻辑链）供给方：全部依赖 mock（注册表只读 provided()，不触发调用，M16 T132）。 */
     private static com.info.platform.application.recommendation.RecommendationCardService
             recommendCardProvider() {
@@ -123,6 +142,8 @@ class PromptPlaceholderRegistryTest {
         assertThat(registry.byBriefType(BriefType.L2_EXTRACT)).hasSize(3);
         assertThat(registry.byBriefType(BriefType.INDUSTRY_DAILY)).hasSize(3);
         assertThat(registry.byBriefType(BriefType.RECOMMEND_CARD)).hasSize(7);
+        // 场景 9 行业周报 6 键（weekStart/weekEnd/heatStats/topEvents/policyLines/trendSignals，M17 T145）
+        assertThat(registry.byBriefType(BriefType.INDUSTRY_WEEKLY)).hasSize(6);
         assertThat(registry.all()).containsOnlyKeys(BriefType.values());
     }
 

@@ -83,9 +83,9 @@ class PromptTemplateAdminServiceTest {
         // Act
         ListView view = service.list();
 
-        // Assert：恒按 BriefType 序出组（M16 T132 起 8 组——场景 5 归类/6 提取/7 行业日报/8 推荐卡片零特例自动可见，
+        // Assert：恒按 BriefType 序出组（M17 T145 起 9 组——场景 5 归类/6 提取/7 行业日报/8 推荐卡片/9 行业周报零特例自动可见，
         // ADR-0046 裁决 3 同款）；数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
-        assertThat(view.groups()).hasSize(8);
+        assertThat(view.groups()).hasSize(9);
         var stock = view.groups().get(0);
         assertThat(stock.name()).isEqualTo("个股简报");
         assertThat(stock.versions())
@@ -112,6 +112,9 @@ class PromptTemplateAdminServiceTest {
         var recommendCard = view.groups().get(7);
         assertThat(recommendCard.name()).isEqualTo("推荐卡片");
         assertThat(recommendCard.activeCount()).isEqualTo(1);
+        var weekly = view.groups().get(8);
+        assertThat(weekly.name()).isEqualTo("行业周报");
+        assertThat(weekly.activeCount()).isZero(); // V29 播种在库层，本用例仓储 stub 不含——空组保留可见
     }
 
     @Test

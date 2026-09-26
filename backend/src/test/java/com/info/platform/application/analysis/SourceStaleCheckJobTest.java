@@ -16,12 +16,15 @@ import org.junit.jupiter.api.Test;
 class SourceStaleCheckJobTest {
 
     private SourceStaleCheckService staleCheckService;
+    private L2TraceRepair l2TraceRepair;
     private SourceStaleCheckJob job;
 
     @BeforeEach
     void setUp() {
         staleCheckService = mock(SourceStaleCheckService.class);
-        job = new SourceStaleCheckJob(staleCheckService);
+        l2TraceRepair = mock(L2TraceRepair.class);
+        when(l2TraceRepair.repairOrphanExtractedRows()).thenReturn(0);
+        job = new SourceStaleCheckJob(staleCheckService, l2TraceRepair);
     }
 
     @Test
@@ -58,5 +61,37 @@ class SourceStaleCheckJobTest {
 
         assertThat(job.lastProcessedCount()).isZero();
         assertThat(job.lastRunDetail()).isEqualTo("detail-b");
+    }
+
+    // ---- T147（M17 / GAP-02）：L2TraceRepair 触发面顺挂 ----
+
+    @Test
+    void run_triggersL2TraceRepairAndCarriesCount() {
+        when(staleCheckService.checkAll())
+                .thenReturn(
+                        new SourceStaleCheckService.StaleCheckReport(
+                                13, 1, 0, "checked=13; marked=1; cleared=0"));
+        when(l2TraceRepair.repairOrphanExtractedRows()).thenReturn(1);
+
+        job.run();
+
+        verify(l2TraceRepair).repairOrphanExtractedRows();
+        assertThat(job.lastProcessedCount()).isEqualTo(2); // 停更标记 1 + 归位 1
+        assertThat(job.lastRunDetail()).contains("l2TraceRepair=1");
+    }
+
+    @Test
+    void run_l2TraceRepairFailure_doesNotBreakStaleCheck() {
+        when(staleCheckService.checkAll())
+                .thenReturn(
+                        new SourceStaleCheckService.StaleCheckReport(
+                                13, 1, 0, "checked=13; marked=1"));
+        when(l2TraceRepair.repairOrphanExtractedRows())
+                .thenThrow(new RuntimeException("repair boom"));
+
+        job.run();
+
+        assertThat(job.lastProcessedCount()).isEqualTo(1); // 归位段失败不影响停更检查计数
+        assertThat(job.lastRunDetail()).contains("marked=1");
     }
 }
