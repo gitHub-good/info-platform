@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 
 import com.info.platform.application.ai.DailyRecommendationResult;
 import com.info.platform.application.ai.DailyRecommendationService;
+import com.info.platform.application.policy.PolicyScopeQueryService;
+import com.info.platform.application.policy.PolicyScopeQueryService.PolicyScopePage;
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.SourceAdapter;
 import com.info.platform.domain.aggregation.SourceCode;
@@ -24,16 +26,13 @@ import com.info.platform.domain.aggregation.SubjectStatus;
 import com.info.platform.domain.aggregation.SubjectType;
 import com.info.platform.domain.ai.TopRecommendation;
 import com.info.platform.domain.common.BusinessException;
-import com.info.platform.domain.policy.AiTendency;
-import com.info.platform.domain.policy.PolicyItem;
-import com.info.platform.domain.policy.PolicyRepository;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeRow;
 import com.info.platform.domain.subscription.Subscription;
 import com.info.platform.domain.subscription.SubscriptionChannel;
 import com.info.platform.domain.subscription.SubscriptionRepository;
 import com.info.platform.domain.subscription.SubscriptionStatus;
 import com.info.platform.domain.subscription.SubscriptionType;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +48,7 @@ import org.mockito.quality.Strictness;
 
 /**
  * FeedService 单元测试（T27）：mock
- * SubscriptionRepository/SubjectRepository/PolicyRepository/SourceAdapter/
+ * SubscriptionRepository/SubjectRepository/PolicyScopeQueryService/SourceAdapter/
  * DailyRecommendationService，复用真实 {@link FeedMatcher}（验证集成）。AAA 结构，覆盖主路径/退订降噪/空订阅/ 分页/源降级。
  *
  * <p>不依赖真实 DB/HTTP/LLM（对齐 04 测试规范 FIRST）。SourceAdapter 按 sourceCode 装配（mock 标识 ANNOUNCE/NEWS）。
@@ -64,7 +63,7 @@ class FeedServiceTest {
 
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubjectRepository subjectRepository;
-    @Mock private PolicyRepository policyRepository;
+    @Mock private PolicyScopeQueryService policyScopeQueryService;
     @Mock private DailyRecommendationService dailyRecommendationService;
     @Mock private SourceAdapter announceAdapter;
     @Mock private SourceAdapter newsAdapter;
@@ -79,7 +78,7 @@ class FeedServiceTest {
                 new FeedService(
                         subscriptionRepository,
                         subjectRepository,
-                        policyRepository,
+                        policyScopeQueryService,
                         dailyRecommendationService,
                         new FeedMatcher(),
                         List.of(announceAdapter, newsAdapter));
@@ -123,8 +122,9 @@ class FeedServiceTest {
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
         // 政策标题含「白酒」（命中主题订阅）；relatedIndustries 为空 → 不命中标的订阅（行业无交集），
         // 故主题订阅独占该政策命中，标的订阅独占公告命中——两条匹配路径分别验证
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt()))
-                .thenReturn(List.of(policy(1L, "国务院关于白酒产业的意见", List.of())));
+        when(policyScopeQueryService.list(any()))
+                .thenReturn(
+                        new PolicyScopePage(List.of(scopeRow(1L, "国务院关于白酒产业的意见", null, null)), 1));
         when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
@@ -187,8 +187,10 @@ class FeedServiceTest {
                                 NOW));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt()))
-                .thenReturn(List.of(policy(1L, "国务院关于白酒产业的意见", List.of("银行"))));
+        when(policyScopeQueryService.list(any()))
+                .thenReturn(
+                        new PolicyScopePage(
+                                List.of(scopeRow(1L, "国务院关于白酒产业的意见", "监管·政策", "银行")), 1));
         when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
     }
 
@@ -328,7 +330,7 @@ class FeedServiceTest {
                                 SourceCode.ANNOUNCE, MOUTAI_ID, announceItems(25), "公告", NOW));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(policyScopeQueryService.list(any())).thenReturn(emptyScopePage());
         when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
@@ -380,7 +382,7 @@ class FeedServiceTest {
         assertThat(view.items()).hasSize(1);
         assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.RECOMMENDATION);
         verify(subjectRepository, never()).findById(anyLong());
-        verify(policyRepository, never()).findRecent(anyInt(), any(), any(), anyInt());
+        verify(policyScopeQueryService, never()).list(any());
         verify(announceAdapter, never()).fetch(any(Subject.class));
     }
 
@@ -403,7 +405,7 @@ class FeedServiceTest {
         // Assert
         assertThat(view.items()).hasSize(1);
         assertThat(view.items().get(0).type()).isEqualTo(FeedItemType.RECOMMENDATION);
-        verify(policyRepository, never()).findRecent(anyInt(), any(), any(), anyInt());
+        verify(policyScopeQueryService, never()).list(any());
     }
 
     // ---- 游标分页（id > cursor LIMIT 20）----
@@ -421,7 +423,7 @@ class FeedServiceTest {
                                 SourceCode.ANNOUNCE, MOUTAI_ID, announceItems(25), "公告", NOW));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(policyScopeQueryService.list(any())).thenReturn(emptyScopePage());
         when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
@@ -458,7 +460,7 @@ class FeedServiceTest {
                 .thenReturn(SourceResult.failed(SourceCode.ANNOUNCE, MOUTAI_ID, "公告源(mock)"));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(policyScopeQueryService.list(any())).thenReturn(emptyScopePage());
         when(dailyRecommendationService.readDaily(ME))
                 .thenReturn(
                         new DailyRecommendationResult(
@@ -488,8 +490,66 @@ class FeedServiceTest {
         // Assert：形态 {type}:{源稳定 id}——类型前缀可辨（防跨类型条目撞 FEED 去重键）
         assertThat(view.items()).hasSize(3);
         assertThat(view.items().get(0).contentId()).isEqualTo("recommendation:SH600036");
-        assertThat(view.items().get(1).contentId()).isEqualTo("policy:1");
+        assertThat(view.items().get(1).contentId()).isEqualTo("policy:news:1");
         assertThat(view.items().get(2).contentId()).isEqualTo("announce:a1");
+    }
+
+    @Test
+    void getPersonalFeed_contentId_policyUsesNewsNamespace_formStableAcrossRequests() {
+        // Gate 3（V2.3-M23 T203，ADR-0062 裁决二随批）：政策条目切 news 数据面后 contentId 换代
+        // policy:news:{newsId}——news: 命名空间与历史 policy:{policyId}（1~35 与 news id 数值域重叠）
+        // 零撞名，readingEvent 历史留痕无歧义续读；类型前缀 policy: 保留（POLICY 埋点语义延续）。
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(List.of(sub(11L, SubscriptionType.TOPIC, "白酒")));
+        when(policyScopeQueryService.list(any()))
+                .thenReturn(
+                        new PolicyScopePage(
+                                List.of(scopeRow(4089L, "国务院关于白酒产业的意见", null, null)), 1));
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+
+        FeedListView first = service.getPersonalFeed(ME, null);
+        FeedListView second = service.getPersonalFeed(ME, null);
+
+        assertThat(findByContentId(first, "policy:news:4089"))
+                .as("政策条目 contentId 形态 = policy:news:{newsId}")
+                .isNotNull();
+        assertThat(findByContentId(second, "policy:news:4089"))
+                .as("contentId 跨请求稳定（readingEvent 去重键续读依据）")
+                .isNotNull();
+        assertThat(findByContentId(first, "policy:4089"))
+                .as("旧形态 policy:{num} 不得再现（与历史 policyId 数值域撞名防御）")
+                .isNull();
+    }
+
+    @Test
+    void getPersonalFeed_policySubscriptionMatch_sameCorpus_sameMagnitudeAsContainsSemantics() {
+        // Gate 3（V2.3-M23 T203，方案 §7/风险表「订阅匹配面微变」）：政策语料从 policy_item 标题切 news
+        // 标题+摘要（policy-scope-v1），匹配语义（contains）与语料量级不变——同量级对照：
+        // sub_type=4 政策主题订阅的命中条数 == 对同语料直接按 contains 复算的期望条数（同量级语义锁定）。
+        List<PolicyScopeRow> corpus =
+                List.of(
+                        scopeRow(4090L, "央行发布货币政策执行报告", null, null),
+                        scopeRow(4091L, "国务院关于白酒产业发展的意见", null, null),
+                        scopeRow(4092L, "货币政策委员会例会纪要公布", null, null),
+                        scopeRow(4093L, "工信部印发数据中心建设指南", null, null));
+        when(subscriptionRepository.findByOwnerIdCursor(eq(ME), any(), any(), anyInt()))
+                .thenReturn(List.of(sub(12L, SubscriptionType.POLICY_THEME, "货币政策")));
+        when(policyScopeQueryService.list(any()))
+                .thenReturn(new PolicyScopePage(corpus, corpus.size()));
+        when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
+
+        FeedListView view = service.getPersonalFeed(ME, null);
+
+        long expectedByContains =
+                corpus.stream().filter(row -> row.title().contains("货币政策")).count();
+        long actualPolicyHits =
+                view.items().stream().filter(i -> i.type() == FeedItemType.POLICY).count();
+        assertThat(actualPolicyHits)
+                .as("同语料同订阅，matcher 命中数 == contains 复算数（语义等价，量级不变）")
+                .isEqualTo(expectedByContains)
+                .isEqualTo(2L);
+        assertThat(view.items().stream().filter(i -> i.type() == FeedItemType.POLICY))
+                .allSatisfy(i -> assertThat(i.matchReason()).startsWith("政策主题订阅:货币政策"));
     }
 
     @Test
@@ -501,7 +561,7 @@ class FeedServiceTest {
                 .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(policyScopeQueryService.list(any())).thenReturn(emptyScopePage());
         when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
         when(announceAdapter.fetch(any(Subject.class)))
                 .thenReturn(
@@ -542,7 +602,7 @@ class FeedServiceTest {
                 .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(policyScopeQueryService.list(any())).thenReturn(emptyScopePage());
         when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
         when(announceAdapter.fetch(any(Subject.class)))
                 .thenReturn(
@@ -588,7 +648,7 @@ class FeedServiceTest {
                 .thenReturn(Optional.of(subject(MOUTAI_ID, "SH600519", "贵州茅台", "白酒")));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt())).thenReturn(List.of());
+        when(policyScopeQueryService.list(any())).thenReturn(emptyScopePage());
         when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
         when(announceAdapter.fetch(any(Subject.class)))
                 .thenReturn(
@@ -658,8 +718,9 @@ class FeedServiceTest {
                                 NOW));
         when(newsAdapter.fetch(any(Subject.class)))
                 .thenReturn(SourceResult.missing(SourceCode.NEWS, MOUTAI_ID, "新闻源(mock)"));
-        when(policyRepository.findRecent(anyInt(), any(), any(), anyInt()))
-                .thenReturn(List.of(policy(1L, "国务院关于白酒产业的意见", List.of())));
+        when(policyScopeQueryService.list(any()))
+                .thenReturn(
+                        new PolicyScopePage(List.of(scopeRow(1L, "国务院关于白酒产业的意见", null, null)), 1));
         when(dailyRecommendationService.readDaily(ME)).thenReturn(doneRec());
     }
 
@@ -707,18 +768,27 @@ class FeedServiceTest {
                 null);
     }
 
-    private static PolicyItem policy(long id, String title, List<String> industries) {
-        return PolicyItem.reconstruct(
-                id,
+    /**
+     * policy-scope 行 fixture（V2.3 T203 政策数据面 = news_item：publishedAt Instant 直用，行业标签由 main/sub 派生）。
+     */
+    private static PolicyScopeRow scopeRow(
+            long newsId, String title, String mainCategory, String subIndustry) {
+        return new PolicyScopeRow(
+                newsId,
                 title,
-                "国务院",
-                LocalDate.of(2026, 9, 20),
                 null,
-                industries,
-                AiTendency.UNJUDGED,
-                "https://gov/" + id,
-                NOW,
-                NOW);
+                "https://gov/news/" + newsId,
+                Instant.parse("2026-09-20T00:00:00Z"),
+                "gov_policy",
+                "中国政府网·政策",
+                "政策",
+                mainCategory,
+                subIndustry,
+                null);
+    }
+
+    private static PolicyScopePage emptyScopePage() {
+        return new PolicyScopePage(List.of(), 0);
     }
 
     /** 25 条基础公告 + 1 条更新的公告（externalId=anew、publishedAt 更晚，模拟两次请求之间新内容到达）。 */

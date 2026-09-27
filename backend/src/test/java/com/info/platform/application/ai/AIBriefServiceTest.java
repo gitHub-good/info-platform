@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -15,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.info.platform.application.aggregation.AggregationService;
+import com.info.platform.application.aggregation.DetailSections;
 import com.info.platform.application.aggregation.SubjectDetail;
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.Subject;
@@ -777,7 +777,8 @@ class AIBriefServiceTest {
                                         Instant.now())));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(subjectRepository.findById(SUBJECT_ID)).thenReturn(Optional.of(subject()));
-        when(aggregationService.getDetail(eq(SUBJECT_ID), anySet())).thenReturn(detail());
+        when(aggregationService.getDetail(eq(SUBJECT_ID), any(DetailSections.class)))
+                .thenReturn(detail());
     }
 
     private void stubContextAndTemplate() {

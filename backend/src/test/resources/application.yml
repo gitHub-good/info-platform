@@ -44,15 +44,8 @@ recommendation:
     enabled: false
     interval-millis: 60000
 
-# 政策抓取 job 在测试环境关闭：@Scheduled 不触发、PolicyFetchJob 不装配（对齐 04 测试规范），
-# 抓取/去重逻辑改由单测直接调 PolicyFetchJob.fetch 验证（mock GovPolicyClient，不依赖真实 gov.cn）。
-policy:
-  fetch:
-    enabled: false
-  # 政策倾向判断 job 在测试环境关闭：@Scheduled 不触发、PolicyTendencyJob 不装配（对齐 04 测试规范），
-  # 倾向判断逻辑改由单测直接调 PolicyTendencyService.judgeTendency 验证（mock LlmGateway，不依赖真实 LLM）。
-  tendency:
-    enabled: false
+# 政策双轨 Job 已随 V2.3-M23 T203 整链删除（ADR-0062 裁决二）：政策条目走资讯源体系（gov_policy 目录源
+# 经 SOURCE_POLL 轮询），该源的测试隔离由 source.poll.enabled=false 覆盖；无独立 yml 键。
 
 # 标的池同步 job 在测试环境关闭：种子 job.SUBJECT_SYNC enabled=false → 调度中心零注册（@Scheduled 等价隔离），
 # 同步逻辑改由单测/集成测试直接调 SubjectSyncService 验证（mock 列表源，不真实外呼 push2）；

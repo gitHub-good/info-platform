@@ -175,18 +175,6 @@ class MockSourceAdaptersTest {
     }
 
     @Test
-    void policyAdapter_returnsEmptyAndDegradesToMissing() {
-        MockPolicySourceAdapter adapter =
-                new MockPolicySourceAdapter(cache, fieldMapper, runner, breaker);
-
-        SourceResult result = adapter.fetch(subject(1L));
-
-        assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
-        assertThat(result.getData()).isEmpty();
-        assertThat(result.getSource()).isEqualTo("政策源(mock)");
-    }
-
-    @Test
     void eventAdapter_returnsOkWithSampleItems() {
         // T08（ADR-0013）：事件 mock 走 data.items 列表契约，供 mock 模式下详情页事件分区展示
         MockEventSourceAdapter adapter =
@@ -218,8 +206,6 @@ class MockSourceAdaptersTest {
         MockAnnounceSourceAdapter announce =
                 new MockAnnounceSourceAdapter(cache, fieldMapper, runner, breaker);
         MockNewsSourceAdapter news = new MockNewsSourceAdapter(cache, fieldMapper, runner, breaker);
-        MockPolicySourceAdapter policy =
-                new MockPolicySourceAdapter(cache, fieldMapper, runner, breaker);
         MockEventSourceAdapter event =
                 new MockEventSourceAdapter(cache, fieldMapper, runner, breaker);
 
@@ -232,9 +218,6 @@ class MockSourceAdaptersTest {
                 .containsExactlyInAnyOrder(
                         SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
         assertThat(news.supportedSubjectTypes())
-                .containsExactlyInAnyOrder(
-                        SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
-        assertThat(policy.supportedSubjectTypes())
                 .containsExactlyInAnyOrder(
                         SubjectType.STOCK, SubjectType.INDEX, SubjectType.SECTOR);
         assertThat(event.supportedSubjectTypes())

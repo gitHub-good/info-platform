@@ -154,12 +154,11 @@ class SourceCacheTest {
 
     @Test
     void okResultCarriesOkStatusWhenCached() {
-        SourceResult ok =
-                SourceResult.ok(SourceCode.POLICY, 7L, Map.of("t", 1), "s", Instant.now());
+        SourceResult ok = SourceResult.ok(SourceCode.NEWS, 7L, Map.of("t", 1), "s", Instant.now());
 
-        cache.put(SourceCode.POLICY, 7L, ok);
+        cache.put(SourceCode.NEWS, 7L, ok);
 
-        SourceResult got = cache.getIfPresent(SourceCode.POLICY, 7L);
+        SourceResult got = cache.getIfPresent(SourceCode.NEWS, 7L);
         assertThat(got).isNotNull();
         assertThat(got.getStatus()).isEqualTo(SourceStatus.OK);
     }
@@ -201,11 +200,11 @@ class SourceCacheTest {
                             throw new IllegalStateException("snapshot broken");
                         });
         SourceResult ok =
-                SourceResult.ok(SourceCode.POLICY, 1L, Map.of("items", 1), "src", Instant.now());
+                SourceResult.ok(SourceCode.NEWS, 1L, Map.of("items", 1), "src", Instant.now());
 
-        cache.put(SourceCode.POLICY, 1L, ok);
+        cache.put(SourceCode.NEWS, 1L, ok);
 
-        assertThat(cache.getIfPresent(SourceCode.POLICY, 1L)).isSameAs(ok);
+        assertThat(cache.getIfPresent(SourceCode.NEWS, 1L)).isSameAs(ok);
     }
 
     @Test

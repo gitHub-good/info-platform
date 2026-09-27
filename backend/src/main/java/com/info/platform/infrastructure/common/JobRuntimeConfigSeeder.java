@@ -36,18 +36,6 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${source.poll.interval-millis:60000}")
     private long sourcePollIntervalMillis;
 
-    @Value("${policy.fetch.enabled:true}")
-    private boolean policyFetchEnabled;
-
-    @Value("${policy.fetch.interval-millis:3600000}")
-    private long policyFetchIntervalMillis;
-
-    @Value("${policy.tendency.enabled:true}")
-    private boolean policyTendencyEnabled;
-
-    @Value("${policy.tendency.interval-millis:1800000}")
-    private long policyTendencyIntervalMillis;
-
     @Value("${anomaly.detect.enabled:true}")
     private boolean anomalyDetectEnabled;
 
@@ -161,18 +149,6 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Override
     public List<RuntimeConfigSeed> seeds() {
         List<RuntimeConfigSeed> seeds = new ArrayList<>();
-        seeds.add(
-                fixedDelay(
-                        "POLICY_FETCH",
-                        "政策抓取任务调度（PolicyFetchJob，gov.cn/zhengce 抓取去重入库）",
-                        policyFetchEnabled,
-                        policyFetchIntervalMillis));
-        seeds.add(
-                fixedDelay(
-                        "POLICY_TENDENCY",
-                        "政策倾向判断任务调度（PolicyTendencyJob，LLM 批量判利好/利空/中性）",
-                        policyTendencyEnabled,
-                        policyTendencyIntervalMillis));
         seeds.add(
                 fixedDelay(
                         "ANOMALY_DETECT",

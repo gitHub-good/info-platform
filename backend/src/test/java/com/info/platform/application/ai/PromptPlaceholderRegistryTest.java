@@ -5,13 +5,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.info.platform.application.aggregation.SubjectDetail;
-import com.info.platform.application.policy.PolicyTendencyService;
 import com.info.platform.domain.aggregation.SubjectRepository;
-import com.info.platform.domain.ai.BriefContentCodec;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.LlmGateway;
 import com.info.platform.domain.ai.PlaceholderDescriptor;
-import com.info.platform.domain.policy.PolicyRepository;
 import com.info.platform.domain.subscription.WatchlistRepository;
 import java.time.Clock;
 import java.util.List;
@@ -40,11 +37,6 @@ class PromptPlaceholderRegistryTest {
                                     Clock.systemUTC(),
                                     Runnable::run,
                                     2000L),
-                            new PolicyTendencyService(
-                                    mock(PolicyRepository.class),
-                                    mock(LlmGateway.class),
-                                    mock(PromptTemplateService.class),
-                                    mock(BriefContentCodec.class)),
                             classifyProvider(),
                             extractProvider(),
                             dailyReportProvider(),
@@ -143,13 +135,16 @@ class PromptPlaceholderRegistryTest {
 
     @Test
     void aggregates_sevenScenarios_withExpectedCounts() {
-        // Act + Assert：注册表 45 键 = 17（场景1）+ 17（场景2 共用）+ 7（场景3）+ 6（场景4）+ 2（场景5 行业归类，M15 T121）
+        // Act + Assert：注册表 38 键 = 17（场景1）+ 17（场景2 共用）+ 0（场景3 政策解读，T203 退役）+ 6（场景4）+ 2（场景5 行业归类，M15
+        // T121）
         // + 3（场景6 事件提取 today/batchSize/items，M15 T122）+ 3（场景7 行业日报
         // reportDate/industryStats/topEvents，M15 T124）+ 7（场景8 推荐卡片
         // level/eventTypeLabel/directionLabel/summary/industries/subjects/watchSubjects，M16 T132）
         assertThat(registry.byBriefType(BriefType.STOCK)).hasSize(17);
         assertThat(registry.byBriefType(BriefType.EVENT_ATTRIBUTION)).hasSize(17);
-        assertThat(registry.byBriefType(BriefType.POLICY)).hasSize(7);
+        // V2.3-M23 T203：PolicyTendencyService 退役——POLICY 场景（政策解读模板，DB 行冻结留档）供给方清零；
+        // 无供给方时注册表返回空列表（差集基准空集 = 全部 unknown，防御语义），模板编辑器该组对照区为空
+        assertThat(registry.byBriefType(BriefType.POLICY)).isEmpty();
         assertThat(registry.byBriefType(BriefType.DAILY_RECOMMEND)).hasSize(6);
         assertThat(registry.byBriefType(BriefType.L1_CLASSIFY)).hasSize(2);
         assertThat(registry.byBriefType(BriefType.L2_EXTRACT)).hasSize(3);
@@ -160,7 +155,19 @@ class PromptPlaceholderRegistryTest {
         // 场景 10 全市场深析 9 键（subject/factors/totalScore/percentile/breakthrough/topEvents/relatedNews/
         // industryNews/marketSnapshot，M21 T182——与 DeepDivePromptComposer 同源）
         assertThat(registry.byBriefType(BriefType.DEEP_DIVE)).hasSize(9);
-        assertThat(registry.all()).containsOnlyKeys(BriefType.values());
+        // T203：POLICY 供给方退役 → all() 键集少 POLICY（EnumMap 只收录有供给方的场景）；
+        // 只读接口按 BriefType.values() 遍历组装分组，POLICY 组以空列表呈现（byBriefType 缺省防御）
+        assertThat(registry.all())
+                .containsOnlyKeys(
+                        BriefType.STOCK,
+                        BriefType.EVENT_ATTRIBUTION,
+                        BriefType.DAILY_RECOMMEND,
+                        BriefType.L1_CLASSIFY,
+                        BriefType.L2_EXTRACT,
+                        BriefType.INDUSTRY_DAILY,
+                        BriefType.RECOMMEND_CARD,
+                        BriefType.INDUSTRY_WEEKLY,
+                        BriefType.DEEP_DIVE);
     }
 
     @Test

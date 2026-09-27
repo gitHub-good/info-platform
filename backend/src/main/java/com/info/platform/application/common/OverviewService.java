@@ -11,8 +11,8 @@ import com.info.platform.domain.ai.LlmCostBudget;
 import com.info.platform.domain.common.JobExecutionLog;
 import com.info.platform.domain.common.JobExecutionLogRepository;
 import com.info.platform.domain.common.JobExecutionStatus;
-import com.info.platform.domain.policy.PolicyItem;
-import com.info.platform.domain.policy.PolicyRepository;
+import com.info.platform.domain.feed.PolicyScopeRepository;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeRow;
 import com.info.platform.domain.push.AnomalyRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -39,7 +39,8 @@ import org.springframework.stereotype.Service;
  *   <li>成本水位：今日日界（系统时区 00:00，对齐 {@code LlmCostReportService}）；预算取 {@link LlmCostBudget} 运行时当前值（T34
  *       配置中心热值，执行与观测同源）；状态三态阈值同成本报表（warnLine = 预算 × 告警比例）。
  *   <li>今日异动：{@code anomaly_event.trigger_time} 落今日行数（今日日界，非滚动窗口——有意裁定，对齐用户当日直觉）。
- *   <li>政策动态：{@code policy_item.created_at} 滚动 24h 行数 + 最新 5 条（裁定用入库时间而非 published_at，防历史回填计数失真）。
+ *   <li>政策动态：policy-scope-v1 条目（政策源 PASS ∪ 全源 L1=监管·政策）{@code news_item.created_at} 滚动 24h 行数 + 最新
+ *       5 条（V2.3-M23 T203 切 policy-scope 读口；裁定沿用入库时间而非 published_at，防历史回灌计数失真）。
  *   <li>任务健康：{@code job_execution_log.created_at} 滚动 24h 执行总数/FAILED 数（索引列；与 start_time 同刻写入语义等价） +
  *       unhealthyJobs（窗口内失败&gt;0 或最近一次执行 FAILED 的 jobKey）。
  *   <li>数据源健康：复用 {@link DataSourceConfigFacade}（最近一条事件含 OK 心跳 + 24h 异常计数 + 运行时 mode）。
@@ -72,7 +73,7 @@ public class OverviewService {
     private final LlmCallLogRepository llmCallLogRepository;
     private final LlmCostBudget budgetPolicy;
     private final AnomalyRepository anomalyRepository;
-    private final PolicyRepository policyRepository;
+    private final PolicyScopeRepository policyScopeRepository;
     private final JobExecutionLogRepository jobLogRepository;
     private final DataSourceConfigFacade dataSourceConfigFacade;
     private final JobRegistry jobRegistry;
@@ -84,7 +85,7 @@ public class OverviewService {
             LlmCallLogRepository llmCallLogRepository,
             LlmCostBudget budgetPolicy,
             AnomalyRepository anomalyRepository,
-            PolicyRepository policyRepository,
+            PolicyScopeRepository policyScopeRepository,
             JobExecutionLogRepository jobLogRepository,
             DataSourceConfigFacade dataSourceConfigFacade,
             JobRegistry jobRegistry) {
@@ -92,7 +93,7 @@ public class OverviewService {
                 llmCallLogRepository,
                 budgetPolicy,
                 anomalyRepository,
-                policyRepository,
+                policyScopeRepository,
                 jobLogRepository,
                 dataSourceConfigFacade,
                 jobRegistry,
@@ -104,7 +105,7 @@ public class OverviewService {
             LlmCallLogRepository llmCallLogRepository,
             LlmCostBudget budgetPolicy,
             AnomalyRepository anomalyRepository,
-            PolicyRepository policyRepository,
+            PolicyScopeRepository policyScopeRepository,
             JobExecutionLogRepository jobLogRepository,
             DataSourceConfigFacade dataSourceConfigFacade,
             JobRegistry jobRegistry,
@@ -112,7 +113,7 @@ public class OverviewService {
         this.llmCallLogRepository = llmCallLogRepository;
         this.budgetPolicy = budgetPolicy;
         this.anomalyRepository = anomalyRepository;
-        this.policyRepository = policyRepository;
+        this.policyScopeRepository = policyScopeRepository;
         this.jobLogRepository = jobLogRepository;
         this.dataSourceConfigFacade = dataSourceConfigFacade;
         this.jobRegistry = jobRegistry;
@@ -169,9 +170,9 @@ public class OverviewService {
 
     private Policy24hCard policy24h() {
         Instant since = clock.instant().minus(Duration.ofHours(24));
-        long count = policyRepository.countCreatedSince(since);
+        long count = policyScopeRepository.countCreatedSince(since);
         List<PolicyLatestItem> latest =
-                policyRepository.findLatestCreatedSince(since, POLICY_LATEST_LIMIT).stream()
+                policyScopeRepository.findLatestCreatedSince(since, POLICY_LATEST_LIMIT).stream()
                         .map(OverviewService::toLatestItem)
                         .toList();
         return new Policy24hCard(count, latest, null);
@@ -219,11 +220,11 @@ public class OverviewService {
         return mapping;
     }
 
-    private static PolicyLatestItem toLatestItem(PolicyItem item) {
+    private static PolicyLatestItem toLatestItem(PolicyScopeRow row) {
         return new PolicyLatestItem(
-                item.getId(),
-                item.getTitle(),
-                item.getPublishedAt() == null ? null : item.getPublishedAt().toString());
+                row.newsId(),
+                row.title(),
+                row.publishedAt() == null ? null : row.publishedAt().toString());
     }
 
     private static SourceHealthItem toSourceItem(SourceCardView card) {

@@ -47,15 +47,14 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllEighteenJobKeys() {
+    void seeds_carriesAllSixteenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 17 键不被增补挤占（INCREMENTAL_REEVAL 第 18 键追加在尾部，M22 T190 方案 §3.5-2）
+        // V2.3-M23 T203：POLICY_FETCH/POLICY_TENDENCY 两键随轨 B 双 Job 整链删除（Job 18→16，ADR-0062 裁决二）；
+        // 纯增量守卫：既有 15 键不被增补挤占（INCREMENTAL_REEVAL 尾键不动，M22 T190 方案 §3.5-2）
         assertThat(keys)
                 .containsExactly(
-                        "job.POLICY_FETCH",
-                        "job.POLICY_TENDENCY",
                         "job.ANOMALY_DETECT",
                         "job.PUSH_RETRY",
                         "job.DAILY_RECOMMEND",

@@ -7,6 +7,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.aggregation.AggregationService;
+import com.info.platform.application.aggregation.DetailSections;
 import com.info.platform.application.aggregation.SubjectDetail;
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.Subject;
@@ -23,7 +24,6 @@ import java.time.Year;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -94,8 +94,8 @@ class SinaFallbackAggregationIntegrationTest {
                                 com.info.platform.application.aggregation
                                         .SubjectPolicySectionService.class));
 
-        SubjectDetail first = service.getDetail(1L, Set.of());
-        SubjectDetail second = service.getDetail(1L, Set.of());
+        SubjectDetail first = service.getDetail(1L, DetailSections.all());
+        SubjectDetail second = service.getDetail(1L, DetailSections.all());
 
         assertThat(first.sourceStatus()).containsEntry("finance", "ok");
         // 新浪万元 ×10000 → 东财键 → eastmoney-finance.json 映射（配置零改动）

@@ -11,7 +11,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
  * <ul>
  *   <li>{@link #ANNOUNCE} 公告（T05 AnnounceSourceAdapter 按标的取数后命中）
  *   <li>{@link #NEWS} 新闻（T06 NewsSourceAdapter 按标的取数后命中）
- *   <li>{@link #POLICY} 政策（T24 PolicyRepository 近期政策命中）
+ *   <li>{@link #POLICY} 政策（V2.3-M23 T203 起为 policy-scope-v1 近期政策类 news 条目命中）
  *   <li>{@link #RECOMMENDATION} 每日推荐（T23 DailyRecommendationService Top5，非订阅命中）
  * </ul>
  */

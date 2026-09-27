@@ -22,7 +22,6 @@ public final class SourceProviders {
                     SourceCode.FINANCE, List.of(SourceProvider.EASTMONEY, SourceProvider.SINA),
                     SourceCode.ANNOUNCE, List.of(SourceProvider.EASTMONEY, SourceProvider.CNINFO),
                     SourceCode.NEWS, List.of(SourceProvider.SINA),
-                    SourceCode.POLICY, List.of(SourceProvider.GOV),
                     SourceCode.EVENT, List.of(SourceProvider.LOCAL));
 
     /**

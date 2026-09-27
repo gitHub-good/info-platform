@@ -105,30 +105,6 @@ recommendation:
     enabled: true
     interval-millis: 60000
 
-# 政策时事流（T24，§4.1.5 + PRD 故事 4）：PolicyFetchJob @Scheduled 复用 T07 GovPolicyClient
-# 抓 gov.cn/zhengce 最近政策 → existsBySourceUrl 去重 → PolicyIndustryClassifier 标 related_industries → saveAll。
-# fetch.enabled=false 时 Job 不装配（测试 profile 关，@Scheduled 不触发，对齐 04 测试规范）；
-# 生产置 true，@EnableScheduling 复用 AnomalySchedulingConfig（与 T15 补推 job 同策略）。interval 默认 1h。
-policy:
-  fetch:
-    enabled: true
-    interval-millis: 3600000
-  # 政策倾向 AI 判断（T28，§4.1.5 ai_tendency + §4.3 流程 2 + Spike-2 §11.6）：@Scheduled 批量扫
-  # ai_tendency=0 的近期政策 → 调 T19 LlmGateway（briefType=3 政策解读模板）→ 解析 bias 填 1利好/2利空/3中性。
-  # tendency.enabled=false 时 Job 与 @EnableScheduling 均不装配（测试关，@Scheduled 不触发，对齐 04 规范）；
-  # 生产置 true，独立调度开关（不与 fetch 耦合）。interval 默认 30min（介于抓取 1h 之间，新入库条目下一轮即判）。
-  # days 扫描时间窗（默认 7）；batch-size 单轮处理上限（控 LLM 成本，系统任务 userId=0 成本守卫跳过）。
-  # max-attempts / retry-backoff-hours（P0-3 止血，系统体检 20260924）：判断失败留痕尝试次数，
-  # 试满上限（默认 3 次）的条目保持未判不再扫；距上次尝试不足退避窗（默认 2h）不重试——
-  # 防失败条目被 30min 轮询无限重试烧 LLM 预算（实测每条失败政策 ≈ 168 次真实调用/周）。
-  tendency:
-    enabled: true
-    interval-millis: 1800000
-    days: 7
-    batch-size: 20
-    max-attempts: 3
-    retry-backoff-hours: 2
-
 # 标的池定时同步（T50~T54，技术方案增补 §4.2 参数表）。
 # 页间隔 600ms：实测 300~400ms 连续约 28 次触发 push2 IP 级封禁，86 页/轮取保守值（ADR-0027）；
 # page-size 100 为服务端强制上限（实测 pz>100 仍只回 100 行）；max-pages 单桶防御上限（A股 56 页，3.5× 裕量）；

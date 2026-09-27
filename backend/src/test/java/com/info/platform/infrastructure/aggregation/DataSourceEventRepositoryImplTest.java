@@ -127,17 +127,17 @@ class DataSourceEventRepositoryImplTest {
 
     @Test
     void countErrorsSince_countsTypes1To4_excludesOkHeartbeat_andRespectsWindow() {
-        // Arrange：T1 起 POLICY：MISSING/TIMEOUT/ERROR/LIMITED/OK 各一条 + 窗外 ERROR 一条 + 异源 ERROR 一条
-        seed(SourceCode.POLICY, DataSourceEventType.MISSING, T1);
-        seed(SourceCode.POLICY, DataSourceEventType.TIMEOUT, T1.plusSeconds(1));
-        seed(SourceCode.POLICY, DataSourceEventType.ERROR, T1.plusSeconds(2));
-        seed(SourceCode.POLICY, DataSourceEventType.LIMITED, T1.plusSeconds(3));
-        seed(SourceCode.POLICY, DataSourceEventType.OK, T1.plusSeconds(4));
-        seed(SourceCode.POLICY, DataSourceEventType.ERROR, T1.minusSeconds(86400));
-        seed(SourceCode.NEWS, DataSourceEventType.ERROR, T1.plusSeconds(5));
+        // Arrange：T1 起 NEWS：MISSING/TIMEOUT/ERROR/LIMITED/OK 各一条 + 窗外 ERROR 一条 + 异源 ERROR 一条
+        seed(SourceCode.NEWS, DataSourceEventType.MISSING, T1);
+        seed(SourceCode.NEWS, DataSourceEventType.TIMEOUT, T1.plusSeconds(1));
+        seed(SourceCode.NEWS, DataSourceEventType.ERROR, T1.plusSeconds(2));
+        seed(SourceCode.NEWS, DataSourceEventType.LIMITED, T1.plusSeconds(3));
+        seed(SourceCode.NEWS, DataSourceEventType.OK, T1.plusSeconds(4));
+        seed(SourceCode.NEWS, DataSourceEventType.ERROR, T1.minusSeconds(86400));
+        seed(SourceCode.EVENT, DataSourceEventType.ERROR, T1.plusSeconds(5));
 
         // Act：窗口 [T1, +∞)
-        long count = dataSourceEventRepository.countErrorsSince(SourceCode.POLICY, T1);
+        long count = dataSourceEventRepository.countErrorsSince(SourceCode.NEWS, T1);
 
         // Assert：4 条异常（OK 不计、窗外不计、异源不计）
         assertThat(count).isEqualTo(4);

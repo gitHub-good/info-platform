@@ -33,9 +33,9 @@ import org.springframework.stereotype.Service;
  * → {@code allOf().get(总超时)} 兜底（T36 起每请求读 {@code aggregation.global}，LIVE 级热生效）→ 收集降级（任一源
  * MISSING/FAILED/超时 不抛异常、不阻断其他分区）→ 组装统一 {@link SubjectDetail}。
  *
- * <p>V2.3-M23 T202：POLICY 摘出 fan-out（五源化，方案 §3.2/§4.3）——政策分区改为 {@link SubjectPolicySectionService}
- * 库内同步查询（policy-scope-v1 + IndustryAssociator 同源关联集 + 宏观兜底段），sourceStatus.policy 恒 "ok"； 六源 POLICY
- * adapter（轨 A）bean 保留注册、详情面零调用，至 T203 整链删除。
+ * <p>V2.3-M23 T202/T203：政策分区为 {@link SubjectPolicySectionService} 库内同步查询（policy-scope-v1 +
+ * IndustryAssociator 同源关联集 + 宏观兜底段），sourceStatus.policy 恒 "ok"；轨 A POLICY 源已整链删除 （{@code
+ * SourceCode.POLICY} 枚举不复存在，ADR-0062 裁决二），fan-out 恒五源化，分区请求经 {@link DetailSections#policy} 表达。
  *
  * <p>各 adapter 自带弹性超时级联收敛（下游之和 < 上游 2s 预算）；应用层仅依赖 {@code SourceAdapter} 端口 （领域层）与 {@code
  * SubjectRepository} 端口，不引基础设施实现细节。真实 adapter（T03~T08）替换 mock 后本类无需改动。
@@ -77,29 +77,25 @@ public class AggregationService {
      * 聚合取数并组装详情。
      *
      * @param subjectId 标的内部主键
-     * @param sections 要取的分区（空集 = 全部 7 类）
+     * @param sections 要取的分区（空 = 全部分区；政策分区经 {@link DetailSections#policy} 表达，T203）
      * @return 聚合详情（sourceStatus 标注每分区状态）
      * @throws BusinessException 30001 标的不存在
      */
-    public SubjectDetail getDetail(Long subjectId, Set<SourceCode> sections) {
+    public SubjectDetail getDetail(Long subjectId, DetailSections sections) {
         Subject subject =
                 subjectRepository
                         .findById(subjectId)
                         .orElseThrow(() -> new BusinessException(ErrorCode.SUBJECT_NOT_FOUND));
 
+        DetailSections requested = sections == null ? DetailSections.all() : sections;
+        // 空 sources = 显式零外呼（?sections=policy 仅政策分区）；「全部分区」由控制器产 DetailSections.all()
         Set<SourceCode> targets =
-                (sections == null || sections.isEmpty())
-                        ? EnumSet.allOf(SourceCode.class)
-                        : EnumSet.copyOf(sections);
+                requested.sources().isEmpty()
+                        ? EnumSet.noneOf(SourceCode.class)
+                        : EnumSet.copyOf(requested.sources());
 
         Map<SourceCode, CompletableFuture<SourceResult>> futures = new LinkedHashMap<>();
         for (SourceCode code : targets) {
-            if (code == SourceCode.POLICY) {
-                // V2.3-M23 T202（方案 §3.2/T202 行，ADR-0062）：POLICY fan-out 摘除（五源化）——政策分区改为
-                // SubjectPolicySectionService 库内同步查询（毫秒级，MISSING 构造性消除）；PolicySourceAdapter
-                // bean 仍在注册表（轨 A 代码与 datasource.POLICY 配置域照旧，T203 整链删除），仅详情面零调用。
-                continue;
-            }
             SourceAdapter adapter = adapters.get(code);
             if (adapter == null) {
                 continue;
@@ -139,11 +135,11 @@ public class AggregationService {
         // 政策分区：库内同步毫秒级调用（T202 替换原 future 外呼——首屏只降不升；异常 fail-fast 不吞，
         // 库内查询无降级三态，sourceStatus.policy 恒 ok，方案 §4.3）
         PolicySectionView policySection =
-                targets.contains(SourceCode.POLICY)
+                requested.policy()
                         ? policySectionService.sectionOf(subject.getSubjectCode().value())
                         : null;
 
-        return assemble(subject, futures, policySection, targets.contains(SourceCode.POLICY));
+        return assemble(subject, futures, policySection, requested.policy());
     }
 
     /**
@@ -262,9 +258,6 @@ public class AggregationService {
                                 announceMeta = announceMetaOf(result.getData());
                             }
                             case NEWS -> news = extractItems(result.getData());
-                            case POLICY -> {
-                                // 不可达：POLICY 已在 fan-out 摘除（T202）——分区数据由 policies 参数承载
-                            }
                             case EVENT -> {
                                 events = extractItems(result.getData());
                                 eventMeta = eventMetaOf(result.getData());

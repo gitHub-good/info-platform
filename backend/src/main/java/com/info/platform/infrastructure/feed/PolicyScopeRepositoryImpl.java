@@ -104,6 +104,25 @@ public class PolicyScopeRepositoryImpl implements PolicyScopeRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    @Override
+    public long countCreatedSince(Instant since) {
+        Query query = new Query(COUNT_SQL);
+        applyScopePredicate(query);
+        query.append(" AND ni.created_at >= ?", since.toString());
+        Long total = jdbcTemplate.queryForObject(query.sql(), Long.class, query.args());
+        return total == null ? 0L : total;
+    }
+
+    @Override
+    public List<PolicyScopeRow> findLatestCreatedSince(Instant since, int limit) {
+        Query query = new Query(SELECT_SQL);
+        applyScopePredicate(query);
+        query.append(" AND ni.created_at >= ?", since.toString());
+        int capped = Math.max(1, Math.min(limit, MAX_LIMIT));
+        query.appendRaw(" ORDER BY ni.created_at DESC, ni.id DESC LIMIT " + capped);
+        return jdbcTemplate.query(query.sql(), ROW, query.args());
+    }
+
     /** days 窗 + scope ①②（sourceCode 显式选源时旁路——含宏观源，ADR-0062 随批 4）+ keyset 游标。 */
     private static void applyScope(Query query, PolicyScopeFilter filter) {
         query.append(" AND ni.published_at >= ?", windowStartIso(filter.days()));

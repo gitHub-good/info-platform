@@ -6,15 +6,14 @@ import java.util.List;
 /**
  * 信息流命中引擎的统一内容值对象（应用层，T27）。
  *
- * <p>把三类异构内容（公告 {@code Map} / 新闻 {@code Map} / 政策 {@link
- * com.info.platform.domain.policy.PolicyItem}）归一为同一形状，供 {@link FeedMatcher} 按订阅类型统一匹配——
- * 避免匹配器直接耦合各源的异构字段表示（保持匹配逻辑纯净、可单测、可扩展语义/AI 命中）。
+ * <p>把三类异构内容（公告 {@code Map} / 新闻 {@code Map} / 政策 policy-scope 行〔V2.3 T203 切 news 数据面〕） 归一为同一形状，供
+ * {@link FeedMatcher} 按订阅类型统一匹配—— 避免匹配器直接耦合各源的异构字段表示（保持匹配逻辑纯净、可单测、可扩展语义/AI 命中）。
  *
  * <p>字段语义：
  *
  * <ul>
  *   <li>{@code type} 内容类型（ANNOUNCE/NEWS/POLICY）；RECOMMENDATION 不走匹配器，由 FeedService 直接合并。
- *   <li>{@code contentId} 内容稳定标识（公告/新闻 externalId、政策 {@code id}），用作排序稳定副键与未来去重。
+ *   <li>{@code contentId} 内容稳定标识（公告/新闻 externalId、政策 {@code news:{newsId}}〔T203 换代〕），用作排序稳定副键与未来去重。
  *   <li>{@code title}/{@code summary} 标题/摘要——主题订阅（TOPIC）按 {@code contains} 命中关键词。
  *   <li>{@code publishedAt} 发布时间（Instant，可空）——信息流时间倒序排序与游标分页的排序键。
  *   <li>{@code source}/{@code url} 来源标签与详情链接（展示用）。

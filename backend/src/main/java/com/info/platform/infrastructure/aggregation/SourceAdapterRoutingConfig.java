@@ -18,9 +18,10 @@ import org.springframework.context.annotation.Configuration;
  * 数据源 adapter 热路由装配（T36 / ADR-0017 冲突解法 1）。
  *
  * <p>改造前：7 对 real/mock adapter 以 {@code adapter.mock.enabled} {@code @ConditionalOnProperty}
- * 启动期互斥装配。改造后：14 个实现全部经本配置注册为<b>内部 bean</b>（非自动装配候选，见 {@link #internalAdapterNonCandidateMarker}），
+ * 启动期互斥装配。改造后：各源实现全部经本配置注册为<b>内部 bean</b>（非自动装配候选，见 {@link #internalAdapterNonCandidateMarker}），
  * 每源一个 {@link RoutingSourceAdapter} 作为该源唯一对外 {@link SourceAdapter}——消费方（{@code AggregationService}
- * 等注入 {@code List<SourceAdapter>}）只见 7 个路由 bean，既有代码零改动。
+ * 等注入 {@code List<SourceAdapter>}）只见路由 bean，既有代码零改动。V2.3-M23 T203：POLICY 源整链退役 （轨 A 删除，ADR-0062
+ * 裁决二），路由面 7→6。
  *
  * <p>原 yml {@code adapter.mock.enabled} 降级为分源 mode 的种子默认值（true → 各源初始 MOCK， 见 {@code
  * DataSourceRuntimeConfigSeeder}，ADR-0032 起缺省取 {@code DataSourceDefaults.DEFAULT_MODE}），测试 profile
@@ -42,13 +43,11 @@ public class SourceAdapterRoutingConfig {
                     "mockAnnounceSourceAdapter",
                     "newsSourceAdapter",
                     "mockNewsSourceAdapter",
-                    "policySourceAdapter",
-                    "mockPolicySourceAdapter",
                     "eventSourceAdapter",
                     "mockEventSourceAdapter");
 
     /**
-     * 把 14 个内部 adapter bean 标记为非自动装配候选：按类型注入（如 {@code List<SourceAdapter>}）不可见， 仅本配置内直接方法调用引用（CGLIB
+     * 把 12 个内部 adapter bean 标记为非自动装配候选：按类型注入（如 {@code List<SourceAdapter>}）不可见， 仅本配置内直接方法调用引用（CGLIB
      * 代理保证单例）。缺失 bean 名即装配面错误，fail-fast。
      */
     @Bean
@@ -61,7 +60,7 @@ public class SourceAdapterRoutingConfig {
         };
     }
 
-    // —— 7 个路由 bean：每源唯一对外 SourceAdapter ——
+    // —— 6 个路由 bean：每源唯一对外 SourceAdapter（POLICY 源已退役，V2.3 T203）——
 
     @Bean
     public SourceAdapter quoteRoutingSourceAdapter(
@@ -143,21 +142,6 @@ public class SourceAdapterRoutingConfig {
     }
 
     @Bean
-    public SourceAdapter policyRoutingSourceAdapter(
-            SourceCache cache,
-            FieldMapper fieldMapper,
-            ResilienceRunner runner,
-            CircuitBreaker breaker,
-            GovPolicyClient client,
-            ConfigCenter configCenter) {
-        return new RoutingSourceAdapter(
-                SourceCode.POLICY,
-                policySourceAdapter(cache, fieldMapper, runner, breaker, client),
-                mockPolicySourceAdapter(cache, fieldMapper, runner, breaker),
-                configCenter);
-    }
-
-    @Bean
     public SourceAdapter eventRoutingSourceAdapter(
             SourceCache cache,
             FieldMapper fieldMapper,
@@ -172,7 +156,7 @@ public class SourceAdapterRoutingConfig {
                 configCenter);
     }
 
-    // —— 14 个内部 adapter bean（真实 7 + mock 7；直接方法调用引用，不进类型注入候选） ——
+    // —— 12 个内部 adapter bean（真实 6 + mock 6；直接方法调用引用，不进类型注入候选）——
 
     @Bean
     QuoteSourceAdapter quoteSourceAdapter(
@@ -287,25 +271,6 @@ public class SourceAdapterRoutingConfig {
             ResilienceRunner runner,
             CircuitBreaker breaker) {
         return new MockNewsSourceAdapter(cache, fieldMapper, runner, breaker);
-    }
-
-    @Bean
-    PolicySourceAdapter policySourceAdapter(
-            SourceCache cache,
-            FieldMapper fieldMapper,
-            ResilienceRunner runner,
-            CircuitBreaker breaker,
-            GovPolicyClient client) {
-        return new PolicySourceAdapter(cache, fieldMapper, runner, breaker, client);
-    }
-
-    @Bean
-    MockPolicySourceAdapter mockPolicySourceAdapter(
-            SourceCache cache,
-            FieldMapper fieldMapper,
-            ResilienceRunner runner,
-            CircuitBreaker breaker) {
-        return new MockPolicySourceAdapter(cache, fieldMapper, runner, breaker);
     }
 
     @Bean

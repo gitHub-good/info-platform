@@ -1,6 +1,7 @@
 package com.info.platform.interfaces.aggregation;
 
 import com.info.platform.application.aggregation.AggregationService;
+import com.info.platform.application.aggregation.DetailSections;
 import com.info.platform.application.aggregation.SubjectDetail;
 import com.info.platform.application.aggregation.SubjectQuote;
 import com.info.platform.domain.aggregation.SourceCode;
@@ -38,6 +39,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/subjects")
 public class SubjectController {
+
+    /** 政策分区令牌（库内分区，非 SourceCode 值——V2.3-M23 T203 轨 A 退役后仍为契约合法 section）。 */
+    private static final String POLICY_SECTION_TOKEN = "policy";
 
     /** search 默认返回条数。 */
     static final int DEFAULT_SEARCH_LIMIT = 20;
@@ -131,28 +135,37 @@ public class SubjectController {
     public Result<SubjectDetail> getDetail(
             @PathVariable Long subjectId,
             @RequestParam(name = "sections", required = false) String sections) {
-        Set<SourceCode> parsed = parseSections(sections);
-        SubjectDetail detail = aggregationService.getDetail(subjectId, parsed);
+        SubjectDetail detail = aggregationService.getDetail(subjectId, parseSections(sections));
         return Result.ok(detail);
     }
 
-    /** 逗号分隔 section 名 → {@link SourceCode} 集合（大小写不敏感）；空集表示取全部。非法名 → 2xxx。 */
-    private static Set<SourceCode> parseSections(String sections) {
+    /**
+     * 逗号分隔 section 名 → {@link DetailSections}（大小写不敏感）；空 = 取全部。非法名 → 2xxx。
+     *
+     * <p>{@code policy} 令牌为库内分区（V2.3-M23 T203：轨 A POLICY 源退役，非 {@link SourceCode} 值但仍是契约 合法
+     * section——显式列举时只取政策分区）；其余令牌按 {@link SourceCode#valueOf} 解析。
+     */
+    private static DetailSections parseSections(String sections) {
         if (sections == null || sections.isBlank()) {
-            return Set.of();
+            return DetailSections.all();
         }
-        Set<SourceCode> result = EnumSet.noneOf(SourceCode.class);
+        Set<SourceCode> sources = EnumSet.noneOf(SourceCode.class);
+        boolean policy = false;
         for (String token : sections.split(",")) {
             String trimmed = token.trim();
             if (trimmed.isEmpty()) {
                 continue;
             }
+            if (POLICY_SECTION_TOKEN.equalsIgnoreCase(trimmed)) {
+                policy = true;
+                continue;
+            }
             try {
-                result.add(SourceCode.valueOf(trimmed.toUpperCase(Locale.ROOT)));
+                sources.add(SourceCode.valueOf(trimmed.toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException e) {
                 throw new BusinessException(ErrorCode.PARAM_INVALID, "非法 section: " + trimmed);
             }
         }
-        return result;
+        return DetailSections.of(sources, policy);
     }
 }

@@ -176,7 +176,7 @@ class AbstractSourceAdapterTest {
             FakeSourceAdapter adapter =
                     fakeAdapter(
                             exec,
-                            SourceCode.POLICY,
+                            SourceCode.NEWS,
                             ResilienceSpec.noRetry(Duration.ofSeconds(1)),
                             s -> Optional.empty(),
                             new NoopCircuitBreaker(),
@@ -185,7 +185,7 @@ class AbstractSourceAdapterTest {
             SourceResult result = adapter.fetch(subject(1L));
 
             assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
-            assertThat(result.getSource()).isEqualTo("政策源");
+            assertThat(result.getSource()).isEqualTo("新闻源");
             assertThat(adapter.callCount.get()).isEqualTo(1);
         }
     }
@@ -253,7 +253,7 @@ class AbstractSourceAdapterTest {
             FakeSourceAdapter adapter =
                     fakeAdapter(
                             exec,
-                            SourceCode.POLICY,
+                            SourceCode.NEWS,
                             ResilienceSpec.noRetry(Duration.ofSeconds(1)),
                             s -> Optional.empty(),
                             new NoopCircuitBreaker(),
@@ -265,7 +265,7 @@ class AbstractSourceAdapterTest {
             assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
             verify(recorder)
                     .recordFailureIfDue(
-                            eq(SourceCode.POLICY),
+                            eq(SourceCode.NEWS),
                             eq(DataSourceEventType.MISSING),
                             eq(1L),
                             eq("no-data"));
@@ -398,7 +398,7 @@ class AbstractSourceAdapterTest {
                 switch (code) {
                     case QUOTE -> "行情源";
                     case FINANCE -> "财务源";
-                    case POLICY -> "政策源";
+                    case NEWS -> "新闻源";
                     default -> code.name() + "源";
                 };
         return new FakeSourceAdapter(

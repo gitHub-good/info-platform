@@ -31,8 +31,8 @@ import org.mockito.Mockito;
 
 /**
  * AggregationService 编排单测（T09；V2.3-M23 T202 政策分区库内化随批更新）：并行取数成功 / 单源 MISSING 不阻断 / 单源 FAILED 不阻断 /
- * 全失败降级 / sections 过滤 / 超时不阻断 / 标的不存在 30001；POLICY 摘出 fan-out（五源化）—— 政策分区来自
- * SubjectPolicySectionService（mock）恒 ok，POLICY adapter 零调用。
+ * 全失败降级 / sections 过滤 / 超时不阻断 / 标的不存在 30001；政策分区 = 库内查询分区（V2.3 T202/T203）：
+ * SubjectPolicySectionService（mock）恒 ok，fan-out 恒五源（轨 A POLICY 源已删除，分区请求经 DetailSections.policy）。
  *
  * <p>纯单元测试：SubjectRepository 用 Mockito，SourceAdapter 用测试替身（控制状态）；同步执行器保证确定性（超时场景用虚拟线程执行器）。
  */
@@ -81,10 +81,6 @@ class AggregationServiceTest {
                         okAdapter(
                                 SourceCode.NEWS,
                                 Map.of("items", List.of(Map.<String, Object>of("title", "news1")))),
-                        // POLICY adapter 仍在注册表（轨 A 留至 T203）——fan-out 摘除后其数据不被消费
-                        okAdapter(
-                                SourceCode.POLICY,
-                                Map.of("items", List.of(Map.<String, Object>of("title", "pol1")))),
                         okAdapter(
                                 SourceCode.EVENT,
                                 Map.of(
@@ -92,7 +88,7 @@ class AggregationServiceTest {
                                         List.of(
                                                 Map.<String, Object>of(
                                                         "anomalyType", "PRICE_CHANGE")))));
-        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, DetailSections.all());
 
         assertThat(detail.sourceStatus()).hasSize(7);
         assertThat(detail.sourceStatus().values()).allMatch("ok"::equals);
@@ -112,35 +108,36 @@ class AggregationServiceTest {
     }
 
     @Test
-    void getDetail_policyAdapterNeverCalled_sectionFromInLibraryService() {
-        // T202 五源化：POLICY adapter fetch 零调用（fan-out 摘除）；分区数据 = 库内服务返回值
+    void getDetail_policyOnlySection_policyTokenFetchesNoExternalSource() {
+        // T203：?sections=policy 仅取政策分区——零外呼 fan-out（sources 空集），分区数据 = 库内服务返回值，
+        // sourceStatus 只有 policy 键且恒 ok（sections 过滤语义不变，分区令牌与源面解耦）
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
         when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
-        AtomicInteger policyFetchCalls = new AtomicInteger();
-        SourceAdapter policyAdapter =
+        AtomicInteger fetchCalls = new AtomicInteger();
+        SourceAdapter quoteAdapter =
                 new SourceAdapter() {
                     @Override
                     public SourceResult fetch(Subject s) {
-                        policyFetchCalls.incrementAndGet();
+                        fetchCalls.incrementAndGet();
                         return SourceResult.ok(
-                                SourceCode.POLICY,
+                                SourceCode.QUOTE,
                                 s.getId(),
-                                Map.of("items", List.of()),
+                                Map.of("price", "1"),
                                 "t",
                                 Instant.now());
                     }
 
                     @Override
                     public SourceCode sourceCode() {
-                        return SourceCode.POLICY;
+                        return SourceCode.QUOTE;
                     }
                 };
-        List<SourceAdapter> adapters =
-                List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1")), policyAdapter);
 
-        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+        SubjectDetail detail =
+                service(List.of(quoteAdapter)).getDetail(1L, DetailSections.of(Set.of(), true));
 
-        assertThat(policyFetchCalls.get()).isZero();
+        assertThat(fetchCalls.get()).isZero();
+        assertThat(detail.sourceStatus()).containsOnlyKeys("policy");
         assertThat(detail.sourceStatus().get("policy")).isEqualTo("ok");
         assertThat(detail.policies().items()).hasSize(1);
         assertThat(detail.policies().fallback()).isNull();
@@ -167,7 +164,7 @@ class AggregationServiceTest {
                                 "policy-scope-v1"));
         SubjectDetail detail =
                 service(List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1"))))
-                        .getDetail(1L, Set.of());
+                        .getDetail(1L, DetailSections.all());
 
         assertThat(detail.sourceStatus().get("policy")).isEqualTo("ok");
         assertThat(detail.policies().items()).isEmpty();
@@ -184,7 +181,7 @@ class AggregationServiceTest {
                 List.of(
                         okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
                         missingAdapter(SourceCode.EVENT));
-        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, DetailSections.all());
 
         assertThat(detail.sourceStatus().get("event")).isEqualTo("missing");
         assertThat(detail.events()).isNull();
@@ -201,12 +198,11 @@ class AggregationServiceTest {
                                 okAdapter(SourceCode.FINANCE, Map.of("revenue", "1")),
                                 okAdapter(SourceCode.VALUATION, Map.of("pe", "1")),
                                 okAdapter(SourceCode.ANNOUNCE, Map.of("items", List.of())),
-                                okAdapter(SourceCode.NEWS, Map.of("items", List.of())),
-                                missingAdapter(SourceCode.POLICY))
+                                missingAdapter(SourceCode.NEWS))
                         .toList();
-        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, DetailSections.all());
 
-        // T202：POLICY adapter 的 MISSING 不再传导——分区库内化恒 ok（adapter 结果不被消费）
+        // 单源 MISSING 不阻断他源；政策分区恒 ok（库内查询无外呼三态，T202/T203）
         assertThat(detail.sourceStatus().get("policy")).isEqualTo("ok");
         assertThat(detail.policies()).isNotNull();
         assertThat(detail.sourceStatus().get("quote")).isEqualTo("ok");
@@ -223,10 +219,9 @@ class AggregationServiceTest {
                                 okAdapter(SourceCode.FINANCE, Map.of("revenue", "1")),
                                 okAdapter(SourceCode.VALUATION, Map.of("pe", "1")),
                                 okAdapter(SourceCode.ANNOUNCE, Map.of("items", List.of())),
-                                failedAdapter(SourceCode.NEWS),
-                                okAdapter(SourceCode.POLICY, Map.of("items", List.of())))
+                                failedAdapter(SourceCode.NEWS))
                         .toList();
-        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, DetailSections.all());
 
         assertThat(detail.sourceStatus().get("news")).isEqualTo("failed");
         assertThat(detail.news()).isNull();
@@ -244,10 +239,9 @@ class AggregationServiceTest {
                                 failedAdapter(SourceCode.FINANCE),
                                 failedAdapter(SourceCode.VALUATION),
                                 missingAdapter(SourceCode.ANNOUNCE),
-                                failedAdapter(SourceCode.NEWS),
-                                missingAdapter(SourceCode.POLICY))
+                                failedAdapter(SourceCode.NEWS))
                         .toList();
-        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, DetailSections.all());
 
         assertThat(detail.sourceStatus())
                 .containsEntry("quote", "failed")
@@ -272,16 +266,19 @@ class AggregationServiceTest {
                         okAdapter(SourceCode.FINANCE, Map.of("revenue", "1")),
                         okAdapter(SourceCode.VALUATION, Map.of("pe", "1")),
                         okAdapter(SourceCode.ANNOUNCE, Map.of("items", List.of())),
-                        okAdapter(SourceCode.NEWS, Map.of("items", List.of())),
-                        okAdapter(SourceCode.POLICY, Map.of("items", List.of())));
+                        okAdapter(SourceCode.NEWS, Map.of("items", List.of())));
         SubjectDetail detail =
-                service(adapters).getDetail(1L, Set.of(SourceCode.QUOTE, SourceCode.FINANCE));
+                service(adapters)
+                        .getDetail(
+                                1L,
+                                DetailSections.of(
+                                        Set.of(SourceCode.QUOTE, SourceCode.FINANCE), false));
 
         assertThat(detail.sourceStatus()).containsOnlyKeys("quote", "finance");
         assertThat(detail.quote()).isNotNull();
         assertThat(detail.finance()).isNotNull();
         assertThat(detail.valuation()).isNull();
-        // POLICY 未请求：分区与状态键均不出（sections 过滤语义不变）
+        // 政策分区未请求：分区与状态键均不出（sections 过滤语义不变，DetailSections.policy=false）
         assertThat(detail.policies()).isNull();
         assertThat(detail.sourceStatus()).doesNotContainKey("policy");
         Mockito.verifyNoInteractions(policySectionService);
@@ -292,7 +289,7 @@ class AggregationServiceTest {
         when(subjectRepository.findById(999L)).thenReturn(Optional.empty());
         AggregationService service = service(List.of());
 
-        assertThatThrownBy(() -> service.getDetail(999L, Set.of()))
+        assertThatThrownBy(() -> service.getDetail(999L, DetailSections.all()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -337,7 +334,7 @@ class AggregationServiceTest {
                             () -> 50L,
                             policySectionService);
 
-            SubjectDetail detail = service.getDetail(1L, Set.of());
+            SubjectDetail detail = service.getDetail(1L, DetailSections.all());
 
             assertThat(detail.sourceStatus().get("quote")).isEqualTo("timeout");
             assertThat(detail.quote()).isNull();
@@ -381,7 +378,7 @@ class AggregationServiceTest {
         AggregationService service = service(List.of(stockOnlyFinance, defaultQuote));
 
         // Act
-        SubjectDetail detail = service.getDetail(1L, Set.of());
+        SubjectDetail detail = service.getDetail(1L, DetailSections.all());
 
         // Assert: 不适用源不调 fetch、分区按 missing 降级（sourceStatus 契约不变）；默认支持源正常
         assertThat(fetchCalls.get()).isZero();
@@ -403,7 +400,7 @@ class AggregationServiceTest {
                                 okAdapter(SourceCode.NEWS, Map.of("items", List.of()))));
 
         // Act
-        SubjectDetail detail = service.getDetail(2L, Set.of());
+        SubjectDetail detail = service.getDetail(2L, DetailSections.all());
 
         // Assert: 默认注册位对指数/板块开放，行为不回归
         assertThat(detail.sourceStatus().get("quote")).isEqualTo("ok");
@@ -552,7 +549,10 @@ class AggregationServiceTest {
                                         37L)));
         AggregationService service = service(adapters);
 
-        SubjectDetail detail = service.getDetail(1L, Set.of(SourceCode.ANNOUNCE, SourceCode.EVENT));
+        SubjectDetail detail =
+                service.getDetail(
+                        1L,
+                        DetailSections.of(Set.of(SourceCode.ANNOUNCE, SourceCode.EVENT), false));
 
         assertThat(detail.sectionPagination()).isNotNull();
         assertThat(detail.sectionPagination().announce()).isNotNull();
@@ -578,7 +578,7 @@ class AggregationServiceTest {
                         missingAdapter(SourceCode.EVENT));
         AggregationService service = service(adapters);
 
-        SubjectDetail detail = service.getDetail(1L, Set.of());
+        SubjectDetail detail = service.getDetail(1L, DetailSections.all());
 
         assertThat(detail.sectionPagination()).isNull();
         assertThat(detail.sourceStatus().get("announce")).isEqualTo("missing");

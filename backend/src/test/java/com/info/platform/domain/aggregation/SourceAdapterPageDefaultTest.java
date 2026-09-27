@@ -16,12 +16,12 @@ class SourceAdapterPageDefaultTest {
             new SourceAdapter() {
                 @Override
                 public SourceResult fetch(Subject subject) {
-                    return SourceResult.missing(SourceCode.POLICY, subject.getId(), "test");
+                    return SourceResult.missing(SourceCode.NEWS, subject.getId(), "test");
                 }
 
                 @Override
                 public SourceCode sourceCode() {
-                    return SourceCode.POLICY;
+                    return SourceCode.NEWS;
                 }
             };
 
@@ -46,7 +46,7 @@ class SourceAdapterPageDefaultTest {
 
         assertThatThrownBy(() -> nonPageable.fetchPage(subject, 2, 10))
                 .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("POLICY");
+                .hasMessageContaining("NEWS");
     }
 
     @Test
@@ -57,6 +57,6 @@ class SourceAdapterPageDefaultTest {
         SourceResult result = nonPageable.fetch(subject);
 
         assertThat(result.getStatus()).isEqualTo(SourceStatus.MISSING);
-        assertThat(result.getSourceCode()).isEqualTo(SourceCode.POLICY);
+        assertThat(result.getSourceCode()).isEqualTo(SourceCode.NEWS);
     }
 }

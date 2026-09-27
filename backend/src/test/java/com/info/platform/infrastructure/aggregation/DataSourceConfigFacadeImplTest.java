@@ -193,14 +193,15 @@ class DataSourceConfigFacadeImplTest {
     }
 
     @Test
-    void view_sevenSources_healthEmptyState_effectiveModesAllLive() {
+    void view_sixSources_healthEmptyState_effectiveModesAllLive() {
+        // V2.3-M23 T203：POLICY 源随轨 A 整链删除（七源→六源，ADR-0062 裁决二）
         when(eventRepository.findLatestBySourceCode(SourceCode.QUOTE)).thenReturn(Optional.empty());
         when(eventRepository.countErrorsSince(SourceCode.QUOTE, NOW.minus(Duration.ofHours(24))))
                 .thenReturn(0L);
 
         DataSourceConfigFacade.DataSourceConfigView view = facade.view();
 
-        assertThat(view.sources()).hasSize(7);
+        assertThat(view.sources()).hasSize(6);
         var quote = view.sources().get(0);
         assertThat(quote.sourceCode()).isEqualTo("QUOTE");
         assertThat(quote.label()).isEqualTo("行情源");

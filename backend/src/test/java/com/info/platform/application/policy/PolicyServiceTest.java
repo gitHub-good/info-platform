@@ -3,7 +3,6 @@ package com.info.platform.application.policy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,8 +16,6 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeFilter;
 import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeRow;
-import com.info.platform.domain.policy.PolicyRepository;
-import java.lang.reflect.Constructor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -33,7 +30,8 @@ import org.mockito.quality.Strictness;
 /**
  * PolicyService 单元测试（V2.3-M23 T201 数据面切换）：mock PolicyScopeQueryService/EventItemRepository—— 游标模式
  * keyset/nextCursor、页码模式 total 回显与 sourceCode 透传、详情 30040/matchedSubjects 解析/relatedEvents 承接、
- * <b>policy_item 零读取</b>（行为级：PolicyRepository 零交互 + 构造签名级断言——Gate 2 前半）。 不依赖真实 DB 与 gov.cn（FIRST）。
+ * <b>policy_item 零读取</b>（V2.3 T203 起轨 B 整包删除，零读取由类缺失构造性保证——见 PolicyTrackRetirementGate3Test）。 不依赖真实
+ * DB 与 gov.cn（FIRST）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -41,7 +39,6 @@ class PolicyServiceTest {
 
     @Mock private PolicyScopeQueryService policyScope;
     @Mock private EventItemRepository eventItemRepository;
-    @Mock private PolicyRepository unusedPolicyRepository;
 
     private PolicyService service;
 
@@ -222,21 +219,18 @@ class PolicyServiceTest {
     }
 
     @Test
-    void policyService_policyItemZeroRead_gate2Assertion() {
-        // Gate 2 代码级断言（T201）：政策页读口零 policy_item 读取——
-        // ① 行为级：全部读流程中 PolicyRepository 零交互
-        when(policyScope.list(any())).thenReturn(new PolicyScopePage(List.of(), 0));
-        when(policyScope.findByNewsId(1L)).thenReturn(Optional.of(row(1L, "p", null)));
-        when(eventItemRepository.findByNewsId(1L)).thenReturn(Optional.empty());
-        service.listPolicies(7, null, null);
-        service.listPoliciesPaged(7, null, null, null, 1, 20);
-        service.getPolicy(1L);
-        verifyNoInteractions(unusedPolicyRepository);
+    void policyService_policyItemZeroRead_structuralAfterRetirement() {
+        // Gate 2 → Gate 3 演进（T203 轨 B 整包删除后）：零 policy_item 读取由「写/读链类不存在」构造性保证——
+        // 运行类路径无 domain.policy.PolicyRepository（静态断言，与 PolicyTrackRetirementGate3Test 同源）
+        assertThat(classExists("com.info.platform.domain.policy.PolicyRepository")).isFalse();
+    }
 
-        // ② 构造签名级：PolicyService 依赖面不含 PolicyRepository（读口切换的编译期证明）
-        for (Constructor<?> constructor : PolicyService.class.getDeclaredConstructors()) {
-            assertThat(constructor.getParameterTypes())
-                    .noneMatch(type -> type == PolicyRepository.class);
+    private static boolean classExists(String fqcn) {
+        try {
+            Class.forName(fqcn, false, PolicyServiceTest.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
         }
     }
 }

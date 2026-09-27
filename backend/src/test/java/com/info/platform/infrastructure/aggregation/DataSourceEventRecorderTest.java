@@ -82,7 +82,7 @@ class DataSourceEventRecorderTest {
         assertThatCode(
                         () ->
                                 recorder.record(
-                                        SourceCode.POLICY, DataSourceEventType.MISSING, null, null))
+                                        SourceCode.NEWS, DataSourceEventType.MISSING, null, null))
                 .doesNotThrowAnyException();
         verify(repository).save(any(DataSourceEvent.class));
     }
@@ -138,7 +138,7 @@ class DataSourceEventRecorderTest {
 
     @Test
     void recordOkIfDue_afterThrottleWindow_persistsAgain_perSource() {
-        // Arrange：QUOTE 两次相隔 61s（跨窗口），POLICY 首次（节流按源独立）
+        // Arrange：QUOTE 两次相隔 61s（跨窗口），NEWS 首次（节流按源独立）
         DataSourceEventRepository repository = mock(DataSourceEventRepository.class);
         DataSourceEventRecorder recorder =
                 recorder(
@@ -150,9 +150,9 @@ class DataSourceEventRecorderTest {
         // Act
         recorder.recordOkIfDue(SourceCode.QUOTE, 1L);
         recorder.recordOkIfDue(SourceCode.QUOTE, 1L);
-        recorder.recordOkIfDue(SourceCode.POLICY, 1L);
+        recorder.recordOkIfDue(SourceCode.NEWS, 1L);
 
-        // Assert：QUOTE 跨窗口两条 + POLICY 一条
+        // Assert：QUOTE 跨窗口两条 + NEWS 一条
         verify(repository, times(3)).save(any(DataSourceEvent.class));
     }
 

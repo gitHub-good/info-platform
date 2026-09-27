@@ -117,9 +117,9 @@ class ConfigCenterDataSourceViewTest {
 
     @Test
     void dataSource_corruptDocument_fallsBackWithoutBreaking() {
-        store("datasource.POLICY", "{\"enabled\":true,\"mode\":\"NOT_A_MODE\"}");
+        store("datasource.NEWS", "{\"enabled\":true,\"mode\":\"NOT_A_MODE\"}");
 
-        RuntimeDataSource view = configCenter.dataSource(SourceCode.POLICY);
+        RuntimeDataSource view = configCenter.dataSource(SourceCode.NEWS);
 
         assertThat(view.mode()).isEqualTo(RuntimeDataSource.Mode.MOCK);
         assertThat(view.timeoutMillis()).isEqualTo(2000);

@@ -24,7 +24,9 @@ class ConfigCenterBootstrapTest {
     void contextBootstraps_seedsImportedAndSnapshotReadable() {
         // Assert：LLM / 任务 / 聚合 / 数据源四域种子键均落库并进快照（测试 yml 任务开关全 false → 种子 enabled=false）
         assertThat(configService.read("llm.global")).isPresent();
-        assertThat(configService.read("job.POLICY_FETCH")).isPresent();
+        // V2.3-M23 T203：job.POLICY_FETCH/TENDENCY 两键已随种子删除（V34 迁移清存量，Job 18→16）——改断言存续键
+        assertThat(configService.read("job.POLICY_FETCH")).isEmpty();
+        assertThat(configService.read("job.POLICY_TENDENCY")).isEmpty();
         assertThat(configService.read("job.DAILY_RECOMMEND")).isPresent();
         assertThat(configService.read("aggregation.global")).isPresent();
         assertThat(configCenter.llmGlobal()).isPresent();

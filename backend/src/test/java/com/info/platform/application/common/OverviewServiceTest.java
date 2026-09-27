@@ -30,12 +30,11 @@ import com.info.platform.domain.ai.LlmUsage;
 import com.info.platform.domain.common.JobExecutionLog;
 import com.info.platform.domain.common.JobExecutionLogRepository;
 import com.info.platform.domain.common.JobExecutionStatus;
-import com.info.platform.domain.policy.PolicyItem;
-import com.info.platform.domain.policy.PolicyRepository;
+import com.info.platform.domain.feed.PolicyScopeRepository;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeRow;
 import com.info.platform.domain.push.AnomalyRepository;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +58,7 @@ class OverviewServiceTest {
     private final LlmCallLogRepository llmCallLogRepository = mock(LlmCallLogRepository.class);
     private final LlmCostBudget budgetPolicy = mock(LlmCostBudget.class);
     private final AnomalyRepository anomalyRepository = mock(AnomalyRepository.class);
-    private final PolicyRepository policyRepository = mock(PolicyRepository.class);
+    private final PolicyScopeRepository policyScopeRepository = mock(PolicyScopeRepository.class);
     private final JobExecutionLogRepository jobLogRepository =
             mock(JobExecutionLogRepository.class);
     private final DataSourceConfigFacade dataSourceConfigFacade =
@@ -80,7 +79,7 @@ class OverviewServiceTest {
                         llmCallLogRepository,
                         budgetPolicy,
                         anomalyRepository,
-                        policyRepository,
+                        policyScopeRepository,
                         jobLogRepository,
                         dataSourceConfigFacade,
                         registry,
@@ -92,9 +91,9 @@ class OverviewServiceTest {
                 .when(llmCallLogRepository.findCreatedSince(any(), anyInt()))
                 .thenReturn(List.of());
         lenient().when(anomalyRepository.countTriggeredSince(any())).thenReturn(0L);
-        lenient().when(policyRepository.countCreatedSince(any())).thenReturn(0L);
+        lenient().when(policyScopeRepository.countCreatedSince(any())).thenReturn(0L);
         lenient()
-                .when(policyRepository.findLatestCreatedSince(any(), anyInt()))
+                .when(policyScopeRepository.findLatestCreatedSince(any(), anyInt()))
                 .thenReturn(List.of());
         lenient().when(jobLogRepository.countSince(any())).thenReturn(0L);
         lenient().when(jobLogRepository.countFailedSince(any())).thenReturn(0L);
@@ -181,12 +180,12 @@ class OverviewServiceTest {
 
     @Test
     void view_policy24h_countsRolling24hByCreatedAtAndMapsLatestItems() {
-        when(policyRepository.countCreatedSince(any())).thenReturn(12L);
-        when(policyRepository.findLatestCreatedSince(any(), anyInt()))
+        when(policyScopeRepository.countCreatedSince(any())).thenReturn(12L);
+        when(policyScopeRepository.findLatestCreatedSince(any(), anyInt()))
                 .thenReturn(
                         List.of(
-                                policyItem(101L, "政策甲", "2026-09-21"),
-                                policyItem(102L, "政策乙", "2026-09-20")));
+                                scopeRow(101L, "政策甲", "2026-09-21T00:00:00Z"),
+                                scopeRow(102L, "政策乙", "2026-09-20T00:00:00Z")));
 
         Policy24hCard card = service.view().policy24h();
 
@@ -195,9 +194,10 @@ class OverviewServiceTest {
         assertThat(card.latest()).hasSize(2);
         assertThat(card.latest().get(0).id()).isEqualTo(101L);
         assertThat(card.latest().get(0).title()).isEqualTo("政策甲");
-        assertThat(card.latest().get(0).publishedAt()).isEqualTo("2026-09-21");
-        verify(policyRepository).countCreatedSince(SINCE_24H); // 滚动 24h
-        verify(policyRepository).findLatestCreatedSince(SINCE_24H, 5);
+        assertThat(card.latest().get(0).publishedAt()).isEqualTo("2026-09-21T00:00:00Z");
+        verify(policyScopeRepository)
+                .countCreatedSince(SINCE_24H); // 滚动 24h（policy-scope 行 created_at 口径）
+        verify(policyScopeRepository).findLatestCreatedSince(SINCE_24H, 5);
     }
 
     @Test
@@ -305,7 +305,7 @@ class OverviewServiceTest {
 
     @Test
     void view_policyCardFails_returnsCardErrorOthersIntact() {
-        when(policyRepository.countCreatedSince(any()))
+        when(policyScopeRepository.countCreatedSince(any()))
                 .thenThrow(new RuntimeException("database is locked"));
 
         OverviewView view = service.view();
@@ -346,16 +346,17 @@ class OverviewServiceTest {
 
     // —— 辅助 ——
 
-    /** 已落库形态的政策条目（id 非空，供 latest 映射）。 */
-    private static PolicyItem policyItem(long id, String title, String publishedAt) {
-        return PolicyItem.reconstruct(
-                id,
+    /** policy-scope 行（V2.3 T203 概览卡切 news 数据面：id = news_item.id，供 latest 映射）。 */
+    private static PolicyScopeRow scopeRow(long newsId, String title, String publishedAt) {
+        return new PolicyScopeRow(
+                newsId,
                 title,
-                "国务院政策",
-                LocalDate.parse(publishedAt),
                 null,
-                List.of(),
                 null,
+                Instant.parse(publishedAt),
+                "gov_policy",
+                "中国政府网·政策",
+                "政策",
                 null,
                 null,
                 null);

@@ -86,7 +86,7 @@ public final class DataSourceDefaults {
         return switch (code) {
             case QUOTE -> 1500;
             case EVENT -> 500;
-            case FINANCE, VALUATION, ANNOUNCE, NEWS, POLICY -> 2000;
+            case FINANCE, VALUATION, ANNOUNCE, NEWS -> 2000;
         };
     }
 
@@ -97,7 +97,6 @@ public final class DataSourceDefaults {
             case FINANCE, VALUATION -> 3600;
             case ANNOUNCE -> 300;
             case NEWS -> 120;
-            case POLICY -> 600;
             case EVENT -> 30;
         };
     }
@@ -109,7 +108,7 @@ public final class DataSourceDefaults {
     public static long failureCacheTtlSeconds(SourceCode code) {
         return switch (code) {
             case QUOTE -> 10;
-            case FINANCE, VALUATION, ANNOUNCE, NEWS, POLICY, EVENT -> 30;
+            case FINANCE, VALUATION, ANNOUNCE, NEWS, EVENT -> 30;
         };
     }
 
@@ -170,13 +169,6 @@ public final class DataSourceDefaults {
                 params.put("newsLid", 2510);
                 params.put("newsPageSize", 20);
                 params.put("newsReferer", "https://finance.sina.com.cn");
-            }
-            case POLICY -> {
-                // M12 T93（方案 §1.2 实测 3/4）：zuixin HTML 列表为 AJAX 空壳，缺省改指静态 ZUIXINZHENGCE.json
-                // （存量 DB 行经 V20 条件迁移对齐；页面手改回 HTML URL 即回退，GovPolicyClient 双分支兼容）
-                params.put("policyUrl", "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json");
-                params.put("policyMaxItems", 30);
-                params.put("policyReferer", "https://www.gov.cn/");
             }
             case EVENT -> {
                 // 事件源读本地 anomaly_event 表（ADR-0013），无外呼参数

@@ -121,19 +121,19 @@ class SourceAdapterRoutingConfigTest {
                             SinaFinanceClient.class,
                             EastMoneyAnnounceClient.class,
                             CninfoAnnounceClient.class,
-                            SinaNewsClient.class,
-                            GovPolicyClient.class);
+                            SinaNewsClient.class);
 
     @Test
-    void listInjection_seesExactlySevenRoutingAdapters_uniqueSourceCodes() {
+    void listInjection_seesExactlySixRoutingAdapters_uniqueSourceCodes() {
+        // V2.3-M23 T203：POLICY 路由 bean 随轨 A 整链删除（七源→六源，ADR-0062 裁决二）
         runner.run(
                 context -> {
                     assertThat(context).hasNotFailed();
                     List<SourceAdapter> adapters = context.getBean(AdapterConsumer.class).adapters;
-                    assertThat(adapters).hasSize(7);
+                    assertThat(adapters).hasSize(6);
                     long distinctCodes =
                             adapters.stream().map(SourceAdapter::sourceCode).distinct().count();
-                    assertThat(distinctCodes).isEqualTo(7);
+                    assertThat(distinctCodes).isEqualTo(6);
                     assertThat(adapters)
                             .allMatch(adapter -> adapter instanceof RoutingSourceAdapter);
                 });

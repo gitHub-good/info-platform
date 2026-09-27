@@ -31,6 +31,15 @@ public interface PolicyScopeRepository {
     Optional<PolicyScopeRow> findById(long newsId);
 
     /**
+     * 滚动窗（{@code created_at >= since}）政策类条目计数（V2.3 T203：概览「政策动态」卡切 policy-scope 后的 入库时间口径——沿原裁定用
+     * created_at 而非 published_at，防历史回灌计数失真）。
+     */
+    long countCreatedSince(Instant since);
+
+    /** 滚动窗内最新 {@code limit} 条（{@code created_at DESC}——概览卡 latest 5）。 */
+    List<PolicyScopeRow> findLatestCreatedSince(Instant since, int limit);
+
+    /**
      * 政策类口径筛选（null/空维度 = 不过滤，全 AND 组合）。
      *
      * @param days 时间窗（天；&le;0 取 7、上限 90，沿 M9 政策页口径由服务层 clamp 后传入）

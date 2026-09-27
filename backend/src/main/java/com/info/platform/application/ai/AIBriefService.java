@@ -1,6 +1,7 @@
 package com.info.platform.application.ai;
 
 import com.info.platform.application.aggregation.AggregationService;
+import com.info.platform.application.aggregation.DetailSections;
 import com.info.platform.application.aggregation.SubjectDetail;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectRepository;
@@ -29,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -377,7 +377,7 @@ public class AIBriefService {
             return null;
         }
         try {
-            return aggregationService.getDetail(subject.getId(), Set.of());
+            return aggregationService.getDetail(subject.getId(), DetailSections.all());
         } catch (BusinessException e) {
             log.warn("AI 简报取聚合上下文失败 taskId={}: {}", brief.getId(), e.getMessage());
             return null;

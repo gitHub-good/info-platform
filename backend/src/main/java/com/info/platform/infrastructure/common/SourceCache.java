@@ -91,7 +91,7 @@ public class SourceCache {
         return switch (code) {
             case QUOTE -> 5_000;
             case NEWS -> 3_000;
-            case FINANCE, VALUATION, ANNOUNCE, POLICY, EVENT -> 2_000;
+            case FINANCE, VALUATION, ANNOUNCE, EVENT -> 2_000;
         };
     }
 

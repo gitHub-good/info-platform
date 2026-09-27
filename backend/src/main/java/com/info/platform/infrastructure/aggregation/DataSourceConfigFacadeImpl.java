@@ -74,7 +74,6 @@ public class DataSourceConfigFacadeImpl implements DataSourceConfigFacade {
                     SourceCode.VALUATION, "估值源",
                     SourceCode.ANNOUNCE, "公告源",
                     SourceCode.NEWS, "新闻源",
-                    SourceCode.POLICY, "政策源",
                     SourceCode.EVENT, "事件源");
 
     private final RuntimeConfigService configService;

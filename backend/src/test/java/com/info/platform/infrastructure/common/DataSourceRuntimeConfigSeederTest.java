@@ -25,7 +25,8 @@ class DataSourceRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_containAllSevenSourceKeys() {
+    void seeds_containAllSixSourceKeys() {
+        // V2.3-M23 T203：datasource.POLICY 种子随轨 A 删除（六源化；DB 既有行冻结留档，ADR-0062 裁决二）
         List<String> keys = seeds().stream().map(RuntimeConfigSeed::configKey).toList();
         assertThat(keys)
                 .containsExactlyInAnyOrder(
@@ -34,7 +35,6 @@ class DataSourceRuntimeConfigSeederTest {
                         "datasource.VALUATION",
                         "datasource.ANNOUNCE",
                         "datasource.NEWS",
-                        "datasource.POLICY",
                         "datasource.EVENT");
     }
 
@@ -58,10 +58,10 @@ class DataSourceRuntimeConfigSeederTest {
     }
 
     @Test
-    void financeSeed_ttlOneHour_policySeedTenMinutes() throws Exception {
+    void financeSeed_ttlOneHour_timeoutTwoSeconds() throws Exception {
+        // V2.3 T203：POLICY 种子 600s TTL 断言随轨 A 删除（cacheTtl POLICY 分支已不存在）
         assertThat(docOf("datasource.FINANCE").path("cacheTtlSeconds").asLong()).isEqualTo(3600);
         assertThat(docOf("datasource.FINANCE").path("timeoutMillis").asLong()).isEqualTo(2000);
-        assertThat(docOf("datasource.POLICY").path("cacheTtlSeconds").asLong()).isEqualTo(600);
     }
 
     @Test

@@ -2,6 +2,8 @@ package com.info.platform.application.subscription;
 
 import com.info.platform.application.ai.DailyRecommendationResult;
 import com.info.platform.application.ai.DailyRecommendationService;
+import com.info.platform.application.policy.PolicyScopeQueryService;
+import com.info.platform.application.policy.PolicyScopeQueryService.PolicyScopePage;
 import com.info.platform.domain.aggregation.SourceAdapter;
 import com.info.platform.domain.aggregation.SourceCode;
 import com.info.platform.domain.aggregation.SourceResult;
@@ -11,8 +13,8 @@ import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.ai.TopRecommendation;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
-import com.info.platform.domain.policy.PolicyItem;
-import com.info.platform.domain.policy.PolicyRepository;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeFilter;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeRow;
 import com.info.platform.domain.subscription.Subscription;
 import com.info.platform.domain.subscription.SubscriptionRepository;
 import com.info.platform.domain.subscription.SubscriptionType;
@@ -47,8 +49,9 @@ import org.springframework.stereotype.Service;
  *
  * <h2>内容取数</h2>
  *
- * 公告/新闻按<b>标的订阅</b>的标的 fetch（T05/T06 {@code fetch(Subject)}，每源带缓存+弹性降级）；政策取近期 （{@link
- * PolicyRepository#findRecent}，newest-first）供主题/政策主题/事件类型/标的(行业)订阅匹配。
+ * 公告/新闻按<b>标的订阅</b>的标的 fetch（T05/T06 {@code fetch(Subject)}，每源带缓存+弹性降级）；政策取近期 （V2.3-M23 T203 切
+ * {@link PolicyScopeQueryService}：政策源 PASS ∪ 全源 L1=监管·政策，newest-first）供
+ * 主题/政策主题/事件类型/标的(行业)订阅匹配——语料从 policy_item 标题扩为 news 标题+摘要，匹配语义不变（contains）。
  * 主题订阅仅命中已取内容（公告/新闻按标的取，故主题订阅需用户另有标的订阅才有公告/新闻可命中——M2 已知限制， M3 可加关键词取数）。单源 MISSING/FAILED
  * 不阻断（降级分区不进流）。
  *
@@ -81,6 +84,13 @@ public class FeedService {
     /** 政策取数上限（匹配窗口，政策周量级远低于此）。 */
     private static final int POLICY_LIMIT = 50;
 
+    /**
+     * 政策条目 rawId 的 news 命名空间前缀（V2.3-M23 T203 contentId 换代，ADR-0062 裁决二随批）： {@code
+     * policy:news:{newsId}}——{@code news:} 前缀与历史 {@code policy:{policyId}}（1~35 与 news id 数值域重叠）
+     * 零撞名，readingEvent 历史留痕无歧义续读；类型前缀 {@code policy:} 保留（POLICY 埋点语义延续）。去重键天然隔离：旧形态条目已入库的不动，新条目新形态。
+     */
+    private static final String POLICY_RAW_ID_PREFIX = "news:";
+
     /** 内容时间归属时区（与新闻 adapter ctime 落地 Asia/Shanghai 一致）。 */
     private static final ZoneId FEED_ZONE = ZoneId.of("Asia/Shanghai");
 
@@ -101,7 +111,7 @@ public class FeedService {
 
     private final SubscriptionRepository subscriptionRepository;
     private final SubjectRepository subjectRepository;
-    private final PolicyRepository policyRepository;
+    private final PolicyScopeQueryService policyScopeQueryService;
     private final DailyRecommendationService dailyRecommendationService;
     private final FeedMatcher feedMatcher;
     private final SourceAdapter announceAdapter;
@@ -110,13 +120,13 @@ public class FeedService {
     public FeedService(
             SubscriptionRepository subscriptionRepository,
             SubjectRepository subjectRepository,
-            PolicyRepository policyRepository,
+            PolicyScopeQueryService policyScopeQueryService,
             DailyRecommendationService dailyRecommendationService,
             FeedMatcher feedMatcher,
             List<SourceAdapter> adapters) {
         this.subscriptionRepository = subscriptionRepository;
         this.subjectRepository = subjectRepository;
-        this.policyRepository = policyRepository;
+        this.policyScopeQueryService = policyScopeQueryService;
         this.dailyRecommendationService = dailyRecommendationService;
         this.feedMatcher = feedMatcher;
         this.announceAdapter = findByCode(adapters, SourceCode.ANNOUNCE);
@@ -332,28 +342,49 @@ public class FeedService {
         return out;
     }
 
-    /** 近期政策内容（T24，newest-first，匹配窗口 POLICY_LIMIT 条）。 */
+    /**
+     * 近期政策内容（V2.3-M23 T203 切 policy-scope-v1 读口，newest-first，匹配窗口 POLICY_LIMIT 条）。
+     *
+     * <p>contentId rawId = {@code news:{newsId}}（{@link #POLICY_RAW_ID_PREFIX}）；行业标签取 L1 归类的
+     * mainCategory + subIndustry（替代退役的 PolicyIndustryClassifier 3 行业字典——标的订阅按行业命中语义不变）。
+     */
     private List<FeedContent> policyContents() {
-        List<PolicyItem> policies =
-                policyRepository.findRecent(POLICY_DAYS, null, null, POLICY_LIMIT);
+        PolicyScopePage page =
+                policyScopeQueryService.list(
+                        PolicyScopeFilter.ofWindow(POLICY_DAYS, POLICY_LIMIT, 0));
+        List<PolicyScopeRow> policies = page.rows();
         List<FeedContent> out = new ArrayList<>(policies.size());
-        for (PolicyItem p : policies) {
+        for (PolicyScopeRow p : policies) {
             out.add(
                     new FeedContent(
                             FeedItemType.POLICY,
-                            String.valueOf(p.getId()),
-                            p.getTitle(),
-                            p.getSummary(),
-                            policyInstant(p.getPublishedAt()),
-                            p.getSource(),
-                            p.getSourceUrl(),
+                            POLICY_RAW_ID_PREFIX + p.newsId(),
+                            p.title(),
+                            p.summary(),
+                            p.publishedAt(),
+                            p.sourceName(),
+                            p.url(),
                             null,
                             null,
                             null,
-                            p.getRelatedIndustries(),
+                            policyIndustryTags(p),
                             null));
         }
         return out;
+    }
+
+    /** 行业标签（L1 口径）：mainCategory + subIndustry 非空去重（标签供标的订阅按行业命中 + 行业筛选视图）。 */
+    private static List<String> policyIndustryTags(PolicyScopeRow row) {
+        List<String> tags = new ArrayList<>(2);
+        if (row.mainCategory() != null && !row.mainCategory().isBlank()) {
+            tags.add(row.mainCategory());
+        }
+        if (row.subIndustry() != null
+                && !row.subIndustry().isBlank()
+                && !tags.contains(row.subIndustry())) {
+            tags.add(row.subIndustry());
+        }
+        return tags;
     }
 
     /** 每日推荐条目（T23 Top5，type=recommendation，publishedAt 取装配时刻；P1-5a 只读结果投影，未就绪时为空列表）。 */
@@ -439,9 +470,10 @@ public class FeedService {
     /**
      * 派生条目稳定内容标识（FEED 阅读埋点 contentRef，M11/REQ-20260925-08）。
      *
-     * <p>形态 {@code {type}:{源稳定 id}}（公告/新闻 externalId、政策 policyId、推荐 subjectCode），满足四不变量： 跨请求稳定（源 id
-     * 稳定）、≤{@value CONTENT_ID_MAX_LENGTH}（超长防御截断）、类型前缀可辨（防跨类型条目撞 readingEvent 去重键）、与合成游标 id 无关。源缺稳定
-     * id 返回 null（该条不埋点，不用游标 id 兜底——ADR-0019 教训）。
+     * <p>形态 {@code {type}:{源稳定 id}}（公告/新闻 externalId、政策 {@code news:{newsId}}〔T203 换代，见 {@link
+     * #POLICY_RAW_ID_PREFIX}〕、推荐 subjectCode），满足四不变量： 跨请求稳定（源 id 稳定）、≤{@value
+     * CONTENT_ID_MAX_LENGTH}（超长防御截断）、类型前缀可辨（防跨类型条目撞 readingEvent 去重键）、与合成游标 id 无关。源缺稳定 id 返回
+     * null（该条不埋点，不用游标 id 兜底——ADR-0019 教训）。
      */
     static String stableContentId(FeedItemType type, String rawId) {
         if (rawId == null || rawId.isBlank()) {
@@ -495,10 +527,6 @@ public class FeedService {
         } catch (DateTimeParseException e) {
             return null;
         }
-    }
-
-    private static Instant policyInstant(LocalDate date) {
-        return date == null ? null : date.atStartOfDay(FEED_ZONE).toInstant();
     }
 
     private static String iso(Instant instant) {

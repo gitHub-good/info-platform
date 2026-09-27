@@ -73,7 +73,6 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
                                     "newsLid",
                                     "newsPageSize",
                                     "newsReferer"),
-                    SourceCode.POLICY, Set.of("policyUrl", "policyReferer", "policyMaxItems"),
                     SourceCode.EVENT, Set.of());
 
     /** 备选源开关合法取值（原 yml {@code adapter.quote-source}/{@code adapter.valuation-source} 语义平移）。 */
@@ -84,11 +83,6 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
      * 该值升级为分区子端点页大小缺省后，误配大页会按页打爆外呼（存量行先经 V19 迁移再受检）。
      */
     static final long ANNOUNCE_PAGE_SIZE_MAX = 50;
-
-    /** policyMaxItems 范围（M12 T93：JSON 单页截取条数，1~100——下限防清零、上限防误配拉全量大文件）。 */
-    static final long POLICY_MAX_ITEMS_MIN = 1;
-
-    static final long POLICY_MAX_ITEMS_MAX = 100;
 
     /** 本地枚举镜像（不引基础设施类型，application 层保持只依赖 domain/common）。 */
     private static final class RuntimeDataSourceMode {
@@ -223,7 +217,7 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
 
     /** 带 1~N 上限区间的条数参数（M12：announcePageSize 1~50 / policyMaxItems 1~100，白名单已按源收口）。 */
     private static boolean isRangedCountParam(String key) {
-        return "announcePageSize".equals(key) || "policyMaxItems".equals(key);
+        return "announcePageSize".equals(key);
     }
 
     private static List<String> rangedCountProblems(String key, JsonNode value) {
@@ -231,19 +225,9 @@ public class DataSourceConfigValidator implements RuntimeConfigValidator {
             return List.of("params." + key + ": 须为整数");
         }
         long size = value.asLong();
-        if ("announcePageSize".equals(key)) {
-            return size >= 1 && size <= ANNOUNCE_PAGE_SIZE_MAX
-                    ? List.of()
-                    : List.of("params.announcePageSize: 须在 1~" + ANNOUNCE_PAGE_SIZE_MAX + " 之间");
-        }
-        return size >= POLICY_MAX_ITEMS_MIN && size <= POLICY_MAX_ITEMS_MAX
+        return size >= 1 && size <= ANNOUNCE_PAGE_SIZE_MAX
                 ? List.of()
-                : List.of(
-                        "params.policyMaxItems: 须在 "
-                                + POLICY_MAX_ITEMS_MIN
-                                + "~"
-                                + POLICY_MAX_ITEMS_MAX
-                                + " 之间");
+                : List.of("params.announcePageSize: 须在 1~" + ANNOUNCE_PAGE_SIZE_MAX + " 之间");
     }
 
     private static boolean isHttpUrl(JsonNode value) {

@@ -12,7 +12,7 @@ package com.info.platform.application.jobrun;
  */
 public interface ManagedJob {
 
-    /** 任务键（runtime_config {@code job.{JOB_KEY}} 的键后缀，如 {@code POLICY_FETCH}，方案 §4.1 对照表）。 */
+    /** 任务键（runtime_config {@code job.{JOB_KEY}} 的键后缀，如 {@code SUBJECT_SYNC}，方案 §4.1 对照表）。 */
     String jobKey();
 
     /**
