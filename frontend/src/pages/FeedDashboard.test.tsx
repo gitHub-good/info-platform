@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FeedDashboard } from '@/pages/FeedDashboard';
@@ -476,5 +476,323 @@ describe('FeedDashboard 抓取大盘页（T116）', () => {
 
     await screen.findByTestId('dashboard-source-table');
     expect(screen.queryByTestId('dashboard-source-scroll')).toBeNull();
+  });
+});
+
+// —— V2.4 T214（REQ-20260928-20 拍板三）：三处数字可点弹框 + 对账断言 ——
+
+import { shanghaiToday } from '@/pages/FeedDashboard';
+import type { NewsLibraryItem, NewsLibraryPagedView } from '@/types/newsItem';
+
+function newsItemOf(id: number): NewsLibraryItem {
+  return {
+    id,
+    sourceId: 1,
+    sourceCode: 'jin10_flash',
+    sourceName: '金十数据·快讯',
+    title: `大盘下钻条目 ${id}`,
+    summary: null,
+    url: 'https://example.com/n',
+    author: null,
+    publishedAt: '2026-09-22T01:31:00Z',
+    fetchedAt: '2026-09-22T01:31:30Z',
+    l0Result: 'PASS',
+    l0Detail: null,
+    l1Main: '银行',
+    l1Confidence: 0.9,
+    lowConfidence: false,
+    nearDupMasterId: null,
+    nearDupMasterUrl: null,
+  };
+}
+
+/** /news-items 页码视图（total 可注入——对账断言的被点数字对齐值）。 */
+function newsPaged(total: number, count = 2): NewsLibraryPagedView {
+  return {
+    items: Array.from({ length: count }, (_, i) => newsItemOf(i + 1)),
+    total,
+    page: 1,
+    size: 20,
+  };
+}
+
+/** 三路由桩：north-star / news-items（total 对齐被点数字）/ 其余大盘视图。 */
+function dialogMock(newsTotal: number, onPage2?: () => NewsLibraryPagedView) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('north-star')) return ok(northStarView());
+    if (url.includes('/news-items')) {
+      if (onPage2 && url.includes('page=2')) return ok(onPage2());
+      return ok(newsPaged(newsTotal));
+    }
+    return ok(fullView());
+  });
+}
+
+function newsItemsCalls(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return fetchMock.mock.calls.map(String).filter((u) => u.includes('/news-items'));
+}
+
+describe('FeedDashboard 大盘三处数字弹框（V2.4 T214，REQ-20260928-20 拍板三）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    cleanup();
+    localStorage.clear();
+    window.location.hash = '';
+  });
+
+  it('对账① 全局「今日总入库」可点：弹框 l0=ALL + 入库日=今日 + 全部源，标题 total == 被点数字', async () => {
+    const fetchMock = dialogMock(48); // 48 = fullView().global.todayNewCount（对齐）
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    const card = await screen.findByTestId('dashboard-stat-today-new');
+    const clicked = Number(card.getAttribute('data-value'));
+    await user.click(screen.getByTestId('dashboard-stat-today-new-value'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('今日入库 · 全部源');
+    expect(dialog).toHaveTextContent(`共 ${clicked} 条`);
+    // 请求口径：l0=ALL + fetchedFrom/To=今日（上海日）+ page=1，无 sourceId
+    const call = newsItemsCalls(fetchMock).at(-1) ?? '';
+    expect(call).toContain('l0=ALL');
+    expect(call).toContain(`fetchedFrom=${shanghaiToday()}`);
+    expect(call).toContain(`fetchedTo=${shanghaiToday()}`);
+    expect(call).toContain('page=1');
+    expect(call).not.toContain('sourceId=');
+  });
+
+  it('对账② 源行「今日新增」可点：sourceId + 入库日=今日 + l0=ALL，标题 total == 行数字', async () => {
+    const fetchMock = dialogMock(3); // 3 = mw_topstories 行今日新增
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-source-row-mw_topstories');
+    const clicked = Number(
+      screen.getByTestId('dashboard-source-today-mw_topstories').textContent,
+    );
+    await user.click(screen.getByTestId('dashboard-source-today-mw_topstories'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('今日入库 · MarketWatch·头条');
+    expect(dialog).toHaveTextContent(`共 ${clicked} 条`);
+    const call = newsItemsCalls(fetchMock).at(-1) ?? '';
+    expect(call).toContain('sourceId=2');
+    expect(call).toContain('l0=ALL');
+    expect(call).toContain(`fetchedFrom=${shanghaiToday()}`);
+    expect(call).not.toContain('publishedFrom=');
+  });
+
+  it('对账③ 源行「累计条数」可点：sourceId + l0=ALL 无时间窗，标题 total == 行数字', async () => {
+    const fetchMock = dialogMock(1200); // 1200 = jin10_flash 行累计
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-source-row-jin10_flash');
+    const clicked = Number(
+      screen.getByTestId('dashboard-source-total-jin10_flash').textContent,
+    );
+    await user.click(screen.getByTestId('dashboard-source-total-jin10_flash'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('累计条目 · 金十数据·快讯');
+    expect(dialog).toHaveTextContent(`共 ${clicked} 条`);
+    const call = newsItemsCalls(fetchMock).at(-1) ?? '';
+    expect(call).toContain('sourceId=1');
+    expect(call).toContain('l0=ALL');
+    expect(call).not.toContain('fetchedFrom=');
+    expect(call).not.toContain('fetchedTo=');
+  });
+
+  it('不可点面防蔓延：去重拦截/活跃源数/失败源数/感知延迟 hover title 明示不支持下钻', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(fullView())));
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-stat-today-new');
+    expect(screen.getByTestId('dashboard-stat-today-dup')).toHaveAttribute(
+      'title',
+      '去重拦截为未入库条目，无可列实体，不支持点击下钻',
+    );
+    expect(screen.getByTestId('dashboard-stat-active')).toHaveAttribute(
+      'title',
+      '活跃源数非条目集合（源表运行态统计），不支持点击下钻',
+    );
+    expect(screen.getByTestId('dashboard-stat-failed')).toHaveAttribute(
+      'title',
+      '失败源数非条目集合（源表运行态统计），不支持点击下钻',
+    );
+    expect(screen.getByTestId('dashboard-stat-latency')).toHaveAttribute(
+      'title',
+      '感知延迟非条目集合（入库-发布延迟分布），不支持点击下钻',
+    );
+    // 活跃源数不可点：数字为纯文本（无按钮包裹）
+    expect(screen.getByTestId('dashboard-stat-active').textContent).toContain('12');
+  });
+
+  it('弹框分页：翻页请求 page=2、条数切换请求 size=10&page=1（页码模式）', async () => {
+    const fetchMock = dialogMock(45, () => newsPaged(45, 2));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-source-row-jin10_flash');
+    await user.click(screen.getByTestId('dashboard-source-total-jin10_flash'));
+    await screen.findByTestId('dashboard-items-item-1');
+    expect(screen.getByTestId('dashboard-items-pagination-total')).toHaveTextContent('共 45 条');
+
+    await user.click(screen.getByTestId('dashboard-items-pagination-page-2'));
+    await waitFor(() =>
+      expect(newsItemsCalls(fetchMock).at(-1)).toContain('page=2'),
+    );
+
+    await user.selectOptions(
+      screen.getByTestId('dashboard-items-pagination-size'),
+      '10',
+    );
+    await waitFor(() => {
+      const last = newsItemsCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('size=10');
+      expect(last).toContain('page=1');
+    });
+  });
+
+  it('弹框关闭三通道：Esc / 关闭钮 / 遮罩任一可关，重开状态复位（page=1）', async () => {
+    const fetchMock = dialogMock(45);
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-source-row-jin10_flash');
+    await user.click(screen.getByTestId('dashboard-source-total-jin10_flash'));
+    await screen.findByTestId('dashboard-items-item-1');
+    await user.click(screen.getByTestId('dashboard-items-pagination-page-2'));
+    await waitFor(() =>
+      expect(newsItemsCalls(fetchMock).at(-1)).toContain('page=2'),
+    );
+
+    // Esc 关闭
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // 重开：page 复位回 1（非上次翻页页码）
+    await user.click(screen.getByTestId('dashboard-source-total-jin10_flash'));
+    await screen.findByTestId('dashboard-items-item-1');
+    expect(newsItemsCalls(fetchMock).at(-1)).toContain('page=1');
+
+    // 关闭钮 + 遮罩（两条通道同语义，一次覆盖）
+    await user.click(screen.getByTestId('dialog-close'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await user.click(screen.getByTestId('dashboard-source-today-jin10_flash'));
+    await screen.findByTestId('dashboard-items-item-1');
+    await user.click(screen.getByTestId('dialog-backdrop'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('弹框条目行渲染：标题外链 / 源徽章 / 抓取时间 / L0·L1 徽章；空态口径文案', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('north-star')) return ok(northStarView());
+      if (url.includes('/news-items')) return ok({ items: [], total: 0, page: 1, size: 20 });
+      return ok(fullView());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    // 空态：该口径下暂无条目（total=0 与被点数字对账为 0 的情形）
+    await screen.findByTestId('dashboard-stat-today-new');
+    await user.click(screen.getByTestId('dashboard-stat-today-new-value'));
+    expect(await screen.findByTestId('dashboard-items-empty')).toHaveTextContent(
+      '该口径下暂无条目',
+    );
+    expect(screen.getByTestId('dialog')).toHaveTextContent('共 0 条');
+    await user.click(screen.getByTestId('dialog-close'));
+
+    // 条目行字段（切换 total>0 桩；卸载首实例防 testid 重复）
+    cleanup();
+    const fetchMock2 = dialogMock(2);
+    vi.stubGlobal('fetch', fetchMock2);
+    render(<FeedDashboard />);
+    await screen.findByTestId('dashboard-source-row-jin10_flash');
+    await user.click(screen.getByTestId('dashboard-source-total-jin10_flash'));
+    const link = await screen.findByTestId('dashboard-items-title-1');
+    expect(link).toHaveAttribute('href', 'https://example.com/n');
+    expect(screen.getByTestId('dashboard-items-item-1')).toHaveTextContent('金十数据·快讯');
+    expect(screen.getByTestId('dashboard-items-item-1')).toHaveTextContent('抓取');
+    expect(screen.getByTestId('dashboard-items-item-1')).toHaveTextContent('通过');
+  });
+
+  it('弹框错误态 + 重试恢复（不吞错误，不阻塞大盘）', async () => {
+    let shouldFail = true;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('north-star')) return ok(northStarView());
+      if (url.includes('/news-items')) {
+        return shouldFail
+          ? fail(500, 50000, '服务异常')
+          : ok(newsPaged(48));
+      }
+      return ok(fullView());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-stat-today-new');
+    await user.click(screen.getByTestId('dashboard-stat-today-new-value'));
+    expect(await screen.findByTestId('dashboard-items-error')).toBeInTheDocument();
+
+    shouldFail = false;
+    await user.click(screen.getByTestId('dashboard-items-retry'));
+    expect(await screen.findByTestId('dashboard-items-item-1')).toBeInTheDocument();
+  });
+
+  it('弹框尾「去资讯库深查」带参跳转（sourceId + l0=ALL 预填）', async () => {
+    const fetchMock = dialogMock(1200);
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-source-row-jin10_flash');
+    await user.click(screen.getByTestId('dashboard-source-total-jin10_flash'));
+    const deep = await screen.findByTestId('dashboard-items-deep-link');
+    expect(deep).toHaveAttribute('href', '#/news-library?sourceId=1&l0=ALL');
+  });
+
+  it('弹框独立请求：大盘 30s 自动刷新不重发弹框 news-items 请求', async () => {
+    vi.useFakeTimers();
+    const fetchMock = dialogMock(48);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FeedDashboard />);
+    // 等首份数据落地（fake timers：小步推进冲刷微任务，既有测试同款手法；同步查询 + fireEvent）
+    for (
+      let i = 0;
+      i < 40 && !screen.queryByTestId('dashboard-stat-today-new-value');
+      i++
+    ) {
+      await vi.advanceTimersByTimeAsync(50);
+    }
+    fireEvent.click(screen.getByTestId('dashboard-stat-today-new-value'));
+    for (
+      let i = 0;
+      i < 40 && !screen.queryByTestId('dashboard-items-item-1');
+      i++
+    ) {
+      await vi.advanceTimersByTimeAsync(50);
+    }
+    const before = newsItemsCalls(fetchMock).length;
+
+    // 大盘 30s 轮询到期：feed-dashboard + north-star 重发，news-items 不变
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(newsItemsCalls(fetchMock).length).toBe(before);
+    expect(
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/feed-dashboard')).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 });

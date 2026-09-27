@@ -3,6 +3,7 @@ import { getFeedDashboard } from '@/api/feedDashboard';
 import { getNorthStar } from '@/api/northStar';
 import { ApiError } from '@/api/http';
 import { NorthStarBlock } from '@/components/feed/NorthStarBlock';
+import { NewsItemsDialog, type NewsItemsDialogSpec } from '@/components/feed/NewsItemsDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,9 @@ import type { NorthStarView } from '@/types/northStar';
 // 三区块只读：全局统计卡四指标 + 感知延迟 P50/P90 徽章（仅增量轮口径标注）、
 // 源维度表（异常置顶/五态徽章/归档源默认折叠；行数超阈值启用纵向滚动 + 表头吸附的 >30 源形态）、
 // 近期失败列表（点击跳源管理页定位）。
+// V2.4 T214（REQ-20260928-20 拍板三）：三处数字可点弹框——全局「今日总入库」/ 源行「今日新增」
+// 「累计条数」→ Dialog 分页条目列表（news-items 页码模式 + l0=ALL + 入库时间窗预填），
+// 弹框 total 与被点数字对账相等为验收锚；去重拦截/源数/延迟明确不可点（hover title 说明）。
 // 近实时：30s 自动刷新（document.hidden 暂停）+ 手动刷新 +「更新于 N 秒前」；三态（加载/错误/数据）与空态引导。
 
 /** 自动刷新间隔（蓝图 30 秒级建议值，大盘与北极星同节奏）。 */
@@ -27,6 +31,22 @@ const NOW_TICK_MILLIS = 1_000;
 
 /** 源表纵向滚动阈值（>30 源形态：30+ 行启用滚动 + 表头吸附，渲染不退化）。 */
 const SOURCE_TABLE_SCROLL_THRESHOLD = 20;
+
+/**
+ * 上海本地日 yyyy-MM-dd（大盘「今日入库」弹框的入库时间窗口径——与后端
+ * source_daily_stats.stat_date / fetchedFrom/To 上海日界同域）。
+ */
+export function shanghaiToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
+/** 不可点数字的 hover 说明（REQ 拍板三防蔓延清单 #10：非条目集合/未入库无可列）。 */
+const NON_CLICKABLE_TITLES = {
+  dup: '去重拦截为未入库条目，无可列实体，不支持点击下钻',
+  active: '活跃源数非条目集合（源表运行态统计），不支持点击下钻',
+  failed: '失败源数非条目集合（源表运行态统计），不支持点击下钻',
+  latency: '感知延迟非条目集合（入库-发布延迟分布），不支持点击下钻',
+} as const;
 
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.msg : fallback;
@@ -90,6 +110,8 @@ function StatCard({
   sub,
   subTestId,
   dataValue,
+  hoverTitle,
+  subHoverTitle,
 }: {
   testId: string;
   label: string;
@@ -97,21 +119,57 @@ function StatCard({
   sub?: string;
   subTestId?: string;
   dataValue?: string;
+  /** 不可点说明（hover title）：非条目集合数字的防蔓延口径明示。 */
+  hoverTitle?: string;
+  subHoverTitle?: string;
 }) {
   return (
-    <Card data-testid={testId} data-value={dataValue}>
+    <Card data-testid={testId} data-value={dataValue} title={hoverTitle}>
       <CardHeader>
         <CardTitle className="text-sm font-normal text-muted-foreground">{label}</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-2xl font-medium">{value}</p>
         {sub ? (
-          <p className="mt-1 text-xs text-muted-foreground" data-testid={subTestId}>
+          <p className="mt-1 text-xs text-muted-foreground" data-testid={subTestId} title={subHoverTitle}>
             {sub}
           </p>
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** 可点数字（V2.4 T214 三处下钻入口）：按钮形态 + hover 口径提示。 */
+function ClickableNumber({
+  value,
+  hoverTitle,
+  onClick,
+  testId,
+  dataValue,
+  compact = false,
+}: {
+  value: string;
+  hoverTitle: string;
+  onClick: () => void;
+  testId: string;
+  dataValue?: string;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hoverTitle}
+      data-testid={testId}
+      data-value={dataValue}
+      className={cn(
+        'font-medium text-primary underline-offset-4 hover:underline',
+        compact ? 'text-sm' : 'text-2xl',
+      )}
+    >
+      {value}
+    </button>
   );
 }
 
@@ -205,6 +263,45 @@ export function FeedDashboard() {
   const visibleSources = showArchived ? sources : sources.filter((row) => !row.deleted);
   const sourceTableScrollable = visibleSources.length > SOURCE_TABLE_SCROLL_THRESHOLD;
 
+  // —— V2.4 T214 三处数字弹框（对账锚：弹框 total == 被点数字；l0=ALL + 入库时间窗口径） ——
+  const [dialogSpec, setDialogSpec] = useState<NewsItemsDialogSpec | null>(null);
+
+  /** 全局卡「今日总入库」：全部源 + 入库日=今日 + l0=ALL。 */
+  const openGlobalToday = () => {
+    const today = shanghaiToday();
+    setDialogSpec({
+      title: '今日入库 · 全部源',
+      sourceId: null,
+      l0: 'ALL',
+      fetchedFrom: today,
+      fetchedTo: today,
+      deepLink: '/news-library?l0=ALL',
+    });
+  };
+
+  /** 源行「今日新增」：该源 + 入库日=今日 + l0=ALL。 */
+  const openSourceToday = (row: FeedDashboardSourceRow) => {
+    const today = shanghaiToday();
+    setDialogSpec({
+      title: `今日入库 · ${row.name}`,
+      sourceId: row.sourceId,
+      l0: 'ALL',
+      fetchedFrom: today,
+      fetchedTo: today,
+      deepLink: `/news-library?sourceId=${row.sourceId}&l0=ALL`,
+    });
+  };
+
+  /** 源行「累计条数」：该源 + l0=ALL，无时间窗。 */
+  const openSourceTotal = (row: FeedDashboardSourceRow) => {
+    setDialogSpec({
+      title: `累计条目 · ${row.name}`,
+      sourceId: row.sourceId,
+      l0: 'ALL',
+      deepLink: `/news-library?sourceId=${row.sourceId}&l0=ALL`,
+    });
+  };
+
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="feed-dashboard-page">
       <header className="mb-4">
@@ -293,27 +390,42 @@ export function FeedDashboard() {
           ) : (
             <>
               <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <StatCard
-                  testId="dashboard-stat-today-new"
-                  label="今日总入库"
-                  value={String(view.global.todayNewCount)}
-                  sub={`去重拦截 ${view.global.todayDupCount} 条`}
-                  subTestId="dashboard-stat-today-dup"
-                  dataValue={String(view.global.todayNewCount)}
-                />
+                {/* 今日总入库可点（T214 全局下钻）；去重拦截不可点（未入库无可列——title 明示） */}
+                <Card data-testid="dashboard-stat-today-new" data-value={String(view.global.todayNewCount)}>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-normal text-muted-foreground">今日总入库</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ClickableNumber
+                      value={String(view.global.todayNewCount)}
+                      hoverTitle="点击查看今日入库条目分页列表（全部源 · l0=ALL · 入库日=今日）"
+                      onClick={openGlobalToday}
+                      testId="dashboard-stat-today-new-value"
+                    />
+                    <p
+                      className="mt-1 text-xs text-muted-foreground"
+                      data-testid="dashboard-stat-today-dup"
+                      title={NON_CLICKABLE_TITLES.dup}
+                    >
+                      去重拦截 {view.global.todayDupCount} 条
+                    </p>
+                  </CardContent>
+                </Card>
                 <StatCard
                   testId="dashboard-stat-active"
                   label="活跃源数"
                   value={String(view.global.activeSourceCount)}
                   sub="今日 ≥1 次成功抓取"
+                  hoverTitle={NON_CLICKABLE_TITLES.active}
                 />
                 <StatCard
                   testId="dashboard-stat-failed"
                   label="失败源数"
                   value={String(view.global.failedSourceCount)}
                   sub="今日有失败或退避中"
+                  hoverTitle={NON_CLICKABLE_TITLES.failed}
                 />
-                <Card data-testid="dashboard-stat-latency">
+                <Card data-testid="dashboard-stat-latency" title={NON_CLICKABLE_TITLES.latency}>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
                       感知延迟
@@ -401,17 +513,31 @@ export function FeedDashboard() {
                               <Badge className={type.className}>{type.label}</Badge>
                             </td>
                             <td className="px-3 py-2">
-                              <span data-testid={`dashboard-source-today-${row.sourceCode}`}>
-                                {row.todayNewCount}
-                              </span>
+                              {/* 今日新增可点（T214 源行下钻）；败次为并列展示不可点 */}
+                              <ClickableNumber
+                                value={String(row.todayNewCount)}
+                                hoverTitle="点击查看该源今日入库条目（l0=ALL · 入库日=今日）"
+                                onClick={() => openSourceToday(row)}
+                                testId={`dashboard-source-today-${row.sourceCode}`}
+                                dataValue={String(row.todayNewCount)}
+                                compact
+                              />
                               {row.todayFailCount > 0 ? (
                                 <span className="ml-1 text-xs text-rose-400">
                                   （败 {row.todayFailCount}）
                                 </span>
                               ) : null}
                             </td>
-                            <td className="px-3 py-2" data-testid={`dashboard-source-total-${row.sourceCode}`}>
-                              {row.totalCount}
+                            <td className="px-3 py-2">
+                              {/* 累计条数可点（T214 源行下钻，无时间窗） */}
+                              <ClickableNumber
+                                value={String(row.totalCount)}
+                                hoverTitle="点击查看该源累计条目（l0=ALL · 不限入库时间）"
+                                onClick={() => openSourceTotal(row)}
+                                testId={`dashboard-source-total-${row.sourceCode}`}
+                                dataValue={String(row.totalCount)}
+                                compact
+                              />
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">
                               {formatTime(row.lastAttemptAt)}
@@ -513,6 +639,9 @@ export function FeedDashboard() {
           ) : null}
         </div>
       ) : null}
+
+      {/* V2.4 T214 三处数字下钻弹框（独立请求，不随大盘 30s 轮询重发） */}
+      <NewsItemsDialog spec={dialogSpec} onClose={() => setDialogSpec(null)} />
     </main>
   );
 }

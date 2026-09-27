@@ -25,6 +25,9 @@ export interface NewsLibraryQuery {
   /** 发布时间窗（yyyy-MM-dd，上海日界含端点；BUG-M23-01）。 */
   publishedFrom?: string | null;
   publishedTo?: string | null;
+  /** 入库时间窗（yyyy-MM-dd，上海日界含端点；V2.4 T210——大盘「今日入库」弹框对账口径）。 */
+  fetchedFrom?: string | null;
+  fetchedTo?: string | null;
   page: number;
   size: number;
 }
@@ -57,6 +60,12 @@ export async function listNewsLibraryPaged(
   }
   if (query.publishedTo) {
     params.set('publishedTo', query.publishedTo);
+  }
+  if (query.fetchedFrom) {
+    params.set('fetchedFrom', query.fetchedFrom);
+  }
+  if (query.fetchedTo) {
+    params.set('fetchedTo', query.fetchedTo);
   }
   params.set('page', String(query.page));
   params.set('size', String(query.size));
