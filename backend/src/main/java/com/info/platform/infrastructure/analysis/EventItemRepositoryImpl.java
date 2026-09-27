@@ -119,6 +119,14 @@ public class EventItemRepositoryImpl implements EventItemRepository {
     }
 
     @Override
+    public java.util.Optional<EventItem> findByNewsId(long newsId) {
+        // UNIQUE(news_id) 至多一条；V2.3-M23 T201 政策详情 relatedEvents 数据面
+        List<EventItem> rows =
+                jdbcTemplate.query("SELECT * FROM event_item WHERE news_id = ?", EVENT_ROW, newsId);
+        return rows.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(rows.get(0));
+    }
+
+    @Override
     public List<EventItemRepository.EventStreamItem> findStreamItemsByIds(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();

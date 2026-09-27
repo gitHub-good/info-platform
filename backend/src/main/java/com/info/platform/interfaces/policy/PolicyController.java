@@ -4,7 +4,6 @@ import com.info.platform.application.policy.PolicyDetailView;
 import com.info.platform.application.policy.PolicyService;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
-import com.info.platform.domain.common.UserContext;
 import com.info.platform.interfaces.common.PageQuery;
 import com.info.platform.interfaces.common.Result;
 import org.slf4j.Logger;
@@ -16,17 +15,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 政策时事流接口（对齐技术方案 §4.1.5 + M9 §4.1 页码模式与关键词搜索）。
+ * 政策时事流接口（V2.3-M23 T201 数据面切换：policy-scope-v1 读口，ADR-0062 随批 4 原地切换不升 v2—— 唯一消费方同仓前端同批发布）。
  *
- * <p>列表<b>同端点双模式</b>（ADR-0035）： {@code GET /api/v1/policies?days=7&industry=&cursor=}（Bearer）游标分页，
- * {@code page} 参数缺席时本路径字节级不变； {@code GET
- * /api/v1/policies?days=&industry=&keyword=&page=2&size=20}（Bearer）页码模式， 返回 {@code {policies[],
- * total, page, size}}（列表字段与游标模式逐字段一致）。参数校验经 {@link PageQuery} 共用件与 keyword 长度校验（400/2001）。 {@code
- * GET /api/v1/policies/{id}}（Bearer）：政策详情 + 关联自选标的 （按 relatedIndustries 匹配当前用户 watchlist）+
- * ai_tendency（0 未判，T28 填）。
+ * <p>列表<b>同端点双模式</b>（ADR-0035）： {@code GET /api/v1/policies?days=7&industry=&cursor=}（Bearer）游标分页；
+ * {@code GET /api/v1/policies?days=&industry=&keyword=&sourceCode=&page=2&size=20}（Bearer）页码模式， 返回
+ * {@code {policies[], total, page, size, basis}}（id=news_item.id；matchedSubjects 行级标的关联）。参数校验经
+ * {@link PageQuery} 共用件与 keyword 长度校验（400/2001）。{@code industry} 为 L1 口径（申万 31 行业 main/sub 或 监管·政策
+ * 容器）；{@code sourceCode} 显式选源旁路 scope 口径（宏观源可显式选出数）。
  *
- * <p>受 JWT 保护（T17 {@code JwtAuthFilter} 写入 {@link UserContext}），除登录/换发/actuator 外均需 Bearer； 错误码
- * {@code 30040} 政策条目不存在（404，{@code GlobalExceptionHandler} 映射）。
+ * <p>{@code GET /api/v1/policies/{id}}（Bearer）：news 背书详情 + 回联标的 + 关联 L2 政策发布事件（direction 承接
+ * ai_tendency）；错误码沿 30040（404）。受 JWT 保护（T17 {@code JwtAuthFilter}）。
  */
 @RestController
 @RequestMapping("/api/v1/policies")
@@ -47,9 +45,10 @@ public class PolicyController {
     }
 
     /**
-     * 政策列表（双模式分派：page 出现即页码模式，缺席走既有游标路径）。
+     * 政策列表（双模式分派：page 出现即页码模式，缺席走游标路径）。
      *
-     * @return 游标模式 200 + {policies[], nextCursor}；页码模式 200 + {policies[], total, page, size}
+     * @return 游标模式 200 + {policies[], nextCursor, basis}；页码模式 200 + {policies[], total, page, size,
+     *     basis}
      */
     @GetMapping
     public Result<?> list(
@@ -58,7 +57,8 @@ public class PolicyController {
             @RequestParam(value = "cursor", required = false) Long cursor,
             @RequestParam(value = "page", required = false) Integer page,
             @RequestParam(value = "size", required = false) Integer size,
-            @RequestParam(value = "keyword", required = false) String keyword) {
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "sourceCode", required = false) String sourceCode) {
         String trimmedKeyword = keyword == null ? null : keyword.trim();
         PageQuery.requirePageParam(
                 page, "keyword", trimmedKeyword != null && !trimmedKeyword.isEmpty());
@@ -71,6 +71,7 @@ public class PolicyController {
                         days,
                         industry,
                         validatedKeyword(trimmedKeyword),
+                        sourceCode,
                         pageQuery.page(),
                         pageQuery.size()));
     }
@@ -92,19 +93,13 @@ public class PolicyController {
     }
 
     /**
-     * 政策详情 + 关联自选标的 + ai_tendency。
+     * 政策详情 + 回联标的 + 关联 L2 事件（id = news_item.id）。
      *
-     * @return 200 + 详情体；条目不存在 → 404 + 30040
+     * @return 200 + 详情体；条目不存在或出政策口径 → 404 + 30040
      */
     @GetMapping("/{id}")
     public Result<PolicyDetailView> get(@PathVariable Long id) {
-        long userId = currentUserId();
-        log.debug("政策详情请求 id={} userId={}", id, userId);
-        return Result.ok(policyService.getPolicy(id, userId));
-    }
-
-    private static long currentUserId() {
-        UserContext.Principal p = UserContext.get();
-        return p == null ? 0L : p.userId();
+        log.debug("政策详情请求 id={}", id);
+        return Result.ok(policyService.getPolicy(id));
     }
 }

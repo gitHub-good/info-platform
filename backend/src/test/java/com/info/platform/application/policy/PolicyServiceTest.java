@@ -2,30 +2,25 @@ package com.info.platform.application.policy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.info.platform.domain.aggregation.Market;
-import com.info.platform.domain.aggregation.Subject;
-import com.info.platform.domain.aggregation.SubjectCode;
-import com.info.platform.domain.aggregation.SubjectRepository;
-import com.info.platform.domain.aggregation.SubjectStatus;
-import com.info.platform.domain.aggregation.SubjectType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.application.policy.PolicyScopeQueryService.PolicyScopePage;
+import com.info.platform.domain.analysis.Direction;
+import com.info.platform.domain.analysis.EventItem;
+import com.info.platform.domain.analysis.EventItemRepository;
+import com.info.platform.domain.analysis.EventType;
+import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
-import com.info.platform.domain.policy.AiTendency;
-import com.info.platform.domain.policy.PolicyItem;
-import com.info.platform.domain.policy.PolicyListFilter;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeFilter;
+import com.info.platform.domain.feed.PolicyScopeRepository.PolicyScopeRow;
 import com.info.platform.domain.policy.PolicyRepository;
-import com.info.platform.domain.subscription.Watchlist;
-import com.info.platform.domain.subscription.WatchlistItem;
-import com.info.platform.domain.subscription.WatchlistRepository;
-import com.info.platform.domain.subscription.WatchlistStatus;
-import java.math.BigDecimal;
+import java.lang.reflect.Constructor;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,66 +31,67 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 /**
- * PolicyService 单元测试（T24）：mock PolicyRepository/WatchlistRepository/SubjectRepository，验证列表分页/行业过滤/
- * 详情+关联自选标的（按 industry 匹配）/ai_tendency=0/404。 不依赖真实 DB 与 gov.cn（对齐 04 测试规范 FIRST）。
+ * PolicyService 单元测试（V2.3-M23 T201 数据面切换）：mock PolicyScopeQueryService/EventItemRepository—— 游标模式
+ * keyset/nextCursor、页码模式 total 回显与 sourceCode 透传、详情 30040/matchedSubjects 解析/relatedEvents 承接、
+ * <b>policy_item 零读取</b>（行为级：PolicyRepository 零交互 + 构造签名级断言——Gate 2 前半）。 不依赖真实 DB 与 gov.cn（FIRST）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class PolicyServiceTest {
 
-    @Mock private PolicyRepository policyRepository;
-    @Mock private WatchlistRepository watchlistRepository;
-    @Mock private SubjectRepository subjectRepository;
+    @Mock private PolicyScopeQueryService policyScope;
+    @Mock private EventItemRepository eventItemRepository;
+    @Mock private PolicyRepository unusedPolicyRepository;
 
     private PolicyService service;
 
     @BeforeEach
     void setUp() {
-        service = new PolicyService(policyRepository, watchlistRepository, subjectRepository);
+        service = new PolicyService(policyScope, eventItemRepository, new ObjectMapper());
     }
 
-    private static PolicyItem policy(Long id, String title, List<String> industries) {
-        return PolicyItem.reconstruct(
-                id,
+    private static PolicyScopeRow row(long newsId, String title, String matchedJson) {
+        return new PolicyScopeRow(
+                newsId,
                 title,
-                "国务院政策",
-                LocalDate.of(2026, 9, 20),
+                "摘要" + newsId,
+                "https://gov/" + newsId,
+                Instant.parse("2026-09-20T05:00:00Z"),
+                "gov_policy",
+                "中国政府网·政策",
+                "政策",
+                "监管·政策",
                 null,
-                industries,
-                AiTendency.UNJUDGED,
-                "https://gov/" + id,
-                Instant.parse("2026-09-21T00:00:00Z"),
-                Instant.parse("2026-09-21T00:00:00Z"));
+                matchedJson);
     }
 
-    private static Subject subject(Long id, String code, String name, String industry) {
-        return Subject.reconstruct(
-                id,
-                SubjectCode.of(code),
-                Market.A_SHARE,
-                SubjectType.STOCK,
-                name,
-                Map.of(),
-                industry,
-                SubjectStatus.ENABLED,
-                0L,
+    private static EventItem policyEvent(long newsId) {
+        return EventItem.reconstruct(
+                9L,
+                newsId,
+                EventType.POLICY_RELEASE,
+                "央行降准释放流动性",
+                List.of("银行"),
+                Direction.BULLISH,
+                Importance.HIGH,
+                List.of(),
+                List.of(),
+                null,
+                Instant.parse("2026-09-20T05:00:00Z"),
+                "2026-09-20",
+                "policy-v1",
                 null,
                 null);
     }
 
-    private static Watchlist watchlistWith(WatchlistItem... items) {
-        return Watchlist.reconstruct(
-                1L, 1L, "默认清单", null, WatchlistStatus.ENABLED, List.of(items), 0L, null, null);
-    }
-
     @Test
-    void listPolicies_fullPage_returnsItemsAndNextCursor() {
-        // Arrange：repo 返回满页 20 条 → nextCursor = 末条 id
-        java.util.List<PolicyItem> items = new java.util.ArrayList<>();
+    void listPolicies_fullPage_returnsItemsAndNextCursorFromNewsIds() {
+        // Arrange：满页 20 条 → nextCursor = 末条 news id（游标随数据面换血，ADR-0062）
+        List<PolicyScopeRow> rows = new java.util.ArrayList<>();
         for (long i = 1; i <= 20; i++) {
-            items.add(policy(i, "政策" + i, List.of("白酒")));
+            rows.add(row(i, "政策" + i, null));
         }
-        when(policyRepository.findRecent(7, null, null, 20)).thenReturn(items);
+        when(policyScope.list(any())).thenReturn(new PolicyScopePage(rows, 20));
 
         // Act
         PolicyListView view = service.listPolicies(7, null, null);
@@ -103,92 +99,65 @@ class PolicyServiceTest {
         // Assert
         assertThat(view.policies()).hasSize(20);
         assertThat(view.nextCursor()).isEqualTo(20L);
-        assertThat(view.policies().get(0).title()).isEqualTo("政策1");
-        assertThat(view.policies().get(0).relatedIndustries()).containsExactly("白酒");
-        assertThat(view.policies().get(0).publishedAt()).isEqualTo("2026-09-20");
+        assertThat(view.basis()).isEqualTo("policy-scope-v1");
+        assertThat(view.policies().get(0).id()).isEqualTo(1L);
+        assertThat(view.policies().get(0).sourceCode()).isEqualTo("gov_policy");
+        assertThat(view.policies().get(0).publishedAt()).isEqualTo("2026-09-20T05:00:00Z");
+        assertThat(view.policies().get(0).mainCategory()).isEqualTo("监管·政策");
     }
 
     @Test
     void listPolicies_partialPage_nextCursorNull() {
-        // Arrange：不满一页 → nextCursor=null（无下一页）
-        when(policyRepository.findRecent(7, null, null, 20))
-                .thenReturn(List.of(policy(1L, "政策1", List.of())));
+        when(policyScope.list(any()))
+                .thenReturn(new PolicyScopePage(List.of(row(1L, "政策1", null)), 1));
 
-        // Act + Assert
         PolicyListView view = service.listPolicies(7, null, null);
         assertThat(view.policies()).hasSize(1);
         assertThat(view.nextCursor()).isNull();
     }
 
     @Test
-    void listPolicies_industryTrimmedAndPassedToRepo() {
-        // Arrange：industry 前后空格被 trim 后透传 repo（行业过滤契约）
-        when(policyRepository.findRecent(7, "银行", null, 20))
-                .thenReturn(List.of(policy(5L, "降准政策", List.of("银行"))));
+    void listPolicies_cursorPassedAsKeysetBeforeId() {
+        // Arrange：cursor=30 → beforeId=30 透传读口（keyset 续取）
+        when(policyScope.list(any()))
+                .thenReturn(new PolicyScopePage(List.of(row(29L, "政策29", null)), 1));
 
         // Act
-        PolicyListView view = service.listPolicies(7, "  银行 ", null);
+        service.listPolicies(7, null, 30L);
 
-        // Assert
-        assertThat(view.policies()).hasSize(1);
-        assertThat(view.policies().get(0).relatedIndustries()).containsExactly("银行");
+        // Assert：filter 携带 beforeId
+        org.mockito.ArgumentCaptor<PolicyScopeFilter> captor =
+                org.mockito.ArgumentCaptor.forClass(PolicyScopeFilter.class);
+        org.mockito.Mockito.verify(policyScope).list(captor.capture());
+        assertThat(captor.getValue().beforeId()).isEqualTo(30L);
     }
 
     @Test
-    void listPolicies_cursorPassedToRepo() {
-        // Arrange：翻页游标透传 repo
-        when(policyRepository.findRecent(7, null, 30L, 20))
-                .thenReturn(List.of(policy(29L, "政策29", List.of())));
-
-        // Act + Assert
-        PolicyListView view = service.listPolicies(7, null, 30L);
-        assertThat(view.policies()).hasSize(1);
-        assertThat(view.nextCursor()).isNull();
-    }
-
-    // ==================== M9 T60：页码模式 ====================
-
-    @Test
-    void listPoliciesPaged_countAndPageSameFilter_returnsTotalAndEcho() {
-        // Arrange：同一 filter 走 count + findPage；industry trim 后透传、keyword 原样透传
-        PolicyListFilter filter = new PolicyListFilter(7, "银行", null);
-        when(policyRepository.countByFilter(filter)).thenReturn(45L);
-        when(policyRepository.findPage(filter, 2, 20))
-                .thenReturn(List.of(policy(44L, "政策44", List.of("银行"))));
+    void listPoliciesPaged_totalAndEcho_sourceCodePassedThrough() {
+        // Arrange：sourceCode 显式选源透传（宏观源旁路口径）
+        when(policyScope.list(any()))
+                .thenReturn(new PolicyScopePage(List.of(row(44L, "政策44", null)), 45));
 
         // Act
-        PolicyPagedView view = service.listPoliciesPaged(7, "  银行 ", null, 2, 20);
+        PolicyPagedView view = service.listPoliciesPaged(7, null, null, "stats_release", 2, 20);
 
-        // Assert：total 精确回显、page/size 如实回显、列表字段与游标模式一致
+        // Assert：total 精确回显、page/size 如实回显、basis 版本化
         assertThat(view.total()).isEqualTo(45L);
         assertThat(view.page()).isEqualTo(2);
         assertThat(view.size()).isEqualTo(20);
-        assertThat(view.policies()).hasSize(1);
-        assertThat(view.policies().get(0).title()).isEqualTo("政策44");
-        assertThat(view.policies().get(0).relatedIndustries()).containsExactly("银行");
-    }
-
-    @Test
-    void listPoliciesPaged_keywordPassedThroughToFilter() {
-        // Arrange：keyword（已校验长度并 trim）原样进 filter（转义在 repo 层做）
-        PolicyListFilter filter = new PolicyListFilter(7, null, "半导体");
-        when(policyRepository.countByFilter(filter)).thenReturn(3L);
-        when(policyRepository.findPage(filter, 1, 20)).thenReturn(List.of());
-
-        // Act + Assert
-        PolicyPagedView view = service.listPoliciesPaged(7, null, "半导体", 1, 20);
-        assertThat(view.total()).isEqualTo(3L);
+        assertThat(view.basis()).isEqualTo("policy-scope-v1");
+        org.mockito.ArgumentCaptor<PolicyScopeFilter> captor =
+                org.mockito.ArgumentCaptor.forClass(PolicyScopeFilter.class);
+        org.mockito.Mockito.verify(policyScope).list(captor.capture());
+        assertThat(captor.getValue().sourceCode()).isEqualTo("stats_release");
+        assertThat(captor.getValue().offset()).isEqualTo(20);
     }
 
     @Test
     void listPoliciesPaged_outOfRangePage_emptyListWithRealTotal() {
-        // Arrange：越界页（offset 超总数）→ 空列表 + 真实 total（ADR-0035：200 + 空列表 + 如实回显）
-        PolicyListFilter filter = new PolicyListFilter(7, null, null);
-        when(policyRepository.countByFilter(filter)).thenReturn(8L);
-        when(policyRepository.findPage(filter, 99, 20)).thenReturn(List.of());
+        when(policyScope.list(any())).thenReturn(new PolicyScopePage(List.of(), 8));
 
-        // Act + Assert
-        PolicyPagedView view = service.listPoliciesPaged(7, null, null, 99, 20);
+        PolicyPagedView view = service.listPoliciesPaged(7, null, null, null, 99, 20);
         assertThat(view.policies()).isEmpty();
         assertThat(view.total()).isEqualTo(8L);
         assertThat(view.page()).isEqualTo(99);
@@ -196,111 +165,78 @@ class PolicyServiceTest {
     }
 
     @Test
-    void listPoliciesPaged_daysPassedThroughToFilter() {
-        // Arrange：days 透传 filter（时间窗语义由 repo 层 clamp，service 不改写）
-        PolicyListFilter filter = new PolicyListFilter(30, null, null);
-        when(policyRepository.countByFilter(filter)).thenReturn(0L);
-        when(policyRepository.findPage(filter, 1, 10)).thenReturn(List.of());
+    void getPolicy_outOfScopeOrMissing_throws30040() {
+        when(policyScope.findByNewsId(999L)).thenReturn(Optional.empty());
 
-        // Act + Assert
-        PolicyPagedView view = service.listPoliciesPaged(30, null, null, 1, 10);
-        assertThat(view.total()).isZero();
-        assertThat(view.policies()).isEmpty();
-    }
-
-    @Test
-    void getPolicy_notFound_throws30040() {
-        // Arrange
-        when(policyRepository.findById(999L)).thenReturn(Optional.empty());
-
-        // Act + Assert：抛 BusinessException(POLICY_NOT_FOUND)，对齐 §4.1.5 错误码 30040
-        assertThatThrownBy(() -> service.getPolicy(999L, 1L))
+        assertThatThrownBy(() -> service.getPolicy(999L))
                 .isInstanceOf(BusinessException.class)
                 .matches(e -> ((BusinessException) e).getErrorCode() == ErrorCode.POLICY_NOT_FOUND);
     }
 
     @Test
-    void getPolicy_foundWithRelatedSubjects_aiTendencyZero() {
-        // Arrange：政策关联白酒+银行；用户 watchlist 含茅台(白酒)+招行(银行)
-        PolicyItem item = policy(1L, "国务院关于白酒与银行的意见", List.of("白酒", "银行"));
-        when(policyRepository.findById(1L)).thenReturn(Optional.of(item));
-        Subject moutai = subject(600519L, "SH600519", "贵州茅台", "白酒");
-        Subject cmb = subject(600036L, "SH600036", "招商银行", "银行");
-        when(watchlistRepository.findAllByOwnerId(1L))
+    void getPolicy_found_matchedSubjectsParsedAndRelatedEventCarried() {
+        // Arrange：matched_subjects 回联 1 标的 + 关联 L2 政策发布事件（direction 承接倾向）
+        when(policyScope.findByNewsId(1L))
                 .thenReturn(
-                        List.of(
-                                watchlistWith(
-                                        WatchlistItem.create(1L, 600519L, new BigDecimal("3.00")),
-                                        WatchlistItem.create(
-                                                2L, 600036L, new BigDecimal("3.00")))));
-        when(subjectRepository.findById(600519L)).thenReturn(Optional.of(moutai));
-        when(subjectRepository.findById(600036L)).thenReturn(Optional.of(cmb));
+                        Optional.of(
+                                row(
+                                        1L,
+                                        "降准政策",
+                                        "[{\"code\":\"SH600519\",\"name\":\"贵州茅台\",\"industry\":\"白酒\"}]")));
+        when(eventItemRepository.findByNewsId(1L)).thenReturn(Optional.of(policyEvent(1L)));
 
         // Act
-        PolicyDetailView detail = service.getPolicy(1L, 1L);
+        PolicyDetailView detail = service.getPolicy(1L);
 
-        // Assert：ai_tendency=0 未判（T28 前）；关联自选标的 2 只（白酒+银行各一）
-        assertThat(detail.aiTendency()).isZero();
-        assertThat(detail.relatedIndustries()).containsExactlyInAnyOrder("白酒", "银行");
-        assertThat(detail.relatedSubjects()).hasSize(2);
-        assertThat(detail.relatedSubjects())
-                .extracting(RelatedSubjectView::subjectCode)
-                .containsExactlyInAnyOrder("SH600519", "SH600036");
-        assertThat(detail.relatedSubjects())
-                .extracting(RelatedSubjectView::industry)
-                .containsExactlyInAnyOrder("白酒", "银行");
+        // Assert：matchedSubjects 库内直读 + relatedEvents 至多一条（UNIQUE news_id）
+        assertThat(detail.matchedSubjects()).hasSize(1);
+        assertThat(detail.matchedSubjects().get(0).code()).isEqualTo("SH600519");
+        assertThat(detail.matchedSubjects().get(0).industry()).isEqualTo("白酒");
+        assertThat(detail.relatedEvents()).hasSize(1);
+        assertThat(detail.relatedEvents().get(0).direction()).isEqualTo("BULLISH");
+        assertThat(detail.relatedEvents().get(0).eventType()).isEqualTo("POLICY_RELEASE");
+        assertThat(detail.relatedEvents().get(0).eventDate()).isEqualTo("2026-09-20");
     }
 
     @Test
-    void getPolicy_industryNotMatch_emptyRelatedSubjects() {
-        // Arrange：政策关联互联网；用户只有白酒标的 → 无匹配
-        PolicyItem item = policy(1L, "互联网政策", List.of("互联网"));
-        when(policyRepository.findById(1L)).thenReturn(Optional.of(item));
-        Subject moutai = subject(600519L, "SH600519", "贵州茅台", "白酒");
-        when(watchlistRepository.findAllByOwnerId(1L))
-                .thenReturn(
-                        List.of(
-                                watchlistWith(
-                                        WatchlistItem.create(
-                                                1L, 600519L, new BigDecimal("3.00")))));
-        when(subjectRepository.findById(600519L)).thenReturn(Optional.of(moutai));
+    void getPolicy_noEvent_emptyRelatedEvents() {
+        when(policyScope.findByNewsId(2L)).thenReturn(Optional.of(row(2L, "无事件政策", "[]")));
+        when(eventItemRepository.findByNewsId(2L)).thenReturn(Optional.empty());
 
-        // Act + Assert
-        PolicyDetailView detail = service.getPolicy(1L, 1L);
-        assertThat(detail.relatedSubjects()).isEmpty();
+        PolicyDetailView detail = service.getPolicy(2L);
+
+        assertThat(detail.relatedEvents()).isEmpty();
+        assertThat(detail.matchedSubjects()).isEmpty();
     }
 
     @Test
-    void getPolicy_emptyRelatedIndustries_skipsWatchlist() {
-        // Arrange：政策无关联行业 → 直接返回空，不查 watchlist/subject（短路）
-        PolicyItem item = policy(1L, "无行业关联政策", List.of());
-        when(policyRepository.findById(1L)).thenReturn(Optional.of(item));
+    void getPolicy_corruptedMatchedSubjectsJson_degradesToEmptyList() {
+        // 损坏容错：回联列非权威面，解析失败降级空表不阻断详情
+        when(policyScope.findByNewsId(3L))
+                .thenReturn(Optional.of(row(3L, "坏 JSON 政策", "not-json")));
+        when(eventItemRepository.findByNewsId(3L)).thenReturn(Optional.empty());
 
-        // Act
-        PolicyDetailView detail = service.getPolicy(1L, 1L);
+        PolicyDetailView detail = service.getPolicy(3L);
 
-        // Assert：无关联行业不触发 watchlist 查询
-        assertThat(detail.relatedSubjects()).isEmpty();
-        verifyNoInteractions(watchlistRepository);
-        verifyNoInteractions(subjectRepository);
+        assertThat(detail.matchedSubjects()).isEmpty();
     }
 
     @Test
-    void getPolicy_subjectMissingIndustry_notLinked() {
-        // Arrange：标的 industry=null（未录行业）→ 不关联
-        PolicyItem item = policy(1L, "白酒政策", List.of("白酒"));
-        when(policyRepository.findById(1L)).thenReturn(Optional.of(item));
-        Subject noIndustry = subject(600519L, "SH600519", "贵州茅台", null);
-        when(watchlistRepository.findAllByOwnerId(1L))
-                .thenReturn(
-                        List.of(
-                                watchlistWith(
-                                        WatchlistItem.create(
-                                                1L, 600519L, new BigDecimal("3.00")))));
-        when(subjectRepository.findById(600519L)).thenReturn(Optional.of(noIndustry));
+    void policyService_policyItemZeroRead_gate2Assertion() {
+        // Gate 2 代码级断言（T201）：政策页读口零 policy_item 读取——
+        // ① 行为级：全部读流程中 PolicyRepository 零交互
+        when(policyScope.list(any())).thenReturn(new PolicyScopePage(List.of(), 0));
+        when(policyScope.findByNewsId(1L)).thenReturn(Optional.of(row(1L, "p", null)));
+        when(eventItemRepository.findByNewsId(1L)).thenReturn(Optional.empty());
+        service.listPolicies(7, null, null);
+        service.listPoliciesPaged(7, null, null, null, 1, 20);
+        service.getPolicy(1L);
+        verifyNoInteractions(unusedPolicyRepository);
 
-        // Act + Assert
-        PolicyDetailView detail = service.getPolicy(1L, 1L);
-        assertThat(detail.relatedSubjects()).isEmpty();
+        // ② 构造签名级：PolicyService 依赖面不含 PolicyRepository（读口切换的编译期证明）
+        for (Constructor<?> constructor : PolicyService.class.getDeclaredConstructors()) {
+            assertThat(constructor.getParameterTypes())
+                    .noneMatch(type -> type == PolicyRepository.class);
+        }
     }
 }

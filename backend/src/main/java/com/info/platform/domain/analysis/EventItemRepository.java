@@ -1,6 +1,7 @@
 package com.info.platform.domain.analysis;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 结构化事件仓储端口（{@code event_item}，M15 T122，ADR-0046 裁决 1）。
@@ -23,6 +24,12 @@ public interface EventItemRepository {
      * @param ids event_item.id 清单
      */
     List<EventItem> findByIds(List<Long> ids);
+
+    /**
+     * 按 news id 取关联事件（UNIQUE(news_id) 至多一条；V2.3-M23 T201 政策详情 relatedEvents 数据面—— ai_tendency 退役由
+     * L2 事件 direction 承接，REQ 拍板四）。无关联返回 empty。
+     */
+    Optional<EventItem> findByNewsId(long newsId);
 
     /**
      * 批量按 id 取事件 + news 标题/链接 join（M16 T133 推荐中心卡片流数据面：figures/quote/summary/eventTime/newsTitle/
