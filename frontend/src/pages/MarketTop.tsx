@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
-import { getMarketTopRank, getMarketTopVersions } from '@/api/marketTop';
+import { getMarketTopConfig, getMarketTopRank, getMarketTopVersions } from '@/api/marketTop';
 import { trackReadingOnce } from '@/api/readingEvent';
+import { getScoreWeights } from '@/api/valueScore';
 import { addWatchlistItem, createWatchlist, listWatchlists } from '@/api/watchlist';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,19 +12,23 @@ import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type {
   MarketTopCitation,
+  MarketTopConfigView,
   MarketTopDropped,
   MarketTopFactor,
   MarketTopItem,
   MarketTopRankView,
   MarketTopVersionSummary,
 } from '@/types/marketTop';
+import type { ScoreWeightsView } from '@/types/valueScore';
 import type { WatchlistView } from '@/types/watchlist';
 
-// 全市场推荐页（M21 T184，#/market-top 全站第 20 页「分析」组第 7 项——方案 §4.8.1 + REQ 故事 2/3）。
+// 全市场推荐页（M21 T184/T185，#/market-top 全站第 20 页「分析」组第 7 项——方案 §4.8 + REQ 故事 2/3/4）。
 // 榜单卡流 Top10：排名徽章（Top3 金银铜）/标的（跳详情）/总分与合成分/百分位/「有突破」/五维迷你条/
 // 深析区（FULL 可展开论点+亮点+风险+引用下钻；FACTOR_ONLY 标注因子分排序）/变动徽章/一键加自选（幂等）；
 // 页头日期与版本选择 + 生成信息 + 漏斗徽章链 + 降级横幅 + 跌出名单折叠 + 推荐中心/概览互链 + 免责常驻。
 // 三态：加载骨架 / 空态（30089——每日 18:00 生成引导）/ 错误重试；埋点 MARKET_TOP_VIEW/ACT（adopt-v1 先例）。
+// 子路由 #/market-top/methodology（T185，裁决 7 页内 hash 切换导航仍 1 项）：五段式方法论——
+// 漏斗图解/五维定义与公式（weights 端点实时读——非硬编码）/合成公式/降级语义/免责与合规。
 
 /** 后端错误码：无任何榜单（MARKET_TOP_NOT_FOUND——Job 未跑过）。 */
 const CODE_MARKET_TOP_NOT_FOUND = 30089;
@@ -420,8 +425,8 @@ interface PageState {
   selectedVersion: string;
 }
 
-/** 全市场推荐页（第 20 页，「分析」组）。 */
-export function MarketTop() {
+/** 榜单视图（第 20 页主体；方法论子路由视图见 MarketTopMethodology）。 */
+function MarketTopRankPage() {
   const [state, setState] = useState<PageState>({
     view: null,
     versions: [],
@@ -582,6 +587,13 @@ export function MarketTop() {
                 ` · ${TRIGGER_LABELS[state.view.triggerSource] ?? state.view.triggerSource}`}
             </span>
             <span className="ml-auto flex items-center gap-2 text-xs" data-testid="market-top-links">
+              <a
+                href="#/market-top/methodology"
+                data-testid="market-top-link-methodology"
+                className="text-primary underline underline-offset-2"
+              >
+                方法论
+              </a>
               <a
                 href="#/recommendations"
                 data-testid="market-top-link-recommendations"
@@ -757,3 +769,246 @@ function VersionSelect({
 }
 
 export default MarketTop;
+
+// ==================== T185 方法论子路由（#/market-top/methodology，页内 hash 切换） ====================
+
+/** 方法论子路由路径（榜单页头 + 价值评分区块脚注入口）。 */
+export const MARKET_TOP_METHODOLOGY_ROUTE = '/market-top/methodology';
+
+/** 当前路由是否方法论子路由（纯读 hash，无查询串干扰）。 */
+export function isMethodologyRoute(route: string): boolean {
+  return route.split('?')[0] === MARKET_TOP_METHODOLOGY_ROUTE;
+}
+
+/** 五维权重键（FACTOR_DEFINITIONS 的 key 值域——排除 basis/updatedAt 等非数值键）。 */
+type WeightKey = 'wCatalyst' | 'wConduction' | 'wFundamental' | 'wRisk' | 'wValuation';
+
+/** 五维因子定义（定义与数据源为口径静态文案；权重与阈值恒从 weights 端点实时读——非硬编码红线）。 */
+const FACTOR_DEFINITIONS: Array<{ key: WeightKey; name: string; definition: string; dataSource: string }> = [
+  {
+    key: 'wCatalyst',
+    name: '事件催化',
+    definition: '催化窗口内关联事件的重要性与方向加权和，按半衰期时间衰减（F1）。',
+    dataSource: '事件流（L2 结构化提取）',
+  },
+  {
+    key: 'wConduction',
+    name: '行业传导',
+    definition: '所属申万一级行业 24h 热度的归一化映射（F2，纯成员关联封顶）。',
+    dataSource: '行业热度管道（东财板块成员关系）',
+  },
+  {
+    key: 'wFundamental',
+    name: '基本面边际',
+    definition: '关联窗口内基本面类事件（业绩/回购等）的边际变化（F3）。',
+    dataSource: '事件流 + 财务源',
+  },
+  {
+    key: 'wRisk',
+    name: '风险安全',
+    definition: '风险事件扣减与 ST 标记的反向分（F4，ST 直接排除出榜单）。',
+    dataSource: '事件流 + 标的池 ST 标记',
+  },
+  {
+    key: 'wValuation',
+    name: '估值水平',
+    definition: 'PE/PB 横截面分位（F5；数据缺失按中性处理，权重可配为 0 停用）。',
+    dataSource: '腾讯行情批量（market_daily_snapshot）',
+  },
+];
+
+/** 方法论页数据（weights + market.top 漏斗配置——两路实时读）。 */
+interface MethodologyData {
+  weights: ScoreWeightsView;
+  config: MarketTopConfigView;
+}
+
+/** 方法论页（五段式：漏斗图解 / 因子定义与公式 / 合成口径 / 降级语义 / 免责与合规）。 */
+function MarketTopMethodology() {
+  const [data, setData] = useState<MethodologyData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const load = useCallback((signal?: AbortSignal) => {
+    Promise.all([getScoreWeights(signal), getMarketTopConfig(signal)])
+      .then(([weights, config]) => {
+        setData({ weights, config });
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (signal?.aborted) return;
+        setError(messageOf(err, '方法论数据加载失败'));
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    load(ctrl.signal);
+    return () => ctrl.abort();
+  }, [load]);
+
+  const handleRetry = () => {
+    setLoading(true);
+    setError(null);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    load(ctrl.signal);
+  };
+
+  return (
+    <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="market-top-methodology-page">
+      <header className="mb-4">
+        <h1 className="text-xl font-medium">全市场推荐 · 方法论</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          榜单口径全解：四层漏斗 / 五维因子定义与当前权重（实时读引擎配置）/ 合成公式 / 降级语义。
+          <a
+            href="#/market-top"
+            data-testid="market-top-methodology-back"
+            className="ml-1 text-primary underline underline-offset-2"
+          >
+            返回榜单
+          </a>
+        </p>
+      </header>
+
+      {loading ? (
+        <div className="flex flex-col gap-2" data-testid="market-top-methodology-loading">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-start gap-2" data-testid="market-top-methodology-error">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRetry}
+            data-testid="market-top-methodology-retry"
+          >
+            重试
+          </Button>
+        </div>
+      ) : data ? (
+        <div className="flex flex-col gap-3">
+          {/* 一 · 四层漏斗图解（层数实时读 market.top 配置——热改即反映） */}
+          <Card data-testid="market-top-methodology-funnel">
+            <CardContent className="flex flex-col gap-2 p-4">
+              <h2 className="text-sm font-medium">四层漏斗</h2>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="outline">全量快照</Badge>
+                <span className="text-xs text-muted-foreground">›</span>
+                <Badge variant="outline" data-testid="market-top-methodology-pool">
+                  粗筛池 ~{data.config.poolSize}
+                </Badge>
+                <span className="text-xs text-muted-foreground">›</span>
+                <Badge variant="outline" data-testid="market-top-methodology-dive">
+                  LLM 深析 {data.config.deepDiveLimit}
+                </Badge>
+                <span className="text-xs text-muted-foreground">›</span>
+                <Badge variant="outline">Top10</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                全量快照 → 规则排除（ST / 无信号）+ 四键排序切粗筛池（5%~10%）→ 逐股 LLM 深析 → 合成取恰
+                10（不足 10 如实标注）；深析成本子预算占比 {(data.config.deepDiveCostCapRatio * 100).toFixed(0)}%
+                触顶当日停剩余。
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* 二 · 五维因子定义与公式（权重/窗口/阈值全量实时读 weights 端点） */}
+          <Card data-testid="market-top-methodology-factors">
+            <CardContent className="flex flex-col gap-2 p-4">
+              <h2 className="text-sm font-medium">五维因子与当前权重</h2>
+              <div className="flex flex-col gap-1.5">
+                {FACTOR_DEFINITIONS.map((factor) => (
+                  <p
+                    key={factor.key}
+                    className="text-xs text-muted-foreground"
+                    data-testid={`market-top-methodology-weight-${factor.key}`}
+                  >
+                    <span className="font-medium text-foreground">{factor.name}</span>
+                    （权重 {data.weights[factor.key].toFixed(2)}）：{factor.definition}
+                    <span className="block">数据源：{factor.dataSource}</span>
+                  </p>
+                ))}
+              </div>
+              <p className="text-xs" data-testid="market-top-methodology-formula">
+                总分 = Σ 权重 × 因子分；催化窗口 {data.weights.catalystWindowDays} 天（半衰期{' '}
+                {data.weights.halfLifeDays} 天）；「有突破」= 事件催化 ≥ {data.weights.btCatalystMin} ·
+                行业传导 ≥ {data.weights.btConductionMin} · 风险安全 ≥ {data.weights.btRiskMin} 三条件同时满足。
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* 三 · 合成口径 */}
+          <Card data-testid="market-top-methodology-synthesis">
+            <CardContent className="flex flex-col gap-1 p-4">
+              <h2 className="text-sm font-medium">合成公式</h2>
+              <p className="font-mono text-xs">final = max(总分, 0.8 × 总分 + 0.2 × 深析结构分)</p>
+              <p className="text-xs text-muted-foreground">
+                深析结构分从五步校验链（解析/结构/引用对账/违禁扫描/兜底）通过后的输出结构派生；未深析标的按因子分排序，与深析标的同序可比。
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* 四 · 降级语义 */}
+          <Card data-testid="market-top-methodology-degraded">
+            <CardContent className="flex flex-col gap-1 p-4">
+              <h2 className="text-sm font-medium">降级语义</h2>
+              <ul className="flex list-disc flex-col gap-0.5 pl-4 text-xs text-muted-foreground">
+                <li>单次 LLM 失败：该标的切确定性模板兜底，不重试；</li>
+                <li>连续 ≥5 次失败：中止剩余深析（LLM_FAILURE），榜单按因子分排序；</li>
+                <li>深析成本触顶：当日停剩余深析（COST_CAP），次日自动恢复；管道护栏 DEGRADED/FUSED 同样跳过深析。</li>
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                降级态在榜单页顶部横幅明示，主价值链（因子评分与榜单产出）对深析不设单点依赖。
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* 五 · 免责与合规 + 版本对齐脚注 */}
+          <Card data-testid="market-top-methodology-disclaimer">
+            <CardContent className="flex flex-col gap-1 p-4">
+              <h2 className="text-sm font-medium">免责与合规</h2>
+              <p className="text-xs text-muted-foreground">
+                本榜单为个人自用的多因子信息整理与 AI 摘要，深析经引用对账与违禁扫描仍可能存在叙述偏差；评分为历史信息整理，不预测未来收益，不构成投资建议。
+              </p>
+              <p className="text-[10px] text-muted-foreground" data-testid="market-top-methodology-basis">
+                {`当前引擎参数指纹 ${data.weights.basis}（更新于 ${formatDateTime(data.weights.updatedAt)}）`}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+    </main>
+  );
+}
+
+/** 全市场推荐页入口（第 20 页，「分析」组）：方法论子路由按 hash 页内切换（导航仍 1 项——裁决 7）。 */
+export function MarketTop() {
+  const route = useHashRoute();
+  if (isMethodologyRoute(route)) {
+    return <MarketTopMethodology />;
+  }
+  return <MarketTopRankPage />;
+}
+
+/** 页内 hash 路由（与 App.useHashRoute 同款轻量实现——子路由切换不重挂载外层）。 */
+function useHashRoute(): string {
+  const [hash, setHash] = useState(() =>
+    typeof window === 'undefined' ? '' : window.location.hash,
+  );
+  useEffect(() => {
+    const onChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
+  }, []);
+  return hash.replace(/^#/, '');
+}

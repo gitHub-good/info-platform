@@ -7,6 +7,7 @@ import type {
   MarketTopVersionSummary,
 } from '@/types/marketTop';
 import { resetReadingTrackerForTest } from '@/api/readingEvent';
+import type { ScoreWeightsView } from '@/types/valueScore';
 
 // —— fetch mock：对齐批 2 冻结契约（MarketTopController §4.7.1——GET /market-top + /versions，
 //    加自选走既有 watchlists 三端点，埋点 POST /reading-events） ——
@@ -702,3 +703,160 @@ describe('MarketTop 全市场推荐页（T184，#/market-top 第 20 页）', () 
   });
 });
 
+describe('MarketTop 方法论子路由（T185，#/market-top/methodology）', () => {
+  function weightsOf(overrides: Partial<ScoreWeightsView> = {}): ScoreWeightsView {
+    return {
+      wCatalyst: 0.35,
+      wConduction: 0.25,
+      wFundamental: 0.2,
+      wRisk: 0.2,
+      wValuation: 0.0,
+      catalystWindowDays: 10,
+      assocWindowDays: 14,
+      halfLifeDays: 5,
+      k1Saturation: 3,
+      k3Saturation: 3,
+      btCatalystMin: 20,
+      btConductionMin: 50,
+      btRiskMin: 80,
+      basis: 'vs-v1:w=0.35|0.25|0.20|0.20|0.00;bt=20|50|80',
+      updatedAt: '2026-09-20T09:00:00Z',
+      ...overrides,
+    };
+  }
+
+  function configOf() {
+    return {
+      poolSize: 260,
+      deepDiveLimit: 35,
+      deepDiveCostCapRatio: 0.25,
+      diveCostEstimateMicros: 120000,
+      memberCoverageFloor: 0.8,
+      updatedAt: '2026-09-20T09:00:00Z',
+    };
+  }
+
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  it('入口与五段式：榜单页头「方法论」链接进入子路由，漏斗图解/因子定义/合成公式/降级语义/免责五段齐备', async () => {
+    stubFetch([
+      { path: '/api/v1/market-top/versions', respond: () => ok(versionsOf()) },
+      { path: '/api/v1/market-top/config', respond: () => ok(configOf()) },
+      { path: '/api/v1/market-top', respond: () => ok(viewOf([itemOf()])) },
+      { path: '/api/v1/value-scores/weights', respond: () => ok(weightsOf()) },
+      { path: '/api/v1/watchlists', respond: () => ok([]) },
+      { path: '/api/v1/reading-events', respond: () => ok(null) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    window.location.hash = '#/market-top/methodology';
+    render(<MarketTop />);
+
+    // 五段式齐备（T185 静态内容页）
+    expect(await screen.findByTestId('market-top-methodology-funnel')).toBeInTheDocument();
+    expect(screen.getByTestId('market-top-methodology-factors')).toBeInTheDocument();
+    expect(screen.getByTestId('market-top-methodology-synthesis')).toHaveTextContent(
+      'max(总分, 0.8 × 总分 + 0.2 × 深析结构分)',
+    );
+    expect(screen.getByTestId('market-top-methodology-degraded')).toHaveTextContent('COST_CAP');
+    expect(screen.getByTestId('market-top-methodology-disclaimer')).toHaveTextContent('不构成投资建议');
+    // 返回榜单入口常驻
+    expect(screen.getByTestId('market-top-methodology-back')).toHaveAttribute('href', '#/market-top');
+  });
+
+  it('版本对齐断言：页面展示权重与阈值恒等于 weights GET 值（实时读非硬编码）', async () => {
+    stubFetch([
+      { path: '/api/v1/market-top/config', respond: () => ok(configOf()) },
+      { path: '/api/v1/value-scores/weights', respond: () => ok(weightsOf()) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    window.location.hash = '#/market-top/methodology';
+    render(<MarketTop />);
+
+    // 五维权重逐项 = GET 响应值（改权重即变——非硬编码红线）
+    expect(await screen.findByTestId('market-top-methodology-weight-wCatalyst')).toHaveTextContent(
+      '权重 0.35',
+    );
+    expect(screen.getByTestId('market-top-methodology-weight-wConduction')).toHaveTextContent(
+      '权重 0.25',
+    );
+    expect(screen.getByTestId('market-top-methodology-weight-wValuation')).toHaveTextContent(
+      '权重 0.00',
+    );
+    // 突破三阈值与窗口 = GET 响应值
+    expect(screen.getByTestId('market-top-methodology-formula')).toHaveTextContent('≥ 20');
+    expect(screen.getByTestId('market-top-methodology-formula')).toHaveTextContent('≥ 50');
+    expect(screen.getByTestId('market-top-methodology-formula')).toHaveTextContent('≥ 80');
+    expect(screen.getByTestId('market-top-methodology-formula')).toHaveTextContent('催化窗口 10 天');
+    // 参数指纹脚注（版本对齐数据面）
+    expect(screen.getByTestId('market-top-methodology-basis')).toHaveTextContent('vs-v1:w=0.35');
+  });
+
+  it('漏斗层数实时读 market.top 配置：粗筛池/深析额度/成本占比 = config GET 值', async () => {
+    stubFetch([
+      { path: '/api/v1/market-top/config', respond: () => ok(configOf()) },
+      { path: '/api/v1/value-scores/weights', respond: () => ok(weightsOf()) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    window.location.hash = '#/market-top/methodology';
+    render(<MarketTop />);
+
+    expect(await screen.findByTestId('market-top-methodology-pool')).toHaveTextContent('~260');
+    expect(screen.getByTestId('market-top-methodology-dive')).toHaveTextContent('35');
+    expect(screen.getByTestId('market-top-methodology-funnel')).toHaveTextContent('25%');
+  });
+
+  it('weights 加载失败：错误态 + 重试成功恢复', async () => {
+    let calls = 0;
+    stubFetch([
+      { path: '/api/v1/market-top/config', respond: () => ok(configOf()) },
+      {
+        path: '/api/v1/value-scores/weights',
+        respond: () => {
+          calls += 1;
+          return calls === 1 ? fail(500, 50000, '服务异常') : ok(weightsOf());
+        },
+      },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    window.location.hash = '#/market-top/methodology';
+    render(<MarketTop />);
+
+    expect(await screen.findByTestId('market-top-methodology-error')).toHaveTextContent('服务异常');
+    await userEvent.click(screen.getByTestId('market-top-methodology-retry'));
+    expect(await screen.findByTestId('market-top-methodology-factors')).toBeInTheDocument();
+  });
+
+  it('页内 hash 切换：方法论视图与榜单视图互切不重挂载外层（导航仍 1 项）', async () => {
+    stubFetch([
+      { path: '/api/v1/market-top/versions', respond: () => ok(versionsOf()) },
+      { path: '/api/v1/market-top/config', respond: () => ok(configOf()) },
+      { path: '/api/v1/market-top', respond: () => ok(viewOf([itemOf()])) },
+      { path: '/api/v1/value-scores/weights', respond: () => ok(weightsOf()) },
+      { path: '/api/v1/watchlists', respond: () => ok([]) },
+      { path: '/api/v1/reading-events', respond: () => ok(null) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    window.location.hash = '#/market-top';
+    render(<MarketTop />);
+    expect(await screen.findByTestId('market-top-card-SZ300024')).toBeInTheDocument();
+    // 榜单页头「方法论」入口
+    expect(screen.getByTestId('market-top-link-methodology')).toHaveAttribute(
+      'href',
+      '#/market-top/methodology',
+    );
+
+    window.location.hash = '#/market-top/methodology';
+    expect(await screen.findByTestId('market-top-methodology-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('market-top-card-SZ300024')).toBeNull();
+
+    window.location.hash = '#/market-top';
+    expect(await screen.findByTestId('market-top-card-SZ300024')).toBeInTheDocument();
+  });
+});

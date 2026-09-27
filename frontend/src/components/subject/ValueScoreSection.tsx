@@ -241,6 +241,14 @@ export function ValueScoreSection({ subjectId }: ValueScoreSectionProps) {
             <div className="flex flex-col gap-0.5 border-t border-border pt-2">
               <p className="text-[10px] text-muted-foreground" data-testid="value-score-basis">
                 {`计算于 ${formatDateTime(view.computedAt)} · 参数指纹 ${view.weightBasis}`}
+                {' · '}
+                <a
+                  href="#/market-top/methodology"
+                  data-testid="value-score-link-methodology"
+                  className="text-primary underline underline-offset-2"
+                >
+                  方法论
+                </a>
               </p>
               <p className="text-[10px] text-muted-foreground" data-testid="value-score-disclaimer">
                 {view.disclaimer}

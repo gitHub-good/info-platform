@@ -103,6 +103,11 @@ describe('ValueScoreSection 价值评分区块（M20 T173）', () => {
     expect(screen.getByTestId('value-score-percentile')).toHaveTextContent('超过全市场 99%');
     expect(screen.getByTestId('value-score-rank')).toHaveTextContent('第 17 名');
     expect(screen.getByTestId('value-score-date')).toHaveTextContent('快照 2026-09-21');
+    // 方法论入口（M21 T185）：脚注链接 → #/market-top/methodology（故事 4 场景 4 一键到达口径）
+    expect(screen.getByTestId('value-score-link-methodology')).toHaveAttribute(
+      'href',
+      '#/market-top/methodology',
+    );
     for (const key of ['catalyst', 'conduction', 'fundamental', 'risk', 'valuation'] as const) {
       expect(screen.getByTestId(`value-score-factor-${key}`)).toBeInTheDocument();
     }
