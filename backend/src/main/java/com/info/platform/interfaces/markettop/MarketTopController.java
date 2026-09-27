@@ -5,6 +5,7 @@ import com.info.platform.application.markettop.MarketTopConfigFacade.ConfigUpdat
 import com.info.platform.application.markettop.MarketTopConfigFacade.ConfigView;
 import com.info.platform.application.markettop.MarketTopQueryService;
 import com.info.platform.application.markettop.MarketTopQueryService.RankView;
+import com.info.platform.application.valuation.ScoreWeightConfigFacade;
 import com.info.platform.domain.markettop.MarketTopRepository.VersionSummary;
 import com.info.platform.interfaces.common.Result;
 import java.util.List;
@@ -27,7 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
  *       30065/409； deepDiveLimit 30~50 硬校验——「全量 LLM 逐股永不发生」的配置面防线）
  * </ul>
  *
- * <p>方法论端点（GET /market-top/methodology）随 T185 增补。
+ * <p>方法论端点（GET /market-top/methodology）：聚合 weights 与 market-top/config
+ * 两路当前值（前端方法论页亦可两路直读，本端点为单一入口便捷形态——BUG-M21-03 落地）。
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -37,10 +39,15 @@ public class MarketTopController {
 
     private final MarketTopQueryService queryService;
 
+    private final ScoreWeightConfigFacade weightsFacade;
+
     public MarketTopController(
-            MarketTopConfigFacade configFacade, MarketTopQueryService queryService) {
+            MarketTopConfigFacade configFacade,
+            MarketTopQueryService queryService,
+            ScoreWeightConfigFacade weightsFacade) {
         this.configFacade = configFacade;
         this.queryService = queryService;
+        this.weightsFacade = weightsFacade;
     }
 
     /** 榜单详情（date 缺省最新有榜单日；version 缺省该日最大；30089/30090 语义见类注释）。 */
@@ -69,4 +76,15 @@ public class MarketTopController {
     public Result<ConfigView> updateConfig(@RequestBody ConfigUpdate update) {
         return Result.ok(configFacade.update(update));
     }
+
+    /** 方法论聚合端点（BUG-M21-03）：权重与漏斗配置单一入口（与方法论页两路直读同源同值）。 */
+    @GetMapping("/market-top/methodology")
+    public Result<MethodologyView> methodology() {
+        return Result.ok(new MethodologyView(weightsFacade.view(), configFacade.view()));
+    }
+
+    /** 方法论视图：两路配置聚合（weights + 漏斗配置），前端直读两路时本端点为等价便捷形态。 */
+    record MethodologyView(
+            com.info.platform.application.valuation.ScoreWeightConfigFacade.WeightsView weights,
+            ConfigView funnel) {}
 }

@@ -229,14 +229,7 @@ public class MarketTopService {
                     guardLevel,
                     diveCandidates.size());
             return new DiveLoopResult(
-                    outcomes,
-                    0,
-                    0,
-                    diveCandidates.size(),
-                    0,
-                    0,
-                    DEGRADED_COST_CAP,
-                    null);
+                    outcomes, 0, 0, diveCandidates.size(), 0, 0, DEGRADED_COST_CAP, null);
         }
 
         for (Candidate candidate : diveCandidates) {

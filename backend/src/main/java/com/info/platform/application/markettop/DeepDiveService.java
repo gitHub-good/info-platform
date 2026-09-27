@@ -54,8 +54,11 @@ public class DeepDiveService implements PlaceholderProvider {
     /** 深析采样温度（语言组织低发散，沿管道 0.1）。 */
     static final double DIVE_TEMPERATURE = 0.1;
 
-    /** 深析输出上限（thesis + 7 条目 JSON 包裹，1024 充裕）。 */
-    static final int DIVE_MAX_TOKENS = 1024;
+    /**
+     * 深析输出上限（BUG-M21-01：1024 实测 35/40 撞顶截断致模板兜底率 90%，上调 4096——thesis+条目 JSON+模型 reasoning token 均计入
+     * completion）。
+     */
+    static final int DIVE_MAX_TOKENS = 4096;
 
     /** 事件重要度序（模板兜底「最高重要度」口径：HIGH &gt; MEDIUM &gt; LOW &gt; 未知）。 */
     private static final List<String> IMPORTANCE_ORDER = List.of("HIGH", "MEDIUM", "LOW");

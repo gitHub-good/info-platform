@@ -188,7 +188,8 @@ class ReadingEventServiceTest {
 
         // Act
         boolean view = service.record(USER_ID, "MARKET_TOP_VIEW", "2026-09-22:v1:r1", null, null);
-        boolean act = service.record(USER_ID, "MARKET_TOP_ACT", "2026-09-22:v1:r1", "SH600519", null);
+        boolean act =
+                service.record(USER_ID, "MARKET_TOP_ACT", "2026-09-22:v1:r1", "SH600519", null);
 
         // Assert：两枚举受理落库（additive 扩展不破坏既有校验口径），ACT 解析标的画像
         assertThat(view).isTrue();
