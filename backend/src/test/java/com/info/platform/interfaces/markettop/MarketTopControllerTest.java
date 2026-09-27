@@ -28,13 +28,16 @@ class MarketTopControllerTest {
     private MockMvc mockMvc;
     private MarketTopConfigFacade configFacade;
     private com.info.platform.application.markettop.MarketTopQueryService queryService;
+    private com.info.platform.application.valuation.ScoreWeightConfigFacade weightsFacade;
 
     @BeforeEach
     void setUp() {
         configFacade = mock(MarketTopConfigFacade.class);
         queryService = mock(com.info.platform.application.markettop.MarketTopQueryService.class);
+        weightsFacade = mock(com.info.platform.application.valuation.ScoreWeightConfigFacade.class);
         mockMvc =
-                MockMvcBuilders.standaloneSetup(new MarketTopController(configFacade, queryService))
+                MockMvcBuilders.standaloneSetup(
+                                new MarketTopController(configFacade, queryService, weightsFacade))
                         .setControllerAdvice(new GlobalExceptionHandler())
                         .build();
     }
@@ -201,5 +204,23 @@ class MarketTopControllerTest {
                 .andExpect(jsonPath("$.data[0].version").value(1))
                 .andExpect(jsonPath("$.data[0].topSize").value(10))
                 .andExpect(jsonPath("$.data[0].degraded").value(false));
+    }
+
+    @Test
+    void methodology_aggregatesWeightsAndFunnelConfig() throws Exception {
+        // BUG-M21-03 回归：方法论聚合端点 500 → 200 两路同源
+        when(configFacade.view())
+                .thenReturn(new ConfigView(300, 40, 0.3, 100000L, 0.8, "2026-09-27T00:00:00Z"));
+        when(weightsFacade.view())
+                .thenReturn(
+                        new com.info.platform.application.valuation.ScoreWeightConfigFacade
+                                .WeightsView(
+                                0.4, 0.2, 0.2, 0.2, 0.0, 30, 30, 5.0, 3.0, 1.5, 60, 50, 80, "vs-v1",
+                                null));
+        mockMvc.perform(get("/api/v1/market-top/methodology"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.weights.wCatalyst").value(0.4))
+                .andExpect(jsonPath("$.data.funnel.poolSize").value(300));
     }
 }
