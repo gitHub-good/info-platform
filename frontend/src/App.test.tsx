@@ -415,10 +415,10 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(await screen.findByTestId('llm-config-page')).toBeInTheDocument();
     expect(screen.queryByTestId('llm-config-placeholder')).toBeNull();
 
-    // #/datasource-config（T40）：真实页挂载并请求数据源配置接口
-    await user.click(screen.getByTestId('nav-item-datasource-config'));
-    expect(await screen.findByTestId('datasource-config-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('datasource-config-placeholder')).toBeNull();
+    // #/sources（V2.3 T204 源合一页）：真实页挂载（默认资讯源 Tab）并请求两列表接口
+    await user.click(screen.getByTestId('nav-item-sources'));
+    expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    expect(screen.getByTestId('info-sources-panel')).toBeInTheDocument();
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some((call) => String(call[0]).includes('/datasource-configs')),
@@ -485,6 +485,46 @@ describe('App 路由与登录守卫（T38）', () => {
     );
     // 信息流页顶互链（REQ 故事 1 Should）：库 → 流 引导可达
     expect(screen.getByTestId('nav-item-feed')).toBeInTheDocument();
+  });
+
+  it('#/sources 双 Tab（V2.3 T204）：默认资讯源面板，切 biz Tab 渲染业务数据源面板且 URL 随行', async () => {
+    const user = userEvent.setup();
+    renderLoggedIn('#/sources');
+
+    expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    expect(screen.getByTestId('info-sources-panel')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('sources-tab-biz'));
+    expect(await screen.findByTestId('biz-sources-panel')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/sources?tab=biz'));
+  });
+
+  it('旧源页路由归一（T204 三向重定向）：#/datasource-config → #/sources?tab=biz 且渲染业务面板', async () => {
+    renderLoggedIn('#/datasource-config');
+
+    expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    expect(screen.getByTestId('biz-sources-panel')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/sources?tab=biz'));
+  });
+
+  it('旧源页路由归一（T204）：#/info-sources → #/sources 默认资讯面板，?source= 定位参数透传', async () => {
+    renderLoggedIn('#/info-sources?source=mw_topstories');
+
+    expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    expect(screen.getByTestId('info-sources-panel')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.location.hash).toBe('#/sources?source=mw_topstories'),
+    );
+  });
+
+  it('旧源页路由归一（T204）：#/datasource-config 带 query → tab=biz 与原参数合流', async () => {
+    renderLoggedIn('#/datasource-config?foo=1');
+
+    expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    expect(screen.getByTestId('biz-sources-panel')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.location.hash).toBe('#/sources?foo=1&tab=biz'),
+    );
   });
 
   it('未知路由已登录时无内容区崩坏（侧栏仍在，内容区空）', () => {

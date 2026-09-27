@@ -26,10 +26,12 @@ import type {
   InfoSourcesView,
 } from '@/types/infoSource';
 
-// 资讯源管理页（M13 T105，#/info-sources 全站第 14 页——UI 设计 §3）。
+// 资讯源面板（M13 T105 → V2.3-M23 T204 抽面板：页体自 #/info-sources 独立页迁入 #/sources 双 Tab 容器，
+// 数据加载/卡片交互/testid 全量保留，仅剥 <main> 外壳——宽度容器由 Sources.tsx 提供）。
 // 卡片分组网格（category 分组 + 归档区）/五态徽章/新增单 Dialog 类型切换字段集/JSON 轻量映射/
 // 编辑热生效/启停/软删二次确认/恢复/立即抓取 202+3s 轻轮询/连通性测试/新增保存后引导条。
 // 刷新策略（UI §6.4）：编辑/启停/归档/恢复按卡局部更新；仅手动抓取触发 3s 轻轮询（上限 30s，document.hidden 暂停）。
+// filter（V2.3 T204 统一搜索）：按源名/代码包含过滤卡片（不区分大小写；空串不过滤），由 Sources 页搜索框下发。
 
 const CATEGORIES = ['快讯', '媒体', '政策', '宏观', '国际', '自建'] as const;
 const DEFAULT_CATEGORY = '自建';
@@ -822,7 +824,7 @@ function ArchivedCard({ source, onSaved }: ArchivedCardProps) {
 
 // —— 页面 ——
 
-export function InfoSources() {
+export function InfoSourcesPanel({ filter = '' }: { filter?: string }) {
   const [view, setView] = useState<InfoSourcesView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -879,9 +881,13 @@ export function InfoSources() {
     if (!target) return;
     if (target.deleted) setShowArchived(true);
     window.setTimeout(() => {
-      document
-        .querySelector(`[data-testid="info-source-card-${CSS.escape(code)}"]`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // 环境不支持 scrollIntoView（jsdom）时跳过，不干扰定位高亮
+      const target = document.querySelector(
+        `[data-testid="info-source-card-${CSS.escape(code)}"]`,
+      );
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }, 0);
     setHighlightCode(code);
     const clear = window.setTimeout(() => setHighlightCode(null), 5_000);
@@ -1025,17 +1031,27 @@ export function InfoSources() {
     }
   };
 
-  const cards = view ? view.groups.flatMap((g) => g.sources) : [];
+  // 统一搜索（T204）：按源名/代码包含过滤（不区分大小写），命中组内全部落空则整组隐藏；归档区不过滤
+  const keyword = filter.trim().toLowerCase();
+  const matchesKeyword = (source: InfoSourceCardView) =>
+    !keyword ||
+    source.name.toLowerCase().includes(keyword) ||
+    source.sourceCode.toLowerCase().includes(keyword);
+  const visibleGroups =
+    view?.groups
+      .map((group) => ({ ...group, sources: group.sources.filter(matchesKeyword) }))
+      .filter((group) => group.sources.length > 0) ?? [];
+  const cards = view ? view.groups.flatMap((g) => g.sources).filter(matchesKeyword) : [];
 
   return (
-    <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="info-sources-page">
+    <div data-testid="info-sources-panel">
       <header className="mb-4">
-        <h1 className="text-xl font-medium">资讯源</h1>
+        <h2 className="text-base font-medium">资讯源</h2>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="max-w-3xl text-sm text-muted-foreground">
             轮询采集型 · 30 源采集管道——资讯源 7×24 分钟级轮询入库，本页管理源的启停 / 参数 / 新增 / 归档；按需拉取的业务数据源配置 →{' '}
             <a
-              href="#/datasource-config"
+              href="#/sources?tab=biz"
               data-testid="info-sources-datasource-link"
               className="underline underline-offset-2 transition-colors hover:text-foreground"
             >
@@ -1080,7 +1096,15 @@ export function InfoSources() {
         </div>
       ) : view ? (
         <div className="flex flex-col gap-4">
-          {cards.length === 0 && view.archived.length === 0 ? (
+          {visibleGroups.length === 0 && cards.length === 0 &&
+          view.groups.some((g) => g.sources.length > 0) ? (
+            <p
+              className="py-10 text-center text-sm text-muted-foreground"
+              data-testid="info-sources-filtered-empty"
+            >
+              没有匹配「{filter.trim()}」的资讯源
+            </p>
+          ) : visibleGroups.length === 0 && view.archived.length === 0 ? (
             <p
               className="py-10 text-center text-sm text-muted-foreground"
               data-testid="info-sources-empty"
@@ -1088,7 +1112,7 @@ export function InfoSources() {
               暂无资讯源（异常场景，请检查后端种子）
             </p>
           ) : (
-            view.groups.map((group) => (
+            visibleGroups.map((group) => (
               <section key={group.category} className="flex flex-col gap-3">
                 <h2 className="text-xs text-muted-foreground">{group.category}</h2>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
@@ -1166,8 +1190,8 @@ export function InfoSources() {
           </>
         }
       />
-    </main>
+    </div>
   );
 }
 
-export default InfoSources;
+export default InfoSourcesPanel;

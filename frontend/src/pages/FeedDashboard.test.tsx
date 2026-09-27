@@ -218,7 +218,7 @@ describe('FeedDashboard 抓取大盘页（T116）', () => {
     const failure = await screen.findByTestId('dashboard-failure-0');
     await user.click(within(failure).getByTestId('dashboard-failure-jump-0'));
 
-    expect(window.location.hash).toBe('#/info-sources?source=mw_topstories');
+    expect(window.location.hash).toBe('#/sources?source=mw_topstories');
   });
 
   it('30 秒自动刷新：不可见时暂停、可见时到期即拉取（大盘 + 北极星双请求同节奏）', async () => {
@@ -301,7 +301,7 @@ describe('FeedDashboard 抓取大盘页（T116）', () => {
     const empty = await screen.findByTestId('dashboard-empty');
     expect(empty).toBeInTheDocument();
     await user.click(screen.getByTestId('dashboard-empty-link'));
-    expect(window.location.hash).toBe('#/info-sources');
+    expect(window.location.hash).toBe('#/sources');
   });
 
   it('归档源默认折叠，勾选后可见', async () => {

@@ -271,7 +271,7 @@ export function Overview() {
                     subtitle="近 24h"
                     value={`抓取成功 ${okCount}/${sources.length || '—'}`}
                     hint={sourceHint}
-                    href="#/datasource-config"
+                    href="#/sources?tab=biz"
                     error={data.sourceHealthError}
                     onRetry={() => void load()}
                     testId="source-health"

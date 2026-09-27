@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  canonicalizeRoute,
   DEFAULT_SUBJECT_CODE,
   lastViewedSubject,
   navigate,
   parseSubjectCode,
   queryOf,
   rememberSubject,
+  sourcesTabOf,
 } from '@/lib/navigation';
 
 afterEach(() => {
@@ -48,5 +50,34 @@ describe('navigation 路由工具', () => {
     expect(lastViewedSubject()).toBe('SZ000001');
     // 侧栏入口形态：href 指向最近浏览标的
     expect(`#/subjects/${lastViewedSubject()}`).toBe('#/subjects/SZ000001');
+  });
+
+  // —— V2.3-M23 T204：源页路由归一 + /sources Tab 解析 ——
+
+  it('canonicalizeRoute：datasource-config → /sources?tab=biz（query 合流透传）', () => {
+    expect(canonicalizeRoute('/datasource-config')).toBe('/sources?tab=biz');
+    expect(canonicalizeRoute('/datasource-config?foo=1')).toBe('/sources?foo=1&tab=biz');
+    // 已带 tab 参数不重复覆写
+    expect(canonicalizeRoute('/datasource-config?tab=info')).toBe('/sources?tab=info');
+  });
+
+  it('canonicalizeRoute：info-sources → /sources（?source= 定位参数原样透传）', () => {
+    expect(canonicalizeRoute('/info-sources')).toBe('/sources');
+    expect(canonicalizeRoute('/info-sources?source=mw_topstories')).toBe(
+      '/sources?source=mw_topstories',
+    );
+  });
+
+  it('canonicalizeRoute：非旧路由原样返回（归一层零误伤）', () => {
+    expect(canonicalizeRoute('/overview')).toBe('/overview');
+    expect(canonicalizeRoute('/sources?tab=biz')).toBe('/sources?tab=biz');
+    expect(canonicalizeRoute('/feed-dashboard')).toBe('/feed-dashboard');
+  });
+
+  it('sourcesTabOf：?tab=biz → biz；缺省/非法值 → info（默认高频运维面）', () => {
+    expect(sourcesTabOf('/sources')).toBe('info');
+    expect(sourcesTabOf('/sources?tab=biz')).toBe('biz');
+    expect(sourcesTabOf('/sources?tab=info&source=s1')).toBe('info');
+    expect(sourcesTabOf('/sources?tab=unknown')).toBe('info');
   });
 });

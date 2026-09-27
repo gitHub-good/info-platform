@@ -815,15 +815,17 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
   );
 }
 
-// —— 页面 ——
+// —— 面板 ——
 
 /**
- * 数据源配置页（T40，#/datasource-config，UI 方案 §3.3）。
+ * 业务数据源面板（T40 → V2.3-M23 T204 抽面板：页体自 #/datasource-config 独立页迁入 #/sources 双 Tab 容器，
+ * 数据加载/卡片交互/testid 全量保留，仅剥 <main> 外壳——宽度容器由 Sources.tsx 提供）。
  * 聚合总超时条 + 7 源卡网格（事件源只读卡）；模式用「真实/mock 分段按钮」（mock ≠ 停用）；健康徽章取
  * data_source_event 最近一条（含 OK 心跳）；保存按卡（单卡失败不污染他卡）。
  * 三态：加载骨架 / 「暂无抓取记录」空态（单源）/ 整页错误重试；401 由 http 层统一跳登录。
+ * filter（V2.3 T204 统一搜索）：按源名/代码包含过滤卡片（不区分大小写；空串不过滤），由 Sources 页搜索框下发。
  */
-export function DatasourceConfig() {
+export function BizSourcesPanel({ filter = '' }: { filter?: string }) {
   const [view, setView] = useState<DataSourceConfigView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -867,18 +869,28 @@ export function DatasourceConfig() {
     );
   };
 
+  // 统一搜索（T204）：按源展示名/源代码包含过滤（不区分大小写），空串不过滤
+  const keyword = filter.trim().toLowerCase();
+  const visibleSources =
+    view?.sources.filter(
+      (source) =>
+        !keyword ||
+        source.label.toLowerCase().includes(keyword) ||
+        source.sourceCode.toLowerCase().includes(keyword),
+    ) ?? [];
+
   return (
-    <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="datasource-config-page">
+    <div data-testid="biz-sources-panel">
       <header className="mb-4">
-        <h1 className="text-xl font-medium">业务数据源</h1>
+        <h2 className="text-base font-medium">业务数据源</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           按需拉取型 · 行情 / 财务 / 估值 / 公告 / 新闻 / 政策六域——7 源开关 / 运行模式 / 降级链 / 弹性参数与健康状态一页管理
         </p>
-        {/* 源页面轻整合互链（M19 T165）：轮询采集的另一套「源」页直达（路由不变零兼容成本） */}
+        {/* 源页面轻整合互链（M19 T165 → V2.3 T204 归一）：轮询采集的另一套「源」面板直达（Tab 切换） */}
         <p className="mt-1 text-sm text-muted-foreground">
           轮询抓取的资讯源管理 →{' '}
           <a
-            href="#/info-sources"
+            href="#/sources?tab=info"
             data-testid="datasource-config-info-sources-link"
             className="underline underline-offset-2 transition-colors hover:text-foreground"
           >
@@ -913,7 +925,14 @@ export function DatasourceConfig() {
       ) : view ? (
         <div className="flex flex-col gap-4">
           <AggregationCard aggregation={view.aggregation} onSaved={applyAggregation} />
-          {view.sources.length === 0 ? (
+          {visibleSources.length === 0 && view.sources.length > 0 ? (
+            <p
+              className="py-10 text-center text-sm text-muted-foreground"
+              data-testid="datasource-config-filtered-empty"
+            >
+              没有匹配「{filter.trim()}」的业务数据源
+            </p>
+          ) : view.sources.length === 0 ? (
             <p
               className="py-10 text-center text-sm text-muted-foreground"
               data-testid="datasource-config-empty"
@@ -922,15 +941,15 @@ export function DatasourceConfig() {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-              {view.sources.map((source) => (
+              {visibleSources.map((source) => (
                 <SourceCard key={source.sourceCode} source={source} onSaved={applySource} />
               ))}
             </div>
           )}
         </div>
       ) : null}
-    </main>
+    </div>
   );
 }
 
-export default DatasourceConfig;
+export default BizSourcesPanel;

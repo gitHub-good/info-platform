@@ -438,7 +438,7 @@ describe('Overview 概览仪表盘（T42）', () => {
     );
   });
 
-  it('交互：整卡可点跳转（成本→#/cost-report、数据源→#/datasource-config）', async () => {
+  it('交互：整卡可点跳转（成本→#/cost-report、数据源→#/sources?tab=biz）', async () => {
     vi.stubGlobal('fetch', routeFetch());
 
     render(<Overview />);
@@ -450,7 +450,7 @@ describe('Overview 概览仪表盘（T42）', () => {
     expect(screen.getByTestId('stat-card-job-health-link')).toHaveAttribute('href', '#/task-center');
     expect(screen.getByTestId('stat-card-source-health-link')).toHaveAttribute(
       'href',
-      '#/datasource-config',
+      '#/sources?tab=biz',
     );
 
     // 键盘可达路径同锚点：点击后 hash 真实跳变

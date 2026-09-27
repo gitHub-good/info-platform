@@ -32,6 +32,35 @@ export function queryOf(route: string): URLSearchParams {
   return new URLSearchParams(queryIndex >= 0 ? route.slice(queryIndex + 1) : '');
 }
 
+/** 源管理页 Tab 键（V2.3-M23 T204：info=资讯源默认 / biz=业务数据源）。 */
+export type SourcesTab = 'info' | 'biz';
+
+/** /sources 路由的 ?tab= 解析（缺省/非法值回落默认 info——方案 §3.4 默认高频运维面）。 */
+export function sourcesTabOf(route: string): SourcesTab {
+  return queryOf(route).get('tab') === 'biz' ? 'biz' : 'info';
+}
+
+/**
+ * 旧源页路由归一（V2.3-M23 T204，方案 §3.4 兼容红线）：
+ * - /datasource-config（含 query 透传）→ /sources?tab=biz
+ * - /info-sources → /sources（?source= 等定位参数原样透传，面板定位逻辑不变）
+ * 归一层全局兜底（前缀匹配）：书签/深链等未枚举散点自动被捕获；非旧路由原样返回。
+ */
+export function canonicalizeRoute(route: string): string {
+  const queryIndex = route.indexOf('?');
+  const path = queryIndex >= 0 ? route.slice(0, queryIndex) : route;
+  const query = queryOf(route);
+  if (path === '/datasource-config' || path.startsWith('/datasource-config/')) {
+    if (!query.get('tab')) query.set('tab', 'biz');
+    return `/sources?${query.toString()}`;
+  }
+  if (path === '/info-sources' || path.startsWith('/info-sources/')) {
+    const queryText = query.toString();
+    return `/sources${queryText ? `?${queryText}` : ''}`;
+  }
+  return route;
+}
+
 /**
  * 标的详情路由的标的代码（T38 参数化）：
  * '/subjects/:code' 或 '/subjects?code=xxx' 优先；无参回退最近浏览标的，

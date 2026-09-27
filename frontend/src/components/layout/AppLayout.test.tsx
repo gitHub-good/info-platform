@@ -12,36 +12,31 @@ afterEach(() => {
 });
 
 describe('AppLayout 统一导航骨架（T38）', () => {
-  it('渲染 4 分组 20 项导航（PRD 场景 1.1 全量可达 + 体检 P1-3 订阅管理 + M13 资讯源管理 + M14 抓取大盘 + M15 行业热度/事件流 + M19 资讯库 + M21 全市场推荐），当前项高亮', () => {
+  it('渲染 4 分组 19 项导航（V2.3-M23 T204 源两页合一后 20→19），当前项高亮', () => {
     render(<AppLayout currentRoute="/watchlists">内容</AppLayout>);
 
     // 分组标题
     for (const group of NAV_GROUPS) {
       expect(screen.getByText(group.label)).toBeInTheDocument();
     }
-    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：20 页 + 底部登出共 21 项
+    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：19 页 + 底部登出共 20 项
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(20);
+    expect(allItems).toHaveLength(19);
     for (const item of allItems) {
       expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
     }
-    // 全市场推荐（M21 T184 第 20 页）：分析组「推荐中心」之后
+    // 全市场推荐（M21 T184）：分析组「推荐中心」之后
     expect(screen.getByTestId('nav-item-market-top')).toHaveTextContent('全市场推荐');
     const recItem = screen.getByTestId('nav-item-recommendations');
     const marketTopItem = screen.getByTestId('nav-item-market-top');
     expect(recItem.compareDocumentPosition(marketTopItem) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // 资讯库（M19 T161 第 19 页）：数据组第 4 项（政策时事之后）
+    // 资讯库（M19 T161）：数据组第 4 项（政策时事之后）
     expect(screen.getByTestId('nav-item-news-library')).toHaveTextContent('资讯库');
-    // 源页面轻整合（M19 T165）：「业务数据源」与「资讯源」相邻呈现，旧文案不再出现（路由 hash/testid 零变化）
-    const datasourceItem = screen.getByTestId('nav-item-datasource-config');
-    const infoSourceItem = screen.getByTestId('nav-item-info-sources');
-    expect(datasourceItem).toHaveTextContent('业务数据源');
-    expect(infoSourceItem).toHaveTextContent('资讯源');
-    expect(datasourceItem.compareDocumentPosition(infoSourceItem) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(screen.queryByText('数据源配置')).toBeNull();
-    expect(screen.queryByText('资讯源管理')).toBeNull();
+    // 源管理（V2.3 T204 合一）：单入口「源管理」，旧两页文案不再出现
+    expect(screen.getByTestId('nav-item-sources')).toHaveTextContent('源管理');
+    expect(screen.queryByTestId('nav-item-datasource-config')).toBeNull();
+    expect(screen.queryByTestId('nav-item-info-sources')).toBeNull();
     // 当前页高亮：aria-current="page"
     expect(screen.getByTestId('nav-item-watchlists')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('nav-item-overview')).not.toHaveAttribute('aria-current');
@@ -123,9 +118,9 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     expect(titleForRoute('/job-logs?jobName=x')).toBe('Job 日志');
     expect(titleForRoute('/subjects/SH600519')).toBe('标的详情');
     expect(titleForRoute('/prompt-templates')).toBe('提示词模板');
-    // M19 T165：窄屏顶栏标题随导航改名同步（大盘跳转带查询串仍命中）
-    expect(titleForRoute('/datasource-config')).toBe('业务数据源');
-    expect(titleForRoute('/info-sources?source=s1')).toBe('资讯源');
+    // V2.3 T204：源管理单页（带 Tab/定位参数仍命中）
+    expect(titleForRoute('/sources')).toBe('源管理');
+    expect(titleForRoute('/sources?tab=biz&source=s1')).toBe('源管理');
     expect(titleForRoute('/unknown')).toBe('');
   });
 });

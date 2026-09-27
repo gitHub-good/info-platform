@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DatasourceConfig } from '@/pages/DatasourceConfig';
+import { BizSourcesPanel } from '@/components/sources/BizSourcesPanel';
 import type { DataSourceCardView, DataSourceConfigView } from '@/types/datasourceConfig';
 
 // —— fetch mock：datasource-configs 组（GET/PATCH/连通性测试，状态化可变异） ——
@@ -158,7 +158,7 @@ function makeStore({ view = fullView(), failGet = false, failQuotePatch = false 
 
 function renderPage(store: ReturnType<typeof makeStore>) {
   vi.stubGlobal('fetch', store.fetchMock);
-  render(<DatasourceConfig />);
+  render(<BizSourcesPanel />);
 }
 
 afterEach(() => {
@@ -166,7 +166,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe('DatasourceConfig 页面', () => {
+describe('BizSourcesPanel 业务数据源面板（T40 → V2.3 T204 抽面板）', () => {
   it('加载骨架 → 7 源卡 + 聚合总超时条渲染，健康徽章与空态', async () => {
     const store = makeStore();
     renderPage(store);
@@ -186,22 +186,20 @@ describe('DatasourceConfig 页面', () => {
     expect(screen.queryByTestId('datasource-edit-params-EVENT')).toBeNull();
   });
 
-  // —— M19 T165 源页面轻整合：改名「业务数据源」+ 运行形态副标 + 互链引导（路由 hash/testid 零变化） ——
+  // —— V2.3 T204：面板头保留运行形态副标，互链改指 #/sources?tab=info（Tab 切换） ——
 
-  it('页头轻整合：标题「业务数据源」+ 按需拉取型副标 + 互链直达资讯源页', async () => {
+  it('面板头：标题「业务数据源」+ 按需拉取型副标 + 互链直达资讯源 Tab（#/sources?tab=info）', async () => {
     const store = makeStore();
     renderPage(store);
 
-    expect(await screen.findByTestId('datasource-config-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('biz-sources-panel')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '业务数据源' })).toBeInTheDocument();
-    expect(screen.getByTestId('datasource-config-page')).toHaveTextContent('按需拉取型');
-    expect(screen.getByTestId('datasource-config-page')).toHaveTextContent('六域');
+    expect(screen.getByTestId('biz-sources-panel')).toHaveTextContent('按需拉取型');
+    expect(screen.getByTestId('biz-sources-panel')).toHaveTextContent('六域');
     expect(screen.getByTestId('datasource-config-info-sources-link')).toHaveAttribute(
       'href',
-      '#/info-sources',
+      '#/sources?tab=info',
     );
-    // 路由 hash 与页面 testid 零变化（旧收藏直达）
-    expect(screen.getByTestId('datasource-config-page')).toBeInTheDocument();
   });
 
   it('mock 模式卡顶常显提示条；真实→mock 切换弹确认（PRD 风险对策）', async () => {

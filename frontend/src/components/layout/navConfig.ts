@@ -11,7 +11,6 @@ import {
   MessageSquareText,
   Newspaper,
   PlayCircle,
-  RadioTower,
   Rss,
   ScrollText,
   Sparkles,
@@ -36,7 +35,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 19 页导航总表 + 底部登出（UI 方案 §2.1；页面路由以 UI 方案为准，订阅管理为体检 P1-3 增补，资讯源管理为 M13 第 14 页，抓取大盘为 M14 第 15 页，行业热度为 M15 第 16 页，事件流为 M15 第 17 页，资讯库为 M19 第 19 页）。 */
+/** 4 分组 19 页导航总表 + 底部登出（UI 方案 §2.1；V2.3-M23 T204 源两页合一「源管理」后 20→19 页；抓取大盘 M14、行业热度/事件流 M15、资讯库 M19、全市场推荐 M21）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -78,11 +77,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/job-logs', label: 'Job 日志', icon: ScrollText },
       { to: '/cost-report', label: '成本报表', icon: Coins },
       { to: '/llm-config', label: '模型配置', icon: Bot },
-      // 源页面轻整合（M19 T165，REQ 拍板三）：改名「业务数据源」（按需拉取型六源业务域），路由 hash 与 testid 零变化
-      { to: '/datasource-config', label: '业务数据源', icon: Database },
-      // 资讯源（M13 T105 全站第 14 页；M19 T165 由「资讯源管理」改名——轮询采集型 30 源管道），两页页顶互链引导
-      { to: '/info-sources', label: '资讯源', icon: RadioTower },
-      // 抓取大盘（M14 T116，运维组第 15 页）：紧邻资讯源，同属源运行域（REQ 拍板二：独立只读监控页）
+      // 源管理（V2.3-M23 T204，全站 20→19 页）：资讯源 + 业务数据源双 Tab 单页 #/sources
+      // （?tab=info|biz；旧 #/datasource-config / #/info-sources 由 App 归一层 replace 重定向）
+      { to: '/sources', label: '源管理', icon: Database },
+      // 抓取大盘（M14 T116 运维组）：紧邻源管理，同属源运行域（REQ 拍板二：独立只读监控页）
       { to: '/feed-dashboard', label: '抓取大盘', icon: Gauge },
       // 运维组第 7 项（全站第 15 页，M5 T47）：紧邻模型/业务数据源，同属「改 AI 产出」入口（UI 方案 D1）
       { to: '/prompt-templates', label: '提示词模板', icon: MessageSquareText },

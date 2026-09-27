@@ -11,19 +11,18 @@ import { SubjectDetail } from '@/pages/SubjectDetail';
 import { TaskCenter } from '@/pages/TaskCenter';
 import { Subscriptions } from '@/pages/Subscriptions';
 import { Watchlist } from '@/pages/Watchlist';
-import { DatasourceConfig } from '@/pages/DatasourceConfig';
 import { Feed } from '@/pages/Feed';
 import { FeedDashboard } from '@/pages/FeedDashboard';
 import { IndustryHeat } from '@/pages/IndustryHeat';
 import { Events } from '@/pages/Events';
 import { Recommendations } from '@/pages/Recommendations';
 import { MarketTop } from '@/pages/MarketTop';
-import { InfoSources } from '@/pages/InfoSources';
 import { NewsLibrary } from '@/pages/NewsLibrary';
+import { Sources } from '@/pages/Sources';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
 import { getToken } from '@/api/http';
-import { navigate, parseSubjectCode, queryOf } from '@/lib/navigation';
+import { canonicalizeRoute, navigate, parseSubjectCode, queryOf } from '@/lib/navigation';
 
 /**
  * 轻量 hash 路由（#/overview · #/watchlists · #/subjects/:code · #/job-logs?jobName= …）。
@@ -43,8 +42,7 @@ function useHashRoute(): string {
   return hash;
 }
 
-/** 按路由渲染页面内容（各页保留自带 main+max-w，AppLayout 只提供导航骨架）。 */
-function renderPage(route: string) {
+/** 按路由渲染页面内容（各页保留自带 main+max-w，AppLayout 只提供导航骨架）。 */function renderPage(route: string) {
   if (route.startsWith('/watchlists')) {
     return <Watchlist />;
   }
@@ -97,19 +95,17 @@ function renderPage(route: string) {
       </main>
     );
   }
-  // 新增 5 页均已实现：#/overview（T42）、#/llm-config（T39）、#/datasource-config（T40）、#/task-center（T41）、#/feed（T43）
+  // 新增 5 页均已实现：#/overview（T42）、#/llm-config（T39）、#/sources（T40 归一）、#/task-center（T41）、#/feed（T43）
   if (route.startsWith('/overview')) {
     return <Overview />;
   }
   if (route.startsWith('/llm-config')) {
     return <LlmConfig />;
   }
-  if (route.startsWith('/datasource-config')) {
-    return <DatasourceConfig />;
-  }
-  // 资讯源管理（M13 T105）：源注册表 DB 化后的运营页，与数据源配置页边界冻结（ADR-0038）
-  if (route.startsWith('/info-sources')) {
-    return <InfoSources />;
+  // 源管理（V2.3-M23 T204）：资讯源 + 业务数据源双 Tab 单页（?tab=info|biz，默认 info）；
+  // 旧 #/datasource-config / #/info-sources 由 canonicalizeRoute 归一层重定向（query 透传）
+  if (route.startsWith('/sources')) {
+    return <Sources route={route} />;
   }
   if (route.startsWith('/task-center')) {
     return <TaskCenter />;
@@ -146,13 +142,22 @@ export default function App() {
     }
   }, [route, token]);
 
+  const fallbackRoute = route === '' || route === '/login' ? '/overview' : route;
+  // 旧源页路由归一（T204）：渲染按规范路由，地址栏 replaceState 静默改写
+  // （不触发 hashchange、不新增历史项——回退键不被重定向劫持，无死循环）。
+  // 注意：此 effect 必须位于登录守卫早返回之前（hooks 无条件调用）
+  const effectiveRoute = canonicalizeRoute(fallbackRoute);
+  useEffect(() => {
+    if (token && effectiveRoute !== fallbackRoute) {
+      window.history.replaceState(null, '', `#${effectiveRoute}`);
+    }
+  }, [fallbackRoute, effectiveRoute, token]);
+
   // 登录守卫：无 token 一律渲染登录页（全屏、无 AppLayout），登录成功回原目标路由
   if (!token) {
     const target = route !== '' && route !== '/login' ? route : '/overview';
     return <Login redirectTo={target} onAuthenticated={() => setAuthEpoch((e) => e + 1)} />;
   }
-
-  const effectiveRoute = route === '' || route === '/login' ? '/overview' : route;
 
   // 登录态挂载通知中心（P1-1）：SSE 长连接随 Provider 建立，登出（token 清除）即卸载断开
   return (

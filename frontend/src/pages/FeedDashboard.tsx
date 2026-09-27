@@ -284,7 +284,7 @@ export function FeedDashboard() {
               <button
                 type="button"
                 className="text-primary underline underline-offset-4"
-                onClick={() => navigate('/info-sources')}
+                onClick={() => navigate('/sources')}
                 data-testid="dashboard-empty-link"
               >
                 去源管理页启用
@@ -473,7 +473,7 @@ export function FeedDashboard() {
                         key={`${failure.sourceCode}-${failure.occurredAt}-${index}`}
                         className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50"
                         data-testid={`dashboard-failure-${index}`}
-                        onClick={() => navigate(`/info-sources?source=${failure.sourceCode}`)}
+                        onClick={() => navigate(`/sources?source=${failure.sourceCode}`)}
                       >
                         <span className="font-medium">{failure.sourceName}</span>
                         <span className="text-xs text-muted-foreground">
@@ -494,7 +494,7 @@ export function FeedDashboard() {
                           data-testid={`dashboard-failure-jump-${index}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate(`/info-sources?source=${failure.sourceCode}`);
+                            navigate(`/sources?source=${failure.sourceCode}`);
                           }}
                         >
                           去处置

@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { InfoSources } from '@/pages/InfoSources';
+import { InfoSourcesPanel } from '@/components/sources/InfoSourcesPanel';
 import type { InfoSourceCardView, InfoSourcesView } from '@/types/infoSource';
 
 // —— fetch mock：info-sources 组（GET 分组视图 / POST 新增 / PATCH 编辑 / DELETE 归档 /
@@ -237,7 +237,7 @@ function makeStore({ view = fullView(), failGet = false, pollStatus = 'accepted'
 
 function renderPage(store: ReturnType<typeof makeStore>) {
   vi.stubGlobal('fetch', store.fetchMock);
-  render(<InfoSources />);
+  render(<InfoSourcesPanel />);
 }
 
 async function openAddDialog() {
@@ -245,32 +245,32 @@ async function openAddDialog() {
   return screen.getByTestId('dialog');
 }
 
-describe('InfoSources 资讯源管理页（M13 T105）', () => {
+describe('InfoSourcesPanel 资讯源面板（M13 T105 → V2.3 T204 抽面板）', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
 
-  // —— M19 T165 源页面轻整合：改名「资讯源」+ 轮询采集型副标 + 互链直达业务数据源页 ——
+  // —— V2.3 T204：面板头保留轮询采集型副标，互链改指 #/sources?tab=biz（Tab 切换） ——
 
-  it('页头轻整合：标题「资讯源」+ 轮询采集型副标 + 互链直达业务数据源页（路由 hash 零变化）', async () => {
+  it('面板头：标题「资讯源」+ 轮询采集型副标 + 互链直达业务数据源 Tab（#/sources?tab=biz）', async () => {
     renderPage(makeStore());
 
-    const page = await screen.findByTestId('info-sources-page');
+    const page = await screen.findByTestId('info-sources-panel');
     expect(screen.getByRole('heading', { name: '资讯源' })).toBeInTheDocument();
     expect(page).toHaveTextContent('轮询采集型');
     expect(page).toHaveTextContent('7×24');
     expect(screen.getByTestId('info-sources-datasource-link')).toHaveAttribute(
       'href',
-      '#/datasource-config',
+      '#/sources?tab=biz',
     );
   });
 
   it('渲染分组视图：分组标题 / 类型徽章 / 指标行（间隔·今日+新增）', async () => {
     renderPage(makeStore());
 
-    expect(await screen.findByTestId('info-sources-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('info-sources-panel')).toBeInTheDocument();
     expect(screen.getByText('快讯')).toBeInTheDocument();
     expect(screen.getByText('国际')).toBeInTheDocument();
     expect(screen.getByText('自建')).toBeInTheDocument();
