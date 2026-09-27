@@ -1,10 +1,12 @@
 // M20 T173：标的详情「价值评分」区块组件测试（方案 §4.8 + §6 前端组件测试清单）：
 // 渲染分解 / 空态 30086 / 突破徽章 / 权重 0 弱化与缺数中性态 / 依据事件下钻 / 免责常驻 / 错误重试 / subjectId 未解析零请求。
+// M22 T192 增补：increment 块两态（事件驱动更新标注 + 触发事件下钻 / 未覆盖无标注——时间戳双层语义）。
 
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ValueScoreSection } from '@/components/subject/ValueScoreSection';
+import { formatDateTime } from '@/lib/format';
 import type { ValueScoreFactor, ValueScoreView } from '@/types/valueScore';
 
 const SUBJECT_ID = 101;
@@ -80,6 +82,7 @@ function viewOf(overrides: Partial<ValueScoreView> = {}): ValueScoreView {
     weightBasis: BASIS,
     computedAt: '2026-09-21T09:30:00Z',
     disclaimer: '评分为多因子信息整理，不构成投资建议',
+    increment: null,
     ...overrides,
   };
 }
@@ -218,5 +221,79 @@ describe('ValueScoreSection 价值评分区块（M20 T173）', () => {
     rerender(<ValueScoreSection subjectId={SUBJECT_ID} />);
     expect(await screen.findByTestId('value-score-total')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // —— M22 T192：increment 块（时间戳双层语义——事件驱动更新标注 + 触发事件下钻） ——
+
+  it('increment 为 null（盘后全量行）：无「事件驱动更新」标注，仅显示盘后基准时刻（故事 4 场景 2）', async () => {
+    renderSection(vi.fn(async () => ok(viewOf({ increment: null }))));
+    await screen.findByTestId('value-score-total');
+
+    expect(screen.queryByTestId('value-score-increment')).toBeNull();
+    expect(screen.queryByTestId('value-score-increment-at')).toBeNull();
+    expect(screen.getByTestId('value-score-basis')).toHaveTextContent(
+      `计算于 ${formatDateTime('2026-09-21T09:30:00Z')}`,
+    );
+  });
+
+  it('increment 非空：「事件驱动更新」标注 + 更新时刻（increment.updatedAt 呈现）', async () => {
+    renderSection(
+      vi.fn(async () =>
+        ok(
+          viewOf({
+            increment: {
+              updatedAt: '2026-09-21T06:32:11Z',
+              events: [{ eventId: 4821, summary: '业绩预增公告', importance: 'HIGH', eventDate: '2026-09-21' }],
+            },
+          }),
+        ),
+      ),
+    );
+    await screen.findByTestId('value-score-total');
+
+    const badge = screen.getByTestId('value-score-increment');
+    expect(badge).toHaveTextContent('事件驱动更新');
+    expect(badge.className).toContain('sky');
+    expect(screen.getByTestId('value-score-increment-at')).toHaveTextContent(
+      `更新于 ${formatDateTime('2026-09-21T06:32:11Z')}`,
+    );
+  });
+
+  it('increment 触发事件：hover 摘要 title + eventId 链接跳事件流 focus（trace-v1 下钻）', async () => {
+    renderSection(
+      vi.fn(async () =>
+        ok(
+          viewOf({
+            increment: {
+              updatedAt: '2026-09-21T06:32:11Z',
+              events: [
+                { eventId: 4821, summary: '业绩预增公告', importance: 'HIGH', eventDate: '2026-09-21' },
+                { eventId: 4822, summary: '行业政策利好', importance: 'HIGH', eventDate: '2026-09-21' },
+              ],
+            },
+          }),
+        ),
+      ),
+    );
+    await screen.findByTestId('value-score-increment');
+
+    const first = screen.getByTestId('value-score-increment-event-4821');
+    expect(first.getAttribute('href')).toBe('#/events?focus=4821');
+    expect(first).toHaveTextContent('业绩预增公告');
+    expect(first.getAttribute('title')).toContain('HIGH');
+    expect(screen.getByTestId('value-score-increment-event-4822')).toHaveTextContent('行业政策利好');
+    // 标注本体 hover 携带全部事件摘要
+    expect(screen.getByTestId('value-score-increment').getAttribute('title')).toContain('#4822');
+  });
+
+  it('increment 事件清单空（留痕已清理）：标注与时刻仍呈现，摘要如实空缺', async () => {
+    renderSection(
+      vi.fn(async () => ok(viewOf({ increment: { updatedAt: '2026-09-21T06:32:11Z', events: [] } }))),
+    );
+    await screen.findByTestId('value-score-increment');
+
+    expect(screen.getByTestId('value-score-increment-at')).toHaveTextContent('更新于');
+    expect(screen.queryByTestId('value-score-increment-events')).toBeNull();
+    expect(screen.getByTestId('value-score-increment').getAttribute('title')).toContain('生命周期');
   });
 });

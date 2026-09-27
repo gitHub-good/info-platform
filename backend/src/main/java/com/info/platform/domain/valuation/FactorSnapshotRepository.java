@@ -63,6 +63,12 @@ public interface FactorSnapshotRepository {
     /** 标的最新快照行（snapshot_date 降序首行；无快照返回 empty——30086 语义）。 */
     Optional<FactorSnapshotRow> findLatestBySubject(long subjectId);
 
+    /**
+     * 指定快照行的增量覆盖时刻（{@code increment_at} 列，M22 T192）：无该行或盘后全量行（显式置 NULL 复位）返回 empty—— value-score
+     * {@code increment} 块依据（时间戳双层语义，方案 §4.2-①）。
+     */
+    Optional<String> findIncrementAt(long subjectId, String snapshotDate);
+
     /** 活跃标的投影（计算全集元素）。 */
     record SubjectRef(long id, String code, String name) {}
 

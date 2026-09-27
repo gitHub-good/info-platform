@@ -64,6 +64,15 @@ public interface IncrementalReevalRepository {
     /** 指定快照日的受影响标的当日行（前分读取——id 升序确定性）。 */
     List<SubjectScore> findScoresBySubjectIds(String snapshotDate, Collection<Long> subjectIds);
 
+    /**
+     * 增量轮事件反查（M22 T192，value-score {@code increment} 块原料）：{@code snapshot_at} = 增量覆盖时刻的轮内全部事件
+     * （一轮多事件同 snapshot_at；LEFT JOIN event_item 摘要面——事件清理后摘要字段如实空，event_id 仍是下钻主键）。
+     */
+    List<RoundEvent> findRoundEvents(String snapshotAtIso);
+
+    /** 轮内触发事件（eventId 下钻主键 + 摘要面——summary/importance/event_date 可空）。 */
+    record RoundEvent(long eventId, String summary, String importance, String eventDate) {}
+
     /** 扫描事件投影（subjects 代码 + 受影响行业已解析）。 */
     record ReevalEvent(
             long eventId,

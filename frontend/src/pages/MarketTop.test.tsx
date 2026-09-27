@@ -7,6 +7,7 @@ import type {
   MarketTopVersionSummary,
 } from '@/types/marketTop';
 import { resetReadingTrackerForTest } from '@/api/readingEvent';
+import { formatDateTime } from '@/lib/format';
 import type { ScoreWeightsView } from '@/types/valueScore';
 
 // —— fetch mock：对齐批 2 冻结契约（MarketTopController §4.7.1——GET /market-top + /versions，
@@ -95,6 +96,7 @@ function viewOf(items: MarketTopItem[], overrides: Partial<MarketTopRankView> = 
     },
     items,
     disclaimer: '榜单为多因子信息整理与 AI 摘要，不构成投资建议',
+    recentIncrement: null,
     ...overrides,
   };
 }
@@ -859,4 +861,68 @@ describe('MarketTop 方法论子路由（T185，#/market-top/methodology）', ()
     window.location.hash = '#/market-top';
     expect(await screen.findByTestId('market-top-card-SZ300024')).toBeInTheDocument();
   });
+
+  // —— M22 T192：页头双时间戳（时间戳双层语义——盘后全量 + 事件增量区分文案，晚者在上） ——
+
+  it('页头双时间戳：有增量重评时双行齐备，增量晚于全量时晚者在上（故事 4 场景 3）', async () => {
+    stubFetch(
+      baseRoutes(
+        viewOf([itemOf()], {
+          version: 3,
+          triggerSource: 'EVENT',
+          recentIncrement: {
+            version: 3,
+            computedAt: '2026-09-26T11:33:02Z',
+            triggerEvents: [
+              { eventId: 4821, summary: '业绩预增', importance: 'HIGH' },
+              { eventId: 4822, summary: '行业政策利好', importance: 'HIGH' },
+            ],
+          },
+        }),
+      ),
+    );
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-dual-ts');
+
+    // 盘后全量 = 当日最新 DAILY 版本 computedAt（versions 列表 v2 DAILY 10:10——非当前 EVENT 批 10:05）
+    expect(screen.getByTestId('market-top-full-at')).toHaveTextContent(
+      `盘后全量重算 ${formatDateTime('2026-09-26T10:10:00Z')}`,
+    );
+    const increment = screen.getByTestId('market-top-increment-at');
+    expect(increment).toHaveTextContent('事件增量重评 v3');
+    expect(increment).toHaveTextContent(formatDateTime('2026-09-26T11:33:02Z'));
+    expect(increment.getAttribute('title')).toContain('#4821');
+    expect(increment.getAttribute('title')).toContain('行业政策利好');
+    // 时序正确：增量（11:33）晚于全量（10:10）→ 增量行在上
+    const dual = screen.getByTestId('market-top-dual-ts');
+    expect(dual.firstElementChild?.querySelector('[data-testid="market-top-increment-at"]')).not.toBeNull();
+    expect(dual.lastElementChild?.querySelector('[data-testid="market-top-full-at"]')).not.toBeNull();
+    // EVENT 触发来源展示名（版本归因可见）
+    expect(screen.getByTestId('market-top-meta')).toHaveTextContent('事件驱动');
+  });
+
+  it('页头双时间戳：无增量重评（recentIncrement null）时仅全量行，无事件增量标注', async () => {
+    stubFetch(baseRoutes(viewOf([itemOf()])));
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-dual-ts');
+
+    expect(screen.getByTestId('market-top-full-at')).toHaveTextContent('盘后全量重算');
+    expect(screen.queryByTestId('market-top-increment-at')).toBeNull();
+  });
+
+  it('数据延迟口径文案为双层口径（全量日频盘后 + 高重要事件分钟级增量）', async () => {
+    stubFetch(baseRoutes(viewOf([itemOf()])));
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+
+    const header = await screen.findByTestId('market-top-page');
+    expect(header.querySelector('header')?.textContent).toContain('全量日频盘后');
+    expect(header.querySelector('header')?.textContent).toContain('高重要事件分钟级增量');
+  });
+
 });

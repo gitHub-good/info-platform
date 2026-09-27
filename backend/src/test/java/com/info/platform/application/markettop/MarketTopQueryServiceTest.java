@@ -188,4 +188,54 @@ class MarketTopQueryServiceTest {
         assertThat(versions.get(0).rankDate()).isEqualTo(DATE);
         assertThat(versions.get(0).topSize()).isEqualTo(10);
     }
+
+    // ---- recentIncrement（M22 T192，页头双时间戳 §4.2-②：当日最新 EVENT 版本摘要，无则 null） ----
+
+    @Test
+    void rank_recentIncrement_fromLatestEventVersionOfViewedDate() {
+        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(3)));
+        when(repository.findLatestEventVersion(DATE))
+                .thenReturn(
+                        Optional.of(
+                                new MarketTopRepository.EventVersion(
+                                        2,
+                                        "2026-09-22T12:33:02Z",
+                                        "[{\"eventId\":4821,\"summary\":\"业绩预增\",\"importance\":\"HIGH\"}]")));
+
+        RankView view = service.rank(null, null);
+
+        assertThat(view.recentIncrement()).isNotNull();
+        assertThat(view.recentIncrement().version()).isEqualTo(2);
+        assertThat(view.recentIncrement().computedAt()).isEqualTo("2026-09-22T12:33:02Z");
+        assertThat(view.recentIncrement().triggerEvents()).hasSize(1);
+        assertThat(view.recentIncrement().triggerEvents().get(0).eventId()).isEqualTo(4821L);
+        assertThat(view.recentIncrement().triggerEvents().get(0).summary()).isEqualTo("业绩预增");
+        assertThat(view.recentIncrement().triggerEvents().get(0).importance()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void rank_recentIncrementNull_whenNoEventVersion() {
+        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(1)));
+        when(repository.findLatestEventVersion(DATE)).thenReturn(Optional.empty());
+
+        RankView view = service.rank(null, null);
+
+        assertThat(view.recentIncrement()).isNull();
+    }
+
+    @Test
+    void rank_recentIncrement_malformedTriggerEventsJson_fallsBackToEmptyList() {
+        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(3)));
+        when(repository.findLatestEventVersion(DATE))
+                .thenReturn(
+                        Optional.of(
+                                new MarketTopRepository.EventVersion(
+                                        2, "2026-09-22T12:33:02Z", "not-json")));
+
+        RankView view = service.rank(null, null);
+
+        // 损坏 JSON 容错空表——摘要面缺省不阻断榜单读取
+        assertThat(view.recentIncrement()).isNotNull();
+        assertThat(view.recentIncrement().triggerEvents()).isEmpty();
+    }
 }

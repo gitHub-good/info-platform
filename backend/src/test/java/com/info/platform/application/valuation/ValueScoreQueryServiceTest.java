@@ -11,7 +11,9 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.valuation.FactorSnapshotRepository;
 import com.info.platform.domain.valuation.FactorSnapshotRow;
+import com.info.platform.domain.valuation.IncrementalReevalRepository;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,11 +28,16 @@ class ValueScoreQueryServiceTest {
     private MarketDailySnapshotRepository marketRepository;
     private ValueScoreQueryService service;
 
+    private IncrementalReevalRepository reevalRepository;
+
     @BeforeEach
     void setUp() {
         repository = mock(FactorSnapshotRepository.class);
         marketRepository = mock(MarketDailySnapshotRepository.class);
-        service = new ValueScoreQueryService(repository, marketRepository, new ObjectMapper());
+        reevalRepository = mock(IncrementalReevalRepository.class);
+        service =
+                new ValueScoreQueryService(
+                        repository, marketRepository, reevalRepository, new ObjectMapper());
     }
 
     @Test
@@ -276,5 +283,77 @@ class ValueScoreQueryServiceTest {
 
         assertThat(view.factors().get(0).weight()).isEqualTo(0.50);
         assertThat(view.factors().get(1).weight()).isEqualTo(0.10);
+    }
+
+    // ---- increment 块（M22 T192，时间戳双层语义 §4.2-①：increment_at 非空 → 事件驱动更新标注 + 触发事件反查） ----
+
+    @Test
+    void valueScore_incrementNull_whenFullSnapshotRow() {
+        // 全量行（increment_at NULL——盘后全量 UPSERT 复位）：无事件驱动标注（故事 4 场景 2）
+        when(repository.findLatestBySubject(101L))
+                .thenReturn(
+                        Optional.of(
+                                snapshotRow(
+                                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80")));
+        when(repository.countByDate("2026-09-21")).thenReturn(100L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(17L);
+        when(repository.findIncrementAt(101L, "2026-09-21")).thenReturn(Optional.empty());
+
+        ValueScoreQueryService.ScoreView view = service.valueScore(101L);
+
+        assertThat(view.increment()).isNull();
+        assertThat(view.computedAt()).isEqualTo("2026-09-21T09:30:00Z");
+    }
+
+    @Test
+    void valueScore_incrementBlock_incrementsAtWithRoundEvents() {
+        when(repository.findLatestBySubject(101L))
+                .thenReturn(
+                        Optional.of(
+                                snapshotRow(
+                                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80")));
+        when(repository.countByDate("2026-09-21")).thenReturn(100L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(17L);
+        String incrementAt = "2026-09-21T06:32:11Z";
+        when(repository.findIncrementAt(101L, "2026-09-21")).thenReturn(Optional.of(incrementAt));
+        // 留痕表反查：snapshot_at = increment_at 的轮内全部事件（一轮多事件归因同轮）
+        when(reevalRepository.findRoundEvents(incrementAt))
+                .thenReturn(
+                        List.of(
+                                new IncrementalReevalRepository.RoundEvent(
+                                        4821L, "业绩预增公告", "HIGH", "2026-09-21"),
+                                new IncrementalReevalRepository.RoundEvent(
+                                        4822L, "行业政策利好", "HIGH", "2026-09-21")));
+
+        ValueScoreQueryService.ScoreView view = service.valueScore(101L);
+
+        assertThat(view.increment()).isNotNull();
+        assertThat(view.increment().updatedAt()).isEqualTo(incrementAt);
+        assertThat(view.increment().events()).hasSize(2);
+        assertThat(view.increment().events().get(0).eventId()).isEqualTo(4821L);
+        assertThat(view.increment().events().get(0).summary()).isEqualTo("业绩预增公告");
+        assertThat(view.increment().events().get(0).importance()).isEqualTo("HIGH");
+        assertThat(view.increment().events().get(0).eventDate()).isEqualTo("2026-09-21");
+    }
+
+    @Test
+    void valueScore_incrementBlock_roundWithoutEvents_emptyListNotBlock() {
+        when(repository.findLatestBySubject(101L))
+                .thenReturn(
+                        Optional.of(
+                                snapshotRow(
+                                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80")));
+        when(repository.countByDate("2026-09-21")).thenReturn(100L);
+        when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(17L);
+        String incrementAt = "2026-09-21T06:32:11Z";
+        when(repository.findIncrementAt(101L, "2026-09-21")).thenReturn(Optional.of(incrementAt));
+        when(reevalRepository.findRoundEvents(incrementAt)).thenReturn(List.of());
+
+        ValueScoreQueryService.ScoreView view = service.valueScore(101L);
+
+        // 块仍呈现（updatedAt 有值）——事件清单空如实（留痕可能已被生命周期清理）
+        assertThat(view.increment()).isNotNull();
+        assertThat(view.increment().updatedAt()).isEqualTo(incrementAt);
+        assertThat(view.increment().events()).isEmpty();
     }
 }

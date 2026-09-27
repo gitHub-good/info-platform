@@ -75,7 +75,21 @@ export interface ValueScoreDetail {
   valuation?: { basis: string | null; pe: number | null; pct: number | null; pb: number | null };
 }
 
-/** GET /subjects/{subjectId}/value-score 响应（最新快照 + 查询层百分位 + 分解 + 明细 + 免责）。 */
+/** 增量触发事件（increment.events[] 项——留痕表反查，eventId 跳事件流 focus，trace-v1 下钻）。 */
+export interface ValueScoreIncrementEvent {
+  eventId: number;
+  summary: string | null;
+  importance: string | null;
+  eventDate: string | null;
+}
+
+/** 事件驱动增量覆盖块（M22 T192，时间戳双层语义 §4.2-①：当日行未被增量覆盖时为 null——显示盘后基准时刻无标注）。 */
+export interface ValueScoreIncrement {
+  updatedAt: string;
+  events: ValueScoreIncrementEvent[];
+}
+
+/** GET /subjects/{subjectId}/value-score 响应（最新快照 + 查询层百分位 + 分解 + 明细 + 免责 + increment 增量块）。 */
 export interface ValueScoreView {
   subjectId: number;
   snapshotDate: string;
@@ -89,4 +103,5 @@ export interface ValueScoreView {
   weightBasis: string;
   computedAt: string;
   disclaimer: string;
+  increment: ValueScoreIncrement | null;
 }

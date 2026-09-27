@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { ApiError } from '@/api/http';
 import { getMarketTopConfig, getMarketTopRank, getMarketTopVersions } from '@/api/marketTop';
 import { trackReadingOnce } from '@/api/readingEvent';
@@ -26,7 +27,9 @@ import type { WatchlistView } from '@/types/watchlist';
 // 榜单卡流 Top10：排名徽章（Top3 金银铜）/标的（跳详情）/总分与合成分/百分位/「有突破」/五维迷你条/
 // 深析区（FULL 可展开论点+亮点+风险+引用下钻；FACTOR_ONLY 标注因子分排序）/变动徽章/一键加自选（幂等）；
 // 页头日期与版本选择 + 生成信息 + 漏斗徽章链 + 降级横幅 + 跌出名单折叠 + 推荐中心/概览互链 + 免责常驻。
+// M22 T192：页头双时间戳（盘后全量重算 + 事件增量重评——晚者在上）与双层口径文案（禁止单一「更新于」混淆口径）。
 // 三态：加载骨架 / 空态（30089——每日 18:00 生成引导）/ 错误重试；埋点 MARKET_TOP_VIEW/ACT（adopt-v1 先例）。
+// M22 T193：页底「历史表现」折叠区块（hits-v1 信号验证统计——可达/样本标注 N/10/免责三要素，零新增页面）。
 // 子路由 #/market-top/methodology（T185，裁决 7 页内 hash 切换导航仍 1 项）：五段式方法论——
 // 漏斗图解/五维定义与公式（weights 端点实时读——非硬编码）/合成公式/降级语义/免责与合规。
 
@@ -54,8 +57,15 @@ const DEGRADED_BANNERS: Record<string, { text: string; className: string }> = {
   },
 };
 
-/** 触发来源展示名（triggerSource 值域）。 */
-const TRIGGER_LABELS: Record<string, string> = { DAILY: '每日定时', MANUAL: '手动触发' };
+/** 触发来源展示名（triggerSource 值域——EVENT = M22 增量联动版本）。 */
+const TRIGGER_LABELS: Record<string, string> = {
+  DAILY: '每日定时',
+  MANUAL: '手动触发',
+  EVENT: '事件驱动',
+};
+
+/** 数据延迟双层口径文案（拍板三：全量日频盘后 + 高重要事件分钟级增量——禁止单一「更新于」混淆）。 */
+const DUAL_LAYER_LATENCY_COPY = '全量日频盘后更新 + 高重要事件分钟级增量重评，深析为日频。';
 
 /** 变动徽章配色（NEW emerald / UP amber / DOWN rose / SAME 灰）。 */
 const CHANGE_BADGES: Record<string, string> = {
@@ -417,6 +427,64 @@ function DroppedPanel({ dropped }: { dropped: MarketTopDropped[] }) {
   );
 }
 
+/** 上次全量重算时刻（当前榜单日的最新 DAILY 版本 computedAt；versions 预取失败且当前版本非 EVENT 时回退当前批）。 */
+function fullRecomputeAt(view: MarketTopRankView, versions: MarketTopVersionSummary[]): string | null {
+  const daily = versions
+    .filter((summary) => summary.rankDate === view.rankDate && summary.triggerSource === 'DAILY')
+    .sort((a, b) => b.version - a.version)[0];
+  if (daily) return daily.computedAt;
+  return view.triggerSource !== 'EVENT' ? view.batch.computedAt : null;
+}
+
+/**
+ * 页头双时间戳（M22 T192，拍板三：盘后全量 + 事件增量区分文案，晚者在上——增量晚于全量时增量在前）。
+ * 增量行 title 携带触发事件摘要清单（hover 下钻入口之一，事件 chip 见 value-score increment 块同款交互）。
+ */
+function DualTimestamps({ view, versions }: { view: MarketTopRankView; versions: MarketTopVersionSummary[] }) {
+  const increment = view.recentIncrement;
+  const entries: Array<{ key: string; at: string | null; node: ReactNode }> = [
+    {
+      key: 'full',
+      at: fullRecomputeAt(view, versions),
+      node: (
+        <span className="text-xs text-muted-foreground" data-testid="market-top-full-at">
+          盘后全量重算{' '}
+          {fullRecomputeAt(view, versions) ? formatDateTime(fullRecomputeAt(view, versions)!) : '--'}
+        </span>
+      ),
+    },
+  ];
+  if (increment) {
+    const eventTitle = increment.triggerEvents
+      .map((event) => `#${event.eventId} ${event.importance ?? ''} ${event.summary ?? ''}`)
+      .join('\n');
+    entries.push({
+      key: 'increment',
+      at: increment.computedAt,
+      node: (
+        <span
+          className="text-xs font-medium text-sky-400"
+          title={eventTitle || '触发事件留痕已过生命周期窗口'}
+          data-testid="market-top-increment-at"
+        >
+          事件增量重评 v{increment.version} {formatDateTime(increment.computedAt)}
+          {increment.triggerEvents.length > 0
+            ? `（${increment.triggerEvents[0].summary ?? `事件 #${increment.triggerEvents[0].eventId}`}）`
+            : ''}
+        </span>
+      ),
+    });
+  }
+  entries.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '')); // 晚者在上（ISO 串字典序即时间序）
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="market-top-dual-ts">
+      {entries.map((entry) => (
+        <span key={entry.key}>{entry.node}</span>
+      ))}
+    </div>
+  );
+}
+
 /** 页面级状态（榜单视图 + 自选状态；方法论子路由随 T185 增补）。 */
 interface PageState {
   view: MarketTopRankView | null;
@@ -567,7 +635,7 @@ function MarketTopRankPage() {
       <header className="mb-4">
         <h1 className="text-xl font-medium">全市场推荐</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          全市场快照经四层漏斗（粗筛 → LLM 深析 → 合成）产出的每日 Top10；评分每日盘后更新，深析为日频。
+          全市场快照经四层漏斗（粗筛 → LLM 深析 → 合成）产出的每日 Top10；{DUAL_LAYER_LATENCY_COPY}
         </p>
       </header>
 
@@ -610,6 +678,7 @@ function MarketTopRankPage() {
               </a>
             </span>
           </div>
+          <DualTimestamps view={state.view} versions={state.versions} />
           <FunnelChain view={state.view} />
         </div>
       ) : null}

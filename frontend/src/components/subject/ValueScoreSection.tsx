@@ -93,6 +93,43 @@ function EntryItem({ entry }: { entry: ValueScoreEntry }) {
   );
 }
 
+/** 事件驱动增量标注（M22 T192，双层时间戳 §4.2-①：increment 非空才渲染——更新时刻 + 触发事件 hover/下钻）。 */
+function IncrementBadge({ increment }: { increment: NonNullable<ValueScoreView['increment']> }) {
+  const title =
+    increment.events.length > 0
+      ? increment.events.map((event) => `#${event.eventId} ${event.summary ?? ''}`).join('\n')
+      : '触发事件留痕已过生命周期窗口';
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <Badge
+        className="bg-sky-500/15 font-medium text-sky-400"
+        title={title}
+        data-testid="value-score-increment"
+      >
+        事件驱动更新
+      </Badge>
+      <span className="text-[10px] text-muted-foreground" data-testid="value-score-increment-at">
+        {`更新于 ${formatDateTime(increment.updatedAt)}`}
+      </span>
+      {increment.events.length > 0 ? (
+        <span className="flex flex-wrap items-center gap-1" data-testid="value-score-increment-events">
+          {increment.events.map((event) => (
+            <a
+              key={event.eventId}
+              href={`#/events?focus=${event.eventId}`}
+              title={`${event.importance ?? ''} · ${event.eventDate ?? ''} · ${event.summary ?? ''}`}
+              data-testid={`value-score-increment-event-${event.eventId}`}
+              className="max-w-56 truncate rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground underline-offset-2 transition-colors hover:bg-secondary/70 hover:underline"
+            >
+              {event.summary ?? `事件 #${event.eventId}`}
+            </a>
+          ))}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 interface ValueScoreSectionProps {
   /** 数字主键（by-code 解析后；null 时分区静默不渲染——解析失败页面整体已错误态）。 */
   subjectId: number | null;
@@ -102,6 +139,8 @@ interface ValueScoreSectionProps {
  * 标的详情「价值评分」区块（M20 T173，方案 §4.8——第 8 分区，独立取数零耦合既有分区契约）：
  * 总分大数字 + 全市场百分位徽章 + 五维分解条（估值缺数中性/权重 0 弱化）+ 「有突破」徽章（tooltip 三阈值）
  * + 依据事件下钻（eventId 跳事件流 focus，trace-v1）+ 快照时间与 weightBasis 脚注 + 一行免责常驻。
+ * M22 T192：increment 非空时附「事件驱动更新」标注（更新时刻 + 触发事件 hover/下钻——时间戳双层语义，
+ * 未覆盖标的仅显示盘后基准时刻无标注）。
  * 三态：加载骨架 / 空态（30086——每日盘后 17:30 生成引导）/ 错误重试。
  */
 export function ValueScoreSection({ subjectId }: ValueScoreSectionProps) {
@@ -239,6 +278,7 @@ export function ValueScoreSection({ subjectId }: ValueScoreSectionProps) {
               </div>
             ) : null}
             <div className="flex flex-col gap-0.5 border-t border-border pt-2">
+              {view.increment ? <IncrementBadge increment={view.increment} /> : null}
               <p className="text-[10px] text-muted-foreground" data-testid="value-score-basis">
                 {`计算于 ${formatDateTime(view.computedAt)} · 参数指纹 ${view.weightBasis}`}
                 {' · '}

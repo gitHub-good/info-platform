@@ -6,6 +6,7 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.valuation.FactorSnapshotRepository;
 import com.info.platform.domain.valuation.FactorSnapshotRow;
+import com.info.platform.domain.valuation.IncrementalReevalRepository;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository;
 import com.info.platform.domain.valuation.ValuationParams;
 import java.time.LocalDate;
@@ -35,14 +36,18 @@ public class ValueScoreQueryService {
 
     private final MarketDailySnapshotRepository marketRepository;
 
+    private final IncrementalReevalRepository reevalRepository;
+
     private final ObjectMapper objectMapper;
 
     public ValueScoreQueryService(
             FactorSnapshotRepository repository,
             MarketDailySnapshotRepository marketRepository,
+            IncrementalReevalRepository reevalRepository,
             ObjectMapper objectMapper) {
         this.repository = repository;
         this.marketRepository = marketRepository;
+        this.reevalRepository = reevalRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -114,7 +119,38 @@ public class ValueScoreQueryService {
                 flagsOf(row.dataFlagsJson()),
                 row.weightBasis(),
                 row.computedAtIso(),
-                DISCLAIMER);
+                DISCLAIMER,
+                incrementOf(subjectId, row.snapshotDate()));
+    }
+
+    /**
+     * 事件驱动增量覆盖块（M22 T192，方案 §4.2-① 时间戳双层语义）：当日行 {@code increment_at} 非空才呈现—— {@code updatedAt} =
+     * 增量覆盖时刻、events = 该轮触发事件（留痕表 {@code snapshot_at} 精确反查，一轮多事件同刻）； 未覆盖标的返回 null →
+     * 前端显示当日快照基准时刻无标注（故事 4 场景 2）。
+     */
+    private IncrementView incrementOf(long subjectId, String snapshotDate) {
+        return repository
+                .findIncrementAt(subjectId, snapshotDate)
+                .map(
+                        incrementAt -> {
+                            List<IncrementEventView> events =
+                                    reevalRepository.findRoundEvents(incrementAt).stream()
+                                            .map(
+                                                    event ->
+                                                            new IncrementEventView(
+                                                                    event.eventId(),
+                                                                    event.summary(),
+                                                                    event.importance(),
+                                                                    event.eventDate()))
+                                            .toList();
+                            log.debug(
+                                    "评分增量块 subjectId={} incrementAt={} events={}",
+                                    subjectId,
+                                    incrementAt,
+                                    events.size());
+                            return new IncrementView(incrementAt, events);
+                        })
+                .orElse(null);
     }
 
     // ---- value-score 组装 ----
@@ -216,7 +252,7 @@ public class ValueScoreQueryService {
     public record FactorView(
             String key, String name, double score, double weight, boolean neutral) {}
 
-    /** 标的价值评分视图（§4.7.1 契约：总分/标签/排名百分位/分解/明细/flags/指纹/免责）。 */
+    /** 标的价值评分视图（§4.7.1 契约：总分/标签/排名百分位/分解/明细/flags/指纹/免责 + increment 增量块 M22）。 */
     public record ScoreView(
             long subjectId,
             String snapshotDate,
@@ -229,5 +265,13 @@ public class ValueScoreQueryService {
             List<String> dataFlags,
             String weightBasis,
             String computedAt,
-            String disclaimer) {}
+            String disclaimer,
+            IncrementView increment) {}
+
+    /** 事件驱动增量覆盖块（§4.2-①：updatedAt = increment_at；事件清单空如实——留痕可能已过生命周期）。 */
+    public record IncrementView(String updatedAt, List<IncrementEventView> events) {}
+
+    /** 增量触发事件（留痕表反查 event_item 摘要面——eventId 跳事件流 focus，trace-v1 下钻）。 */
+    public record IncrementEventView(
+            long eventId, String summary, String importance, String eventDate) {}
 }

@@ -326,6 +326,21 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
         return rows.stream().findFirst();
     }
 
+    /** M22 T192：增量覆盖时刻读取（无行/全量行 NULL → empty——increment 块「未覆盖不标注」口径）。 */
+    @Override
+    public Optional<String> findIncrementAt(long subjectId, String snapshotDate) {
+        List<String> values =
+                jdbcTemplate.queryForList(
+                        "SELECT increment_at FROM subject_factor_snapshot"
+                                + " WHERE subject_id = ? AND snapshot_date = ?",
+                        String.class,
+                        subjectId,
+                        snapshotDate);
+        return values.isEmpty() || values.get(0) == null || values.get(0).isBlank()
+                ? Optional.empty()
+                : Optional.of(values.get(0));
+    }
+
     private static RowMapper<FactorSnapshotRow> snapshotRowMapper() {
         return (rs, rowNum) ->
                 new FactorSnapshotRow(

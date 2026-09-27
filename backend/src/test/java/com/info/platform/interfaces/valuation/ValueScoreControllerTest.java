@@ -117,7 +117,8 @@ class ValueScoreControllerTest {
                                 List.of(),
                                 "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80",
                                 "2026-09-21T09:30:00Z",
-                                "评分为多因子信息整理，不构成投资建议"));
+                                "评分为多因子信息整理，不构成投资建议",
+                                null));
 
         mockMvc.perform(get("/api/v1/subjects/101/value-score"))
                 .andExpect(status().isOk())
@@ -136,7 +137,42 @@ class ValueScoreControllerTest {
                                 .value(
                                         "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80"))
                 .andExpect(jsonPath("$.data.detail.catalyst.raw").value(4.2))
-                .andExpect(jsonPath("$.data.disclaimer").isNotEmpty());
+                .andExpect(jsonPath("$.data.disclaimer").isNotEmpty())
+                .andExpect(jsonPath("$.data.increment").doesNotExist());
+    }
+
+    @Test
+    void valueScore_incrementBlockSerialized() throws Exception {
+        // M22 T192 §4.2-① 契约：increment 块透传（updatedAt + 触发事件清单——事件驱动更新标注原料）
+        when(queryService.valueScore(101L))
+                .thenReturn(
+                        new ValueScoreQueryService.ScoreView(
+                                101L,
+                                "2026-09-28",
+                                72.4,
+                                true,
+                                17L,
+                                99L,
+                                List.of(),
+                                new ObjectMapper().readTree("{}"),
+                                List.of(),
+                                "vs-v1:…",
+                                "2026-09-28T09:30:00Z",
+                                "评分为多因子信息整理，不构成投资建议",
+                                new ValueScoreQueryService.IncrementView(
+                                        "2026-09-28T14:32:11Z",
+                                        List.of(
+                                                new ValueScoreQueryService.IncrementEventView(
+                                                        4821L, "业绩预增公告", "HIGH", "2026-09-28")))));
+
+        mockMvc.perform(get("/api/v1/subjects/101/value-score"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.increment.updatedAt").value("2026-09-28T14:32:11Z"))
+                .andExpect(jsonPath("$.data.increment.events[0].eventId").value(4821))
+                .andExpect(jsonPath("$.data.increment.events[0].summary").value("业绩预增公告"))
+                .andExpect(jsonPath("$.data.increment.events[0].importance").value("HIGH"))
+                .andExpect(jsonPath("$.data.increment.events[0].eventDate").value("2026-09-28"));
     }
 
     @Test

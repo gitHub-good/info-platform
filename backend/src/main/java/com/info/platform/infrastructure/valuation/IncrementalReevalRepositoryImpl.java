@@ -89,6 +89,16 @@ public class IncrementalReevalRepositoryImpl implements IncrementalReevalReposit
              ORDER BY s.subject_id ASC
             """;
 
+    /** 增量轮事件反查（M22 T192：snapshot_at 精确命中的轮内事件 + event_item 摘要面——一轮多事件同刻）。 */
+    private static final String ROUND_EVENTS_SQL =
+            """
+            SELECT l.event_id, e.summary, e.importance, e.event_date
+              FROM incremental_reeval_log l
+              LEFT JOIN event_item e ON e.id = l.event_id
+             WHERE l.snapshot_at = ?
+             ORDER BY l.event_id ASC
+            """;
+
     private static final RowMapper<ReevalEvent> EVENT_ROW =
             (rs, rowNum) ->
                     new ReevalEvent(
@@ -108,6 +118,14 @@ public class IncrementalReevalRepositoryImpl implements IncrementalReevalReposit
                             rs.getLong("subject_id"),
                             rs.getString("subject_code"),
                             rs.getDouble("total_score"));
+
+    private static final RowMapper<RoundEvent> ROUND_EVENT_ROW =
+            (rs, rowNum) ->
+                    new RoundEvent(
+                            rs.getLong("event_id"),
+                            rs.getString("summary"),
+                            rs.getString("importance"),
+                            rs.getString("event_date"));
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -214,6 +232,11 @@ public class IncrementalReevalRepositoryImpl implements IncrementalReevalReposit
                 SCORES_SQL.formatted(placeholders(distinct.size())),
                 SCORE_ROW,
                 appendTail(new Object[] {snapshotDate}, distinct));
+    }
+
+    @Override
+    public List<RoundEvent> findRoundEvents(String snapshotAtIso) {
+        return jdbcTemplate.query(ROUND_EVENTS_SQL, ROUND_EVENT_ROW, snapshotAtIso);
     }
 
     // ---- 参数装配辅助 ----

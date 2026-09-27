@@ -6,6 +6,7 @@ import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.valuation.IncrementalReevalRepository;
 import com.info.platform.domain.valuation.IncrementalReevalRepository.PendingLink;
 import com.info.platform.domain.valuation.IncrementalReevalRepository.ReevalEvent;
+import com.info.platform.domain.valuation.IncrementalReevalRepository.RoundEvent;
 import com.info.platform.domain.valuation.IncrementalReevalRepository.SubjectScore;
 import java.time.Instant;
 import java.util.List;
@@ -237,6 +238,29 @@ class IncrementalReevalRepositoryImplTest {
         assertThat(scores.get(0).subjectId()).isEqualTo(subjectId);
         assertThat(scores.get(0).totalScore()).isEqualTo(55.5);
         assertThat(scores.get(0).subjectCode()).isNotBlank();
+    }
+
+    @Test
+    void findRoundEvents_returnsRoundEventsWithEventItemJoin() {
+        // M22 T192：snapshot_at 精确命中一轮（一轮多事件同刻）——LEFT JOIN event_item 摘要面。
+        // 独立时刻隔离（他法共用 02:00:05Z 时刻——共享内存库跨方法残留）
+        String snapshotAt = "2026-09-28T05:17:41Z";
+        long first = insertEvent("HIGH", "2026-09-28T01:00:00Z");
+        long second = insertEvent("HIGH", "2026-09-28T01:01:00Z");
+        repository.insertScanned(reevalEventOf(first, Importance.HIGH), NOW);
+        repository.insertScanned(reevalEventOf(second, Importance.HIGH), NOW);
+        repository.markRecomputed(List.of(first, second), "[]", snapshotAt, true, NOW);
+        repository.insertScanned(
+                reevalEventOf(insertEvent("HIGH", "2026-09-28T01:02:00Z"), Importance.HIGH), NOW);
+
+        List<RoundEvent> round = repository.findRoundEvents(snapshotAt);
+
+        assertThat(round).extracting(RoundEvent::eventId).containsExactly(first, second);
+        assertThat(round.get(0).summary()).isEqualTo("摘要");
+        assertThat(round.get(0).importance()).isEqualTo("HIGH");
+        assertThat(round.get(0).eventDate()).isEqualTo("2026-09-28");
+        // 未重算轮（snapshot_at NULL）与他轮不混入；未知时刻返回空表
+        assertThat(repository.findRoundEvents("2026-09-28T02:09:00Z")).isEmpty();
     }
 
     private long firstSubjectId() {

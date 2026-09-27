@@ -207,4 +207,52 @@ class MarketTopRepositoryImplTest {
         assertThat(byDate).allMatch(summary -> DATE.equals(summary.rankDate()));
         assertThat(byDate).extracting(VersionSummary::version).containsExactly(2, 1);
     }
+
+    // ---- M22：findLatestEventVersion（页头「最近增量重评」）+ listTopByMaxVersion（hits-v1 回算原料） ----
+
+    @Test
+    void findLatestEventVersion_latestEventBatchOfDate() {
+        repository.insertVersion(batch(DATE, 1, false), List.of(rank(DATE, 1, 1, 1)));
+        jdbcTemplate.update(
+                "UPDATE market_top_batch SET trigger_source = 'EVENT', trigger_events ="
+                        + " '[{\"eventId\":4821,\"summary\":\"业绩预增\",\"importance\":\"HIGH\"}]'"
+                        + " WHERE rank_date = ? AND version = 1",
+                DATE);
+        repository.insertVersion(
+                eventBatch(
+                        DATE,
+                        2,
+                        "[{\"eventId\":4822,\"summary\":\"行业政策\",\"importance\":\"HIGH\"}]"),
+                List.of(rank(DATE, 2, 1, 1)));
+
+        Optional<MarketTopRepository.EventVersion> found = repository.findLatestEventVersion(DATE);
+
+        assertThat(found).isPresent();
+        assertThat(found.get().version()).isEqualTo(2);
+        assertThat(found.get().createdAtIso()).isNotBlank();
+        assertThat(found.get().triggerEventsJson()).contains("4822");
+        // 无 EVENT 版本日（DAILY 也在册）→ empty
+        repository.insertVersion(batch(PREV_DATE, 1, false), List.of(rank(PREV_DATE, 1, 1, 1)));
+        assertThat(repository.findLatestEventVersion(PREV_DATE)).isEmpty();
+    }
+
+    private static MarketTopBatchRow eventBatch(
+            String date, int version, String triggerEventsJson) {
+        MarketTopBatchRow daily = batch(date, version, false);
+        return new MarketTopBatchRow(
+                daily.rankDate(),
+                daily.version(),
+                "EVENT",
+                daily.snapshotDate(),
+                daily.funnelStatsJson(),
+                daily.degraded(),
+                daily.degradedReason(),
+                daily.droppedSubjectsJson(),
+                daily.diveCostMicros(),
+                daily.diveLlmCalls(),
+                daily.promptVersion(),
+                daily.basis(),
+                triggerEventsJson,
+                daily.createdAt());
+    }
 }

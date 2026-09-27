@@ -135,7 +135,44 @@ public class MarketTopQueryService {
                         readTree(found.batch().droppedSubjectsJson()),
                         null),
                 items,
-                DISCLAIMER);
+                DISCLAIMER,
+                recentIncrementOf(found.batch().rankDate()));
+    }
+
+    /**
+     * 页头「最近增量重评」（M22 T192，方案 §4.2-② 时间戳双层语义）：当日最新 EVENT 版本摘要（无则 null——前端仅呈现全量 口径）；trigger_events
+     * JSON 容错解析（损坏空表不阻断榜单读取）。
+     */
+    private RecentIncrementView recentIncrementOf(String rankDate) {
+        return repository
+                .findLatestEventVersion(rankDate)
+                .map(
+                        version ->
+                                new RecentIncrementView(
+                                        version.version(),
+                                        version.createdAtIso(),
+                                        triggerEventsOf(version.triggerEventsJson())))
+                .orElse(null);
+    }
+
+    /** trigger_events JSON（[{eventId,summary,importance}]）→ 视图（空/损坏 → 空表）。 */
+    private List<TriggerEventView> triggerEventsOf(String triggerEventsJson) {
+        JsonNode array = readTree(triggerEventsJson);
+        List<TriggerEventView> events = new ArrayList<>();
+        if (array.isArray()) {
+            for (JsonNode node : array) {
+                events.add(
+                        new TriggerEventView(
+                                node.path("eventId").asLong(),
+                                node.path("summary").isMissingNode()
+                                        ? null
+                                        : node.path("summary").asText(null),
+                                node.path("importance").isMissingNode()
+                                        ? null
+                                        : node.path("importance").asText(null)));
+            }
+        }
+        return events;
     }
 
     /** 五维分解补全（快照行 f 列 + weight_basis 当时权重——复现面与价值评分端点同构）。 */
@@ -239,12 +276,20 @@ public class MarketTopQueryService {
             JsonNode dropped,
             String lastEvent) {}
 
-    /** 榜单详情视图（§4.7.1 契约）。 */
+    /** 榜单详情视图（§4.7.1 契约 + recentIncrement 页头双时间戳块 M22 T192）。 */
     public record RankView(
             String rankDate,
             int version,
             String triggerSource,
             BatchView batch,
             List<ItemView> items,
-            String disclaimer) {}
+            String disclaimer,
+            RecentIncrementView recentIncrement) {}
+
+    /** 页头「最近增量重评」视图（§4.2-②：当日最新 EVENT 版本——无则 null，双层口径「全量日频盘后 + 事件分钟级增量」）。 */
+    public record RecentIncrementView(
+            int version, String computedAt, List<TriggerEventView> triggerEvents) {}
+
+    /** EVENT 版本触发事件（trace-v1 下钻——eventId 跳事件流 focus）。 */
+    public record TriggerEventView(long eventId, String summary, String importance) {}
 }

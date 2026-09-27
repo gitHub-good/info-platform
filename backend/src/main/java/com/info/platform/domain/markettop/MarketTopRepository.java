@@ -38,6 +38,15 @@ public interface MarketTopRepository {
     /** 历史版本列表（日期降序、版本降序；rankDate 非空时按日过滤；limit 上限护栏）。 */
     List<VersionSummary> listVersions(String rankDate, int limit);
 
+    /**
+     * 指定日最新 EVENT 版本摘要（M22 T192，页头「最近增量重评」§4.2-②：version/createdAt + trigger_events JSON 透传； 该日无
+     * EVENT 版本返回 empty——解析归应用层）。
+     */
+    Optional<EventVersion> findLatestEventVersion(String rankDate);
+
+    /** EVENT 版本摘要（trigger_events JSON 以文本透传——领域不依赖 JSON 库）。 */
+    record EventVersion(int version, String createdAtIso, String triggerEventsJson) {}
+
     /** rank 行（写载荷——两表列直映射）。 */
     record MarketTopRankRow(
             String rankDate,

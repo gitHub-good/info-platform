@@ -110,7 +110,21 @@ export interface MarketTopBatch {
   lastEvent: string | null;
 }
 
-/** GET /market-top 响应（缺省最新有榜单日最大版本）。 */
+/** EVENT 版本触发事件（trace-v1 下钻——eventId 跳事件流 focus）。 */
+export interface MarketTopTriggerEvent {
+  eventId: number;
+  summary: string | null;
+  importance: string | null;
+}
+
+/** 页头「最近增量重评」（M22 T192 §4.2-②：当日最新 EVENT 版本摘要——无则 null，双层口径数据源）。 */
+export interface MarketTopRecentIncrement {
+  version: number;
+  computedAt: string;
+  triggerEvents: MarketTopTriggerEvent[];
+}
+
+/** GET /market-top 响应（缺省最新有榜单日最大版本；recentIncrement 无 EVENT 版本时为 null）。 */
 export interface MarketTopRankView {
   rankDate: string;
   version: number;
@@ -118,6 +132,7 @@ export interface MarketTopRankView {
   batch: MarketTopBatch;
   items: MarketTopItem[];
   disclaimer: string;
+  recentIncrement: MarketTopRecentIncrement | null;
 }
 
 /** GET /market-top/versions 列表项（日期降序、版本降序）。 */
@@ -131,3 +146,4 @@ export interface MarketTopVersionSummary {
   topSize: number;
   computedAt: string;
 }
+

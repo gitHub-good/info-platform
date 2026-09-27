@@ -429,6 +429,22 @@ class FactorSnapshotRepositoryImplTest {
         assertThat(incrementAtOf(id)).isEqualTo("2026-09-22T08:35:11Z");
     }
 
+    @Test
+    void findIncrementAt_presentOnlyForIncrementallyOverwrittenRow() {
+        // M22 T192：increment 块依据——增量覆盖行非空 / 全量行与无行均 empty
+        long incrementalId = subjectId("SH990101");
+        long fullId = subjectId("SH990104");
+        String incrementAt = "2026-09-22T07:35:11Z";
+        repository.upsertAllIncremental(
+                List.of(row(incrementalId, 10.0, 20.0, 30.0, 40.0, 50.0, 25.0, false, "[]")),
+                incrementAt);
+        repository.upsertAll(List.of(row(fullId, 10.0, 20.0, 30.0, 40.0, 50.0, 25.0, false, "[]")));
+
+        assertThat(repository.findIncrementAt(incrementalId, DATE)).contains(incrementAt);
+        assertThat(repository.findIncrementAt(fullId, DATE)).isEmpty();
+        assertThat(repository.findIncrementAt(999999999L, DATE)).isEmpty();
+    }
+
     private String incrementAtOf(long subjectId) {
         return jdbcTemplate.queryForObject(
                 "SELECT increment_at FROM subject_factor_snapshot WHERE subject_id = ? AND"

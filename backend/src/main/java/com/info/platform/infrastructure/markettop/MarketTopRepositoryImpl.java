@@ -349,4 +349,22 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
         args.add(limit);
         return jdbcTemplate.query(sql, SUMMARY_ROW, args.toArray());
     }
+
+    /** M22 T192：当日最新 EVENT 版本（version 降序首行——页头「最近增量重评」数据源）。 */
+    @Override
+    public Optional<EventVersion> findLatestEventVersion(String rankDate) {
+        return jdbcTemplate
+                .query(
+                        "SELECT version, created_at, trigger_events FROM market_top_batch"
+                                + " WHERE rank_date = ? AND trigger_source = 'EVENT'"
+                                + " ORDER BY version DESC LIMIT 1",
+                        (rs, rowNum) ->
+                                new EventVersion(
+                                        rs.getInt("version"),
+                                        rs.getString("created_at"),
+                                        rs.getString("trigger_events")),
+                        rankDate)
+                .stream()
+                .findFirst();
+    }
 }

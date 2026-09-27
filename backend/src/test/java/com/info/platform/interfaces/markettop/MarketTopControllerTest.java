@@ -145,7 +145,8 @@ class MarketTopControllerTest {
                                 new com.fasterxml.jackson.databind.ObjectMapper().readTree("[]"),
                                 null),
                         List.of(),
-                        "榜单为多因子信息整理与 AI 摘要，不构成投资建议");
+                        "榜单为多因子信息整理与 AI 摘要，不构成投资建议",
+                        null);
         when(queryService.rank(null, null)).thenReturn(view);
 
         mockMvc.perform(get("/api/v1/market-top"))
