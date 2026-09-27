@@ -52,6 +52,12 @@ export async function listNewsLibraryPaged(
   if (query.l1 && query.l1.trim()) {
     params.set('l1', query.l1.trim());
   }
+  if (query.publishedFrom) {
+    params.set('publishedFrom', query.publishedFrom);
+  }
+  if (query.publishedTo) {
+    params.set('publishedTo', query.publishedTo);
+  }
   params.set('page', String(query.page));
   params.set('size', String(query.size));
   return request<NewsLibraryPagedView>(`/news-items?${params.toString()}`, { signal });

@@ -489,3 +489,42 @@ describe('资讯库 URL 预填（V2.4 T213，REQ-20260928-20 拍板二：政策�
     });
   });
 });
+
+describe('发布时间窗序列化（BUG-M23-01 遗留：publishedFrom/To 未进请求参数）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+    window.location.hash = '';
+  });
+
+  it('日期区间变更 → 请求携带 publishedFrom/publishedTo（yyyy-MM-dd 直传）', async () => {
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+    await screen.findByTestId('news-library-item-1');
+
+    await userEvent.type(screen.getByTestId('news-library-from-date'), '2026-09-21');
+    await userEvent.type(screen.getByTestId('news-library-to-date'), '2026-09-22');
+
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('publishedFrom=2026-09-21');
+      expect(last).toContain('publishedTo=2026-09-22');
+    });
+  });
+
+  it('日期变更回第 1 页（新结果集查询，M9 §5 语义）', async () => {
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+    await screen.findByTestId('news-library-item-1');
+
+    await userEvent.type(screen.getByTestId('news-library-from-date'), '2026-09-21');
+
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('page=1');
+      expect(last).toContain('publishedFrom=2026-09-21');
+    });
+  });
+});
