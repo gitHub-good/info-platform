@@ -109,15 +109,26 @@ export interface NewsItem {
   source?: string;
 }
 
-/** 政策条目 */
-export interface PolicyItem {
-  id?: string;
+/** 政策分区条目（V2.3-M23 T202/T206 分区对象契约：id = news_item.id）。 */
+export interface PolicySectionItem {
+  id: number | null;
   title: string;
-  publishedAt: string;
-  /** 发文单位 */
-  publisher?: string;
-  url?: string;
-  source?: string;
+  url: string | null;
+  publishedAt: string | null;
+  sourceName: string | null;
+  /** 命中级别：SUBJECT=标的关联（matched_subjects 直接回联）/ INDUSTRY=行业关联（关联集行业命中）；兜底段条目无此字段。 */
+  matchType?: 'SUBJECT' | 'INDUSTRY';
+}
+
+/**
+ * 政策分区对象（data.policies 从 List 换为分区视图，方案 §4.3）：
+ * 关联命中段 items 与宏观兜底段 fallback 二选其一（items 非空则 fallback 为 null——MISSING 构造性消除）；
+ * basis = 口径版本串（policy-scope-v1）。
+ */
+export interface PolicySectionView {
+  items: PolicySectionItem[];
+  fallback: { items: PolicySectionItem[]; note: string } | null;
+  basis: string | null;
 }
 
 /** 异动类型（anomaly_event.anomaly_type，ADR-0013） */
@@ -145,7 +156,7 @@ export interface SubjectDetailData {
   valuation?: Valuation | null;
   announcements?: Announcement[] | null;
   news?: NewsItem[] | null;
-  policies?: PolicyItem[] | null;
+  policies?: PolicySectionView | null;
   /** 事件分区（ADR-0013）：本地 anomaly_event 近期异动/事件 */
   events?: EventItem[] | null;
   sourceStatus: SourceStatusMap;

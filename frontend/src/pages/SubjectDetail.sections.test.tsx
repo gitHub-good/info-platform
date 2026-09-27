@@ -29,7 +29,20 @@ function detailData(code: string, name: string): SubjectDetailData {
     quote: { price: 1701.5, changePct: 1.25 },
     announcements: [{ title: `${code} 首屏公告`, publishedAt: '2026-08-15' }],
     news: [{ externalId: `${code}-n1`, title: `${code} 首屏新闻`, publishedAt: '2026-09-21' }],
-    policies: [{ title: `${code} 命中政策`, publishedAt: '2026-09-20' }],
+    policies: {
+      items: [
+        {
+          id: 4089,
+          title: `${code} 命中政策`,
+          url: 'https://www.gov.cn/zhengce/p1',
+          publishedAt: '2026-09-20',
+          sourceName: '中国政府网·政策',
+          matchType: 'SUBJECT',
+        },
+      ],
+      fallback: null,
+      basis: 'policy-scope-v1',
+    },
     events: [
       { anomalyType: 'PRICE_CHANGE', changePct: 3.25, triggerTime: '2026-09-21T02:00:00Z' },
     ],
