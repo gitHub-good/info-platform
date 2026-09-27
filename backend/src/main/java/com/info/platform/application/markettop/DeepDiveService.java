@@ -1,5 +1,6 @@
 package com.info.platform.application.markettop;
 
+import com.info.platform.application.ai.LlmSceneFailureRecorder;
 import com.info.platform.application.ai.PlaceholderProvider;
 import com.info.platform.application.ai.PromptTemplateService;
 import com.info.platform.application.analysis.PipelineGuardService;
@@ -63,6 +64,9 @@ public class DeepDiveService implements PlaceholderProvider {
     /** 事件重要度序（模板兜底「最高重要度」口径：HIGH &gt; MEDIUM &gt; LOW &gt; 未知）。 */
     private static final List<String> IMPORTANCE_ORDER = List.of("HIGH", "MEDIUM", "LOW");
 
+    /** 失败例响应片段截断上限（head 200 字符，M22 T190 随批——全量原文存储成本红线不破）。 */
+    static final int FAILURE_SNIPPET_MAX_CHARS = 200;
+
     /** 本服务实际注入的占位符描述符（与 DeepDivePromptComposer 同源同序维护，同源单测守护）。 */
     private static final List<PlaceholderDescriptor> DIVE_PLACEHOLDERS =
             List.of(
@@ -88,19 +92,28 @@ public class DeepDiveService implements PlaceholderProvider {
 
     private final MarketTopConfigSettings configSettings;
 
+    private final LlmSceneFailureRecorder sceneFailureRecorder;
+
+    /**
+     * 单构造器（Spring 自动装配）。{@code callLogger} 为 M22 T190 随批留痕增强：校验链失败路径补 FAILED 行附响应片段 （head 200
+     * 截断，OBS-M21 §11-11——解析类缺陷可离线归因，全量原文存储成本红线不破；MarketDataSnapshotService→TencentQuoteClient
+     * 同款应用层直用薄组件裁量）。
+     */
     public DeepDiveService(
             LlmGateway llmGateway,
             PromptTemplateService promptTemplateService,
             DeepDiveOutputParser outputParser,
             PipelineGuardService guardService,
             PipelineSettings pipelineSettings,
-            MarketTopConfigSettings configSettings) {
+            MarketTopConfigSettings configSettings,
+            LlmSceneFailureRecorder sceneFailureRecorder) {
         this.llmGateway = llmGateway;
         this.promptTemplateService = promptTemplateService;
         this.outputParser = outputParser;
         this.guardService = guardService;
         this.pipelineSettings = pipelineSettings;
         this.configSettings = configSettings;
+        this.sceneFailureRecorder = sceneFailureRecorder;
     }
 
     /**
@@ -170,6 +183,7 @@ public class DeepDiveService implements PlaceholderProvider {
         Optional<Parsed> parsedOpt = outputParser.parse(response.content());
         if (parsedOpt.isEmpty() || !DeepDiveOutputParser.structurallyValid(parsedOpt.get())) {
             log.warn("深析输出解析或结构校验失败（切模板兜底）: subject={}", input.subject().code());
+            logValidationFailure(input, "parse|structure", response.content());
             return templateResult(input, template.getVersion(), 0);
         }
         Parsed parsed = parsedOpt.get();
@@ -185,6 +199,7 @@ public class DeepDiveService implements PlaceholderProvider {
                     reconciled.droppedEntries());
         }
         if (!reconciled.valid()) {
+            logValidationFailure(input, "citation", response.content());
             return templateResult(input, template.getVersion(), reconciled.invalidCitations());
         }
 
@@ -193,6 +208,7 @@ public class DeepDiveService implements PlaceholderProvider {
                 ProhibitedPhraseScanner.scan(reconciled.reconciled());
         if (!scanned.valid()) {
             log.warn("深析违禁扫描被拒（切模板兜底）: subject={} hits={}", input.subject().code(), scanned.hits());
+            logValidationFailure(input, "prohibited", response.content());
             return templateResult(input, template.getVersion(), reconciled.invalidCitations());
         }
 
@@ -213,6 +229,22 @@ public class DeepDiveService implements PlaceholderProvider {
             log.warn("深析模板缺失（直接模板兜底）: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * scene-10 失败例留痕（M22 T190 随批，M21 §11-11）：网关对该调用已落 SUCCESS 行（调用本身成功），校验链失败属「解析类缺陷」—— 补一行
+     * FAILED（userId=0 系统调用，cost=0 不入成本口径）附响应片段 head 200 字符入 error_message，供离线归因重放。
+     * 留痕是旁路：写失败不阻断兜底主链（LlmCallLogger 内部容错契约）。
+     */
+    private void logValidationFailure(DeepDiveInput input, String stage, String content) {
+        String head =
+                content == null
+                        ? ""
+                        : content.substring(
+                                0, Math.min(content.length(), FAILURE_SNIPPET_MAX_CHARS));
+        sceneFailureRecorder.record(
+                SCENE_KEY,
+                "深析校验链失败[" + stage + "] subject=" + input.subject().code() + ": resp=" + head);
     }
 
     private DiveResult templateResult(

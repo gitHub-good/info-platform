@@ -212,6 +212,13 @@ markettop:
   rank-job:
     enabled: true
     cron: "0 0 18 * * ?"
+# 事件驱动增量重评（M22 T190，ADR-0061 裁决 1）：job.INCREMENTAL_REEVAL 种子来源（ManagedJob 第 18 键）。
+# FIXED_DELAY 60s 短轮询（与推荐消费解耦——独立 Job 隔离爆炸半径）；测试 profile 置 false → 调度零注册隔离。
+# 迟滞阈值/联动间隔/扫描窗热改在 runtime_config incremental.reeval 键（30092 编辑面）。
+incremental:
+  reeval:
+    enabled: true
+    interval-millis: 60000
 
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED

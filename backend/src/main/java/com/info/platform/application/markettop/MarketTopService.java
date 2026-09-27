@@ -408,6 +408,7 @@ public class MarketTopService {
                         diveLoop.llmCalls(),
                         diveLoop.promptVersion(),
                         basis,
+                        null, // trigger_events：DAILY 版本无事件归因（EVENT 版本归因 M22 T191）
                         null); // created_at 由仓储落库时回填
         repository.insertVersion(batch, rankRows);
         log.info(

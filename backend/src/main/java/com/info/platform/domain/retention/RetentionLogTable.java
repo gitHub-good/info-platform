@@ -73,7 +73,13 @@ public enum RetentionLogTable {
     MARKET_TOP_RANK("market_top_rank", "marketTopRankDays", 180, 30),
 
     /** Top10 榜单批次表（M21 V31 T180；与 market_top_rank 同窗惯例、独立键）。 */
-    MARKET_TOP_BATCH("market_top_batch", "marketTopBatchDays", 180, 30);
+    MARKET_TOP_BATCH("market_top_batch", "marketTopBatchDays", 180, 30),
+
+    /**
+     * 增量重评留痕表（M22 V33 T190；北极星时效 SQL 数据源与审计真相源——默认 180 天下限 30 对齐榜单口径，方案 §5 容量）。 {@code
+     * retention.global} 旧 JSON 行由解析器字段级回退补默认（M20 两枚举同款，无数据迁移）。
+     */
+    INCREMENTAL_REEVAL_LOG("incremental_reeval_log", "incrementalReevalLogDays", 180, 30);
 
     private final String physicalName;
     private final String jsonField;

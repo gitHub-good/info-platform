@@ -97,7 +97,7 @@ class RetentionConfigFacadeImplTest {
         assertThat(view.windows().newsItemDays()).isEqualTo(180);
         assertThat(view.updatedAt()).isNull();
         // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段 → T170 八字段 → T180 十字段）
-        assertThat(view.limits()).hasSize(10);
+        assertThat(view.limits()).hasSize(11);
         assertThat(view.limits())
                 .containsEntry(
                         "recommendationCardDays", new RetentionConfigFacade.FieldLimits(30, 180));
@@ -117,6 +117,11 @@ class RetentionConfigFacadeImplTest {
                         "marketTopBatchDays", new RetentionConfigFacade.FieldLimits(30, 180));
         assertThat(view.windows().marketTopRankDays()).isEqualTo(180);
         assertThat(view.windows().marketTopBatchDays()).isEqualTo(180);
+        // T190（M22 方案 §5）：增量重评留痕表扩位（180/min30——北极星时效 SQL 数据源）
+        assertThat(view.limits())
+                .containsEntry(
+                        "incrementalReevalLogDays", new RetentionConfigFacade.FieldLimits(30, 180));
+        assertThat(view.windows().incrementalReevalLogDays()).isEqualTo(180);
     }
 
     @Test
@@ -172,6 +177,7 @@ class RetentionConfigFacadeImplTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 "2026-09-22T01:00:00Z"));
 
         // Assert：写入文档六字段齐整；返回写后视图（新值 + 新 updatedAt）
@@ -214,6 +220,7 @@ class RetentionConfigFacadeImplTest {
                                                 null,
                                                 null,
                                                 null,
+                                                null,
                                                 null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
@@ -234,6 +241,7 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
                                                 null,
                                                 null,
                                                 null,
@@ -264,6 +272,7 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
                                                 null,
                                                 null,
                                                 null,

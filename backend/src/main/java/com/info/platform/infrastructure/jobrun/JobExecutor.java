@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.jobrun;
 
 import com.info.platform.application.jobrun.JobRunStats;
 import com.info.platform.application.jobrun.ManagedJob;
+import com.info.platform.application.jobrun.RunningJobIndicator;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.common.JobExecutionLog;
@@ -37,7 +38,7 @@ import org.springframework.stereotype.Component;
  * 50000），守卫即时释放——无痕运行违背「触发→效果→日志」三处闭环（PRD 场景 4.2/4.3）。
  */
 @Component
-public class JobExecutor {
+public class JobExecutor implements RunningJobIndicator {
 
     private static final Logger log = LoggerFactory.getLogger(JobExecutor.class);
 
@@ -57,7 +58,12 @@ public class JobExecutor {
         this.manualTriggerExecutor = manualTriggerExecutor;
     }
 
-    /** 该任务是否运行中（任务中心总览 {@code running} 字段来源）。 */
+    /**
+     * 该任务是否运行中（任务中心总览 {@code running} 字段来源）。
+     *
+     * <p>M22 T190 起实现 {@link RunningJobIndicator}（应用层端口，仓储同款依赖倒置）——增量重评 tick 让路查询零新基建。
+     */
+    @Override
     public boolean isRunning(String jobKey) {
         return guard(jobKey).get();
     }

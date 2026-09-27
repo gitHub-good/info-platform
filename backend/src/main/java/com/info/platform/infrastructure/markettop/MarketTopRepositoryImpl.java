@@ -38,8 +38,8 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
             INSERT INTO market_top_batch
               (rank_date, version, trigger_source, snapshot_date, funnel_stats, degraded,
                degraded_reason, dropped_subjects, dive_cost_micros, dive_llm_calls,
-               prompt_version, basis, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               prompt_version, basis, trigger_events, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String RANK_COLUMNS =
@@ -89,6 +89,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                             rs.getInt("dive_llm_calls"),
                             rs.getString("prompt_version"),
                             rs.getString("basis"),
+                            rs.getString("trigger_events"),
                             rs.getString("created_at"));
 
     private static final RowMapper<PrevSubject> PREV_ROW =
@@ -145,6 +146,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                 batch.diveLlmCalls(),
                 batch.promptVersion(),
                 batch.basis(),
+                batch.triggerEventsJson(),
                 now,
                 now);
         jdbcTemplate.batchUpdate(

@@ -57,7 +57,7 @@ class RetentionWindowsTest {
 
         // Assert：默认窗口 30/14/90/90/180/180（枚举单一事实源，T113 扩 newsItem、T134 扩推荐两表）
         assertThat(windows)
-                .isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180, 180, 365, 180, 180));
+                .isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180, 180, 365, 180, 180, 180));
     }
 
     @Test
@@ -111,12 +111,14 @@ class RetentionWindowsTest {
                                         + "\"marketDailySnapshotDays\":90}"));
 
         // Assert
-        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30, 30, 90, 180, 180));
+        assertThat(windows)
+                .isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30, 30, 90, 180, 180, 180));
     }
 
     @Test
     void of_mapsEachTableToItsWindow() {
-        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300, 120, 60);
+        RetentionWindows windows =
+                new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300, 120, 60, 180);
 
         assertThat(windows.of(RetentionLogTable.JOB_EXECUTION_LOG)).isEqualTo(10);
         assertThat(windows.of(RetentionLogTable.DATA_SOURCE_EVENT)).isEqualTo(5);

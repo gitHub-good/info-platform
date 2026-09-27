@@ -24,7 +24,8 @@ public record RetentionWindows(
         int subjectFactorSnapshotDays,
         int marketDailySnapshotDays,
         int marketTopRankDays,
-        int marketTopBatchDays) {
+        int marketTopBatchDays,
+        int incrementalReevalLogDays) {
 
     /** 全默认窗口（键缺失/文档损坏时的兜底，值取枚举 defaultDays 单一事实源）。 */
     public static RetentionWindows defaults() {
@@ -47,7 +48,8 @@ public record RetentionWindows(
                 dayOf(doc, RetentionLogTable.SUBJECT_FACTOR_SNAPSHOT),
                 dayOf(doc, RetentionLogTable.MARKET_DAILY_SNAPSHOT),
                 dayOf(doc, RetentionLogTable.MARKET_TOP_RANK),
-                dayOf(doc, RetentionLogTable.MARKET_TOP_BATCH));
+                dayOf(doc, RetentionLogTable.MARKET_TOP_BATCH),
+                dayOf(doc, RetentionLogTable.INCREMENTAL_REEVAL_LOG));
     }
 
     /**
@@ -65,6 +67,7 @@ public record RetentionWindows(
             case MARKET_DAILY_SNAPSHOT -> marketDailySnapshotDays;
             case MARKET_TOP_RANK -> marketTopRankDays;
             case MARKET_TOP_BATCH -> marketTopBatchDays;
+            case INCREMENTAL_REEVAL_LOG -> incrementalReevalLogDays;
         };
     }
 

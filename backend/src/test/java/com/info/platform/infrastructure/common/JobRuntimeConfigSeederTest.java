@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllSeventeenJobKeys() {
+    void seeds_carriesAllEighteenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 16 键不被增补挤占（MARKET_TOP_JOB 第 17 键追加在尾部，M21 T183 方案 §4.6）
+        // 纯增量守卫：既有 17 键不被增补挤占（INCREMENTAL_REEVAL 第 18 键追加在尾部，M22 T190 方案 §3.5-2）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -70,7 +70,41 @@ class JobRuntimeConfigSeederTest {
                         "job.RECOMMENDATION_FEED",
                         "job.INDUSTRY_WEEKLY_REPORT",
                         "job.FACTOR_SNAPSHOT",
-                        "job.MARKET_TOP_JOB");
+                        "job.MARKET_TOP_JOB",
+                        "job.INCREMENTAL_REEVAL");
+    }
+
+    // ---- INCREMENTAL_REEVAL 种子（T190，M22 方案 §3.5-2：第 18 键，FIXED_DELAY 60s 短轮询）----
+
+    private RuntimeConfigSeed incrementalReevalSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "incrementalReevalEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "incrementalReevalIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.INCREMENTAL_REEVAL"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.INCREMENTAL_REEVAL 种子"));
+    }
+
+    @Test
+    void seeds_incrementalReeval_productionDefaults_enabledFixedDelay60s() {
+        // 生产默认：enabled=true FIXED_DELAY 60s（可配 30s~5min 页面热切换，ADR-0061 裁决 1）
+        RuntimeConfigSeed seed = incrementalReevalSeed(true, 60_000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.INCREMENTAL_REEVAL");
+        assertThat(seed.description()).contains("IncrementalReevalJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":60000");
+    }
+
+    @Test
+    void seeds_incrementalReeval_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：incremental.reeval.enabled=false → 种子停用 → 调度零注册（十八 Job 惯例，LLM 全 Mock 隔离）
+        RuntimeConfigSeed seed = incrementalReevalSeed(false, 60_000L);
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"intervalMillis\":60000");
     }
 
     // ---- MARKET_TOP_JOB 种子（T183，M21 方案 §4.6：第 17 键，盘后 18:00 CRON）----

@@ -69,6 +69,8 @@ class DeepDiveServiceTest {
 
     @Mock private MarketTopConfigSettings configSettings;
 
+    @Mock private com.info.platform.application.ai.LlmSceneFailureRecorder sceneFailureRecorder;
+
     private DeepDiveService service;
 
     private final PromptTemplate template =
@@ -145,7 +147,8 @@ class DeepDiveServiceTest {
                         testParser(),
                         guardService,
                         pipelineSettings,
-                        configSettings);
+                        configSettings,
+                        sceneFailureRecorder);
         lenient()
                 .when(promptTemplateService.loadActiveTemplate(BriefType.DEEP_DIVE))
                 .thenReturn(template);
@@ -325,5 +328,25 @@ class DeepDiveServiceTest {
                                 com.info.platform.domain.markettop.DeepDivePromptComposer
                                         .placeholders(input())
                                         .keySet()));
+    }
+
+    // ---- M22 T190 随批：scene-10 失败例留痕（head 200 截断入 error_message，OBS-M21 §11-11）----
+
+    @Test
+    void analyze_parseFailure_logsResponseHeadForOfflineDiagnosis() {
+        // 网关已对该调用落 SUCCESS 行（调用本身成功）；校验链失败属「解析类缺陷」——补 FAILED 行附响应片段可离线归因
+        String garbage = "x".repeat(600);
+        llmReturns(garbage);
+
+        service.analyze(input());
+
+        org.mockito.ArgumentCaptor<String> messageCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(sceneFailureRecorder).record(org.mockito.Mockito.eq("10"), messageCaptor.capture());
+        String message = messageCaptor.getValue();
+        // head 200 截断：600 字符响应只留前 200（全量原文存储成本红线不破；500 上限由 LlmCallLog 定型兜底）
+        assertThat(message).contains("resp=");
+        assertThat(message.length()).isLessThanOrEqualTo(500);
+        assertThat(message).doesNotContain("x".repeat(201));
     }
 }

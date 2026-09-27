@@ -80,6 +80,12 @@ markettop:
   rank-job:
     enabled: false
     cron: 0 0 18 * * ?
+# 增量重评在测试环境关闭（M22 T190）：种子 job.INCREMENTAL_REEVAL enabled=false → 调度零注册（十八 Job 惯例），
+# 消费/判定/联动逻辑改由单测直接调 IncrementalReevalService.tick 验证（LLM 全 Mock 零外呼）。
+incremental:
+  reeval:
+    enabled: false
+    interval-millis: 60000
 
 logging:
   level:

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,6 +58,8 @@ class FactorSnapshotServiceTest {
         marketService = mock(MarketDataSnapshotService.class);
         RuntimeConfigService configService = mock(RuntimeConfigService.class);
         when(configService.read(anyString())).thenReturn(Optional.empty());
+        when(repository.upsertAllIncremental(anyList(), anyString()))
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).size());
         service =
                 new FactorSnapshotService(
                         repository,
@@ -438,6 +441,59 @@ class FactorSnapshotServiceTest {
                 .contains("rows=4")
                 .contains("coverage=100.0")
                 .contains("market=3");
+    }
+
+    // ---- M22 T190 recomputeIncremental：与全量同源投影同纯函数零漂移（方案 §3.2） ----
+
+    @Test
+    void recomputeIncremental_zeroDriftAgainstFullSnapshot_fieldByField() {
+        stubHappyPath();
+
+        service.snapshotAll(SNAPSHOT);
+        FactorSnapshotService.IncrementalReport report =
+                service.recomputeIncremental(SNAPSHOT, java.util.Set.of(1L, 2L));
+
+        // 同投影 + 同 rowOf 纯函数 + 同 weight_basis：增量行与全量行逐字段相等（验收场景 3 构造面）
+        ArgumentCaptor<List<FactorSnapshotRow>> fullCaptor = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAll(fullCaptor.capture());
+        ArgumentCaptor<List<FactorSnapshotRow>> incrementalCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAllIncremental(incrementalCaptor.capture(), anyString());
+        List<FactorSnapshotRow> incrementalRows = incrementalCaptor.getValue();
+        assertThat(incrementalRows).hasSize(2);
+        for (FactorSnapshotRow incremental : incrementalRows) {
+            FactorSnapshotRow full = rowOf(fullCaptor.getValue(), incremental.subjectId());
+            assertThat(normalize(incremental)).isEqualTo(normalize(full));
+            assertThat(incremental.weightBasis()).isEqualTo(full.weightBasis());
+        }
+        assertThat(report.upsertedRows()).isEqualTo(2);
+        assertThat(report.incrementAtIso()).isNotBlank();
+    }
+
+    @Test
+    void recomputeIncremental_onlyTargetRowsWithoutMarketRefresh() {
+        stubHappyPath();
+
+        FactorSnapshotService.IncrementalReport report =
+                service.recomputeIncremental(SNAPSHOT, java.util.Set.of(3L));
+
+        // 集外不触碰（写入范围 = 受影响集）+ 增量不拉行情（行情面属 17:30 全量职责，快照日守卫不变）
+        verify(marketService, never()).refresh(any(LocalDate.class), anyList());
+        ArgumentCaptor<List<FactorSnapshotRow>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAllIncremental(captor.capture(), anyString());
+        assertThat(captor.getValue()).extracting(FactorSnapshotRow::subjectId).containsExactly(3L);
+        assertThat(report.upsertedRows()).isEqualTo(1);
+    }
+
+    @Test
+    void recomputeIncremental_emptyTargets_noWrite() {
+        stubHappyPath();
+
+        FactorSnapshotService.IncrementalReport report =
+                service.recomputeIncremental(SNAPSHOT, java.util.Set.of());
+
+        verify(repository, never()).upsertAllIncremental(anyList(), anyString());
+        assertThat(report.upsertedRows()).isZero();
     }
 
     private static FactorSnapshotRow rowOf(List<FactorSnapshotRow> rows, long subjectId) {

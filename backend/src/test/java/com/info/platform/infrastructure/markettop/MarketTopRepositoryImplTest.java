@@ -78,6 +78,7 @@ class MarketTopRepositoryImplTest {
                 10,
                 "v1.0",
                 "mt-v1:...",
+                null,
                 "2099-12-31T10:00:00Z");
     }
 

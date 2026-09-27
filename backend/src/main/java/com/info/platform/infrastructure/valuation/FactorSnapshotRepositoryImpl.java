@@ -41,8 +41,8 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
             INSERT INTO subject_factor_snapshot
               (subject_id, snapshot_date, f_catalyst, f_conduction, f_fundamental, f_risk,
                f_valuation, total_score, breakthrough, factor_detail, data_flags, weight_basis,
-               computed_at, last_event_date, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               computed_at, last_event_date, increment_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(subject_id, snapshot_date) DO UPDATE SET
               f_catalyst = excluded.f_catalyst,
               f_conduction = excluded.f_conduction,
@@ -56,6 +56,7 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
               weight_basis = excluded.weight_basis,
               computed_at = excluded.computed_at,
               last_event_date = excluded.last_event_date,
+              increment_at = excluded.increment_at,
               updated_at = excluded.updated_at
             """;
 
@@ -175,6 +176,17 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
 
     @Override
     public int upsertAll(List<FactorSnapshotRow> rows) {
+        return upsertWithIncrementAt(rows, null);
+    }
+
+    /** M22 T190：增量覆盖（increment_at 置本轮时刻）——同键覆盖幂等与全量共用同一 UPSERT 语句。 */
+    @Override
+    public int upsertAllIncremental(List<FactorSnapshotRow> rows, String incrementAtIso) {
+        return upsertWithIncrementAt(
+                rows, incrementAtIso == null || incrementAtIso.isBlank() ? null : incrementAtIso);
+    }
+
+    private int upsertWithIncrementAt(List<FactorSnapshotRow> rows, String incrementAtIso) {
         if (rows == null || rows.isEmpty()) {
             return 0;
         }
@@ -200,8 +212,9 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
                                 ps.setString(12, row.weightBasis());
                                 ps.setString(13, row.computedAtIso());
                                 ps.setString(14, row.lastEventDate());
-                                ps.setString(15, now);
+                                ps.setString(15, incrementAtIso);
                                 ps.setString(16, now);
+                                ps.setString(17, now);
                             }
 
                             @Override

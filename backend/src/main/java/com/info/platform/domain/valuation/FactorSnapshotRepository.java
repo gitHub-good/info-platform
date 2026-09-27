@@ -10,8 +10,14 @@ import java.util.Optional;
  */
 public interface FactorSnapshotRepository {
 
-    /** 批量 UPSERT 快照行（500 行/批事务由实现保证）。 */
+    /** 批量 UPSERT 快照行（500 行/批事务由实现保证；{@code increment_at} 显式置 NULL 复位——盘后全量清除增量标注，V33）。 */
     int upsertAll(List<FactorSnapshotRow> rows);
+
+    /**
+     * 批量 UPSERT 增量覆盖行（M22 T190）：与 {@link #upsertAll} 同键覆盖幂等，差异仅 {@code increment_at} 置本轮增量时刻 （写入范围
+     * = 受影响集——集外标的当日行逐字节不变由写入范围保证，方案 §4.4-①）。
+     */
+    int upsertAllIncremental(List<FactorSnapshotRow> rows, String incrementAtIso);
 
     /** 活跃标的名录（A_SHARE status=1，id 升序）——计算全集与 coverage 对账分母。 */
     List<SubjectRef> findActiveSubjects();

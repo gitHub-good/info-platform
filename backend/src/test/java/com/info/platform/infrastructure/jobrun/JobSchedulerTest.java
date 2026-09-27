@@ -222,13 +222,14 @@ class JobSchedulerTest {
     }
 
     @Test
-    void poolSize_expandedToFifteenForMarketTopLongRunningJob() {
+    void poolSize_expandedToSixteenForMarketTopLongRunningJob() {
         // M15 ADR-0046 裁决 4：4 个管道 Job（FIXED_DELAY tick 长驻占线程）入编后池 8→12；
         // M16 ADR-0051 裁决 1/2：PIPELINE_EXPRESS/RECOMMENDATION_FEED 两 tick Job 预扩 12→14，防与既有 12 Job
-        // 抢占；M21 T183：MARKET_TOP_JOB 全程 4~12min 长任务预扩 14→15
+        // 抢占；M21 T183：MARKET_TOP_JOB 全程 4~12min 长任务预扩 14→15；M22 T190：INCREMENTAL_REEVAL 常驻
+        // 60s tick（ADR-0061 裁决 1）预扩 15→16
         Object poolSize =
                 org.springframework.test.util.ReflectionTestUtils.getField(
                         JobScheduler.class, "POOL_SIZE");
-        assertThat(poolSize).isEqualTo(15);
+        assertThat(poolSize).isEqualTo(16);
     }
 }

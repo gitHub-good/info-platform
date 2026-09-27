@@ -387,6 +387,57 @@ class FactorSnapshotRepositoryImplTest {
         assertThat(latest.get().fCatalyst()).isEqualTo(2.0);
     }
 
+    @Test
+    void upsertAllIncremental_setsIncrementAt_andFullUpsertResetsToNull() {
+        // M22 V33：增量覆盖写 increment_at；盘后全量 UPSERT 显式置 NULL 复位（value-score 双层时间戳依据）
+        long id = subjectId("SH990101");
+        FactorSnapshotRow incremental = row(id, 12.0, 22.0, 32.0, 42.0, 52.0, 27.0, false, "[]");
+        String incrementAt = "2026-09-22T07:35:11Z";
+
+        assertThat(repository.upsertAllIncremental(List.of(incremental), incrementAt)).isEqualTo(1);
+        assertThat(incrementAtOf(id)).isEqualTo(incrementAt);
+
+        // 全量重跑同键覆盖并复位增量标注
+        FactorSnapshotRow full = row(id, 12.0, 22.0, 32.0, 42.0, 52.0, 27.0, false, "[]");
+        assertThat(repository.upsertAll(List.of(full))).isEqualTo(1);
+        assertThat(incrementAtOf(id)).isNull();
+
+        // 增量再覆盖 → 值重新生效（当日多次增量，末次时刻为准）
+        assertThat(repository.upsertAllIncremental(List.of(incremental), "2026-09-22T09:41:00Z"))
+                .isEqualTo(1);
+        assertThat(incrementAtOf(id)).isEqualTo("2026-09-22T09:41:00Z");
+    }
+
+    @Test
+    void upsertAllIncremental_sameDayRerunOverwritesSingleRow() {
+        long id = subjectId("SH990104");
+        repository.upsertAllIncremental(
+                List.of(row(id, 10.0, 20.0, 30.0, 40.0, 50.0, 25.0, false, "[]")),
+                "2026-09-22T07:35:11Z");
+        repository.upsertAllIncremental(
+                List.of(row(id, 11.0, 21.0, 31.0, 41.0, 51.0, 26.0, true, "[]")),
+                "2026-09-22T08:35:11Z");
+
+        Integer count =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM subject_factor_snapshot WHERE subject_id = ? AND"
+                                + " snapshot_date = ?",
+                        Integer.class,
+                        id,
+                        DATE);
+        assertThat(count).isEqualTo(1); // 既有 UNIQUE 幂等口径直用
+        assertThat(incrementAtOf(id)).isEqualTo("2026-09-22T08:35:11Z");
+    }
+
+    private String incrementAtOf(long subjectId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT increment_at FROM subject_factor_snapshot WHERE subject_id = ? AND"
+                        + " snapshot_date = ?",
+                String.class,
+                subjectId,
+                DATE);
+    }
+
     private static FactorSnapshotRow row(
             long subjectId,
             double f1,

@@ -61,7 +61,12 @@ public interface MarketTopRepository {
             String basis,
             String computedAt) {}
 
-    /** batch 行（写载荷——漏斗计数/降级态/跌出留痕/深析成本；createdAt 由落库时回填，读取面即 batch.computedAt）。 */
+    /**
+     * batch 行（写载荷——漏斗计数/降级态/跌出留痕/深析成本；createdAt 由落库时回填，读取面即 batch.computedAt）。
+     *
+     * @param triggerEvents EVENT 版本归因 JSON {@code [{eventId,summary,importance}]}（V33 列；DAILY 版本为
+     *     null——M22 T191）
+     */
     record MarketTopBatchRow(
             String rankDate,
             int version,
@@ -75,6 +80,7 @@ public interface MarketTopRepository {
             int diveLlmCalls,
             String promptVersion,
             String basis,
+            String triggerEventsJson,
             String createdAt) {}
 
     /** 一版本完整读取面（batch 字段 + rank 行）。 */

@@ -39,7 +39,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
                 bind(
                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
-                                + "\"recommendationCardDays\":180}"));
+                                + "\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}"));
     }
 
     /** 与 HTTP 层同一绑定语义：JSON 文本 → WindowsUpdate 记录。 */
@@ -69,7 +69,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // "14x"（D3 探针用例）：修前 Jackson 绑定 String→Integer 失败直落兜底 50000
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":\"14x\","
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -78,7 +78,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // true（D3 探针用例）：修前 Jackson 绑定 Boolean→Integer 失败直落兜底 50000
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":true,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -87,7 +87,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // 14.5（D3 探针用例）：修前静默截断为 14 采信，违背「非整数拒绝」字面契约
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14.5,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -96,7 +96,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // "14"（字符串数字）：JSON 字符串非 JSON 整数，同口径拒绝（修前会被 Jackson 字符串强转采信）
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":\"14\","
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}",
                 "dataSourceEventDays: 须为整数");
     }
 
@@ -105,7 +105,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
         // null（矩阵完备）：字段级「必填」语义不变（修前修后一致）
         assertRejectedAs2001(
                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":null,"
-                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180}",
+                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}",
                 "dataSourceEventDays: 必填");
     }
 
@@ -116,7 +116,7 @@ class RetentionWindowsUpdateTypeMatrixTest {
                 facade.update(
                         bind(
                                 "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
-                                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180}"));
+                                        + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,\"recommendationCardDays\":180,\"incrementalReevalLogDays\":180}"));
 
         assertThat(view.windows().dataSourceEventDays()).isEqualTo(14);
         assertThat(currentWindows().dataSourceEventDays()).isEqualTo(14);

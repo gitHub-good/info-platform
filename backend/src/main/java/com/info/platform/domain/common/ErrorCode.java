@@ -121,6 +121,12 @@ public enum ErrorCode {
      * 逐条，400，M21 方案 §4.7.3）
      */
     MARKET_TOP_CONFIG_INVALID(30091, "榜单配置校验失败", 400),
+    /**
+     * 增量重评配置校验失败（incremental.reeval 字段级：minScoreGap 0~10 / linkMinIntervalMinutes 0~60 /
+     * scanWindowHours 1~72 / eventBufferSeconds 0~120 / minImportance 枚举白名单，msg 逐条，400，M22 方案
+     * §3.5-1）
+     */
+    INCREMENTAL_REEVAL_CONFIG_INVALID(30092, "增量重评配置校验失败", 400),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

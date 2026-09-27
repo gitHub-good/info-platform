@@ -60,7 +60,8 @@ class PromptPlaceholderRegistryTest {
                 mock(com.info.platform.domain.markettop.DeepDiveOutputParser.class),
                 mock(com.info.platform.application.analysis.PipelineGuardService.class),
                 mock(com.info.platform.application.analysis.PipelineSettings.class),
-                mock(com.info.platform.application.markettop.MarketTopConfigSettings.class));
+                mock(com.info.platform.application.markettop.MarketTopConfigSettings.class),
+                mock(com.info.platform.application.ai.LlmSceneFailureRecorder.class));
     }
 
     /** 场景 5（行业归类）供给方：全部依赖 mock（注册表只读 provided()，不触发调用）。 */

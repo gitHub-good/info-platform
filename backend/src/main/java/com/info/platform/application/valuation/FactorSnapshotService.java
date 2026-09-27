@@ -31,10 +31,12 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -113,7 +115,83 @@ public class FactorSnapshotService {
         List<SubjectRef> subjects = repository.findActiveSubjects();
         marketService.refresh(snapshotDate, subjects);
 
-        // 阶段 1：输入投影（全部载入内存——§5 容量实测：W2 窗数千行级；M21 六输入扩位 + 行业成员投影）
+        // 阶段 1~2 输入投影 + 逐标的计算（与 recomputeIncremental 完全同源，§3.2 零漂移构造保证）
+        Projection projection = projection(snapshotDate, params, subjects);
+        List<FactorSnapshotRow> rows = new ArrayList<>(projection.subjects().size());
+        Map<String, Long> flagCounts = new LinkedHashMap<>();
+        for (String flag : CANONICAL_FLAGS) {
+            flagCounts.put(flag, 0L);
+        }
+        for (SubjectRef subject : projection.subjects()) {
+            RowWithFlags computed = rowOf(projection, subject, snapshotDate, params);
+            rows.add(computed.row());
+            computed.flags().forEach(flag -> flagCounts.merge(flag, 1L, Long::sum));
+        }
+
+        // 阶段 3：批 UPSERT（500/批，increment_at 显式置 NULL 复位——盘后全量清除增量标注，V33）+ 报告
+        int upserted = upsertInBatches(rows, null);
+        SnapshotReport report =
+                reportOf(
+                        subjects.size(), rows, projection.marketMap().size(), upserted, flagCounts);
+        log.info("因子快照完成 date={} {}（basis={}）", dateText, report.detail(), params.basis());
+        return report;
+    }
+
+    /**
+     * 增量重算受影响标的的当日快照行（M22 T190，方案 §3.2 / ADR-0061 裁决 2）：阶段 1 投影与 {@link #snapshotAll} <b>完全同源</b>
+     * （同一 W2 窗事件/回联/热度/成员投影查询、同一 marketMap 截面），阶段 2 循环裁剪到目标标的，阶段 3 一次批 UPSERT 且 {@code
+     * increment_at} 置本轮时刻——零漂移由构造保证（同投影 + 同 {@code rowOf} 纯函数 + {@code settings.params()}
+     * 热读同一权重版本）。
+     *
+     * <p>不拉行情（行情面属 17:30 全量职责——增量读既有当日截面，快照日守卫语义不变）；不触碰集外标的（写入范围即受影响集）。
+     *
+     * @param snapshotDate 快照口径日（当日行覆盖锚）
+     * @param subjectIds 受影响标的集（池内 id；空集零写入）
+     */
+    public IncrementalReport recomputeIncremental(
+            LocalDate snapshotDate, Collection<Long> subjectIds) {
+        ValuationParams params = settings.params();
+        Set<Long> targets = subjectIds == null ? Set.of() : Set.copyOf(subjectIds);
+        if (targets.isEmpty()) {
+            return new IncrementalReport(0, null);
+        }
+        Projection projection = projection(snapshotDate, params, repository.findActiveSubjects());
+        List<FactorSnapshotRow> rows =
+                new ArrayList<>(Math.min(targets.size(), projection.subjects().size()));
+        for (SubjectRef subject : projection.subjects()) {
+            if (targets.contains(subject.id())) {
+                rows.add(rowOf(projection, subject, snapshotDate, params).row());
+            }
+        }
+        String incrementAt = clock.instant().toString();
+        int upserted = upsertInBatches(rows, incrementAt);
+        log.info(
+                "增量重算完成 date={} rows={} upserted={}（basis={}）",
+                snapshotDate,
+                rows.size(),
+                upserted,
+                params.basis());
+        return new IncrementalReport(upserted, incrementAt);
+    }
+
+    /** 增量重算报告（upsertedRows 写入行数 + incrementAt 增量覆盖时刻——留痕 snapshot_at 与双层时间戳依据）。 */
+    public record IncrementalReport(int upsertedRows, String incrementAtIso) {}
+
+    // ---- 阶段 1：输入投影（全量/增量同源——零漂移的分叉点不存在，§3.2） ----
+
+    /** 一轮输入投影（全部载入内存——§5 容量实测：W2 窗数千行级；M21 六输入扩位 + 行业成员投影）。 */
+    private record Projection(
+            List<SubjectRef> subjects,
+            Map<String, List<ValuationEvent>> eventsByCode,
+            Map<String, List<Association>> associations,
+            List<HeatRow> heatRows,
+            Map<Long, MarketDailyRow> marketMap,
+            List<Double> peCrossSection,
+            List<Double> pbCrossSection) {}
+
+    private Projection projection(
+            LocalDate snapshotDate, ValuationParams params, List<SubjectRef> subjects) {
+        String dateText = snapshotDate.toString();
         List<EventRef> events =
                 repository.findEventsInWindow(
                         snapshotDate.minusDays(params.assocWindowDays() - 1L).toString(), dateText);
@@ -125,7 +203,6 @@ public class FactorSnapshotService {
         List<MemberLink> memberLinks = memberLinks(repository.findIndustryMembers());
         Map<Long, MarketDailyRow> marketMap = marketRepository.findByDate(dateText);
 
-        // 阶段 2：逐标的计算
         Map<String, List<ValuationEvent>> eventsByCode = eventsByCode(events);
         Map<String, List<Association>> associations =
                 IndustryAssociator.associate(
@@ -134,39 +211,34 @@ public class FactorSnapshotService {
                         memberLinks,
                         snapshotDate,
                         params.assocWindowDays());
-        List<Double> peCrossSection = positiveValues(marketMap, MarketDailyRow::peTtm);
-        List<Double> pbCrossSection = positiveValues(marketMap, MarketDailyRow::pb);
-
-        List<FactorSnapshotRow> rows = new ArrayList<>(subjects.size());
-        Map<String, Long> flagCounts = new LinkedHashMap<>();
-        for (String flag : CANONICAL_FLAGS) {
-            flagCounts.put(flag, 0L);
-        }
-        for (SubjectRef subject : subjects) {
-            RowWithFlags computed =
-                    rowOf(
-                            subject,
-                            snapshotDate,
-                            params,
-                            eventsByCode.getOrDefault(subject.code(), List.of()),
-                            associations.getOrDefault(subject.code(), List.of()),
-                            heatRows,
-                            marketMap.get(subject.id()),
-                            peCrossSection,
-                            pbCrossSection);
-            rows.add(computed.row());
-            computed.flags().forEach(flag -> flagCounts.merge(flag, 1L, Long::sum));
-        }
-
-        // 阶段 3：批 UPSERT（500/批）+ 报告（coverage 端点同口径）
-        int upserted = upsertInBatches(rows);
-        SnapshotReport report =
-                reportOf(subjects.size(), rows, marketMap.size(), upserted, flagCounts);
-        log.info("因子快照完成 date={} {}（basis={}）", dateText, report.detail(), params.basis());
-        return report;
+        return new Projection(
+                subjects,
+                eventsByCode,
+                associations,
+                heatRows,
+                marketMap,
+                positiveValues(marketMap, MarketDailyRow::peTtm),
+                positiveValues(marketMap, MarketDailyRow::pb));
     }
 
     // ---- 阶段 2：单标的行组装 ----
+
+    private RowWithFlags rowOf(
+            Projection projection,
+            SubjectRef subject,
+            LocalDate snapshotDate,
+            ValuationParams params) {
+        return rowOf(
+                subject,
+                snapshotDate,
+                params,
+                projection.eventsByCode().getOrDefault(subject.code(), List.of()),
+                projection.associations().getOrDefault(subject.code(), List.of()),
+                projection.heatRows(),
+                projection.marketMap().get(subject.id()),
+                projection.peCrossSection(),
+                projection.pbCrossSection());
+    }
 
     private RowWithFlags rowOf(
             SubjectRef subject,
@@ -315,11 +387,19 @@ public class FactorSnapshotService {
     // ---- 阶段 3：批 UPSERT 与报告 ----
 
     private int upsertInBatches(List<FactorSnapshotRow> rows) {
+        return upsertInBatches(rows, null);
+    }
+
+    /** 批 UPSERT（500/批；incrementAtIso 空 = 全量路径——{@code increment_at} 显式置 NULL 复位；非空 = 增量覆盖时刻）。 */
+    private int upsertInBatches(List<FactorSnapshotRow> rows, String incrementAtIso) {
         int upserted = 0;
         for (int i = 0; i < rows.size(); i += UPSERT_BATCH_SIZE) {
+            List<FactorSnapshotRow> batch =
+                    rows.subList(i, Math.min(i + UPSERT_BATCH_SIZE, rows.size()));
             upserted +=
-                    repository.upsertAll(
-                            rows.subList(i, Math.min(i + UPSERT_BATCH_SIZE, rows.size())));
+                    incrementAtIso == null
+                            ? repository.upsertAll(batch)
+                            : repository.upsertAllIncremental(batch, incrementAtIso);
         }
         return upserted;
     }
@@ -376,8 +456,10 @@ public class FactorSnapshotService {
     /**
      * 行业成员投影 → 路 C 输入（§4.1.3/4.1.4）：industry 原文经 {@code IndustryDirectory.swPrimaryOf} 映射，
      * 未收录板块过滤不出行 （安全侧失败——少关联不误关联；映射缺漏计数观察留 JobRunStats，T183 阶段 0 detail 接线）。
+     *
+     * <p>包内可见：M22 增量受影响集的行业投影与全量同源复用同一转换（ADR-0061 裁决 2「与 F2 同源，非第二套关联」）。
      */
-    private static List<MemberLink> memberLinks(List<IndustryMemberRow> rows) {
+    static List<MemberLink> memberLinks(List<IndustryMemberRow> rows) {
         List<MemberLink> links = new ArrayList<>();
         for (IndustryMemberRow row : rows) {
             String swIndustry = IndustryDirectory.swPrimaryOf(row.industry());

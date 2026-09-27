@@ -80,6 +80,7 @@ class MarketTopQueryServiceTest {
                         10,
                         "v1.0",
                         "mt-v1:...",
+                        null,
                         "2026-09-22T10:03:00Z"),
                 List.of(
                         new MarketTopRankRow(

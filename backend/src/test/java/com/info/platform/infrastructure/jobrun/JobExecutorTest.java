@@ -337,4 +337,15 @@ class JobExecutorTest {
         submitted.forEach(Runnable::run);
         assertThat(executor.isRunning("PUSH_RETRY")).isFalse();
     }
+
+    @Test
+    void implementsRunningJobIndicator_dependencyInversionForIncrementalYield() {
+        // M22 T190 互斥层②：应用层 RunningJobIndicator 接口由 JobExecutor 实现（仓储同款依赖倒置）——
+        // 增量 tick 查 isRunning(FACTOR_SNAPSHOT ‖ MARKET_TOP_JOB) 让路，M20/M21 Job 类零改动
+        executor = directExecutor();
+        com.info.platform.application.jobrun.RunningJobIndicator indicator = executor;
+
+        assertThat(indicator.isRunning("FACTOR_SNAPSHOT")).isFalse();
+        assertThat(indicator.isRunning("MARKET_TOP_JOB")).isFalse();
+    }
 }

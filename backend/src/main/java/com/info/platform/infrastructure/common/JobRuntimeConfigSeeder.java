@@ -147,6 +147,13 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${markettop.rank-job.cron:0 0 18 * * ?}")
     private String marketTopCron;
 
+    /** 增量重评开关/tick 间隔（M22 T190：INCREMENTAL_REEVAL 第 18 键，默认 60s 可配 30s~5min，ADR-0061 裁决 1）。 */
+    @Value("${incremental.reeval.enabled:true}")
+    private boolean incrementalReevalEnabled;
+
+    @Value("${incremental.reeval.interval-millis:60000}")
+    private long incrementalReevalIntervalMillis;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -291,6 +298,14 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         "全市场榜单调度（MarketTopJob，盘后 18:00 四阶段生成：行业成员回填预检→快照粗筛 300 池→LLM 深析 40"
                                 + "（briefType 10，五步校验链+scene-10 成本护栏）→Top10 合成与昨日 diff→两表版本化落库；"
                                 + "当日快照未出守卫跳过；漏斗参数热改见 market.top 键，M21 方案 §4.6）"));
+        seeds.add(
+                fixedDelay(
+                        "INCREMENTAL_REEVAL",
+                        "增量重评调度（IncrementalReevalJob，tick 60s：扫未消费 ≥HIGH 事件 → 受影响标的当日快照行局部重算"
+                                + "（与全量同源零漂移，increment_at 留痕）→ 挤入挤出迟滞判定 → 榜单 version+1 联动与归因留痕；"
+                                + "重 Job 运行让路/联动间隔防抖，阈值热改见 incremental.reeval 键，M22 ADR-0061）",
+                        incrementalReevalEnabled,
+                        incrementalReevalIntervalMillis));
         return seeds;
     }
 
