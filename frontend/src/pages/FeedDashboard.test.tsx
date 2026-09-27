@@ -611,7 +611,6 @@ describe('FeedDashboard 大盘三处数字弹框（V2.4 T214，REQ-20260928-20 �
 
   it('不可点面防蔓延：去重拦截/活跃源数/失败源数/感知延迟 hover title 明示不支持下钻', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok(fullView())));
-    const user = userEvent.setup();
     render(<FeedDashboard />);
 
     await screen.findByTestId('dashboard-stat-today-new');
