@@ -48,7 +48,7 @@ class BriefContextBuilderTest {
                                         "2026-03-20",
                                         "url",
                                         "http://n")),
-                        List.of(),
+                        null,
                         List.of(),
                         Map.of());
 

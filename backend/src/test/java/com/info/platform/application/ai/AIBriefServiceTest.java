@@ -811,7 +811,7 @@ class AIBriefServiceTest {
                 Map.of("peTtm", 25.0),
                 List.of(),
                 List.of(),
-                List.of(),
+                null,
                 List.of(),
                 Map.of());
     }

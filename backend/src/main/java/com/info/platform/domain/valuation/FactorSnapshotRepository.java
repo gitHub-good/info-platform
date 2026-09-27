@@ -34,6 +34,19 @@ public interface FactorSnapshotRepository {
     /** 资讯回联窗投影：DONE 且 matched_subjects 非空的行（published_at ∈ [fromIso, toIso)）——路 B 关联派生原料。 */
     List<NewsLinkRow> findMatchedNewsInWindow(String fromIso, String toIso);
 
+    /**
+     * 事件窗投影（单标的裁剪，V2.3-M23 T202，ADR-0062 裁决三）：{@code subjects} JSON 引号定界含该标的的行—— 详情分区行业关联集即时现算原料（与
+     * {@link #findEventsInWindow} 同窗同投影，SQL 侧 LIKE 裁剪，同源构造保证）。
+     */
+    List<EventRef> findEventsInWindowForSubject(String subjectCode, String fromDate, String toDate);
+
+    /** 资讯回联窗投影（单标的裁剪，T202）：matched_subjects 含该标的的行——同 {@link #findMatchedNewsInWindow} 窗界与投影。 */
+    List<NewsLinkRow> findMatchedNewsInWindowForSubject(
+            String subjectCode, String fromIso, String toIso);
+
+    /** 行业成员投影（单标的，T202）：该标的的 industry 原文行（无行 = 未录行业/非启用——路 C 不出边）。 */
+    List<IndustryMemberRow> findIndustryMemberOf(String subjectCode);
+
     /** H24 热度快照行（31 申万常驻，缺行由域层记 0）——F2 名次归一原料。 */
     List<HeatRow> findH24Heat();
 

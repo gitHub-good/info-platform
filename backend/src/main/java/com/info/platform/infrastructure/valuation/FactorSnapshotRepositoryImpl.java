@@ -73,7 +73,6 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
                    affected_industries
               FROM event_item
              WHERE event_date >= ? AND event_date <= ?
-             ORDER BY id ASC
             """;
 
     private static final String MATCHED_NEWS_SQL =
@@ -84,7 +83,6 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
              WHERE na.l1_status = 'DONE'
                AND na.matched_subjects IS NOT NULL
                AND ni.published_at >= ? AND ni.published_at < ?
-             ORDER BY ni.published_at ASC, na.news_id ASC
             """;
 
     private static final String H24_HEAT_SQL =
@@ -245,12 +243,61 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
 
     @Override
     public List<EventRef> findEventsInWindow(String fromDate, String toDate) {
-        return jdbcTemplate.query(EVENTS_WINDOW_SQL, EVENT_ROW, fromDate, toDate);
+        return jdbcTemplate.query(
+                EVENTS_WINDOW_SQL + " ORDER BY id ASC", EVENT_ROW, fromDate, toDate);
     }
 
     @Override
     public List<NewsLinkRow> findMatchedNewsInWindow(String fromIso, String toIso) {
-        return jdbcTemplate.query(MATCHED_NEWS_SQL, NEWS_ROW, fromIso, toIso);
+        return jdbcTemplate.query(
+                MATCHED_NEWS_SQL + " ORDER BY ni.published_at ASC, na.news_id ASC",
+                NEWS_ROW,
+                fromIso,
+                toIso);
+    }
+
+    @Override
+    public List<EventRef> findEventsInWindowForSubject(
+            String subjectCode, String fromDate, String toDate) {
+        // 单标的裁剪：subjects JSON 值位引号定界（T202，ADR-0062 裁决三——同窗同投影仅加 LIKE）
+        return jdbcTemplate.query(
+                EVENTS_WINDOW_SQL + " AND subjects LIKE ? ORDER BY id ASC",
+                EVENT_ROW,
+                fromDate,
+                toDate,
+                subjectValueToken(subjectCode));
+    }
+
+    @Override
+    public List<NewsLinkRow> findMatchedNewsInWindowForSubject(
+            String subjectCode, String fromIso, String toIso) {
+        return jdbcTemplate.query(
+                MATCHED_NEWS_SQL
+                        + " AND na.matched_subjects LIKE ?"
+                        + " ORDER BY ni.published_at ASC, na.news_id ASC",
+                NEWS_ROW,
+                fromIso,
+                toIso,
+                subjectValueToken(subjectCode));
+    }
+
+    @Override
+    public List<IndustryMemberRow> findIndustryMemberOf(String subjectCode) {
+        // 单标的成员投影：WHERE 段拼接（常量含 ORDER BY 尾巴——按子串定位接点，同窗同投影仅加 = ?）
+        int orderByAt = INDUSTRY_MEMBERS_SQL.lastIndexOf("ORDER BY");
+        String sql =
+                INDUSTRY_MEMBERS_SQL.substring(0, orderByAt)
+                        + " AND subject_code = ? "
+                        + INDUSTRY_MEMBERS_SQL.substring(orderByAt);
+        return jdbcTemplate.query(sql, INDUSTRY_MEMBER_ROW, subjectCode);
+    }
+
+    /**
+     * subjects/matched_subjects JSON 值位定界 token（[{"code":"SH600519",...}] → 包 ":"SH600519""——
+     * 冒号+引号+值+引号锚定值位；与 PolicyScopeRepositoryImpl 同口径，实测 SQLite LIKE 校准）。
+     */
+    private static String subjectValueToken(String subjectCode) {
+        return "%\":\"" + subjectCode + "\"%";
     }
 
     @Override

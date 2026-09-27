@@ -30,8 +30,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
- * AggregationService 编排单测（T09）：并行取数成功 / 单源 MISSING 不阻断 / 单源 FAILED 不阻断 / 全失败降级 / sections 过滤 /
- * 超时不阻断 / 标的不存在 30001。
+ * AggregationService 编排单测（T09；V2.3-M23 T202 政策分区库内化随批更新）：并行取数成功 / 单源 MISSING 不阻断 / 单源 FAILED 不阻断 /
+ * 全失败降级 / sections 过滤 / 超时不阻断 / 标的不存在 30001；POLICY 摘出 fan-out（五源化）—— 政策分区来自
+ * SubjectPolicySectionService（mock）恒 ok，POLICY adapter 零调用。
  *
  * <p>纯单元测试：SubjectRepository 用 Mockito，SourceAdapter 用测试替身（控制状态）；同步执行器保证确定性（超时场景用虚拟线程执行器）。
  */
@@ -42,9 +43,33 @@ class AggregationServiceTest {
     /** 同步执行器：supplyAsync 在调用线程内联执行，结果立即可用，测试确定性高。 */
     private final Executor syncExecutor = Runnable::run;
 
+    /** 政策分区服务 mock（T202：库内分区数据面；返回可辨别的固定分区对象）。 */
+    private final SubjectPolicySectionService policySectionService =
+            Mockito.mock(SubjectPolicySectionService.class);
+
+    private PolicySectionView policySection() {
+        return new PolicySectionView(
+                List.of(
+                        new PolicySectionView.Item(
+                                4089L,
+                                "降准政策",
+                                "https://gov/a",
+                                "2026-09-20T16:00:00Z",
+                                "中国政府网·政策",
+                                "SUBJECT")),
+                null,
+                "policy-scope-v1");
+    }
+
+    private AggregationService service(List<SourceAdapter> adapters) {
+        return new AggregationService(
+                subjectRepository, adapters, syncExecutor, () -> 2000L, policySectionService);
+    }
+
     @Test
     void getDetail_allOk_returnsAllSectionsAndOkStatus() {
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
         List<SourceAdapter> adapters =
                 List.of(
                         okAdapter(SourceCode.QUOTE, Map.of("price", "1680.50")),
@@ -56,6 +81,7 @@ class AggregationServiceTest {
                         okAdapter(
                                 SourceCode.NEWS,
                                 Map.of("items", List.of(Map.<String, Object>of("title", "news1")))),
+                        // POLICY adapter 仍在注册表（轨 A 留至 T203）——fan-out 摘除后其数据不被消费
                         okAdapter(
                                 SourceCode.POLICY,
                                 Map.of("items", List.of(Map.<String, Object>of("title", "pol1")))),
@@ -66,10 +92,7 @@ class AggregationServiceTest {
                                         List.of(
                                                 Map.<String, Object>of(
                                                         "anomalyType", "PRICE_CHANGE")))));
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
-
-        SubjectDetail detail = service.getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
 
         assertThat(detail.sourceStatus()).hasSize(7);
         assertThat(detail.sourceStatus().values()).allMatch("ok"::equals);
@@ -78,10 +101,79 @@ class AggregationServiceTest {
         assertThat(detail.valuation()).containsEntry("pe", "25.5");
         assertThat(detail.announcements()).hasSize(1);
         assertThat(detail.news()).hasSize(1);
-        assertThat(detail.policies()).hasSize(1);
+        // T202：政策分区为分区对象（items+matchType+basis），数据来自库内服务而非 adapter items
+        assertThat(detail.policies()).isNotNull();
+        assertThat(detail.policies().items()).hasSize(1);
+        assertThat(detail.policies().items().get(0).matchType()).isEqualTo("SUBJECT");
+        assertThat(detail.policies().basis()).isEqualTo("policy-scope-v1");
         assertThat(detail.events()).hasSize(1);
         assertThat(detail.events().get(0)).containsEntry("anomalyType", "PRICE_CHANGE");
         assertThat(detail.subject().subjectCode()).isEqualTo("SH600519");
+    }
+
+    @Test
+    void getDetail_policyAdapterNeverCalled_sectionFromInLibraryService() {
+        // T202 五源化：POLICY adapter fetch 零调用（fan-out 摘除）；分区数据 = 库内服务返回值
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
+        AtomicInteger policyFetchCalls = new AtomicInteger();
+        SourceAdapter policyAdapter =
+                new SourceAdapter() {
+                    @Override
+                    public SourceResult fetch(Subject s) {
+                        policyFetchCalls.incrementAndGet();
+                        return SourceResult.ok(
+                                SourceCode.POLICY,
+                                s.getId(),
+                                Map.of("items", List.of()),
+                                "t",
+                                Instant.now());
+                    }
+
+                    @Override
+                    public SourceCode sourceCode() {
+                        return SourceCode.POLICY;
+                    }
+                };
+        List<SourceAdapter> adapters =
+                List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1")), policyAdapter);
+
+        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
+
+        assertThat(policyFetchCalls.get()).isZero();
+        assertThat(detail.sourceStatus().get("policy")).isEqualTo("ok");
+        assertThat(detail.policies().items()).hasSize(1);
+        assertThat(detail.policies().fallback()).isNull();
+    }
+
+    @Test
+    void getDetail_policySectionFallbackCarried_statusStillOk() {
+        // 宏观兜底段形态：items 空 + fallback 非空（MISSING 消除构造），sourceStatus.policy 恒 ok
+        when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519"))
+                .thenReturn(
+                        new PolicySectionView(
+                                List.of(),
+                                new PolicySectionView.Fallback(
+                                        List.of(
+                                                new PolicySectionView.Item(
+                                                        9L,
+                                                        "近期宏观政策",
+                                                        "https://gov/b",
+                                                        "2026-09-19T16:00:00Z",
+                                                        "中国政府网·政策",
+                                                        null)),
+                                        SubjectPolicySectionService.FALLBACK_NOTE),
+                                "policy-scope-v1"));
+        SubjectDetail detail =
+                service(List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1"))))
+                        .getDetail(1L, Set.of());
+
+        assertThat(detail.sourceStatus().get("policy")).isEqualTo("ok");
+        assertThat(detail.policies().items()).isEmpty();
+        assertThat(detail.policies().fallback()).isNotNull();
+        assertThat(detail.policies().fallback().note()).isEqualTo("暂无与该标的行业直接相关的政策，以下为近期宏观政策");
+        assertThat(detail.policies().fallback().items()).hasSize(1);
     }
 
     @Test
@@ -92,10 +184,7 @@ class AggregationServiceTest {
                 List.of(
                         okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
                         missingAdapter(SourceCode.EVENT));
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
-
-        SubjectDetail detail = service.getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
 
         assertThat(detail.sourceStatus().get("event")).isEqualTo("missing");
         assertThat(detail.events()).isNull();
@@ -105,6 +194,7 @@ class AggregationServiceTest {
     @Test
     void getDetail_singleSourceMissing_doesNotBlockOthers() {
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
         List<SourceAdapter> adapters =
                 Stream.of(
                                 okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
@@ -114,13 +204,11 @@ class AggregationServiceTest {
                                 okAdapter(SourceCode.NEWS, Map.of("items", List.of())),
                                 missingAdapter(SourceCode.POLICY))
                         .toList();
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
+        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
 
-        SubjectDetail detail = service.getDetail(1L, Set.of());
-
-        assertThat(detail.sourceStatus().get("policy")).isEqualTo("missing");
-        assertThat(detail.policies()).isNull();
+        // T202：POLICY adapter 的 MISSING 不再传导——分区库内化恒 ok（adapter 结果不被消费）
+        assertThat(detail.sourceStatus().get("policy")).isEqualTo("ok");
+        assertThat(detail.policies()).isNotNull();
         assertThat(detail.sourceStatus().get("quote")).isEqualTo("ok");
         assertThat(detail.quote()).isNotNull();
     }
@@ -128,6 +216,7 @@ class AggregationServiceTest {
     @Test
     void getDetail_singleSourceFailed_doesNotBlockOthers() {
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
         List<SourceAdapter> adapters =
                 Stream.of(
                                 okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
@@ -137,10 +226,7 @@ class AggregationServiceTest {
                                 failedAdapter(SourceCode.NEWS),
                                 okAdapter(SourceCode.POLICY, Map.of("items", List.of())))
                         .toList();
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
-
-        SubjectDetail detail = service.getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
 
         assertThat(detail.sourceStatus().get("news")).isEqualTo("failed");
         assertThat(detail.news()).isNull();
@@ -151,6 +237,7 @@ class AggregationServiceTest {
     @Test
     void getDetail_allFailedDegraded_returnsAllNonOkStatusWithoutThrowing() {
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
         List<SourceAdapter> adapters =
                 Stream.of(
                                 failedAdapter(SourceCode.QUOTE),
@@ -160,10 +247,7 @@ class AggregationServiceTest {
                                 failedAdapter(SourceCode.NEWS),
                                 missingAdapter(SourceCode.POLICY))
                         .toList();
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
-
-        SubjectDetail detail = service.getDetail(1L, Set.of());
+        SubjectDetail detail = service(adapters).getDetail(1L, Set.of());
 
         assertThat(detail.sourceStatus())
                 .containsEntry("quote", "failed")
@@ -171,14 +255,17 @@ class AggregationServiceTest {
                 .containsEntry("valuation", "failed")
                 .containsEntry("announce", "missing")
                 .containsEntry("news", "failed")
-                .containsEntry("policy", "missing");
+                // T202：五源全降级时政策分区仍恒 ok（库内查询无外呼三态，方案 §4.3）
+                .containsEntry("policy", "ok");
         assertThat(detail.quote()).isNull();
         assertThat(detail.finance()).isNull();
+        assertThat(detail.policies()).isNotNull();
     }
 
     @Test
     void getDetail_sectionsFilter_onlyFetchesRequestedSections() {
         when(subjectRepository.findById(1L)).thenReturn(Optional.of(subject(1L)));
+        when(policySectionService.sectionOf("SH600519")).thenReturn(policySection());
         List<SourceAdapter> adapters =
                 List.of(
                         okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
@@ -187,22 +274,23 @@ class AggregationServiceTest {
                         okAdapter(SourceCode.ANNOUNCE, Map.of("items", List.of())),
                         okAdapter(SourceCode.NEWS, Map.of("items", List.of())),
                         okAdapter(SourceCode.POLICY, Map.of("items", List.of())));
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
-
-        SubjectDetail detail = service.getDetail(1L, Set.of(SourceCode.QUOTE, SourceCode.FINANCE));
+        SubjectDetail detail =
+                service(adapters).getDetail(1L, Set.of(SourceCode.QUOTE, SourceCode.FINANCE));
 
         assertThat(detail.sourceStatus()).containsOnlyKeys("quote", "finance");
         assertThat(detail.quote()).isNotNull();
         assertThat(detail.finance()).isNotNull();
         assertThat(detail.valuation()).isNull();
+        // POLICY 未请求：分区与状态键均不出（sections 过滤语义不变）
+        assertThat(detail.policies()).isNull();
+        assertThat(detail.sourceStatus()).doesNotContainKey("policy");
+        Mockito.verifyNoInteractions(policySectionService);
     }
 
     @Test
     void getDetail_subjectNotFound_throws30001() {
         when(subjectRepository.findById(999L)).thenReturn(Optional.empty());
-        AggregationService service =
-                new AggregationService(subjectRepository, List.of(), syncExecutor, () -> 2000L);
+        AggregationService service = service(List.of());
 
         assertThatThrownBy(() -> service.getDetail(999L, Set.of()))
                 .isInstanceOf(BusinessException.class)
@@ -243,7 +331,11 @@ class AggregationServiceTest {
             SourceAdapter fastFinance = okAdapter(SourceCode.FINANCE, Map.of("revenue", "1"));
             AggregationService service =
                     new AggregationService(
-                            subjectRepository, List.of(slowQuote, fastFinance), exec, () -> 50L);
+                            subjectRepository,
+                            List.of(slowQuote, fastFinance),
+                            exec,
+                            () -> 50L,
+                            policySectionService);
 
             SubjectDetail detail = service.getDetail(1L, Set.of());
 
@@ -286,12 +378,7 @@ class AggregationServiceTest {
                     }
                 };
         SourceAdapter defaultQuote = okAdapter(SourceCode.QUOTE, Map.of("price", "1"));
-        AggregationService service =
-                new AggregationService(
-                        subjectRepository,
-                        List.of(stockOnlyFinance, defaultQuote),
-                        syncExecutor,
-                        () -> 2000L);
+        AggregationService service = service(List.of(stockOnlyFinance, defaultQuote));
 
         // Act
         SubjectDetail detail = service.getDetail(1L, Set.of());
@@ -310,13 +397,10 @@ class AggregationServiceTest {
         when(subjectRepository.findById(2L))
                 .thenReturn(Optional.of(subject(2L, SubjectType.INDEX)));
         AggregationService service =
-                new AggregationService(
-                        subjectRepository,
+                service(
                         List.of(
                                 okAdapter(SourceCode.QUOTE, Map.of("price", "3000")),
-                                okAdapter(SourceCode.NEWS, Map.of("items", List.of()))),
-                        syncExecutor,
-                        () -> 2000L);
+                                okAdapter(SourceCode.NEWS, Map.of("items", List.of()))));
 
         // Act
         SubjectDetail detail = service.getDetail(2L, Set.of());
@@ -333,11 +417,7 @@ class AggregationServiceTest {
         when(subjectRepository.findAllById(List.of(1L, 2L)))
                 .thenReturn(List.of(subject(1L), subject(2L)));
         AggregationService service =
-                new AggregationService(
-                        subjectRepository,
-                        List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1680.50"))),
-                        syncExecutor,
-                        () -> 2000L);
+                service(List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1680.50"))));
 
         List<SubjectQuote> quotes = service.getQuotes(List.of(1L, 2L));
 
@@ -353,11 +433,7 @@ class AggregationServiceTest {
     void getQuotes_unknownIdsSkipped_emptyListWhenNothingResolved() {
         when(subjectRepository.findAllById(List.of(999L))).thenReturn(List.of());
         AggregationService service =
-                new AggregationService(
-                        subjectRepository,
-                        List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1"))),
-                        syncExecutor,
-                        () -> 2000L);
+                service(List.of(okAdapter(SourceCode.QUOTE, Map.of("price", "1"))));
 
         assertThat(service.getQuotes(List.of(999L))).isEmpty();
     }
@@ -386,9 +462,7 @@ class AggregationServiceTest {
                         return SourceCode.QUOTE;
                     }
                 };
-        AggregationService service =
-                new AggregationService(
-                        subjectRepository, List.of(mixedQuote), syncExecutor, () -> 2000L);
+        AggregationService service = service(List.of(mixedQuote));
 
         List<SubjectQuote> quotes = service.getQuotes(List.of(1L, 2L));
 
@@ -402,11 +476,7 @@ class AggregationServiceTest {
     void getQuotes_quoteAdapterMissing_allRowsDegradeToNull() {
         when(subjectRepository.findAllById(List.of(1L))).thenReturn(List.of(subject(1L)));
         AggregationService service =
-                new AggregationService(
-                        subjectRepository,
-                        List.of(okAdapter(SourceCode.FINANCE, Map.of("revenue", "1"))),
-                        syncExecutor,
-                        () -> 2000L);
+                service(List.of(okAdapter(SourceCode.FINANCE, Map.of("revenue", "1"))));
 
         List<SubjectQuote> quotes = service.getQuotes(List.of(1L));
 
@@ -443,9 +513,7 @@ class AggregationServiceTest {
                         return EnumSet.of(SubjectType.STOCK);
                     }
                 };
-        AggregationService service =
-                new AggregationService(
-                        subjectRepository, List.of(stockOnlyQuote), syncExecutor, () -> 2000L);
+        AggregationService service = service(List.of(stockOnlyQuote));
 
         List<SubjectQuote> quotes = service.getQuotes(List.of(1L));
 
@@ -482,8 +550,7 @@ class AggregationServiceTest {
                                                         "anomalyType", "PRICE_CHANGE")),
                                         "total",
                                         37L)));
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
+        AggregationService service = service(adapters);
 
         SubjectDetail detail = service.getDetail(1L, Set.of(SourceCode.ANNOUNCE, SourceCode.EVENT));
 
@@ -509,8 +576,7 @@ class AggregationServiceTest {
                         okAdapter(SourceCode.QUOTE, Map.of("price", "1")),
                         missingAdapter(SourceCode.ANNOUNCE),
                         missingAdapter(SourceCode.EVENT));
-        AggregationService service =
-                new AggregationService(subjectRepository, adapters, syncExecutor, () -> 2000L);
+        AggregationService service = service(adapters);
 
         SubjectDetail detail = service.getDetail(1L, Set.of());
 

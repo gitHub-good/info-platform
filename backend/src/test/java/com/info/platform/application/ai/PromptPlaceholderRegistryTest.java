@@ -174,7 +174,7 @@ class PromptPlaceholderRegistryTest {
                         Map.of("peTtm", 25.0, "pb", 9.5),
                         List.of(Map.of("title", "年报", "url", "http://a")),
                         List.of(Map.of("title", "新闻", "url", "http://n")),
-                        List.of(),
+                        null,
                         List.of(),
                         Map.of());
 

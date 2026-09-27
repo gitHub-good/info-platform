@@ -430,7 +430,8 @@ public class FactorSnapshotService {
         return byCode;
     }
 
-    private static List<EventLink> eventLinks(List<EventRef> events) {
+    /** 事件投影 → 路 A 输入（public：T202 单标的读口同源复用——同一转换点非第二套，ADR-0062 裁决三）。 */
+    public static List<EventLink> eventLinks(List<EventRef> events) {
         return events.stream()
                 .map(
                         ref ->
@@ -441,7 +442,8 @@ public class FactorSnapshotService {
                 .toList();
     }
 
-    private static List<NewsLink> newsLinks(List<NewsLinkRow> rows) {
+    /** 资讯投影 → 路 B 输入（public：T202 单标的读口同源复用——同一转换点非第二套，ADR-0062 裁决三）。 */
+    public static List<NewsLink> newsLinks(List<NewsLinkRow> rows) {
         return rows.stream()
                 .map(
                         row ->
@@ -457,9 +459,10 @@ public class FactorSnapshotService {
      * 行业成员投影 → 路 C 输入（§4.1.3/4.1.4）：industry 原文经 {@code IndustryDirectory.swPrimaryOf} 映射，
      * 未收录板块过滤不出行 （安全侧失败——少关联不误关联；映射缺漏计数观察留 JobRunStats，T183 阶段 0 detail 接线）。
      *
-     * <p>包内可见：M22 增量受影响集的行业投影与全量同源复用同一转换（ADR-0061 裁决 2「与 F2 同源，非第二套关联」）。
+     * <p>public：M22 增量受影响集与全量同源复用（ADR-0061 裁决 2）；V2.3-M23 T202 SubjectIndustryAssociationReader
+     * 第三消费面（详情分区关联集同源锚定——同一转换点非第二套，ADR-0062 裁决三）。
      */
-    static List<MemberLink> memberLinks(List<IndustryMemberRow> rows) {
+    public static List<MemberLink> memberLinks(List<IndustryMemberRow> rows) {
         List<MemberLink> links = new ArrayList<>();
         for (IndustryMemberRow row : rows) {
             String swIndustry = IndustryDirectory.swPrimaryOf(row.industry());

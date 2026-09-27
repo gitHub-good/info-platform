@@ -33,6 +33,10 @@ import org.springframework.stereotype.Service;
  * → {@code allOf().get(总超时)} 兜底（T36 起每请求读 {@code aggregation.global}，LIVE 级热生效）→ 收集降级（任一源
  * MISSING/FAILED/超时 不抛异常、不阻断其他分区）→ 组装统一 {@link SubjectDetail}。
  *
+ * <p>V2.3-M23 T202：POLICY 摘出 fan-out（五源化，方案 §3.2/§4.3）——政策分区改为 {@link SubjectPolicySectionService}
+ * 库内同步查询（policy-scope-v1 + IndustryAssociator 同源关联集 + 宏观兜底段），sourceStatus.policy 恒 "ok"； 六源 POLICY
+ * adapter（轨 A）bean 保留注册、详情面零调用，至 T203 整链删除。
+ *
  * <p>各 adapter 自带弹性超时级联收敛（下游之和 < 上游 2s 预算）；应用层仅依赖 {@code SourceAdapter} 端口 （领域层）与 {@code
  * SubjectRepository} 端口，不引基础设施实现细节。真实 adapter（T03~T08）替换 mock 后本类无需改动。
  *
@@ -50,12 +54,14 @@ public class AggregationService {
     private final Map<SourceCode, SourceAdapter> adapters;
     private final Executor executor;
     private final AggregationRuntimeSettings runtimeSettings;
+    private final SubjectPolicySectionService policySectionService;
 
     public AggregationService(
             SubjectRepository subjectRepository,
             List<SourceAdapter> adapters,
             @Qualifier("aggregationExecutor") Executor executor,
-            AggregationRuntimeSettings runtimeSettings) {
+            AggregationRuntimeSettings runtimeSettings,
+            SubjectPolicySectionService policySectionService) {
         this.subjectRepository = subjectRepository;
         this.adapters =
                 adapters.stream()
@@ -64,6 +70,7 @@ public class AggregationService {
                                         SourceAdapter::sourceCode, Function.identity()));
         this.executor = executor;
         this.runtimeSettings = runtimeSettings;
+        this.policySectionService = policySectionService;
     }
 
     /**
@@ -87,6 +94,12 @@ public class AggregationService {
 
         Map<SourceCode, CompletableFuture<SourceResult>> futures = new LinkedHashMap<>();
         for (SourceCode code : targets) {
+            if (code == SourceCode.POLICY) {
+                // V2.3-M23 T202（方案 §3.2/T202 行，ADR-0062）：POLICY fan-out 摘除（五源化）——政策分区改为
+                // SubjectPolicySectionService 库内同步查询（毫秒级，MISSING 构造性消除）；PolicySourceAdapter
+                // bean 仍在注册表（轨 A 代码与 datasource.POLICY 配置域照旧，T203 整链删除），仅详情面零调用。
+                continue;
+            }
             SourceAdapter adapter = adapters.get(code);
             if (adapter == null) {
                 continue;
@@ -123,7 +136,14 @@ public class AggregationService {
             log.warn("聚合取数被中断 subjectId={}", subjectId);
         }
 
-        return assemble(subject, futures);
+        // 政策分区：库内同步毫秒级调用（T202 替换原 future 外呼——首屏只降不升；异常 fail-fast 不吞，
+        // 库内查询无降级三态，sourceStatus.policy 恒 ok，方案 §4.3）
+        PolicySectionView policySection =
+                targets.contains(SourceCode.POLICY)
+                        ? policySectionService.sectionOf(subject.getSubjectCode().value())
+                        : null;
+
+        return assemble(subject, futures, policySection, targets.contains(SourceCode.POLICY));
     }
 
     /**
@@ -209,14 +229,16 @@ public class AggregationService {
     }
 
     private SubjectDetail assemble(
-            Subject subject, Map<SourceCode, CompletableFuture<SourceResult>> futures) {
+            Subject subject,
+            Map<SourceCode, CompletableFuture<SourceResult>> futures,
+            PolicySectionView policies,
+            boolean policyRequested) {
         Map<String, String> sourceStatus = new LinkedHashMap<>();
         Map<String, Object> quote = null;
         Map<String, Object> finance = null;
         Map<String, Object> valuation = null;
         List<Map<String, Object>> announcements = null;
         List<Map<String, Object>> news = null;
-        List<Map<String, Object>> policies = null;
         List<Map<String, Object>> events = null;
         SubjectDetail.SectionPagination.AnnouncePageMeta announceMeta = null;
         SubjectDetail.SectionPagination.EventPageMeta eventMeta = null;
@@ -240,7 +262,9 @@ public class AggregationService {
                                 announceMeta = announceMetaOf(result.getData());
                             }
                             case NEWS -> news = extractItems(result.getData());
-                            case POLICY -> policies = extractItems(result.getData());
+                            case POLICY -> {
+                                // 不可达：POLICY 已在 fan-out 摘除（T202）——分区数据由 policies 参数承载
+                            }
                             case EVENT -> {
                                 events = extractItems(result.getData());
                                 eventMeta = eventMetaOf(result.getData());
@@ -258,6 +282,10 @@ public class AggregationService {
                 status = "timeout";
             }
             sourceStatus.put(code.name().toLowerCase(), status);
+        }
+        if (policyRequested) {
+            // T202：政策分区库内查询恒 ok（无外呼三态，方案 §4.3）；未请求该分区不出键（sections 过滤语义不变）
+            sourceStatus.put("policy", "ok");
         }
 
         SubjectDetail.SectionPagination sectionPagination = null;
@@ -313,7 +341,7 @@ public class AggregationService {
         };
     }
 
-    /** 列表型分区（公告/新闻/政策/事件）原始 data 中以 "items" 键承载列表，提取为 {@code List<Map>}。 */
+    /** 列表型分区（公告/新闻/事件）原始 data 中以 "items" 键承载列表，提取为 {@code List<Map>}（政策分区已换对象契约，T202）。 */
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> extractItems(Map<String, Object> data) {
         Object items = data.get("items");

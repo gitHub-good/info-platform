@@ -84,7 +84,13 @@ class TencentFallbackAggregationIntegrationTest {
         // 同一 adapter 复用（fetch 内建缓存）：详情两次调用，第二次走缓存（腾讯单次外呼由 mock 单期待 + verify 证）
         AggregationService service =
                 new AggregationService(
-                        repository, List.of(quoteAdapter), Runnable::run, () -> 2000L);
+                        repository,
+                        List.of(quoteAdapter),
+                        Runnable::run,
+                        () -> 2000L,
+                        org.mockito.Mockito.mock(
+                                com.info.platform.application.aggregation
+                                        .SubjectPolicySectionService.class));
 
         SubjectDetail first = service.getDetail(1L, Set.of());
         SubjectDetail second = service.getDetail(1L, Set.of());

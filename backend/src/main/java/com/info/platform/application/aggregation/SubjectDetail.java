@@ -6,11 +6,12 @@ import java.util.Map;
 /**
  * 标的详情聚合 DTO（应用层返回值，由 {@link AggregationService} 组装）。
  *
- * <p>对齐技术方案 §4.1.1 响应结构：subject 基本信息 + 各分区数据（quote/finance/valuation 为对象、
- * announcements/news/policies 为数组）+ sourceStatus（每分区 ok/missing/failed/timeout）。 events 分区（本地
- * anomaly_event 近期异动/事件，ADR-0013）为 T08 实现偏差新增，同为数组承载。
+ * <p>对齐技术方案 §4.1.1 响应结构：subject 基本信息 + 各分区数据（quote/finance/valuation 为对象、 announcements/news
+ * 为数组、policies 为<b>分区对象</b>——V2.3-M23 T202 换契约，方案 §4.3）+ sourceStatus（每分区
+ * ok/missing/failed/timeout）。 events 分区（本地 anomaly_event 近期异动/事件，ADR-0013）为 T08 实现偏差新增，同为数组承载。
  *
- * <p>单源缺失/异常时对应分区为 {@code null}，sourceStatus 标注原因，前端按 sourceStatus 兜底，不阻断其他分区。
+ * <p>单源缺失/异常时对应分区为 {@code null}，sourceStatus 标注原因，前端按 sourceStatus 兜底，不阻断其他分区。 policies
+ * 分区例外：库内查询（policy-scope-v1）无外呼三态，sourceStatus.policy 恒 "ok"（ADR-0062）。
  *
  * <p>M12（REQ-20260925-09 / ADR-0037 决策 3）：追加<b>可选附加键</b> {@code sectionPagination}——首屏分页条所需总数搭
  * 聚合取数便车透出（不发第二次请求），仅对应分区 sourceStatus=ok 时填充（null 分量 = 该分区不产出）， 新闻/政策无总数语义永不出现。
@@ -23,7 +24,7 @@ public record SubjectDetail(
         Map<String, Object> valuation,
         List<Map<String, Object>> announcements,
         List<Map<String, Object>> news,
-        List<Map<String, Object>> policies,
+        PolicySectionView policies,
         List<Map<String, Object>> events,
         Map<String, String> sourceStatus,
         SectionPagination sectionPagination) {
@@ -36,7 +37,7 @@ public record SubjectDetail(
             Map<String, Object> valuation,
             List<Map<String, Object>> announcements,
             List<Map<String, Object>> news,
-            List<Map<String, Object>> policies,
+            PolicySectionView policies,
             List<Map<String, Object>> events,
             Map<String, String> sourceStatus) {
         this(
