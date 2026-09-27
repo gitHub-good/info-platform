@@ -17,6 +17,7 @@ import { FeedDashboard } from '@/pages/FeedDashboard';
 import { IndustryHeat } from '@/pages/IndustryHeat';
 import { Events } from '@/pages/Events';
 import { Recommendations } from '@/pages/Recommendations';
+import { MarketTop } from '@/pages/MarketTop';
 import { InfoSources } from '@/pages/InfoSources';
 import { NewsLibrary } from '@/pages/NewsLibrary';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -63,6 +64,11 @@ function renderPage(route: string) {
   // ?focus={cardId} 为 SSE 铃铛跳转落地的定位参数，页面内消费）
   if (route.startsWith('/recommendations')) {
     return <Recommendations />;
+  }
+  // 全市场推荐（M21 T184）：第 20 页，「分析」组——四层漏斗 Top10 榜单（自带 main+max-w-4xl；
+  // /market-top/methodology 子路由由页内 hash 切换（导航仍 1 项，ADR-0059 裁决 7））
+  if (route.startsWith('/market-top')) {
+    return <MarketTop />;
   }
   if (route.startsWith('/policies')) {
     return <Policy />;

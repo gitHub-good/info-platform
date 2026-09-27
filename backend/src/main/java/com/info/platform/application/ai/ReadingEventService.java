@@ -49,7 +49,7 @@ public class ReadingEventService {
      *
      * @param userId 归属用户（JwtAuthFilter 写入 UserContext）
      * @param contentTypeName
-     *     内容类型名（SUBJECT_DETAIL/POLICY/AI_BRIEF/FEED/RECOMMENDATION_VIEW/RECOMMENDATION_ACT）
+     *     内容类型名（SUBJECT_DETAIL/POLICY/AI_BRIEF/FEED/RECOMMENDATION_VIEW/RECOMMENDATION_ACT/MARKET_TOP_VIEW/MARKET_TOP_ACT）
      * @param contentRef 内容引用（标的代码/政策 id/简报 taskId/信息流条目稳定 contentId）
      * @param subjectCode 标的代码（可空；详情页/信息流公告/新闻/推荐条目埋点传入）
      * @param subjectId 标的 id（可空；简报页埋点传入，优先于 subjectCode）
@@ -93,7 +93,8 @@ public class ReadingEventService {
         } catch (IllegalArgumentException e) {
             throw new BusinessException(
                     ErrorCode.PARAM_INVALID,
-                    "contentType 取值 SUBJECT_DETAIL/POLICY/AI_BRIEF/FEED/RECOMMENDATION_VIEW/RECOMMENDATION_ACT");
+                    "contentType 取值 SUBJECT_DETAIL/POLICY/AI_BRIEF/FEED/RECOMMENDATION_VIEW/RECOMMENDATION_ACT"
+                            + "/MARKET_TOP_VIEW/MARKET_TOP_ACT");
         }
     }
 

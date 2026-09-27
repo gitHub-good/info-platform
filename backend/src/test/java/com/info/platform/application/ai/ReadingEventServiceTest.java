@@ -180,6 +180,27 @@ class ReadingEventServiceTest {
         verify(repository, never()).save(any());
     }
 
+    @Test
+    void record_marketTopTypes_acceptedAndSaved() {
+        // Arrange：全市场榜单曝光/采纳埋点（M21 T184）——组合键 contentRef + 标的画像回流 subjectCode
+        when(subjectRepository.findByCode(SubjectCode.of("SH600519")))
+                .thenReturn(Optional.of(subject(100L, "SH600519")));
+
+        // Act
+        boolean view = service.record(USER_ID, "MARKET_TOP_VIEW", "2026-09-22:v1:r1", null, null);
+        boolean act = service.record(USER_ID, "MARKET_TOP_ACT", "2026-09-22:v1:r1", "SH600519", null);
+
+        // Assert：两枚举受理落库（additive 扩展不破坏既有校验口径），ACT 解析标的画像
+        assertThat(view).isTrue();
+        assertThat(act).isTrue();
+        ArgumentCaptor<ReadingEvent> captor = ArgumentCaptor.forClass(ReadingEvent.class);
+        verify(repository, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(ReadingEvent::getContentType)
+                .containsExactly(ReadingEventType.MARKET_TOP_VIEW, ReadingEventType.MARKET_TOP_ACT);
+        assertThat(captor.getAllValues().get(1).getSubjectId()).isEqualTo(100L);
+    }
+
     // ==================== fixtures ====================
 
     private static Subject subject(long id, String code) {

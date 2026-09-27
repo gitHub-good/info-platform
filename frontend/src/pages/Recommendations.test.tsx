@@ -113,6 +113,8 @@ describe('Recommendations 推荐中心页（T135，#/recommendations 第 18 页�
     expect(link).toHaveAttribute('rel', 'noreferrer');
     expect(screen.getByTestId('rec-time-9')).toHaveTextContent('2026-09-22');
     expect(screen.getByTestId('rec-total')).toHaveTextContent('1');
+    // 互链（M21 T184）：页顶「全市场视角 → 全市场推荐」入口（纯新增零重构）
+    expect(screen.getByTestId('rec-link-market-top')).toHaveAttribute('href', '#/market-top');
     // 请求线格式：无筛选参数
     const firstCall = String(fetchMock.mock.calls[0][0]);
     expect(firstCall).toContain('/recommendations');

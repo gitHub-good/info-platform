@@ -23,3 +23,111 @@ export interface MarketTopConfigUpdate extends MarketTopConfig {
 /** Dialog 榜单配置分组编辑的五字段。 */
 export type MarketTopConfigField = keyof Omit<MarketTopConfig, never> &
   ('poolSize' | 'deepDiveLimit' | 'deepDiveCostCapRatio' | 'diveCostEstimateMicros' | 'memberCoverageFloor');
+
+// —— 榜单读取面（M21 T184，对齐 MarketTopQueryService 契约 §4.7.1；30089 无榜单 / 30090 参数非法或版本不存在） ——
+
+/** 五维分解条目（快照行 f 列 + weight_basis 当时权重回读——与价值评分端点同构）。 */
+export interface MarketTopFactor {
+  key: string;
+  name: string;
+  score: number;
+  weight: number;
+}
+
+/** 深析引用（EVENT → 事件流 focus 下钻 / NEWS → 资讯库）。 */
+export interface MarketTopCitation {
+  type: 'EVENT' | 'NEWS';
+  id: number;
+}
+
+/** 深析条目（亮点/风险——text + 引用集）。 */
+export interface MarketTopDiveEntry {
+  text: string;
+  citations: MarketTopCitation[];
+}
+
+/** dive_detail 结构（generation=FULL 齐备；FACTOR_ONLY / 快照清理后为空对象——字段均可缺省）。 */
+export interface MarketTopDiveDetail {
+  thesis?: string;
+  highlights?: MarketTopDiveEntry[];
+  risks?: MarketTopDiveEntry[];
+  citations?: MarketTopCitation[];
+}
+
+/** 深析产出方式（LLM / TEMPLATE / FACTOR_ONLY 降级未深析）。 */
+export type MarketTopDiveMethod = 'LLM' | 'TEMPLATE' | 'FACTOR_ONLY';
+
+/** 榜单卡（items 元素；generation=FULL 有深析、FACTOR_ONLY 按因子分排序）。 */
+export interface MarketTopItem {
+  rankNo: number;
+  subjectId: number;
+  subjectCode: string;
+  subjectName: string;
+  totalScore: number;
+  finalScore: number;
+  percentile: number | null;
+  breakthrough: boolean;
+  factors: MarketTopFactor[];
+  generation: 'FULL' | 'FACTOR_ONLY';
+  diveMethod: MarketTopDiveMethod | null;
+  diveSummary: string | null;
+  diveDetail: MarketTopDiveDetail | null;
+  evidenceCount: number;
+  lastEventDate: string | null;
+  prevRank: number | null;
+  changeType: 'NEW' | 'UP' | 'DOWN' | 'SAME';
+  computedAt: string;
+}
+
+/** 漏斗计数（funnel_stats：全量 → 粗筛池 → 深析候选 → Top10 各层留痕）。 */
+export interface MarketTopFunnelStats {
+  snapshotRows: number;
+  eligible: number;
+  excluded: { st: number; noSignal: number };
+  poolSize: number;
+  divePlanned: number;
+  diveDone: number;
+  diveTemplate: number;
+  diveSkipped: number;
+  topSize: number;
+}
+
+/** 跌出名单（dropped 元素：昨日入榜今日出榜的标的留痕）。 */
+export interface MarketTopDropped {
+  code: string;
+  name: string;
+  prevRank: number;
+}
+
+/** batch 视图（生成信息/漏斗/降级/跌出——页面数据面）。 */
+export interface MarketTopBatch {
+  snapshotDate: string;
+  computedAt: string;
+  degraded: boolean;
+  degradedReason: 'COST_CAP' | 'LLM_FAILURE' | null;
+  funnelStats: Partial<MarketTopFunnelStats>;
+  dropped: MarketTopDropped[];
+  lastEvent: string | null;
+}
+
+/** GET /market-top 响应（缺省最新有榜单日最大版本）。 */
+export interface MarketTopRankView {
+  rankDate: string;
+  version: number;
+  triggerSource: string;
+  batch: MarketTopBatch;
+  items: MarketTopItem[];
+  disclaimer: string;
+}
+
+/** GET /market-top/versions 列表项（日期降序、版本降序）。 */
+export interface MarketTopVersionSummary {
+  rankDate: string;
+  version: number;
+  triggerSource: string;
+  degraded: boolean;
+  degradedReason: string | null;
+  snapshotDate: string;
+  topSize: number;
+  computedAt: string;
+}

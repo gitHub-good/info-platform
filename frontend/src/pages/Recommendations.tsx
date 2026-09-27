@@ -469,6 +469,13 @@ export function Recommendations() {
         <h1 className="text-xl font-medium">推荐中心</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           事件驱动的动态推荐：逻辑链取自结构化事实（AI 分析仅供参考），可反馈有用/不感兴趣调整后续推送。
+          <a
+            href="#/market-top"
+            data-testid="rec-link-market-top"
+            className="ml-1 text-primary underline underline-offset-2"
+          >
+            全市场视角 → 全市场推荐
+          </a>
         </p>
       </header>
 

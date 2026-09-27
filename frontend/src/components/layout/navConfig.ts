@@ -16,6 +16,7 @@ import {
   ScrollText,
   Sparkles,
   Star,
+  Trophy,
   Gauge,
   Zap,
   type LucideIcon,
@@ -63,6 +64,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/events', label: '事件流', icon: Zap },
       // 推荐中心（M16 T135，分析组第 6 项 / 全站第 18 页）：动态推荐卡片流 + 反馈闭环，紧邻事件流
       { to: '/recommendations', label: '推荐中心', icon: Sparkles },
+      // 全市场推荐（M21 T184，全站第 20 页「分析」组）：四层漏斗 Top10 榜单 + 方法论子路由，插「推荐中心」后（§4.8.1）
+      { to: '/market-top', label: '全市场推荐', icon: Trophy },
       // 订阅管理（体检 P1-3）：信息流的数据源头，排在信息流之前
       { to: '/subscriptions', label: '订阅管理', icon: Bookmark },
       { to: '/feed', label: '信息流', icon: Rss },
