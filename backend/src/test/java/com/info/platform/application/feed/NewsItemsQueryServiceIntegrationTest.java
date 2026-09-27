@@ -101,7 +101,7 @@ class NewsItemsQueryServiceIntegrationTest {
     void listPaged_returnsTotalAndEcho() {
         // l0=null = 不过滤（T160 前口径不变——过滤参数缺省语义归控制器裁量，服务层只认显式过滤值）
         NewsItemsPagedView view =
-                service.listPaged(new LibraryFilter(sourceId, null, null, null), 1, 2);
+                service.listPaged(new LibraryFilter(sourceId, null, null, null, null, null), 1, 2);
 
         assertThat(view.items()).hasSize(2);
         assertThat(view.total()).isEqualTo(3);
@@ -114,7 +114,28 @@ class NewsItemsQueryServiceIntegrationTest {
         jdbcTemplate.update("UPDATE info_source SET deleted = 1 WHERE id = ?", sourceId);
 
         assertThat(service.listCursor(null, null, 10).items()).isEmpty();
-        assertThat(service.listPaged(new LibraryFilter(null, null, null, null), 1, 10).total())
+        assertThat(service.listPaged(new LibraryFilter(null, null, null, null, null, null), 1, 10).total())
                 .isZero();
+    }
+
+
+    @Test
+    void listPaged_publishedWindow_filtersCorrectly() {
+        // BUG-M23-01 补齐回归：发布时间窗（上海日界换算含端点）
+        NewsItemsPagedView all =
+                service.listPaged(new LibraryFilter(null, null, null, null, null, null), 1, 100);
+        org.assertj.core.api.Assertions.assertThat(all.total()).isPositive();
+        String anyDate = all.items().get(0).publishedAt().substring(0, 10);
+        NewsItemsPagedView windowed =
+                service.listPaged(new LibraryFilter(null, null, null, null, anyDate, anyDate), 1, 100);
+        org.assertj.core.api.Assertions.assertThat(windowed.total())
+                .as("同日窗口应过滤出该日条目（且小于全量）")
+                .isLessThanOrEqualTo(all.total());
+        windowed.items()
+                .forEach(
+                        it ->
+                                org.assertj.core.api.Assertions.assertThat(
+                                                it.publishedAt())
+                                        .startsWith(anyDate));
     }
 }

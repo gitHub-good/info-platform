@@ -390,7 +390,7 @@ class PolicyScopeQueryServiceIntegrationTest {
         for (int page = 1; page <= 50; page++) {
             List<FeedItemRepository.LibraryRow> rows =
                     itemRepository.findPage(
-                            new LibraryFilter(null, null, L0Result.PASS, null), page, 100);
+                            new LibraryFilter(null, null, L0Result.PASS, null, null, null), page, 100);
             rows.stream()
                     .filter(row -> row.item().publishedAt().toString().compareTo(windowStart) >= 0)
                     .map(row -> row.item().id())

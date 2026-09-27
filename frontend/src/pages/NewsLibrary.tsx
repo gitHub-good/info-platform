@@ -247,12 +247,16 @@ function buildQuery(
   keyword: string,
   page: number,
   size: number,
+  publishedFrom = '',
+  publishedTo = '',
 ): NewsLibraryQuery {
   return {
     sourceId: sourceSel ? Number(sourceSel) : null,
     q: keyword || null,
     l0: l0Sel,
     l1: l1Sel || null,
+    publishedFrom: publishedFrom || null,
+    publishedTo: publishedTo || null,
     page,
     size,
   };
@@ -278,6 +282,8 @@ export function NewsLibrary() {
   const [sourceSel, setSourceSel] = useState('');
   const [l0, setL0] = useState<NewsL0Filter>(DEFAULT_NEWS_LIBRARY_L0);
   const [l1, setL1] = useState('');
+  const [publishedFrom, setPublishedFrom] = useState('');
+  const [publishedTo, setPublishedTo] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
   // 源下拉选项：info-sources 活跃源清单（辅助筛选，失败静默降级）
@@ -312,7 +318,14 @@ export function NewsLibrary() {
 
   /** 骨架通道（首屏/筛选/搜索变更 → 新结果集查询，M9 §5.1）。 */
   const loadFirst = useCallback(
-    async (nextSource: string, nextL0: NewsL0Filter, nextL1: string, nextKeyword: string) => {
+    async (
+      nextSource: string,
+      nextL0: NewsL0Filter,
+      nextL1: string,
+      nextKeyword: string,
+      nextFrom = "",
+      nextTo = "",
+    ) => {
       listAbort.current?.abort();
       const ctrl = new AbortController();
       listAbort.current = ctrl;
@@ -323,7 +336,7 @@ export function NewsLibrary() {
       setPage(1);
       try {
         const view = await fetchView(
-          buildQuery(nextSource, nextL0, nextL1, nextKeyword, 1, pageSizeRef.current),
+          buildQuery(nextSource, nextL0, nextL1, nextKeyword, 1, pageSizeRef.current, nextFrom, nextTo),
           ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
@@ -369,7 +382,7 @@ export function NewsLibrary() {
       setPageError(null);
       try {
         const view = await fetchView(
-          buildQuery(sourceSel, l0, l1, keyword, target, size),
+          buildQuery(sourceSel, l0, l1, keyword, target, size, publishedFrom, publishedTo),
           ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
@@ -390,7 +403,7 @@ export function NewsLibrary() {
   const handleSourceChange = (next: string) => {
     if (next === sourceSel) return;
     setSourceSel(next);
-    void loadFirst(next, l0, l1, keyword);
+    void loadFirst(next, l0, l1, keyword, publishedFrom, publishedTo);
   };
 
   const handleL0Change = (next: NewsL0Filter) => {
@@ -407,7 +420,13 @@ export function NewsLibrary() {
 
   const handleSearchSubmit = (next: string) => {
     setKeyword(next);
-    void loadFirst(sourceSel, l0, l1, next);
+    void loadFirst(sourceSel, l0, l1, next, publishedFrom, publishedTo);
+  };
+
+  const handleDateChange = (from: string, to: string) => {
+    setPublishedFrom(from);
+    setPublishedTo(to);
+    void loadFirst(sourceSel, l0, l1, keyword, from, to);
   };
 
   const handlePageChange = (target: number) => {
@@ -448,6 +467,26 @@ export function NewsLibrary() {
       </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1 text-sm text-muted-foreground">
+          发布
+          <input
+            type="date"
+            value={publishedFrom}
+            onChange={(e) => handleDateChange(e.target.value, publishedTo)}
+            disabled={listLoading}
+            data-testid="news-library-from-date"
+            className="h-8 rounded-lg border border-input bg-input/30 px-2 text-sm text-foreground shadow-sm transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <span>~</span>
+          <input
+            type="date"
+            value={publishedTo}
+            onChange={(e) => handleDateChange(publishedFrom, e.target.value)}
+            disabled={listLoading}
+            data-testid="news-library-to-date"
+            className="h-8 rounded-lg border border-input bg-input/30 px-2 text-sm text-foreground shadow-sm transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </label>
         <KeywordSearch
           value={keywordInput}
           onChange={setKeywordInput}

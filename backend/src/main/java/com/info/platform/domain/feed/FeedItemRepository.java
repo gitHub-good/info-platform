@@ -74,7 +74,15 @@ public interface FeedItemRepository {
      * @param l0 L0 状态过滤；null = 不过滤（API 层 l0=ALL 或游标路径）；PASS 含「无 analysis 行」兜底条目
      * @param mainCategory 主分类过滤（35 枚举，接口层已校验）；null = 不过滤；l1_status≠DONE 条目自然不含
      */
-    record LibraryFilter(Long sourceId, String keyword, L0Result l0, String mainCategory) {}
+    record LibraryFilter(
+            Long sourceId,
+            String keyword,
+            L0Result l0,
+            String mainCategory,
+            String publishedFrom,
+            String publishedTo) {}
+
+    /** publishedFrom/To：发布时间窗（ISO yyyy-MM-dd，上海日界含端点；null 不过滤）。 */
 
     /**
      * 资讯库条目行（T160 读模型投影）：news_item 条目 + news_analysis 归类产物 + 近重复主条引用（na.near_dup_of → 主条

@@ -145,7 +145,7 @@ class NewsItemsLibraryIntegrationTest {
     }
 
     private LibraryFilter filter(String q, L0Result l0, String l1) {
-        return new LibraryFilter(sourceId, q, l0, l1);
+        return new LibraryFilter(sourceId, q, l0, l1, null, null);
     }
 
     @Test

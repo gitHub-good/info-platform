@@ -22,6 +22,9 @@ export interface NewsLibraryQuery {
   l0?: NewsL0Filter;
   /** 主分类过滤（35 枚举）；null/空串不过滤。 */
   l1?: string | null;
+  /** 发布时间窗（yyyy-MM-dd，上海日界含端点；BUG-M23-01）。 */
+  publishedFrom?: string | null;
+  publishedTo?: string | null;
   page: number;
   size: number;
 }

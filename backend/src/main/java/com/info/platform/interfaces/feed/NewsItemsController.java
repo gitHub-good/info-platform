@@ -70,12 +70,25 @@ public class NewsItemsController {
             @RequestParam(value = "size", required = false) Integer size,
             @RequestParam(value = "q", required = false) String q,
             @RequestParam(value = "l0", required = false) String l0,
-            @RequestParam(value = "l1", required = false) String l1) {
+            @RequestParam(value = "l1", required = false) String l1,
+            @RequestParam(value = "publishedFrom", required = false) String publishedFrom,
+            @RequestParam(value = "publishedTo", required = false) String publishedTo) {
         String trimmedQ = trimToNull(q);
         String trimmedL1 = trimToNull(l1);
         String trimmedL0 = trimToNull(l0);
+        String from = validatedDate(publishedFrom, "publishedFrom");
+        String to = validatedDate(publishedTo, "publishedTo");
+        if (from != null && to != null && from.compareTo(to) > 0) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "publishedFrom 不得晚于 publishedTo");
+        }
         PageQuery.requirePageParam(
-                page, "q/l0/l1", trimmedQ != null || trimmedL0 != null || trimmedL1 != null);
+                page,
+                "q/l0/l1/publishedFrom/publishedTo",
+                trimmedQ != null
+                        || trimmedL0 != null
+                        || trimmedL1 != null
+                        || from != null
+                        || to != null);
         PageQuery pageQuery = PageQuery.resolve(page, size, beforeId);
         if (pageQuery != null) {
             rejectLimitInPageMode(limit);
@@ -84,7 +97,9 @@ public class NewsItemsController {
                             sourceId,
                             validatedKeyword(trimmedQ),
                             resolvedL0(trimmedL0),
-                            validatedCategory(trimmedL1));
+                            validatedCategory(trimmedL1),
+                            from,
+                            to);
             return Result.ok(queryService.listPaged(filter, pageQuery.page(), pageQuery.size()));
         }
         return Result.ok(queryService.listCursor(sourceId, beforeId, resolvedLimit(limit)));
@@ -162,5 +177,23 @@ public class NewsItemsController {
                     ErrorCode.PARAM_INVALID, "l1 须为 35 个主分类枚举之一，当前值 " + trimmedL1);
         }
         return trimmedL1;
+    }
+
+
+    /** 发布时间窗日期校验（BUG-M23-01）：yyyy-MM-dd 合法格式，非法 400 字段级。 */
+    private static String validatedDate(String raw, String field) {
+        String trimmed = trimToNull(raw);
+        if (trimmed == null) {
+            return null;
+        }
+        if (!trimmed.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, field + ": 须为 yyyy-MM-dd 日期");
+        }
+        try {
+            java.time.LocalDate.parse(trimmed);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, field + ": 非法日期 " + trimmed);
+        }
+        return trimmed;
     }
 }
