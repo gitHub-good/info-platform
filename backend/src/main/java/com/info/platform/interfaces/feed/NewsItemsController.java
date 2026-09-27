@@ -179,7 +179,6 @@ public class NewsItemsController {
         return trimmedL1;
     }
 
-
     /** 发布时间窗日期校验（BUG-M23-01）：yyyy-MM-dd 合法格式，非法 400 字段级。 */
     private static String validatedDate(String raw, String field) {
         String trimmed = trimToNull(raw);

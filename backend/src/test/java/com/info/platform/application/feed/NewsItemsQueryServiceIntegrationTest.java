@@ -114,10 +114,14 @@ class NewsItemsQueryServiceIntegrationTest {
         jdbcTemplate.update("UPDATE info_source SET deleted = 1 WHERE id = ?", sourceId);
 
         assertThat(service.listCursor(null, null, 10).items()).isEmpty();
-        assertThat(service.listPaged(new LibraryFilter(null, null, null, null, null, null), 1, 10).total())
+        assertThat(
+                        service.listPaged(
+                                        new LibraryFilter(null, null, null, null, null, null),
+                                        1,
+                                        10)
+                                .total())
                 .isZero();
     }
-
 
     @Test
     void listPaged_publishedWindow_filtersCorrectly() {
@@ -127,15 +131,15 @@ class NewsItemsQueryServiceIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(all.total()).isPositive();
         String anyDate = all.items().get(0).publishedAt().substring(0, 10);
         NewsItemsPagedView windowed =
-                service.listPaged(new LibraryFilter(null, null, null, null, anyDate, anyDate), 1, 100);
+                service.listPaged(
+                        new LibraryFilter(null, null, null, null, anyDate, anyDate), 1, 100);
         org.assertj.core.api.Assertions.assertThat(windowed.total())
                 .as("同日窗口应过滤出该日条目（且小于全量）")
                 .isLessThanOrEqualTo(all.total());
         windowed.items()
                 .forEach(
                         it ->
-                                org.assertj.core.api.Assertions.assertThat(
-                                                it.publishedAt())
+                                org.assertj.core.api.Assertions.assertThat(it.publishedAt())
                                         .startsWith(anyDate));
     }
 }
