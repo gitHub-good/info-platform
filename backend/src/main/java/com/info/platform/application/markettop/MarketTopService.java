@@ -50,7 +50,7 @@ import org.springframework.stereotype.Service;
  *   <li>阶段 0 回联保障：成员覆盖率预检 + 双通道回填（整段失败降级继续）；
  *   <li>阶段 1 粗筛：当日快照全量行 → PoolBuilder 排除/四键排序/切分（池 ~300 + 深析候选 ~40）；
  *   <li>阶段 2 深析：逐只「成本预检 → 输入组装 → LLM → 五步校验链 → 兜底」，三档降级监控（单次失败模板兜底 / 连续 ≥5 失败中止 LLM_FAILURE /
- *       成本触顶停剩余 COST_CAP）；
+ *       成本触顶停剩余 COST_CAP）+ 管道护栏联动（级别非 NORMAL 深析整体跳过，T186）；
  *   <li>阶段 3 合成：TopComposer（层数断言 → final 排序 → 恰 10 截断）→ RankDiffer（昨日 diff）→ V31 两表追加式版本化落库。
  * </ol>
  *
@@ -218,6 +218,26 @@ public class MarketTopService {
         int consecutiveFailures = 0;
         String degradedReason = null;
         String promptVersion = null;
+
+        // 成本护栏联动（M21 T186）：管道级别非 NORMAL（DEGRADED/FUSED）时深析整体跳过——
+        // 深析预算是管道日预算的份额非独立池（ADR-0059 裁决 4），FUSED 全跳深析走 COST_CAP 降级；
+        // 与子预算触顶（DeepDiveService.costCapReached）双闸， RecommendationCardService 同款 != NORMAL 分支
+        com.info.platform.domain.analysis.GuardLevel guardLevel = guardService.currentLevel();
+        if (guardLevel != com.info.platform.domain.analysis.GuardLevel.NORMAL) {
+            log.warn(
+                    "管道护栏非 NORMAL，深析整体跳过（榜单按因子分排序兜底）: level={} divePlanned={}",
+                    guardLevel,
+                    diveCandidates.size());
+            return new DiveLoopResult(
+                    outcomes,
+                    0,
+                    0,
+                    diveCandidates.size(),
+                    0,
+                    0,
+                    DEGRADED_COST_CAP,
+                    null);
+        }
 
         for (Candidate candidate : diveCandidates) {
             if (degradedReason != null) {

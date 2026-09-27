@@ -131,6 +131,10 @@ class MarketTopServiceTest {
                 .when(deepDiveService.analyze(any(DeepDiveInput.class)))
                 .thenReturn(new DiveResult(llmOutcome(), false, false, 0, "v1.0"));
         lenient().when(guardService.todaySceneCostMicros(anyString())).thenReturn(120_000L);
+        // T186：管道护栏级别缺省 NORMAL（护栏联动分支的既有用例基线）
+        lenient()
+                .when(guardService.currentLevel())
+                .thenReturn(com.info.platform.domain.analysis.GuardLevel.NORMAL);
     }
 
     private static List<PoolRow> rows() {
@@ -382,6 +386,39 @@ class MarketTopServiceTest {
         assertThat(report.diveTemplate()).isEqualTo(5);
         assertThat(report.diveSkipped()).isEqualTo(5);
         assertThat(report.topSize()).isEqualTo(10); // 榜单仍产出
+    }
+
+    @Test
+    void generate_guardLevelNotNormal_skipsAllDivesAndMarksCostCap() {
+        // T186 护栏联动：管道级别 DEGRADED/FUSED 时深析整体跳过（FUSED 全跳深析走降级——ADR-0059 裁决 4），
+        // 榜单按因子分排序兜底产出，batch 落 COST_CAP 降级留痕
+        when(guardService.currentLevel())
+                .thenReturn(com.info.platform.domain.analysis.GuardLevel.DEGRADED);
+
+        GenerationReport report = service.generate(RANK_DATE);
+
+        assertThat(report.status()).isEqualTo(GenerationReport.STATUS_SUCCESS);
+        assertThat(report.degraded()).isTrue();
+        assertThat(report.degradedReason()).isEqualTo(MarketTopService.DEGRADED_COST_CAP);
+        assertThat(report.topSize()).isEqualTo(10);
+        assertThat(report.diveDone()).isZero();
+        assertThat(report.diveTemplate()).isZero();
+        assertThat(report.diveSkipped()).isEqualTo(10);
+        verify(deepDiveService, never()).analyze(any(DeepDiveInput.class));
+
+        ArgumentCaptor<MarketTopBatchRow> batchCaptor =
+                ArgumentCaptor.forClass(MarketTopBatchRow.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketTopRankRow>> ranksCaptor = ArgumentCaptor.forClass(List.class);
+        verify(repository).insertVersion(batchCaptor.capture(), ranksCaptor.capture());
+        assertThat(batchCaptor.getValue().degraded()).isTrue();
+        assertThat(batchCaptor.getValue().degradedReason()).isEqualTo("COST_CAP");
+        assertThat(ranksCaptor.getValue())
+                .allSatisfy(
+                        rank -> {
+                            assertThat(rank.generation()).isEqualTo("FACTOR_ONLY");
+                            assertThat(rank.diveMethod()).isNull();
+                        });
     }
 
     @Test

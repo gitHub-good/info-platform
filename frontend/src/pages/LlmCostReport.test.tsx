@@ -92,6 +92,8 @@ const FULL_REPORT: LlmCostReportView = {
     { scene: '1', calls: 3, totalTokens: 7200, costMicros: 10800 },
     { scene: '4', calls: 2, totalTokens: 2400, costMicros: 3600 },
     { scene: '3', calls: 1, totalTokens: 0, costMicros: 0 },
+    // 全市场深析（M21 T186：scene "10" 自动成行——dive_cost 交叉对账）
+    { scene: '10', calls: 40, totalTokens: 60000, costMicros: 90000 },
   ],
   topUserBudgets: [
     { userId: 1001, usedTokens: 18000, budgetTokens: 20000, remainingTokens: 2000, status: 'WARNING' },
@@ -128,6 +130,8 @@ describe('LlmCostReport 成本报表页', () => {
     expect(screen.getByTestId('cost-scene-row-1')).toHaveTextContent('个股简报');
     expect(screen.getByTestId('cost-scene-row-4')).toHaveTextContent('每日推荐');
     expect(screen.getByTestId('cost-scene-row-3')).toHaveTextContent('政策解读');
+    // scene "10" 全市场深析自动成行（M21 T186：后端按 llm_call_log 动态分组零改）
+    expect(screen.getByTestId('cost-scene-row-10')).toHaveTextContent('全市场深析');
 
     // 预算状态徽章：WARNING 黄 / EXHAUSTED 红
     expect(screen.getByTestId('budget-status-WARNING')).toHaveTextContent('余量告急');

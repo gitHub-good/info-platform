@@ -49,6 +49,8 @@ const SCENE_LABELS: Record<string, string> = {
   '2': '事件归因',
   '3': '政策解读',
   '4': '每日推荐',
+  // 全市场深析（M21 T186：scene "10" 计入管道日成本——cost 报表行与 market_top_batch.dive_cost 交叉对账）
+  '10': '全市场深析',
 };
 
 /** 预算状态徽章：NORMAL 灰 / WARNING 黄 / EXHAUSTED 红。 */
