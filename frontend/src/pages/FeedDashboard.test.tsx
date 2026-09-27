@@ -796,3 +796,94 @@ describe('FeedDashboard 大盘三处数字弹框（V2.4 T214，REQ-20260928-20 �
     ).toBeGreaterThanOrEqual(2);
   });
 });
+
+// —— V2.4 T215（REQ-20260928-20 拍板四）：失败列表折叠 + 恢复过滤脚注 ——
+
+function failuresView(count: number, hiddenRecovered?: number): FeedDashboardView {
+  const view = fullView();
+  view.failures = Array.from({ length: count }, (_, i) => ({
+    sourceCode: i === 0 ? 'mw_topstories' : `t215_fail_${i}`,
+    sourceName: i === 0 ? 'MarketWatch·头条' : `失败源 ${i}`,
+    occurredAt: `2026-09-22T07:5${i % 10}:00Z`,
+    errorSummary: `FeedFetchException: 超时 #${i}`,
+    origin: i % 2 === 0 ? ('event' as const) : ('state' as const),
+  }));
+  if (hiddenRecovered != null) view.failuresHiddenRecovered = hiddenRecovered;
+  return view;
+}
+
+describe('FeedDashboard 失败列表折叠（V2.4 T215，REQ-20260928-20 拍板四）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    cleanup();
+    localStorage.clear();
+    window.location.hash = '';
+  });
+
+  it('收起态默认最多 3 条：5 条失败仅前 3 渲染，「展开全部 5 条」开关可见', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(failuresView(5))));
+    render(<FeedDashboard />);
+
+    expect(await screen.findByTestId('dashboard-failure-0')).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-failure-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard-failure-3')).toBeNull();
+    expect(screen.queryByTestId('dashboard-failure-4')).toBeNull();
+    expect(screen.getByTestId('dashboard-failures-toggle')).toHaveTextContent('展开全部 5 条');
+  });
+
+  it('展开全部：5 条全渲染 + 限高滚动容器（沿 >30 源形态先例），再点收起回 3 条', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(failuresView(5))));
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-failure-0');
+    await user.click(screen.getByTestId('dashboard-failures-toggle'));
+
+    expect(screen.getByTestId('dashboard-failure-4')).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-failures-scroll')).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-failures-scroll').className).toContain('max-h');
+    expect(screen.getByTestId('dashboard-failures-toggle')).toHaveTextContent('收起');
+
+    await user.click(screen.getByTestId('dashboard-failures-toggle'));
+    expect(screen.queryByTestId('dashboard-failure-3')).toBeNull();
+    expect(screen.queryByTestId('dashboard-failures-scroll')).toBeNull();
+  });
+
+  it('≤3 条不渲染折叠开关（无多余交互件）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(failuresView(3))));
+    render(<FeedDashboard />);
+
+    expect(await screen.findByTestId('dashboard-failure-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard-failures-toggle')).toBeNull();
+  });
+
+  it('展开态「去处置」跳转语义保留（#/sources?source={code} 定位）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(failuresView(5))));
+    const user = userEvent.setup();
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-failure-0');
+    await user.click(screen.getByTestId('dashboard-failures-toggle'));
+    await user.click(screen.getByTestId('dashboard-failure-jump-4'));
+
+    expect(window.location.hash).toBe('#/sources?source=t215_fail_4');
+  });
+
+  it('恢复过滤脚注：failuresHiddenRecovered>0 呈现「已隐藏 N 条（留痕可查）」', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(failuresView(2, 7))));
+    render(<FeedDashboard />);
+
+    expect(await screen.findByTestId('dashboard-failures-hidden-recovered')).toHaveTextContent(
+      '已隐藏恢复/停用源失败 7 条（留痕可查）',
+    );
+  });
+
+  it('恢复过滤脚注防御：旧载荷无 failuresHiddenRecovered 字段不渲染脚注', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok(failuresView(2))));
+    render(<FeedDashboard />);
+
+    await screen.findByTestId('dashboard-failure-1');
+    expect(screen.queryByTestId('dashboard-failures-hidden-recovered')).toBeNull();
+  });
+});

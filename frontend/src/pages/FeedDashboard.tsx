@@ -48,6 +48,9 @@ const NON_CLICKABLE_TITLES = {
   latency: '感知延迟非条目集合（入库-发布延迟分布），不支持点击下钻',
 } as const;
 
+/** 失败列表收起态条数（V2.4 T215：收起最多 3 条 + 展开限高滚动，REQ-20260928-20 拍板四）。 */
+const FAILURES_COLLAPSED_LIMIT = 3;
+
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.msg : fallback;
 }
@@ -180,6 +183,8 @@ export function FeedDashboard() {
   const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [showArchived, setShowArchived] = useState(false);
+  // 失败列表折叠态（V2.4 T215）：收起默认前 3 条，展开限高滚动看全部
+  const [failuresExpanded, setFailuresExpanded] = useState(false);
   // 北极星区块独立三态（失败单区块降级，不阻断大盘三区块）
   const [nsView, setNsView] = useState<NorthStarView | null>(null);
   const [nsLoading, setNsLoading] = useState(true);
@@ -262,6 +267,8 @@ export function FeedDashboard() {
   const sources = view?.sources ?? [];
   const visibleSources = showArchived ? sources : sources.filter((row) => !row.deleted);
   const sourceTableScrollable = visibleSources.length > SOURCE_TABLE_SCROLL_THRESHOLD;
+  // 恢复过滤隐藏计数（T211 后端；旧载荷缺省 0 不呈现脚注）
+  const hiddenRecovered = view?.failuresHiddenRecovered ?? 0;
 
   // —— V2.4 T214 三处数字弹框（对账锚：弹框 total == 被点数字；l0=ALL + 入库时间窗口径） ——
   const [dialogSpec, setDialogSpec] = useState<NewsItemsDialogSpec | null>(null);
@@ -593,41 +600,76 @@ export function FeedDashboard() {
                     近期无失败记录
                   </p>
                 ) : (
-                  <div className="flex flex-col divide-y rounded-lg border">
-                    {view.failures.map((failure, index) => (
-                      <div
-                        key={`${failure.sourceCode}-${failure.occurredAt}-${index}`}
-                        className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50"
-                        data-testid={`dashboard-failure-${index}`}
-                        onClick={() => navigate(`/sources?source=${failure.sourceCode}`)}
-                      >
-                        <span className="font-medium">{failure.sourceName}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {formatTime(failure.occurredAt)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {failure.origin === 'state' ? '现态' : '事件'}
-                        </span>
+                  <>
+                    {/* V2.4 T215 折叠：收起态最多 3 条（时间倒序前 3），展开限高滚动看全部（沿 >30 源形态先例） */}
+                    <div
+                      className={cn(
+                        'flex flex-col divide-y rounded-lg border',
+                        failuresExpanded && 'max-h-72 overflow-y-auto',
+                      )}
+                      data-testid={failuresExpanded ? 'dashboard-failures-scroll' : undefined}
+                    >
+                      {(failuresExpanded
+                        ? view.failures
+                        : view.failures.slice(0, FAILURES_COLLAPSED_LIMIT)
+                      ).map((failure, index) => (
+                        <div
+                          key={`${failure.sourceCode}-${failure.occurredAt}-${index}`}
+                          className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50"
+                          data-testid={`dashboard-failure-${index}`}
+                          onClick={() => navigate(`/sources?source=${failure.sourceCode}`)}
+                        >
+                          <span className="font-medium">{failure.sourceName}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatTime(failure.occurredAt)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {failure.origin === 'state' ? '现态' : '事件'}
+                          </span>
+                          <span
+                            className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                            title={failure.errorSummary}
+                          >
+                            {failure.errorSummary}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-xs text-primary underline underline-offset-4"
+                            data-testid={`dashboard-failure-jump-${index}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/sources?source=${failure.sourceCode}`);
+                            }}
+                          >
+                            去处置
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {view.failures.length > FAILURES_COLLAPSED_LIMIT ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setFailuresExpanded((v) => !v)}
+                          data-testid="dashboard-failures-toggle"
+                        >
+                          {failuresExpanded
+                            ? '收起'
+                            : `展开全部 ${view.failures.length} 条`}
+                        </Button>
+                      ) : null}
+                      {hiddenRecovered > 0 ? (
                         <span
-                          className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-                          title={failure.errorSummary}
+                          className="text-xs text-muted-foreground"
+                          data-testid="dashboard-failures-hidden-recovered"
+                          title="已恢复/停用/归档源的失败记录不展示（事件留痕零删除，追溯走 Job 日志/失败事件留痕面）"
                         >
-                          {failure.errorSummary}
+                          已隐藏恢复/停用源失败 {hiddenRecovered} 条（留痕可查）
                         </span>
-                        <button
-                          type="button"
-                          className="text-xs text-primary underline underline-offset-4"
-                          data-testid={`dashboard-failure-jump-${index}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/sources?source=${failure.sourceCode}`);
-                          }}
-                        >
-                          去处置
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                      ) : null}
+                    </div>
+                  </>
                 )}
               </section>
             </>

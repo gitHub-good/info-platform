@@ -62,4 +62,9 @@ export interface FeedDashboardView {
   global: FeedDashboardGlobal;
   sources: FeedDashboardSourceRow[];
   failures: FeedDashboardFailure[];
+  /**
+   * 被恢复过滤隐藏的失败记录条数（V2.4 T211 后端：仅 runState∈{fail,backoff} 源展示）。
+   * 可选防御旧载荷；>0 时前端以脚注呈现（留痕不删，追溯走 Job 日志/事件留痕面）。
+   */
+  failuresHiddenRecovered?: number;
 }
