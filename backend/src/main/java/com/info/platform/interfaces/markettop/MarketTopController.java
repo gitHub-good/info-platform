@@ -1,5 +1,7 @@
 package com.info.platform.interfaces.markettop;
 
+import com.info.platform.application.markettop.HitStatsService;
+import com.info.platform.application.markettop.HitStatsService.HitStatsView;
 import com.info.platform.application.markettop.MarketTopConfigFacade;
 import com.info.platform.application.markettop.MarketTopConfigFacade.ConfigUpdate;
 import com.info.platform.application.markettop.MarketTopConfigFacade.ConfigView;
@@ -30,6 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>方法论端点（GET /market-top/methodology）：聚合 weights 与 market-top/config
  * 两路当前值（前端方法论页亦可两路直读，本端点为单一入口便捷形态——BUG-M21-03 落地）。
+ *
+ * <p>命中统计端点（GET /market-top/hit-stats，M22 T193 §4.2-③）：T+1/T+5/T+20 上涨家数占比 + 中位数涨跌幅（hits-v1
+ * 惰性回算零新表）；数据不足是合法态非错误，仅无任何榜单日 30089/404。
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -41,13 +46,17 @@ public class MarketTopController {
 
     private final ScoreWeightConfigFacade weightsFacade;
 
+    private final HitStatsService hitStatsService;
+
     public MarketTopController(
             MarketTopConfigFacade configFacade,
             MarketTopQueryService queryService,
-            ScoreWeightConfigFacade weightsFacade) {
+            ScoreWeightConfigFacade weightsFacade,
+            HitStatsService hitStatsService) {
         this.configFacade = configFacade;
         this.queryService = queryService;
         this.weightsFacade = weightsFacade;
+        this.hitStatsService = hitStatsService;
     }
 
     /** 榜单详情（date 缺省最新有榜单日；version 缺省该日最大；30089/30090 语义见类注释）。 */
@@ -63,6 +72,12 @@ public class MarketTopController {
     public Result<List<VersionSummary>> versions(
             @RequestParam(name = "date", required = false) String date) {
         return Result.ok(queryService.versions(date));
+    }
+
+    /** 历史命中统计（M22 T193：hits-v1 惰性回算——三窗上涨占比/中位数 + 免责常驻；无榜单日 30089/404）。 */
+    @GetMapping("/market-top/hit-stats")
+    public Result<HitStatsView> hitStats() {
+        return Result.ok(hitStatsService.stats());
     }
 
     /** 当前漏斗配置视图（5 参数 + updatedAt 下次防呆比对）。 */

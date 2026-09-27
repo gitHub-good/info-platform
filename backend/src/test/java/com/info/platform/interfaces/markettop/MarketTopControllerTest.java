@@ -29,15 +29,18 @@ class MarketTopControllerTest {
     private MarketTopConfigFacade configFacade;
     private com.info.platform.application.markettop.MarketTopQueryService queryService;
     private com.info.platform.application.valuation.ScoreWeightConfigFacade weightsFacade;
+    private com.info.platform.application.markettop.HitStatsService hitStatsService;
 
     @BeforeEach
     void setUp() {
         configFacade = mock(MarketTopConfigFacade.class);
         queryService = mock(com.info.platform.application.markettop.MarketTopQueryService.class);
         weightsFacade = mock(com.info.platform.application.valuation.ScoreWeightConfigFacade.class);
+        hitStatsService = mock(com.info.platform.application.markettop.HitStatsService.class);
         mockMvc =
                 MockMvcBuilders.standaloneSetup(
-                                new MarketTopController(configFacade, queryService, weightsFacade))
+                                new MarketTopController(
+                                        configFacade, queryService, weightsFacade, hitStatsService))
                         .setControllerAdvice(new GlobalExceptionHandler())
                         .build();
     }
@@ -223,5 +226,62 @@ class MarketTopControllerTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.weights.wCatalyst").value(0.4))
                 .andExpect(jsonPath("$.data.funnel.poolSize").value(300));
+    }
+
+    // ---- hit-stats（M22 T193，§4.2-③：GET /market-top/hit-stats——数据不足是合法态非错误） ----
+
+    @Test
+    void hitStats_returnsWrappedViewWithBasisAndDisclaimer() throws Exception {
+        when(hitStatsService.stats())
+                .thenReturn(
+                        new com.info.platform.application.markettop.HitStatsService.HitStatsView(
+                                "hits-v1:maxVer;price=market_daily_snapshot;win=1/5/20;median=pctChg;sample=priced-only",
+                                "2026-10-20",
+                                "历史统计不构成收益承诺",
+                                List.of(
+                                        new com.info.platform.application.markettop.HitStatsService
+                                                .WindowView(
+                                                "T+1",
+                                                List.of(
+                                                        new com.info.platform.application.markettop
+                                                                .HitStatsService.DayStatView(
+                                                                "2026-09-28",
+                                                                10,
+                                                                9,
+                                                                1,
+                                                                0.667,
+                                                                1.2)),
+                                                new com.info.platform.application.markettop
+                                                        .HitStatsService.AggView(
+                                                        15, "OK", 0.58, 0.9)),
+                                        new com.info.platform.application.markettop.HitStatsService
+                                                .WindowView(
+                                                "T+20",
+                                                List.of(),
+                                                new com.info.platform.application.markettop
+                                                        .HitStatsService.AggView(
+                                                        0, "INSUFFICIENT", null, null)))));
+
+        mockMvc.perform(get("/api/v1/market-top/hit-stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.asOf").value("2026-10-20"))
+                .andExpect(jsonPath("$.data.disclaimer").value("历史统计不构成收益承诺"))
+                .andExpect(jsonPath("$.data.windows[0].window").value("T+1"))
+                .andExpect(jsonPath("$.data.windows[0].days[0].pricedSamples").value(9))
+                .andExpect(jsonPath("$.data.windows[0].days[0].excluded").value(1))
+                .andExpect(jsonPath("$.data.windows[0].agg.status").value("OK"))
+                .andExpect(jsonPath("$.data.windows[1].window").value("T+20"))
+                .andExpect(jsonPath("$.data.windows[1].agg.status").value("INSUFFICIENT"));
+    }
+
+    @Test
+    void hitStats_noRankDays_404_30089() throws Exception {
+        when(hitStatsService.stats())
+                .thenThrow(new BusinessException(ErrorCode.MARKET_TOP_NOT_FOUND, "无任何榜单日"));
+
+        mockMvc.perform(get("/api/v1/market-top/hit-stats"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30089));
     }
 }

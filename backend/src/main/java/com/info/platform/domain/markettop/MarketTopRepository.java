@@ -44,8 +44,16 @@ public interface MarketTopRepository {
      */
     Optional<EventVersion> findLatestEventVersion(String rankDate);
 
+    /**
+     * 各榜单日最大 version 的 Top 行（M22 T193，hits-v1 回算原料——日终语义取最大 version；rank_date 降序、rank_no 升序确定性）。
+     */
+    List<RankedSubject> listTopByMaxVersion();
+
     /** EVENT 版本摘要（trigger_events JSON 以文本透传——领域不依赖 JSON 库）。 */
     record EventVersion(int version, String createdAtIso, String triggerEventsJson) {}
+
+    /** 榜单日最大 version 的 Top 成员（命中统计回算元素）。 */
+    record RankedSubject(String rankDate, int rankNo, long subjectId) {}
 
     /** rank 行（写载荷——两表列直映射）。 */
     record MarketTopRankRow(

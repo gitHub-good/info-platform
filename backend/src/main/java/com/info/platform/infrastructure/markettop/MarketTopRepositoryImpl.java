@@ -367,4 +367,23 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                 .stream()
                 .findFirst();
     }
+
+    /** M22 T193：各榜单日最大 version Top 行（batch 表 maxVersion 子查询收口日终语义——EVENT 版本计入）。 */
+    @Override
+    public List<RankedSubject> listTopByMaxVersion() {
+        return jdbcTemplate.query(
+                """
+                SELECT r.rank_date, r.rank_no, r.subject_id
+                  FROM market_top_rank r
+                  JOIN (SELECT rank_date, MAX(version) AS max_version
+                          FROM market_top_batch GROUP BY rank_date) b
+                    ON b.rank_date = r.rank_date AND r.version = b.max_version
+                 ORDER BY r.rank_date DESC, r.rank_no ASC
+                """,
+                (rs, rowNum) ->
+                        new RankedSubject(
+                                rs.getString("rank_date"),
+                                rs.getInt("rank_no"),
+                                rs.getLong("subject_id")));
+    }
 }

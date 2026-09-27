@@ -128,6 +128,26 @@ public class MarketDailySnapshotRepositoryImpl implements MarketDailySnapshotRep
         return count == null ? 0 : count;
     }
 
+    /** M22 T193：交易日序列（distinct 升序——库内交易日历代理，窗口推导原料）。 */
+    @Override
+    public List<String> findTradingDates() {
+        return jdbcTemplate.queryForList(
+                "SELECT DISTINCT snapshot_date FROM market_daily_snapshot ORDER BY snapshot_date ASC",
+                String.class);
+    }
+
+    /** M22 T193：收盘价投影（close NULL 行缺键——有价样本口径与对账 SQL 的 IS NOT NULL 过滤同义）。 */
+    @Override
+    public Map<Long, Double> findClosePrices(String snapshotDate) {
+        Map<Long, Double> closes = new HashMap<>();
+        for (MarketDailyRow row : jdbcTemplate.query(FIND_BY_DATE_SQL, ROW, snapshotDate)) {
+            if (row.closePrice() != null) {
+                closes.put(row.subjectId(), row.closePrice());
+            }
+        }
+        return closes;
+    }
+
     private static Double nullableDouble(java.sql.ResultSet rs, String column) throws SQLException {
         double value = rs.getDouble(column);
         return rs.wasNull() ? null : value;

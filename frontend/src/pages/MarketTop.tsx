@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, SyntheticEvent } from 'react';
 import { ApiError } from '@/api/http';
-import { getMarketTopConfig, getMarketTopRank, getMarketTopVersions } from '@/api/marketTop';
+import {
+  getMarketTopConfig,
+  getMarketTopHitStats,
+  getMarketTopRank,
+  getMarketTopVersions,
+} from '@/api/marketTop';
 import { trackReadingOnce } from '@/api/readingEvent';
 import { getScoreWeights } from '@/api/valueScore';
 import { addWatchlistItem, createWatchlist, listWatchlists } from '@/api/watchlist';
@@ -16,6 +21,7 @@ import type {
   MarketTopConfigView,
   MarketTopDropped,
   MarketTopFactor,
+  MarketTopHitStatsView,
   MarketTopItem,
   MarketTopRankView,
   MarketTopVersionSummary,
@@ -729,6 +735,7 @@ function MarketTopRankPage() {
           <p className="pt-2 text-center text-xs text-muted-foreground" data-testid="market-top-disclaimer">
             {state.view.disclaimer}
           </p>
+          <HitStatsPanel />
         </div>
       ) : (
         <p className="py-10 text-center text-sm text-muted-foreground" data-testid="market-top-empty-items">
@@ -838,6 +845,135 @@ function VersionSelect({
 }
 
 export default MarketTop;
+
+// ==================== M22 T193 历史表现折叠区块（hits-v1 信号验证统计——需求故事 5） ====================
+
+/** 占比格式化（0.333 → 33.3%）。 */
+function pctOf(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+/**
+ * 历史表现区块（页底折叠，零新增页面）：三要素——可达（页内折叠一键展开）/ 样本标注（N/10 与样本日计数）/
+ * 免责常驻「历史统计不构成收益承诺」。展开首拉（惰性——hits-v1 服务端现算零物化）；INSUFFICIENT 窗显示「样本积累中」。
+ */
+function HitStatsPanel() {
+  const [stats, setStats] = useState<MarketTopHitStatsView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const loadedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const load = useCallback(() => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true);
+    getMarketTopHitStats(ctrl.signal)
+      .then((data) => {
+        if (ctrl.signal.aborted) return;
+        setStats(data);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return;
+        setError(err instanceof ApiError && err.msg ? err.msg : '历史表现加载失败');
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setLoading(false);
+      });
+  }, []);
+
+  const handleToggle = (event: SyntheticEvent<HTMLDetailsElement>) => {
+    if (event.currentTarget.open && !loadedRef.current) {
+      loadedRef.current = true; // 展开首拉一次（后续展开用缓存态，刷新随页面重载）
+      load();
+    }
+  };
+
+  const handleRetry = () => load();
+
+  return (
+    <details
+      data-testid="market-top-hitstats"
+      className="mt-3 rounded-md border border-border px-3 py-2"
+      onToggle={handleToggle}
+    >
+      <summary className="cursor-pointer text-xs text-muted-foreground" data-testid="market-top-hitstats-summary">
+        历史表现（信号验证统计：T+1 / T+5 / T+20 上涨家数占比与中位涨跌幅）
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {loading ? (
+          <div className="flex flex-col gap-2" data-testid="market-top-hitstats-loading">
+            <Skeleton className="h-6 w-64" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-start gap-2" data-testid="market-top-hitstats-error">
+            <p className="text-xs text-destructive" role="alert">
+              {error}
+            </p>
+            <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={handleRetry} data-testid="market-top-hitstats-retry">
+              重试
+            </Button>
+          </div>
+        ) : stats ? (
+          <div className="flex flex-col gap-2" data-testid="market-top-hitstats-body">
+            {stats.windows.map((win) => (
+              <div key={win.window} className="flex flex-col gap-1" data-testid={`market-top-hitstats-${win.window}`}>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-xs font-medium">{win.window}</span>
+                  {win.agg.status === 'OK' ? (
+                    <>
+                      <Badge variant="secondary" className="text-[10px]" data-testid={`market-top-hitstats-${win.window}-upratio`}>
+                        上涨占比 {pctOf(win.agg.upRatio ?? 0)}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]" data-testid={`market-top-hitstats-${win.window}-median`}>
+                        中位涨跌 {(win.agg.medianPct ?? 0).toFixed(2)}%
+                      </Badge>
+                    </>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px]" data-testid={`market-top-hitstats-${win.window}-insufficient`}>
+                      样本积累中
+                    </Badge>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    样本日 {win.agg.days} 天（{win.agg.status === 'OK' ? '聚合 ≥5 天' : '不足 5 天如实标注'}）
+                  </span>
+                </div>
+                {win.days.length > 0 ? (
+                  <ul className="flex flex-col gap-0.5" data-testid={`market-top-hitstats-${win.window}-days`}>
+                    {win.days.map((day) => (
+                      <li
+                        key={day.rankDate}
+                        className="flex flex-wrap items-baseline gap-x-2 text-[10px] text-muted-foreground"
+                        data-testid={`market-top-hitstats-${win.window}-day-${day.rankDate}`}
+                      >
+                        <span className="tabular-nums">{day.rankDate}</span>
+                        <span>
+                          样本 {day.pricedSamples}/{day.topSize}
+                          {day.excluded > 0 ? `（剔除 ${day.excluded}：停牌/无价）` : ''}
+                        </span>
+                        <span className="tabular-nums">上涨 {day.upRatio != null ? pctOf(day.upRatio) : '--'}</span>
+                        <span className="tabular-nums">中位 {day.medianPctChg != null ? `${day.medianPctChg.toFixed(2)}%` : '--'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
+            <p className="text-[10px] text-muted-foreground" data-testid="market-top-hitstats-basis">
+              {`口径 ${stats.basis} · 截至 ${stats.asOf ?? '--'}（停牌/无价样本剔除并标注）`}
+            </p>
+            <p className="text-[10px] text-muted-foreground" data-testid="market-top-hitstats-disclaimer">
+              {stats.disclaimer}
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
 
 // ==================== T185 方法论子路由（#/market-top/methodology，页内 hash 切换） ====================
 
@@ -1048,6 +1184,11 @@ function MarketTopMethodology() {
               <h2 className="text-sm font-medium">免责与合规</h2>
               <p className="text-xs text-muted-foreground">
                 本榜单为个人自用的多因子信息整理与 AI 摘要，深析经引用对账与违禁扫描仍可能存在叙述偏差；评分为历史信息整理，不预测未来收益，不构成投资建议。
+              </p>
+              <p className="text-xs text-muted-foreground" data-testid="market-top-methodology-hits-basis">
+                历史表现统计（页底「历史表现」区块）口径 hits-v1：榜单日取当日最大 version 的
+                Top10，统计 T+1 / T+5 / T+20 上涨家数占比与中位数涨跌幅（价格源 market_daily_snapshot
+                日快照，停牌/无价样本剔除并标注）；样本不足如实呈现「样本积累中」。历史统计不构成收益承诺。
               </p>
               <p className="text-[10px] text-muted-foreground" data-testid="market-top-methodology-basis">
                 {`当前引擎参数指纹 ${data.weights.basis}（更新于 ${formatDateTime(data.weights.updatedAt)}）`}

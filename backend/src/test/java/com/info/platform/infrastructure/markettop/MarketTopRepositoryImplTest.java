@@ -236,6 +236,28 @@ class MarketTopRepositoryImplTest {
         assertThat(repository.findLatestEventVersion(PREV_DATE)).isEmpty();
     }
 
+    @Test
+    void listTopByMaxVersion_maxVersionRowsOnlyAcrossDates() {
+        // DATE：v1 两行 / v2 一行（EVENT 最大版本日终语义）；PREV_DATE：v1 一行
+        repository.insertVersion(
+                batch(DATE, 1, false), List.of(rank(DATE, 1, 1, 1), rank(DATE, 1, 2, 2)));
+        repository.insertVersion(eventBatch(DATE, 2, "[]"), List.of(rank(DATE, 2, 1, 3)));
+        repository.insertVersion(batch(PREV_DATE, 1, false), List.of(rank(PREV_DATE, 1, 1, 4)));
+
+        List<MarketTopRepository.RankedSubject> tops = repository.listTopByMaxVersion();
+
+        // 各日仅最大 version 行；rank_date 降序、rank_no 升序
+        assertThat(tops)
+                .filteredOn(top -> DATE.equals(top.rankDate()))
+                .extracting(MarketTopRepository.RankedSubject::subjectId)
+                .containsExactly(3L); // v2（EVENT）——v1 两行不计入
+        assertThat(tops)
+                .filteredOn(top -> PREV_DATE.equals(top.rankDate()))
+                .extracting(MarketTopRepository.RankedSubject::subjectId)
+                .containsExactly(4L);
+        assertThat(tops.get(0).rankDate()).isEqualTo(DATE); // DESC
+    }
+
     private static MarketTopBatchRow eventBatch(
             String date, int version, String triggerEventsJson) {
         MarketTopBatchRow daily = batch(date, version, false);

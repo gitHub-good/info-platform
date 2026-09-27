@@ -147,3 +147,38 @@ export interface MarketTopVersionSummary {
   computedAt: string;
 }
 
+
+// —— 历史命中统计（M22 T193 §4.2-③，hits-v1 惰性回算——零新表零新 Job） ——
+
+/** 单榜单日统计（N/10 样本标注：pricedSamples/excluded——停牌/无价剔除计数不隐藏）。 */
+export interface MarketTopHitDay {
+  rankDate: string;
+  topSize: number;
+  pricedSamples: number;
+  excluded: number;
+  upRatio: number | null;
+  medianPctChg: number | null;
+}
+
+/** 单窗聚合（OK / INSUFFICIENT——样本日 < 5 如实标注，样本积累中）。 */
+export interface MarketTopHitAgg {
+  days: number;
+  status: 'OK' | 'INSUFFICIENT';
+  upRatio: number | null;
+  medianPct: number | null;
+}
+
+/** 观察窗（T+1 / T+5 / T+20；days 升序）。 */
+export interface MarketTopHitWindow {
+  window: string;
+  days: MarketTopHitDay[];
+  agg: MarketTopHitAgg;
+}
+
+/** GET /market-top/hit-stats 响应（basis 口径留档 + asOf + 免责常驻 + 三窗）。 */
+export interface MarketTopHitStatsView {
+  basis: string;
+  asOf: string | null;
+  disclaimer: string;
+  windows: MarketTopHitWindow[];
+}

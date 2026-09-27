@@ -18,6 +18,12 @@ public interface MarketDailySnapshotRepository {
     /** 指定快照日行数（coverage marketDataRows）。 */
     long countByDate(String snapshotDate);
 
+    /** 交易日序列（distinct snapshot_date 升序，M22 T193 hits-v1）——库内交易日历代理（无价日天然不在序列，窗口推导即跳过）。 */
+    List<String> findTradingDates();
+
+    /** 指定快照日收盘价投影（subject_id → close；无行/close NULL 均缺键——有价样本口径，M22 T193）。 */
+    Map<Long, Double> findClosePrices(String snapshotDate);
+
     /** 行情快照行（估值列 null = 缺数——空或 ≤0 落库前归一）。 */
     record MarketDailyRow(
             long subjectId,

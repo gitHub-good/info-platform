@@ -925,4 +925,135 @@ describe('MarketTop 方法论子路由（T185，#/market-top/methodology）', ()
     expect(header.querySelector('header')?.textContent).toContain('高重要事件分钟级增量');
   });
 
+  // —— M22 T193：历史表现折叠区块（hits-v1 信号验证统计——可达/样本标注/免责三要素） ——
+
+  function hitStatsOf() {
+    return {
+      basis:
+        'hits-v1:maxVer;price=market_daily_snapshot;win=1/5/20;median=pctChg;sample=priced-only',
+      asOf: '2026-09-28',
+      disclaimer: '历史统计不构成收益承诺',
+      windows: [
+        {
+          window: 'T+1',
+          days: [
+            { rankDate: '2026-09-25', topSize: 10, pricedSamples: 9, excluded: 1, upRatio: 0.667, medianPctChg: 1.2 },
+            { rankDate: '2026-09-26', topSize: 10, pricedSamples: 10, excluded: 0, upRatio: 0.5, medianPctChg: -0.3 },
+          ],
+          agg: { days: 15, status: 'OK', upRatio: 0.58, medianPct: 0.9 },
+        },
+        { window: 'T+5', days: [], agg: { days: 0, status: 'INSUFFICIENT', upRatio: null, medianPct: null } },
+        { window: 'T+20', days: [], agg: { days: 0, status: 'INSUFFICIENT', upRatio: null, medianPct: null } },
+      ],
+    };
+  }
+
+  it('历史表现：默认折叠零请求，展开首拉三窗与免责/口径常驻（可达性 + 免责）', async () => {
+    const fetchMock = stubFetch([
+      ...baseRoutes(viewOf([itemOf()])),
+      { path: '/api/v1/market-top/hit-stats', respond: () => ok(hitStatsOf()) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-hitstats');
+
+    // 折叠态零请求（惰性——首拉挂起到展开）
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('hit-stats')),
+    ).toBe(false);
+
+    await userEvent.setup().click(screen.getByTestId('market-top-hitstats-summary'));
+    expect(await screen.findByTestId('market-top-hitstats-body')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('hit-stats')),
+    ).toBe(true);
+    // 免责常驻 + 口径留档（hits-v1 与方法论页对齐）
+    expect(screen.getByTestId('market-top-hitstats-disclaimer')).toHaveTextContent(
+      '历史统计不构成收益承诺',
+    );
+    expect(screen.getByTestId('market-top-hitstats-basis')).toHaveTextContent('hits-v1');
+    expect(screen.getByTestId('market-top-hitstats-basis')).toHaveTextContent('2026-09-28');
+  });
+
+  it('历史表现：OK 窗渲染上涨占比与中位涨跌 + 逐日样本 N/10 标注（剔除计数不隐藏）', async () => {
+    stubFetch([
+      ...baseRoutes(viewOf([itemOf()])),
+      { path: '/api/v1/market-top/hit-stats', respond: () => ok(hitStatsOf()) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-hitstats');
+    await userEvent.setup().click(screen.getByTestId('market-top-hitstats-summary'));
+
+    expect(await screen.findByTestId('market-top-hitstats-T+1-upratio')).toHaveTextContent(
+      '上涨占比 58.0%',
+    );
+    expect(screen.getByTestId('market-top-hitstats-T+1-median')).toHaveTextContent('中位涨跌 0.90%');
+    const day = await screen.findByTestId('market-top-hitstats-T+1-day-2026-09-25');
+    expect(day).toHaveTextContent('样本 9/10');
+    expect(day).toHaveTextContent('剔除 1');
+    expect(day).toHaveTextContent('上涨 66.7%');
+    expect(screen.getByTestId('market-top-hitstats-T+1-day-2026-09-26')).toHaveTextContent('样本 10/10');
+  });
+
+  it('历史表现：样本不足窗如实显示「样本积累中」（首跑校准条款——不硬凑）', async () => {
+    stubFetch([
+      ...baseRoutes(viewOf([itemOf()])),
+      { path: '/api/v1/market-top/hit-stats', respond: () => ok(hitStatsOf()) },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-hitstats');
+    await userEvent.setup().click(screen.getByTestId('market-top-hitstats-summary'));
+
+    expect(await screen.findByTestId('market-top-hitstats-T+20-insufficient')).toHaveTextContent(
+      '样本积累中',
+    );
+    expect(screen.queryByTestId('market-top-hitstats-T+20-upratio')).toBeNull();
+    expect(screen.getByTestId('market-top-hitstats-T+20')).toHaveTextContent('样本日 0 天');
+  });
+
+  it('历史表现：加载失败就地提示可重试恢复（错误态不伤榜单主体）', async () => {
+    let failed = true;
+    stubFetch([
+      ...baseRoutes(viewOf([itemOf()])),
+      {
+        path: '/api/v1/market-top/hit-stats',
+        respond: () => (failed ? fail(500, 50000, '统计服务异常') : ok(hitStatsOf())),
+      },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-card-SZ300024'); // 榜单主体不受影响
+    await userEvent.setup().click(screen.getByTestId('market-top-hitstats-summary'));
+    expect(await screen.findByTestId('market-top-hitstats-error')).toHaveTextContent('统计服务异常');
+
+    failed = false;
+    await userEvent.setup().click(screen.getByTestId('market-top-hitstats-retry'));
+    expect(await screen.findByTestId('market-top-hitstats-body')).toBeInTheDocument();
+  });
+
+  it('历史表现：展开懒加载骨架先行（loading 态可见）', async () => {
+    let resolveStats: (value: ReturnType<typeof ok>) => void = () => undefined;
+    stubFetch([
+      ...baseRoutes(viewOf([itemOf()])),
+      {
+        path: '/api/v1/market-top/hit-stats',
+        respond: () => new Promise((resolve) => { resolveStats = resolve; }),
+      },
+    ]);
+
+    const { MarketTop } = await import('@/pages/MarketTop');
+    render(<MarketTop />);
+    await screen.findByTestId('market-top-hitstats');
+    await userEvent.setup().click(screen.getByTestId('market-top-hitstats-summary'));
+
+    expect(await screen.findByTestId('market-top-hitstats-loading')).toBeInTheDocument();
+    resolveStats(ok(hitStatsOf()));
+    expect(await screen.findByTestId('market-top-hitstats-body')).toBeInTheDocument();
+  });
 });

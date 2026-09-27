@@ -7,6 +7,7 @@ import { request } from './http';
 import type {
   MarketTopConfigUpdate,
   MarketTopConfigView,
+  MarketTopHitStatsView,
   MarketTopRankView,
   MarketTopVersionSummary,
 } from '@/types/marketTop';
@@ -46,4 +47,12 @@ export function getMarketTopVersions(
 ): Promise<MarketTopVersionSummary[]> {
   const qs = query.date ? `?date=${encodeURIComponent(query.date)}` : '';
   return request<MarketTopVersionSummary[]>(`/market-top/versions${qs}`, { signal });
+}
+
+/**
+ * 历史命中统计（GET /api/v1/market-top/hit-stats，M22 T193 hits-v1 惰性回算）。
+ * @throws ApiError 30089 无任何榜单（404）——「榜单页引导生成」空态口径
+ */
+export function getMarketTopHitStats(signal?: AbortSignal): Promise<MarketTopHitStatsView> {
+  return request<MarketTopHitStatsView>('/market-top/hit-stats', { signal });
 }
