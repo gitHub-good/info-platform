@@ -40,6 +40,11 @@ public interface FactorSnapshotRepository {
     /** 最新快照日（yyyy-MM-dd；无任何快照返回 empty——Job 未跑过）。 */
     Optional<String> findLatestSnapshotDate();
 
+    /**
+     * 指定快照日全量行 join 标的名录（M21 T183 粗筛与榜单原料——四键排序列 + 五维分 + factor_detail + industry 板块原文； id 升序确定性）。
+     */
+    List<PoolRow> findPoolRowsByDate(String snapshotDate);
+
     /** 指定快照日行数（coverage snapshotRows）。 */
     long countByDate(String snapshotDate);
 
@@ -68,4 +73,24 @@ public interface FactorSnapshotRepository {
 
     /** 行业成员投影（subject_code + subject_master.industry 原文——东财板块口径，路 C 映射原料）。 */
     record IndustryMemberRow(String code, String industry) {}
+
+    /**
+     * 粗筛/榜单池行投影（M21 T183）：快照行五维分 + 排序列 + factor_detail/weight_basis + 标的名录 join（industry 为板块原文， SW
+     * 映射在读侧 swPrimaryOf）。
+     */
+    record PoolRow(
+            long subjectId,
+            String subjectCode,
+            String subjectName,
+            String industry,
+            double fCatalyst,
+            double fConduction,
+            double fFundamental,
+            double fRisk,
+            double fValuation,
+            double totalScore,
+            boolean breakthrough,
+            String factorDetailJson,
+            String weightBasis,
+            String lastEventDate) {}
 }

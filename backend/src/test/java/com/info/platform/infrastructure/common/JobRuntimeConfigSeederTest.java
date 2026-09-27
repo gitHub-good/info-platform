@@ -47,11 +47,11 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllSixteenJobKeys() {
+    void seeds_carriesAllSeventeenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
-        // 纯增量守卫：既有 15 键不被增补挤占（FACTOR_SNAPSHOT 第 16 键追加在尾部，M20 T170 方案 §4.6）
+        // 纯增量守卫：既有 16 键不被增补挤占（MARKET_TOP_JOB 第 17 键追加在尾部，M21 T183 方案 §4.6）
         assertThat(keys)
                 .containsExactly(
                         "job.POLICY_FETCH",
@@ -69,7 +69,41 @@ class JobRuntimeConfigSeederTest {
                         "job.PIPELINE_EXPRESS",
                         "job.RECOMMENDATION_FEED",
                         "job.INDUSTRY_WEEKLY_REPORT",
-                        "job.FACTOR_SNAPSHOT");
+                        "job.FACTOR_SNAPSHOT",
+                        "job.MARKET_TOP_JOB");
+    }
+
+    // ---- MARKET_TOP_JOB 种子（T183，M21 方案 §4.6：第 17 键，盘后 18:00 CRON）----
+
+    private RuntimeConfigSeed marketTopSeed(boolean enabled, String cron) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "marketTopEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "marketTopCron", cron);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.MARKET_TOP_JOB"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.MARKET_TOP_JOB 种子"));
+    }
+
+    @Test
+    void seeds_marketTop_productionDefaults_enabledCron1800Daily() {
+        // 生产默认：盘后 18:00（FACTOR_SNAPSHOT 17:30 后 30 分钟余量——独立 CRON 错开而非依赖触发，ADR-0059 裁决 7）
+        RuntimeConfigSeed seed = marketTopSeed(true, "0 0 18 * * ?");
+
+        assertThat(seed.configKey()).isEqualTo("job.MARKET_TOP_JOB");
+        assertThat(seed.description()).contains("MarketTopJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 0 18 * * ?\"");
+    }
+
+    @Test
+    void seeds_marketTop_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：markettop.rank-job.enabled=false → 种子停用 → 调度零注册（十七 Job 惯例）
+        RuntimeConfigSeed seed = marketTopSeed(false, "0 0 18 * * ?");
+
+        assertThat(seed.json()).contains("\"enabled\":false").contains("\"cron\":\"0 0 18 * * ?\"");
     }
 
     // ---- FACTOR_SNAPSHOT 种子（T170，M20 方案 §4.6：第 16 键，盘后 17:30 CRON）----

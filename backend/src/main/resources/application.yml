@@ -205,6 +205,13 @@ valuation:
   factor-snapshot:
     enabled: true
     cron: "0 30 17 * * ?"
+# 全市场榜单引擎（M21 T183，方案 §4.6）：job.MARKET_TOP_JOB 种子来源（ManagedJob 第 17 键）。
+# 盘后 18:00 日频（FACTOR_SNAPSHOT 17:30 完成后 30 分钟余量——独立 CRON 错开而非依赖触发，ADR-0059 裁决 7）；
+# 测试 profile 置 false → 调度零注册隔离；漏斗参数热改在 runtime_config market.top 键。
+markettop:
+  rank-job:
+    enabled: true
+    cron: "0 0 18 * * ?"
 
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED

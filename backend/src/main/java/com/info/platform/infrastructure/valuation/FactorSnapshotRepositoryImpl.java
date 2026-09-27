@@ -100,6 +100,18 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
              ORDER BY id ASC
             """;
 
+    /** 粗筛/榜单池行投影（M21 T183）：快照行 join 标的名录（板块原文随行携带，SW 映射在读侧）。 */
+    private static final String POOL_ROWS_SQL =
+            """
+            SELECT s.subject_id, m.subject_code, m.name, m.industry,
+                   s.f_catalyst, s.f_conduction, s.f_fundamental, s.f_risk, s.f_valuation,
+                   s.total_score, s.breakthrough, s.factor_detail, s.weight_basis, s.last_event_date
+              FROM subject_factor_snapshot s
+              JOIN subject_master m ON m.id = s.subject_id
+             WHERE s.snapshot_date = ?
+             ORDER BY s.subject_id ASC
+            """;
+
     private static final RowMapper<SubjectRef> SUBJECT_ROW =
             (rs, rowNum) ->
                     new SubjectRef(
@@ -134,6 +146,24 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
     private static final RowMapper<IndustryMemberRow> INDUSTRY_MEMBER_ROW =
             (rs, rowNum) ->
                     new IndustryMemberRow(rs.getString("subject_code"), rs.getString("industry"));
+
+    private static final RowMapper<PoolRow> POOL_ROW =
+            (rs, rowNum) ->
+                    new PoolRow(
+                            rs.getLong("subject_id"),
+                            rs.getString("subject_code"),
+                            rs.getString("name"),
+                            rs.getString("industry"),
+                            rs.getDouble("f_catalyst"),
+                            rs.getDouble("f_conduction"),
+                            rs.getDouble("f_fundamental"),
+                            rs.getDouble("f_risk"),
+                            rs.getDouble("f_valuation"),
+                            rs.getDouble("total_score"),
+                            rs.getInt("breakthrough") == 1,
+                            rs.getString("factor_detail"),
+                            rs.getString("weight_basis"),
+                            rs.getString("last_event_date"));
 
     private static final RowMapper<FactorSnapshotRow> SNAPSHOT_ROW = snapshotRowMapper();
 
@@ -218,6 +248,11 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
     @Override
     public List<IndustryMemberRow> findIndustryMembers() {
         return jdbcTemplate.query(INDUSTRY_MEMBERS_SQL, INDUSTRY_MEMBER_ROW);
+    }
+
+    @Override
+    public List<PoolRow> findPoolRowsByDate(String snapshotDate) {
+        return jdbcTemplate.query(POOL_ROWS_SQL, POOL_ROW, snapshotDate);
     }
 
     @Override

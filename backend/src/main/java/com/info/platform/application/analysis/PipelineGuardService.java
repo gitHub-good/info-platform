@@ -41,9 +41,9 @@ public class PipelineGuardService {
 
     /**
      * 管道成本口径 scene 集（L1 归类 5 / L2 事件提取 6 / 行业日报 7——T124 消费 7；M16 T132 扩 8 推荐卡片——卡片 LLM 计入管道日成本，REQ
-     * 非功能「成本护栏联动」；DEGRADED/FUSED 态卡片直接走模板不调 LLM）。
+     * 非功能「成本护栏联动」；M21 T183 扩 10 全市场深析——深析预算是管道日预算的份额非独立池，FUSED 全跳深析走降级，ADR-0059 裁决 4）。
      */
-    static final List<String> PIPELINE_SCENES = List.of("5", "6", "7", "8");
+    static final List<String> PIPELINE_SCENES = List.of("5", "6", "7", "8", "10");
 
     /** 成本读取 llm_call_log 上限护栏（个人量级日 ~90 行，上限防御）。 */
     private static final int COST_LOG_LIMIT = 10_000;

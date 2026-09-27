@@ -137,6 +137,16 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${valuation.factor-snapshot.cron:0 30 17 * * ?}")
     private String factorSnapshotCron;
 
+    /**
+     * 全市场榜单开关/CRON（M21 T183：MARKET_TOP_JOB 第 17 键，缺省盘后 18:00 日频，方案 §4.6——FACTOR_SNAPSHOT 后 30
+     * 分钟余量）。
+     */
+    @Value("${markettop.rank-job.enabled:true}")
+    private boolean marketTopEnabled;
+
+    @Value("${markettop.rank-job.cron:0 0 18 * * ?}")
+    private String marketTopCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -270,6 +280,17 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                         "因子快照调度（FactorSnapshotJob，盘后 17:30 全市场五因子计算→subject_factor_snapshot 5221 行/日"
                                 + "幂等 UPSERT + 腾讯批量行情日快照（失败降级不阻塞四维），权重/窗口热改见 score.weight 键，"
                                 + "M20 方案 §4.6）"));
+        Map<String, Object> marketTop = new LinkedHashMap<>();
+        marketTop.put("enabled", marketTopEnabled);
+        marketTop.put("scheduleType", CRON);
+        marketTop.put("cron", marketTopCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.MARKET_TOP_JOB",
+                        write(marketTop),
+                        "全市场榜单调度（MarketTopJob，盘后 18:00 四阶段生成：行业成员回填预检→快照粗筛 300 池→LLM 深析 40"
+                                + "（briefType 10，五步校验链+scene-10 成本护栏）→Top10 合成与昨日 diff→两表版本化落库；"
+                                + "当日快照未出守卫跳过；漏斗参数热改见 market.top 键，M21 方案 §4.6）"));
         return seeds;
     }
 

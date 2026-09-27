@@ -12,6 +12,7 @@ import com.info.platform.application.markettop.MarketTopConfigFacade.ConfigView;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.GlobalExceptionHandler;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -26,12 +27,14 @@ class MarketTopControllerTest {
 
     private MockMvc mockMvc;
     private MarketTopConfigFacade configFacade;
+    private com.info.platform.application.markettop.MarketTopQueryService queryService;
 
     @BeforeEach
     void setUp() {
         configFacade = mock(MarketTopConfigFacade.class);
+        queryService = mock(com.info.platform.application.markettop.MarketTopQueryService.class);
         mockMvc =
-                MockMvcBuilders.standaloneSetup(new MarketTopController(configFacade))
+                MockMvcBuilders.standaloneSetup(new MarketTopController(configFacade, queryService))
                         .setControllerAdvice(new GlobalExceptionHandler())
                         .build();
     }
@@ -118,5 +121,85 @@ class MarketTopControllerTest {
                                                 + "\"memberCoverageFloor\":0.8}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(30065));
+    }
+
+    // ---- T183 读取面：GET /market-top + GET /market-top/versions ----
+
+    @Test
+    void rank_returnsWrappedView() throws Exception {
+        com.info.platform.application.markettop.MarketTopQueryService.RankView view =
+                new com.info.platform.application.markettop.MarketTopQueryService.RankView(
+                        "2026-09-22",
+                        1,
+                        "DAILY",
+                        new com.info.platform.application.markettop.MarketTopQueryService.BatchView(
+                                "2026-09-22",
+                                "2026-09-22T10:03:00Z",
+                                false,
+                                null,
+                                new com.fasterxml.jackson.databind.ObjectMapper()
+                                        .readTree("{\"topSize\":10}"),
+                                new com.fasterxml.jackson.databind.ObjectMapper().readTree("[]"),
+                                null),
+                        List.of(),
+                        "榜单为多因子信息整理与 AI 摘要，不构成投资建议");
+        when(queryService.rank(null, null)).thenReturn(view);
+
+        mockMvc.perform(get("/api/v1/market-top"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.rankDate").value("2026-09-22"))
+                .andExpect(jsonPath("$.data.version").value(1))
+                .andExpect(jsonPath("$.data.triggerSource").value("DAILY"))
+                .andExpect(jsonPath("$.data.batch.degraded").value(false))
+                .andExpect(jsonPath("$.data.batch.funnelStats.topSize").value(10))
+                .andExpect(jsonPath("$.data.disclaimer").isNotEmpty());
+    }
+
+    @Test
+    void rank_noRankingDay_30089() throws Exception {
+        when(queryService.rank("2026-09-22", null))
+                .thenThrow(new BusinessException(ErrorCode.MARKET_TOP_NOT_FOUND, "该日无榜单数据"));
+
+        mockMvc.perform(get("/api/v1/market-top").param("date", "2026-09-22"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30089));
+    }
+
+    @Test
+    void rank_invalidParamOrMissingVersion_30090() throws Exception {
+        when(queryService.rank("2026/09/22", null))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.MARKET_TOP_QUERY_INVALID, "非法日期（需 yyyy-MM-dd）"));
+
+        mockMvc.perform(get("/api/v1/market-top").param("date", "2026/09/22"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30090));
+    }
+
+    @Test
+    void versions_returnsWrappedList() throws Exception {
+        when(queryService.versions(null))
+                .thenReturn(
+                        List.of(
+                                new com.info.platform.domain.markettop.MarketTopRepository
+                                        .VersionSummary(
+                                        "2026-09-22",
+                                        1,
+                                        "DAILY",
+                                        false,
+                                        null,
+                                        "2026-09-22",
+                                        10,
+                                        "2026-09-22T10:03:00Z")));
+
+        mockMvc.perform(get("/api/v1/market-top/versions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].rankDate").value("2026-09-22"))
+                .andExpect(jsonPath("$.data[0].version").value(1))
+                .andExpect(jsonPath("$.data[0].topSize").value(10))
+                .andExpect(jsonPath("$.data[0].degraded").value(false));
     }
 }
