@@ -7,10 +7,10 @@ import java.util.List;
  * 预置源目录（M13 T100，方案 §4.6/§3.4）：预置源<b>单一事实源</b>（对齐 SourceProviders/DataSourceDefaults 惯例）。
  *
  * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150~T152
- * 批次三九源（门户 3/媒体 3/纵深/竞争/条件席，T153 预检终局 ADR-0055）+ 通用 RSS 示例包 ×2（<b>默认停用</b>播种不计 30 口径）——目录 33 行、默认启用
- * 31（Nasdaq 行留档待编排者软删后现役 30，精确命中蓝图达标线）；M14+ 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent
- * 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集；腾讯端点 WAF JS
- * 盾即预检永久关闭不入目录，ADR-0055）。
+ * 批次三九源（门户 3/媒体 3/纵深/竞争/条件席，T153 预检终局 ADR-0055）+ 通用 RSS 示例包 ×2（<b>默认停用</b>播种不计 30 口径）；V2.3-M23 T200
+ * gov_policy 第 34 预置源（纯目录配置 JSON_API，ADR-0062 裁决一）——目录 34 行、默认启用 32（Nasdaq 行留档待编排者软删后现役 31）；M14+
+ * 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots
+ * 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集；腾讯端点 WAF JS 盾即预检永久关闭不入目录，ADR-0055）。
  *
  * <p>合规预检留档（T106 复核）：MarketWatch robots 403 → RFC 9309 无 robots 即无限制（落地复核注记）；金十/新浪 7×24 无 robots。
  * M14 T110 复核：np-weblist/news.10jqka/cache.thepaper robots 404、datacenter-web robots 为 JSON 错误页 →
@@ -741,6 +741,39 @@ public final class InfoSourceCatalog {
                     30,
                     false);
 
+    /**
+     * 中国政府网最新政策（V2.3-M23 T200，REQ-20260927-19 / ADR-0062 裁决一）：gov.cn/zhengce <b>纯目录配置</b>接入
+     * JSON_API 通道（零新 adapter）——「最新政策」页 HTML 列表为 AJAX 空壳，真实数据在静态 {@code ZUIXINZHENGCE.json}（根数组
+     * TITLE/SUB_TITLE/URL/DOCRELPUBTIME 按时间倒序，全量 1100 条；2026-09-22 实测 200， 与轨 B {@code
+     * GovPolicyClient} JSON 分支同款端点契约）。
+     *
+     * <p>映射口径：TITLE→title / URL→url+externalId（source_url 去重语义迁移：policy_item {@code
+     * existsBySourceUrl} → {@code (source_id, external_id)} 唯一索引吸收，ndrc_policy 同款先例）/
+     * DOCRELPUBTIME→publishedAt（{@code yyyy-MM-dd} 纯日期，经 {@code to_iso_datetime} 纯日期分支归一上海当日
+     * 00:00）。{@code cursorType=NONE}：URL 非单调，重复轮由唯一索引幂等吸收。条目无摘要字段（SUB_TITLE 常空）。UA+Referer(gov.cn)
+     * 同轨 B 礼貌抓取头。频控 60min（官方源频段上限）。种子经 {@code InfoSourceSeeder} seed-if-absent 自动入 {@code
+     * info_source} + {@code source_poll_state}（错峰），大盘/源管理页随 SELECT 自然纳入，零迁移零新端点。
+     */
+    private static final PresetEntry GOV_POLICY =
+            new PresetEntry(
+                    "gov_policy",
+                    "中国政府网·政策",
+                    "政策",
+                    AdapterType.JSON_API,
+                    null,
+                    "https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json",
+                    """
+                    {"listPath":"",\
+                    "itemMapping":[\
+                    {"source":"TITLE","target":"title","transform":"to_string"},\
+                    {"source":"URL","target":"url","transform":"to_string"},\
+                    {"source":"URL","target":"externalId","transform":"to_string"},\
+                    {"source":"DOCRELPUBTIME","target":"publishedAt","transform":"to_iso_datetime"}],\
+                    "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://www.gov.cn/"},\
+                    "maxItems":50,\
+                    "cursorType":"NONE"}""",
+                    60);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -775,6 +808,7 @@ public final class InfoSourceCatalog {
                 EM_FINANCE_COLUMN,
                 GELONGHUI_LIVE,
                 CE_NEWS,
+                GOV_POLICY,
                 EXAMPLE_WSJ_WORLD,
                 EXAMPLE_ITHOME);
     }

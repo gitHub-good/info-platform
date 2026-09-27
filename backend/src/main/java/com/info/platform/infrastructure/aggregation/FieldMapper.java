@@ -221,8 +221,12 @@ public class FieldMapper {
     }
 
     /**
-     * M13 {@code to_iso_datetime}：{@code yyyy-MM-dd HH:mm[:ss]} 墙钟时间 → ISO-8601 UTC 秒（缺秒补 :00； 按
+     * M13 {@code to_iso_datetime}：{@code yyyy-MM-dd HH:mm[:ss]} 墙钟时间 → ISO-8601 UTC 秒（缺秒补 :00；按
      * Asia/Shanghai——快讯源 time 字段为北京时间）。
+     *
+     * <p>V2.3-M23 T200 纯日期分支（ADR-0062 裁决一引擎扩展点）：{@code yyyy-MM-dd} → 当日 00:00 Asia/Shanghai →
+     * ISO-8601 UTC（gov.cn {@code DOCRELPUBTIME} 即此格式；语义对齐 V22「源仅给日期 → 归一 00:00:00」约定， 替代缺失
+     * publishedAt 回落抓取时刻的失真路径）。失败仍抛 {@link FieldMappingException} 整源降级（沿白名单语义）。
      */
     private static String toIsoDatetime(Object value) {
         String raw = value.toString().trim();
@@ -230,6 +234,14 @@ public class FieldMapper {
             try {
                 LocalDateTime wall = LocalDateTime.parse(raw, formatter);
                 return wall.atZone(WALL_CLOCK_ZONE).toInstant().toString();
+            } catch (DateTimeParseException ignore) {
+                // try next
+            }
+        }
+        for (DateTimeFormatter formatter : DATEONLY_FORMATS) {
+            try {
+                LocalDate date = LocalDate.parse(raw, formatter);
+                return date.atStartOfDay(WALL_CLOCK_ZONE).toInstant().toString();
             } catch (DateTimeParseException ignore) {
                 // try next
             }

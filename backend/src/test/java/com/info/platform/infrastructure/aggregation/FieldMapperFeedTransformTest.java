@@ -41,6 +41,37 @@ class FieldMapperFeedTransformTest {
     }
 
     @Test
+    void toIsoDatetime_dateOnly_normalizedToShanghaiMidnight() {
+        // T200（V2.3-M23，ADR-0062 裁决一引擎扩展）：gov.cn ZUIXINZHENGCE.json 的 DOCRELPUBTIME 为
+        // yyyy-MM-dd 纯日期 → 当日 00:00 Asia/Shanghai（V22「源仅给日期 → 归一 00:00:00」语义对齐）→ ISO UTC
+        Map<String, Object> mapped =
+                mapper.map(
+                        Map.of("DOCRELPUBTIME", "2026-09-23"),
+                        List.of(
+                                new FieldMapping(
+                                        "DOCRELPUBTIME",
+                                        "publishedAt",
+                                        Transform.TO_ISO_DATETIME)));
+
+        // 北京时间 2026-09-23 00:00 → UTC 2026-09-22 16:00
+        assertThat(mapped.get("publishedAt")).isEqualTo("2026-09-22T16:00:00Z");
+    }
+
+    @Test
+    void toIsoDatetime_dateOnlyWithGarbage_stillThrows() {
+        // 缺日期防御：非日期非墙钟文本仍整源降级（FieldMappingException，沿白名单语义不吞）
+        assertThatThrownBy(
+                        () ->
+                                mapper.map(
+                                        Map.of("d", "23/09/2026"),
+                                        List.of(
+                                                new FieldMapping(
+                                                        "d", "t", Transform.TO_ISO_DATETIME))))
+                .isInstanceOf(FieldMappingException.class)
+                .hasMessageContaining("TO_ISO_DATETIME");
+    }
+
+    @Test
     void toIsoDatetime_unparseable_throwsFieldMappingException() {
         assertThatThrownBy(
                         () ->

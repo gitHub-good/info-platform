@@ -25,7 +25,8 @@ class InfoSourceCatalogTest {
                         .map(InfoSourceCatalog.PresetEntry::sourceCode)
                         .toList();
 
-        // M13 试点三源 + M14 批次一十源 + M17 T140~T142 批次二九源 + M18 T150~T152 批次三九源与示例包 ×2（种子顺序即展示顺序）
+        // M13 试点三源 + M14 批次一十源 + M17 T140~T142 批次二九源 + M18 T150~T152 批次三九源与示例包 ×2
+        // + V2.3-M23 T200 gov_policy（第 34 预置源，种子顺序即展示顺序）
         assertThat(codes)
                 .containsExactly(
                         "mw_topstories",
@@ -59,6 +60,7 @@ class InfoSourceCatalogTest {
                         "em_finance_column",
                         "gelonghui_live",
                         "ce_news",
+                        "gov_policy",
                         "example_wsj_world",
                         "example_ithome");
         assertThat(
@@ -96,8 +98,45 @@ class InfoSourceCatalogTest {
                         "people_finance",
                         "nasdaq_markets",
                         "wsj_markets");
-        // 33 = 22 现役目录 + 批次三 9 席 + 示例包 ×2（默认停用不计 30 口径）；Nasdaq 行留档待软删（21 现役 + 9 = 30）
-        assertThat(codes).hasSize(33);
+        // 34 = 33 存量 + V2.3-M23 gov_policy（第 5 个政策源；示例包 ×2 默认停用不计口径）
+        assertThat(codes).hasSize(34);
+    }
+
+    @Test
+    void presets_containsGovPolicy_jsonApiChannelConfigPerDesign() {
+        // V2.3-M23 T200（ADR-0062 裁决一）：gov.cn 最新政策静态 JSON 走 JSON_API 通道纯目录配置——
+        // 零新 adapter；TITLE/URL/DOCRELPUBTIME 白名单映射、externalId=URL（source_url 去重语义迁移，
+        // (source_id, external_id) 唯一索引吸收）、纯日期经 to_iso_datetime 归一、cursorType=NONE
+        // （URL 非单调，ndrc_policy 同款先例）、maxItems=50、UA+Referer 礼貌头、60min 官方频段上限
+        var govPolicy =
+                InfoSourceCatalog.presets().stream()
+                        .filter(p -> p.sourceCode().equals("gov_policy"))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(govPolicy.name()).isEqualTo("中国政府网·政策");
+        assertThat(govPolicy.category()).isEqualTo("政策");
+        assertThat(govPolicy.adapterType()).isEqualTo(AdapterType.JSON_API);
+        assertThat(govPolicy.endpoint())
+                .isEqualTo("https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json");
+        assertThat(govPolicy.intervalMinutes()).isEqualTo(60);
+        assertThat(govPolicy.defaultEnabled()).isTrue();
+
+        var config = codec.parse(govPolicy.configJson());
+        assertThat(config.effectiveCursorType().name()).isEqualTo("NONE");
+        assertThat(config.maxItems()).isEqualTo(50);
+        assertThat(config.headers()).containsKeys("User-Agent", "Referer");
+        assertThat(config.headers().get("Referer")).isEqualTo("https://www.gov.cn/");
+        // 映射四条：TITLE→title / URL→url+externalId（同源去重锚）/ DOCRELPUBTIME→publishedAt（纯日期分支）
+        assertThat(config.mappings())
+                .containsExactlyInAnyOrder(
+                        new com.info.platform.domain.feed.SourceConfig.ItemMapping(
+                                "TITLE", "title", "to_string"),
+                        new com.info.platform.domain.feed.SourceConfig.ItemMapping(
+                                "URL", "url", "to_string"),
+                        new com.info.platform.domain.feed.SourceConfig.ItemMapping(
+                                "URL", "externalId", "to_string"),
+                        new com.info.platform.domain.feed.SourceConfig.ItemMapping(
+                                "DOCRELPUBTIME", "publishedAt", "to_iso_datetime"));
     }
 
     @Test
@@ -188,12 +227,12 @@ class InfoSourceCatalogTest {
                     .isEqualTo("TIME");
             assertThat(entry.intervalMinutes()).as("%s 频控", code).isBetween(15, 60);
         }
-        // 其余 31 行（22 现役目录 + 批次三 9 席）默认启用
+        // 其余 32 行（22 现役目录 + 批次三 9 席 + V2.3 gov_policy）默认启用
         long enabled =
                 InfoSourceCatalog.presets().stream()
                         .filter(InfoSourceCatalog.PresetEntry::defaultEnabled)
                         .count();
-        assertThat(enabled).isEqualTo(31);
+        assertThat(enabled).isEqualTo(32);
     }
 
     @Test
