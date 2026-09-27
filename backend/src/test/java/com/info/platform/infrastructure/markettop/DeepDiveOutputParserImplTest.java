@@ -70,4 +70,15 @@ class DeepDiveOutputParserImplTest {
         assertThat(parser.parse("完全不是 JSON")).isEmpty();
         assertThat(parser.parse("{\"thesis\": 论点缺引号}")).isEmpty();
     }
+
+    @Test
+    void parse_unquotedFieldNamesAndSingleQuotes_tolerated() {
+        // BUG-M21-01 复测遗留回归：混推理模型未引号键名/单引号输出可解析（此前 7/40 失败模式）
+        var parsed =
+                parser.parse(
+                        "{thesis: '论点', highlights: [{text: '亮点一', citation: {type: 'NEWS', id: 12},},], risks: []}");
+        org.assertj.core.api.Assertions.assertThat(parsed).isPresent();
+        org.assertj.core.api.Assertions.assertThat(parsed.get().thesis()).isEqualTo("论点");
+        org.assertj.core.api.Assertions.assertThat(parsed.get().highlights()).hasSize(1);
+    }
 }

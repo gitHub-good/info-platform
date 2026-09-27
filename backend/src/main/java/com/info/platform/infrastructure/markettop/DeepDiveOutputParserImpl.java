@@ -29,6 +29,15 @@ public class DeepDiveOutputParserImpl implements DeepDiveOutputParser {
     public DeepDiveOutputParserImpl(ObjectMapper objectMapper) {
         this.parseMapper =
                 objectMapper.copy().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        // BUG-M21-01 复测遗留：deepseek 混推理模型偶发未引号键名/单引号/尾逗号（实测 7/40 解析失败模式）
+        // ——宽松读特性兜底（JSON 规范输出走默认路径零影响）
+        this.parseMapper
+                .configure(
+                        com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES,
+                        true)
+                .configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_SINGLE_QUOTES, true)
+                .configure(
+                        com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_TRAILING_COMMA, true);
     }
 
     @Override
