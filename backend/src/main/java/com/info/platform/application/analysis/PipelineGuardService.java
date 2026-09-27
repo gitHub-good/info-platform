@@ -103,6 +103,22 @@ public class PipelineGuardService {
     }
 
     /**
+     * 当日单 scene 成本（微元；SUCCESS，Asia/Shanghai 日界）——M21 深析子预算预检口径（方案 §4.4.7：scene-10 当日已用 + 预估 &gt;
+     * capRatio×管道日预算 → 触顶停剩余）。观测与执行分离（ADR-0015：严格口径以 llm_call_log 留痕表为准）。
+     *
+     * @param sceneKey 场景键（如 {@code "10"} 深析）
+     */
+    public long todaySceneCostMicros(String sceneKey) {
+        List<LlmCallLog> logs =
+                llmCallLogRepository.findCreatedSince(todayStartInstant(), COST_LOG_LIMIT);
+        return logs.stream()
+                .filter(log -> sceneKey.equals(log.getSceneKey()))
+                .filter(log -> log.getStatus() == LlmCallStatus.SUCCESS)
+                .mapToLong(LlmCallLog::getCostMicros)
+                .sum();
+    }
+
+    /**
      * 单条成本校准：Σ当日管道成本 ÷ 当日净入库条数 → 写回 {@code pipeline.budget}（整体替换语义保留既有字段；costBasis 升版带当日日期）。
      *
      * @return 写入的校准值（微元/条）；当日无入库（分母 0）返回 -1 不写

@@ -277,11 +277,11 @@ class PromptTemplateControllerTest {
                                 .content("{\"template\": \"x\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
-        // 非法 briefType
+        // 非法 briefType（M21 T182 起 10 已被全市场深析占用——非法例改用 11）
         mockMvc.perform(
                         post("/api/v1/prompt-templates")
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"briefType\": 10, \"template\": \"x\"}"))
+                                .content("{\"briefType\": 11, \"template\": \"x\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
         // 非法 versionStrategy
@@ -360,13 +360,13 @@ class PromptTemplateControllerTest {
                     .thenReturn(List.of(new PlaceholderDescriptor("subjectName", "标的名称")));
         }
 
-        // Act + Assert：场景按 briefType 升序（M16 T132 起 8 组——行业归类/事件提取/行业日报/推荐卡片自动可见）；场景 2 dormant=true
-        // 带
+        // Act + Assert：场景按 briefType 升序（M16 T132 起 8 组，M21 T182 起 10 组——行业归类/事件提取/行业日报/推荐卡片/
+        // 全市场深析自动可见）；场景 2 dormant=true 带
         // note，其余无 note 字段
         mockMvc.perform(get("/api/v1/prompt-placeholders"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.scenarios.length()").value(9))
+                .andExpect(jsonPath("$.data.scenarios.length()").value(10))
                 .andExpect(jsonPath("$.data.scenarios[4].briefType").value(5))
                 .andExpect(jsonPath("$.data.scenarios[4].name").value("行业归类"))
                 .andExpect(jsonPath("$.data.scenarios[5].briefType").value(6))
@@ -375,6 +375,8 @@ class PromptTemplateControllerTest {
                 .andExpect(jsonPath("$.data.scenarios[7].briefType").value(8))
                 .andExpect(jsonPath("$.data.scenarios[8].briefType").value(9))
                 .andExpect(jsonPath("$.data.scenarios[8].name").value("行业周报"))
+                .andExpect(jsonPath("$.data.scenarios[9].briefType").value(10))
+                .andExpect(jsonPath("$.data.scenarios[9].name").value("全市场深析"))
                 .andExpect(jsonPath("$.data.scenarios[7].name").value("推荐卡片"))
                 .andExpect(jsonPath("$.data.scenarios[4].dormant").value(false))
                 .andExpect(jsonPath("$.data.scenarios[0].briefType").value(1))
@@ -406,8 +408,8 @@ class PromptTemplateControllerTest {
 
     @Test
     void placeholders_invalidBriefType_returns400ParamInvalid() throws Exception {
-        // Act + Assert：未知场景码按参数校验口径 400/2001
-        mockMvc.perform(get("/api/v1/prompt-placeholders").param("briefType", "10"))
+        // Act + Assert：未知场景码按参数校验口径 400/2001（M21 T182 起 10 已被全市场深析占用——非法例改用 11）
+        mockMvc.perform(get("/api/v1/prompt-placeholders").param("briefType", "11"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
     }

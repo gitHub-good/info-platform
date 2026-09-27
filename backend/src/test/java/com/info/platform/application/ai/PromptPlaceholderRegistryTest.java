@@ -49,7 +49,19 @@ class PromptPlaceholderRegistryTest {
                             extractProvider(),
                             dailyReportProvider(),
                             recommendCardProvider(),
-                            weeklyReportProvider()));
+                            weeklyReportProvider(),
+                            deepDiveProvider()));
+
+    /** 场景 10（全市场深析）供给方：全部依赖 mock（注册表只读 provided()，不触发调用，M21 T182）。 */
+    private static com.info.platform.application.markettop.DeepDiveService deepDiveProvider() {
+        return new com.info.platform.application.markettop.DeepDiveService(
+                mock(LlmGateway.class),
+                mock(PromptTemplateService.class),
+                mock(com.info.platform.domain.markettop.DeepDiveOutputParser.class),
+                mock(com.info.platform.application.analysis.PipelineGuardService.class),
+                mock(com.info.platform.application.analysis.PipelineSettings.class),
+                mock(com.info.platform.application.markettop.MarketTopConfigSettings.class));
+    }
 
     /** 场景 5（行业归类）供给方：全部依赖 mock（注册表只读 provided()，不触发调用）。 */
     private static com.info.platform.application.analysis.ClassificationService classifyProvider() {
@@ -144,6 +156,9 @@ class PromptPlaceholderRegistryTest {
         assertThat(registry.byBriefType(BriefType.RECOMMEND_CARD)).hasSize(7);
         // 场景 9 行业周报 6 键（weekStart/weekEnd/heatStats/topEvents/policyLines/trendSignals，M17 T145）
         assertThat(registry.byBriefType(BriefType.INDUSTRY_WEEKLY)).hasSize(6);
+        // 场景 10 全市场深析 9 键（subject/factors/totalScore/percentile/breakthrough/topEvents/relatedNews/
+        // industryNews/marketSnapshot，M21 T182——与 DeepDivePromptComposer 同源）
+        assertThat(registry.byBriefType(BriefType.DEEP_DIVE)).hasSize(9);
         assertThat(registry.all()).containsOnlyKeys(BriefType.values());
     }
 
