@@ -638,7 +638,8 @@ class SourceRegistryServiceIntegrationTest {
 
     /** 无过滤计数（T160 起 countByFilter 收 LibraryFilter；源过滤 + 其余维度不过滤 = 旧口径）。 */
     private static FeedItemRepository.LibraryFilter unfiltered(Long sourceId) {
-        return new FeedItemRepository.LibraryFilter(sourceId, null, null, null, null, null);
+        return new FeedItemRepository.LibraryFilter(
+                sourceId, null, null, null, null, null, null, null);
     }
 
     private void persistItem(long sourceId, String externalId, String title, Instant publishedAt) {

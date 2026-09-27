@@ -32,6 +32,11 @@ import org.springframework.web.bind.annotation.RestController;
  *       （前端源码无引用、无持久代码消费方），行为变化零波及面；ALL 显式值保留全量可见能力，游标路径不受 l0 影响（字节级不动）。
  *   <li>{@code l1}：主分类，35 枚举白名单（{@link IndustryCategory}，代码侧校验权威），非法 400/2001（字段级 msg， 本端点参数错误统一
  *       2001 段——30079 为事件流专属不复用）。
+ *   <li>{@code publishedFrom}/{@code publishedTo}：发布时间窗（BUG-M23-01），yyyy-MM-dd 非法 400、from&gt;to
+ *       400。
+ *   <li>{@code fetchedFrom}/{@code fetchedTo}：入库时间窗（T210，M24 V2.4，REQ-20260928-20 拍板三）——上海日界
+ *       含端点，大盘「今日入库」弹框与 source_daily_stats.newCount 对账的口径前提；校验与 publishedFrom/To 同例（yyyy-MM-dd 非法
+ *       400、from&gt;to 400、页码模式专属）。
  * </ul>
  */
 @RestController
@@ -72,7 +77,9 @@ public class NewsItemsController {
             @RequestParam(value = "l0", required = false) String l0,
             @RequestParam(value = "l1", required = false) String l1,
             @RequestParam(value = "publishedFrom", required = false) String publishedFrom,
-            @RequestParam(value = "publishedTo", required = false) String publishedTo) {
+            @RequestParam(value = "publishedTo", required = false) String publishedTo,
+            @RequestParam(value = "fetchedFrom", required = false) String fetchedFrom,
+            @RequestParam(value = "fetchedTo", required = false) String fetchedTo) {
         String trimmedQ = trimToNull(q);
         String trimmedL1 = trimToNull(l1);
         String trimmedL0 = trimToNull(l0);
@@ -81,14 +88,23 @@ public class NewsItemsController {
         if (from != null && to != null && from.compareTo(to) > 0) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "publishedFrom 不得晚于 publishedTo");
         }
+        String fetchedFromDay = validatedDate(fetchedFrom, "fetchedFrom");
+        String fetchedToDay = validatedDate(fetchedTo, "fetchedTo");
+        if (fetchedFromDay != null
+                && fetchedToDay != null
+                && fetchedFromDay.compareTo(fetchedToDay) > 0) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "fetchedFrom 不得晚于 fetchedTo");
+        }
         PageQuery.requirePageParam(
                 page,
-                "q/l0/l1/publishedFrom/publishedTo",
+                "q/l0/l1/publishedFrom/publishedTo/fetchedFrom/fetchedTo",
                 trimmedQ != null
                         || trimmedL0 != null
                         || trimmedL1 != null
                         || from != null
-                        || to != null);
+                        || to != null
+                        || fetchedFromDay != null
+                        || fetchedToDay != null);
         PageQuery pageQuery = PageQuery.resolve(page, size, beforeId);
         if (pageQuery != null) {
             rejectLimitInPageMode(limit);
@@ -99,7 +115,9 @@ public class NewsItemsController {
                             resolvedL0(trimmedL0),
                             validatedCategory(trimmedL1),
                             from,
-                            to);
+                            to,
+                            fetchedFromDay,
+                            fetchedToDay);
             return Result.ok(queryService.listPaged(filter, pageQuery.page(), pageQuery.size()));
         }
         return Result.ok(queryService.listCursor(sourceId, beforeId, resolvedLimit(limit)));

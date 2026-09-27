@@ -247,6 +247,26 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
         if (filter.publishedTo() != null) {
             query.append(" AND ni.published_at <= ?", filter.publishedTo() + "T16:00:59");
         }
+        // 入库时间窗（T210，M24 V2.4，REQ-20260928-20 拍板三对账锚）：fetched_at 为 ISO UTC 文本，字典序可比；
+        // 上海日 D = UTC [D-1 16:00:00, D 16:00:00)——与 source_daily_stats.stat_date 同口径
+        // （FeedIngestService 落库 fetched_at 与计数 stat_date 出自同一轮 now），「今日入库」弹框 total 与
+        // 大盘 newCount 构造上可对账相等。
+        if (filter.fetchedFrom() != null) {
+            query.append(" AND ni.fetched_at >= ?", shDayStartUtc(filter.fetchedFrom()));
+        }
+        if (filter.fetchedTo() != null) {
+            query.append(" AND ni.fetched_at < ?", shDayEndExclusiveUtc(filter.fetchedTo()));
+        }
+    }
+
+    /** 上海日 D 的 UTC 起点文本（D-1T16:00:00Z；ISO UTC 文本字典序可比，日窗含起点）。 */
+    static String shDayStartUtc(String day) {
+        return java.time.LocalDate.parse(day).minusDays(1) + "T16:00:00";
+    }
+
+    /** 上海日 D 的 UTC 开区间上界文本（DT16:00:00Z = 次日 00:00 上海；严格小于，无 :59 溢出秒）。 */
+    static String shDayEndExclusiveUtc(String day) {
+        return java.time.LocalDate.parse(day) + "T16:00:00";
     }
 
     /**

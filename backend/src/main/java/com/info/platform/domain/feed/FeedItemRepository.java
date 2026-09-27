@@ -66,13 +66,17 @@ public interface FeedItemRepository {
     record LatencySample(long sourceId, Instant ingestedAt, long latencyMillis) {}
 
     /**
-     * 资讯库组合过滤条件（T160 页码模式，纯 JDK record）：sourceId + q 关键词 + l0 状态 + l1 主分类任意组合、全 AND 语义； {@link
-     * #findPage}/{@link #countByFilter} 同一 filter 保证页数据与计数同口径。
+     * 资讯库组合过滤条件（T160 页码模式，纯 JDK record）：sourceId + q 关键词 + l0 状态 + l1 主分类 + 发布/入库时间窗任意组合、 全 AND
+     * 语义；{@link #findPage}/{@link #countByFilter} 同一 filter 保证页数据与计数同口径。
      *
      * @param sourceId 源过滤；null = 全部源
      * @param keyword 标题/摘要关键词；null = 不过滤（接口层已校验长度 2~64 并 trim；LIKE 转义见实现层）
      * @param l0 L0 状态过滤；null = 不过滤（API 层 l0=ALL 或游标路径）；PASS 含「无 analysis 行」兜底条目
      * @param mainCategory 主分类过滤（35 枚举，接口层已校验）；null = 不过滤；l1_status≠DONE 条目自然不含
+     * @param publishedFrom 发布时间窗起点（yyyy-MM-dd，上海日界含端点）；null = 不过滤
+     * @param publishedTo 发布时间窗终点（yyyy-MM-dd，上海日界含端点）；null = 不过滤
+     * @param fetchedFrom 入库时间窗起点（yyyy-MM-dd，上海日界含端点，T210——大盘「今日入库」弹框对账口径）；null = 不过滤
+     * @param fetchedTo 入库时间窗终点（yyyy-MM-dd，上海日界含端点）；null = 不过滤
      */
     record LibraryFilter(
             Long sourceId,
@@ -80,9 +84,9 @@ public interface FeedItemRepository {
             L0Result l0,
             String mainCategory,
             String publishedFrom,
-            String publishedTo) {}
-
-    /** publishedFrom/To：发布时间窗（ISO yyyy-MM-dd，上海日界含端点；null 不过滤）。 */
+            String publishedTo,
+            String fetchedFrom,
+            String fetchedTo) {}
 
     /**
      * 资讯库条目行（T160 读模型投影）：news_item 条目 + news_analysis 归类产物 + 近重复主条引用（na.near_dup_of → 主条

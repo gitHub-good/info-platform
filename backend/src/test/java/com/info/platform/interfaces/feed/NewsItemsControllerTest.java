@@ -293,6 +293,63 @@ class NewsItemsControllerTest {
         assertThat(captor.getValue().l0()).isNull();
     }
 
+    // —— T210（M24 V2.4）：fetchedFrom/To 入库时间窗（页码模式专属，REQ-20260928-20 拍板三对账前提） ——
+
+    @Test
+    void list_pageMode_passesFetchedWindowThrough() throws Exception {
+        when(queryService.listPaged(any(LibraryFilter.class), eq(1), eq(20)))
+                .thenReturn(new NewsItemsPagedView(List.of(view(1, "a")), 1L, 1, 20));
+
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("page", "1")
+                                .param("fetchedFrom", "2026-09-22")
+                                .param("fetchedTo", "2026-09-22"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<LibraryFilter> captor = ArgumentCaptor.forClass(LibraryFilter.class);
+        verify(queryService).listPaged(captor.capture(), eq(1), eq(20));
+        assertThat(captor.getValue().fetchedFrom()).isEqualTo("2026-09-22");
+        assertThat(captor.getValue().fetchedTo()).isEqualTo("2026-09-22");
+        assertThat(captor.getValue().publishedFrom()).isNull();
+    }
+
+    @Test
+    void list_fetchedWindowInvalidDate_rejected400() throws Exception {
+        // 非 yyyy-MM-dd / 不存在的日期 → 400 字段级（沿 publishedFrom/To 校验先例）
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("page", "1")
+                                .param("fetchedFrom", "2026-9-22"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("page", "1")
+                                .param("fetchedTo", "2026-02-30"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_fetchedFromAfterFetchedTo_rejected400() throws Exception {
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("page", "1")
+                                .param("fetchedFrom", "2026-09-23")
+                                .param("fetchedTo", "2026-09-22"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_fetchedFromWithoutPage_rejected400() throws Exception {
+        // 页码模式专属参数（M9 契约确定性先例）：出现而 page 缺席 → 400
+        mockMvc.perform(get("/api/v1/news-items").param("fetchedFrom", "2026-09-22"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
     @Test
     void list_pageMode_passesSourceIdQAndL1Through() throws Exception {
         when(queryService.listPaged(any(LibraryFilter.class), eq(1), eq(20)))

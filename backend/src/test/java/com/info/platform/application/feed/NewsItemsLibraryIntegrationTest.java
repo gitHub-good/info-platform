@@ -10,6 +10,8 @@ import com.info.platform.domain.feed.FeedItemRepository;
 import com.info.platform.domain.feed.FeedItemRepository.LibraryFilter;
 import com.info.platform.domain.feed.InfoSource;
 import com.info.platform.domain.feed.InfoSourceRepository;
+import com.info.platform.domain.feed.SourceDailyStats;
+import com.info.platform.domain.feed.SourceDailyStatsRepository;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -32,6 +34,7 @@ class NewsItemsLibraryIntegrationTest {
     @Autowired private NewsItemsQueryService service;
     @Autowired private InfoSourceRepository infoSourceRepository;
     @Autowired private FeedItemRepository itemRepository;
+    @Autowired private SourceDailyStatsRepository statsRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     private final List<Long> seededNewsIds = new java.util.ArrayList<>();
@@ -91,10 +94,18 @@ class NewsItemsLibraryIntegrationTest {
         jdbcTemplate.update(
                 "DELETE FROM source_poll_state WHERE source_id IN"
                         + " (SELECT id FROM info_source WHERE source_code LIKE 't160lib')");
+        jdbcTemplate.update(
+                "DELETE FROM source_daily_stats WHERE source_id IN"
+                        + " (SELECT id FROM info_source WHERE source_code LIKE 't160lib')");
         jdbcTemplate.update("DELETE FROM info_source WHERE source_code LIKE 't160lib'");
     }
 
     private long insertItem(String title, String summary, String url, Instant t) {
+        return insertItem(title, summary, url, t, t);
+    }
+
+    private long insertItem(
+            String title, String summary, String url, Instant publishedAt, Instant fetchedAt) {
         itemRepository.insertIgnoreBatch(
                 List.of(
                         FeedItem.newOf(
@@ -104,9 +115,9 @@ class NewsItemsLibraryIntegrationTest {
                                 summary,
                                 url,
                                 null,
-                                t,
-                                t,
-                                FeedFingerprint.fingerprint(title, t))));
+                                publishedAt,
+                                fetchedAt,
+                                FeedFingerprint.fingerprint(title, publishedAt))));
         Long id =
                 jdbcTemplate.queryForObject(
                         "SELECT id FROM news_item WHERE source_id = ? AND title = ?",
@@ -145,7 +156,7 @@ class NewsItemsLibraryIntegrationTest {
     }
 
     private LibraryFilter filter(String q, L0Result l0, String l1) {
-        return new LibraryFilter(sourceId, q, l0, l1, null, null);
+        return new LibraryFilter(sourceId, q, l0, l1, null, null, null, null);
     }
 
     @Test
@@ -263,6 +274,106 @@ class NewsItemsLibraryIntegrationTest {
         assertThat(page2.items()).extracting(NewsItemView::id).containsExactly(n4, n3);
         assertThat(page2.page()).isEqualTo(2);
         assertThat(page2.size()).isEqualTo(2);
+    }
+
+    // —— T210（M24 V2.4，REQ-20260928-20 拍板三）：fetchedFrom/To 入库时间窗（上海日界含端点；对账口径） ——
+
+    @Test
+    void listPaged_fetchedWindow_shanghaiDayBoundaryInclusive() {
+        // 上海日 2026-09-22 = UTC [2026-09-21T16:00:00Z, 2026-09-22T16:00:00Z)
+        Instant dayStartExclusive = Instant.parse("2026-09-21T15:59:59Z"); // SH 09-21 23:59:59 → 窗外
+        Instant dayStart = Instant.parse("2026-09-21T16:00:00Z"); // SH 09-22 00:00:00 → 窗内
+        Instant dayEnd = Instant.parse("2026-09-22T15:59:59Z"); // SH 09-22 23:59:59 → 窗内
+        Instant dayEndExclusive = Instant.parse("2026-09-22T16:00:00Z"); // SH 09-23 00:00:00 → 窗外
+        long before = insertFetched("窗外前日条目", dayStartExclusive);
+        long in1 = insertFetched("窗内首秒条目", dayStart);
+        long in2 = insertFetched("窗内末秒条目", dayEnd);
+        long after = insertFetched("窗外次日条目", dayEndExclusive);
+        // setUp 种子 6 条 fetched_at=09-22T05:00Z（上海日 09-22 窗内），一并计入窗口结果
+
+        NewsItemsPagedView view =
+                service.listPaged(
+                        new LibraryFilter(
+                                sourceId, null, null, null, null, null, "2026-09-22", "2026-09-22"),
+                        1,
+                        10);
+
+        assertThat(view.items())
+                .extracting(NewsItemView::id)
+                .containsExactly(in2, in1, n6, n5, n4, n3, n2, n1);
+        assertThat(view.total()).isEqualTo(8);
+        assertThat(view.items()).extracting(NewsItemView::id).doesNotContain(before, after);
+    }
+
+    @Test
+    void listPaged_fetchedWindow_reconcilesWithDailyStatsNewCount() {
+        // 对账口径用例（T210 验收锚）：l0=ALL + 入库窗（上海日 D）+ 源过滤 == source_daily_stats
+        // 当日 new_count（FeedIngestService 同一 now 落库与计数——构造上 fetched_at 与 stat_date 同源）
+        Instant shTodayMid = Instant.parse("2026-09-22T05:30:00Z"); // 上海日 2026-09-22 午间
+        long in1 = insertFetched("对账条目一", shTodayMid);
+        long in2 = insertFetched("对账条目二", shTodayMid);
+        insertAnalysis(in1, "PASS", null, null, "DONE", "银行", 0.9, 0);
+        insertAnalysis(in2, "NOISE", null, "推广", "PENDING", null, null, 0); // 噪音行也计入入库数
+        // 窗内入库行 = setUp 种子 6（05:00Z）+ 本用例 2 = 8；new_count 同口径计入
+        statsRepository.increment(sourceId, "2026-09-22", 1, 0, 8, 0);
+
+        SourceDailyStats today =
+                statsRepository.findSince("2026-09-22").stream()
+                        .filter(row -> row.sourceId() == sourceId)
+                        .findFirst()
+                        .orElseThrow();
+
+        NewsItemsPagedView all =
+                service.listPaged(
+                        new LibraryFilter(
+                                sourceId, null, null, null, null, null, "2026-09-22", "2026-09-22"),
+                        1,
+                        10);
+        assertThat(all.total()).isEqualTo(today.newCount()).isEqualTo(8);
+        // l0 缺省 PASS 会对不上账（噪音行被滤）：弹框必须 l0=ALL（REQ 拍板三对账口径）
+        // PASS 行 = 种子 n1/n4/n5（无 analysis 行兜底 PASS）/n6 + in1 = 5 < 全量 8
+        NewsItemsPagedView passOnly =
+                service.listPaged(
+                        new LibraryFilter(
+                                sourceId,
+                                null,
+                                L0Result.PASS,
+                                null,
+                                null,
+                                null,
+                                "2026-09-22",
+                                "2026-09-22"),
+                        1,
+                        10);
+        assertThat(passOnly.total()).isEqualTo(5).isLessThan(all.total());
+    }
+
+    @Test
+    void listPaged_fetchedWindow_combinesWithOtherFiltersAndSemantics() {
+        Instant t = Instant.parse("2026-09-22T05:00:00Z");
+        long hit = insertFetched("入库窗与关键词命中", t);
+
+        NewsItemsPagedView view =
+                service.listPaged(
+                        new LibraryFilter(
+                                sourceId,
+                                "入库窗与关键词",
+                                null,
+                                null,
+                                null,
+                                null,
+                                "2026-09-22",
+                                "2026-09-22"),
+                        1,
+                        10);
+
+        assertThat(view.items()).extracting(NewsItemView::id).containsExactly(hit);
+        assertThat(view.total()).isEqualTo(1);
+    }
+
+    /** 显式 fetched_at 落库（T210 入库窗用例：published_at 恒定不参与过滤）。 */
+    private long insertFetched(String title, Instant fetchedAt) {
+        return insertItem(title, null, "https://example.com/" + title, fetchedAt, fetchedAt);
     }
 
     @Test
