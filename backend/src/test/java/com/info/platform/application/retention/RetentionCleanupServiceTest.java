@@ -104,7 +104,7 @@ class RetentionCleanupServiceTest {
         assertThat(result.processedCount()).isEqualTo(6L);
         assertThat(result.detail())
                 .isEqualTo(
-                        "job_execution_log=2; data_source_event=0; llm_call_log=1; reading_event=3; news_item=0; news_analysis=0; recommendation_card=0; recommendation_feedback=0; subject_factor_snapshot=0; market_daily_snapshot=0");
+                        "job_execution_log=2; data_source_event=0; llm_call_log=1; reading_event=3; news_item=0; news_analysis=0; recommendation_card=0; recommendation_feedback=0; subject_factor_snapshot=0; market_daily_snapshot=0; market_top_rank=0; market_top_batch=0");
     }
 
     @Test
@@ -122,7 +122,7 @@ class RetentionCleanupServiceTest {
         assertThat(result.processedCount()).isZero();
         assertThat(result.detail())
                 .isEqualTo(
-                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0; news_item=0; news_analysis=0; recommendation_card=0; recommendation_feedback=0; subject_factor_snapshot=0; market_daily_snapshot=0");
+                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0; news_item=0; news_analysis=0; recommendation_card=0; recommendation_feedback=0; subject_factor_snapshot=0; market_daily_snapshot=0; market_top_rank=0; market_top_batch=0");
     }
 
     @Test
@@ -263,7 +263,7 @@ class RetentionCleanupServiceTest {
         assertThat(second.processedCount()).isZero();
         assertThat(second.detail())
                 .isEqualTo(
-                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0; news_item=0; news_analysis=0; recommendation_card=0; recommendation_feedback=0; subject_factor_snapshot=0; market_daily_snapshot=0");
+                        "job_execution_log=0; data_source_event=0; llm_call_log=0; reading_event=0; news_item=0; news_analysis=0; recommendation_card=0; recommendation_feedback=0; subject_factor_snapshot=0; market_daily_snapshot=0; market_top_rank=0; market_top_batch=0");
     }
 
     @Test

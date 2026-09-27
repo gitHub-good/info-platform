@@ -23,7 +23,8 @@ class ValuationParamsTest {
         assertThat(params.halfLifeDays()).isEqualTo(5.0);
         assertThat(params.k1Saturation()).isEqualTo(3.0);
         assertThat(params.k3Saturation()).isEqualTo(1.5);
-        assertThat(params.btCatalystMin()).isEqualTo(60);
+        // btCatalystMin 60→20：M21 T180 校准（OBS-M20-2，V31 迁移守卫同步存量 DB 行）
+        assertThat(params.btCatalystMin()).isEqualTo(20);
         assertThat(params.btConductionMin()).isEqualTo(50);
         assertThat(params.btRiskMin()).isEqualTo(80);
     }
@@ -33,7 +34,7 @@ class ValuationParamsTest {
         // §4.3 键文档示例逐字对齐：权重两位小数 | win 整数 | hl/k 原样 double | bt 整数（catalyst|conduction|risk）
         assertThat(ValuationParams.defaults().basis())
                 .isEqualTo(
-                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80");
+                        "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=20|50|80");
     }
 
     @Test

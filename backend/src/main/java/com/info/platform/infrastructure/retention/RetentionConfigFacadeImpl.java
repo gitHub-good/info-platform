@@ -53,7 +53,9 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
                         windows.newsItemDays(),
                         windows.recommendationCardDays(),
                         windows.subjectFactorSnapshotDays(),
-                        windows.marketDailySnapshotDays()),
+                        windows.marketDailySnapshotDays(),
+                        windows.marketTopRankDays(),
+                        windows.marketTopBatchDays()),
                 limits,
                 entry == null ? null : entry.updatedAt().toString());
     }
@@ -84,6 +86,14 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
                 orCurrent(
                         update.marketDailySnapshotDays(),
                         currentWindows.marketDailySnapshotDays()));
+        putIfPresent(
+                doc,
+                RetentionLogTable.MARKET_TOP_RANK,
+                orCurrent(update.marketTopRankDays(), currentWindows.marketTopRankDays()));
+        putIfPresent(
+                doc,
+                RetentionLogTable.MARKET_TOP_BATCH,
+                orCurrent(update.marketTopBatchDays(), currentWindows.marketTopBatchDays()));
         configService.write(
                 RetentionConfigValidator.CONFIG_KEY,
                 doc.toString(),

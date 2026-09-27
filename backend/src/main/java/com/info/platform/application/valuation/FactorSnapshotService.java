@@ -1,11 +1,13 @@
 package com.info.platform.application.valuation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.domain.recommendation.IndustryDirectory;
 import com.info.platform.domain.valuation.CatalystFactor;
 import com.info.platform.domain.valuation.ConductionFactor;
 import com.info.platform.domain.valuation.FactorEntry;
 import com.info.platform.domain.valuation.FactorSnapshotRepository;
 import com.info.platform.domain.valuation.FactorSnapshotRepository.EventRef;
+import com.info.platform.domain.valuation.FactorSnapshotRepository.IndustryMemberRow;
 import com.info.platform.domain.valuation.FactorSnapshotRepository.NewsLinkRow;
 import com.info.platform.domain.valuation.FactorSnapshotRepository.SubjectRef;
 import com.info.platform.domain.valuation.FactorSnapshotRow;
@@ -14,6 +16,7 @@ import com.info.platform.domain.valuation.HeatRow;
 import com.info.platform.domain.valuation.IndustryAssociator;
 import com.info.platform.domain.valuation.IndustryAssociator.Association;
 import com.info.platform.domain.valuation.IndustryAssociator.EventLink;
+import com.info.platform.domain.valuation.IndustryAssociator.MemberLink;
 import com.info.platform.domain.valuation.IndustryAssociator.NewsLink;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository;
 import com.info.platform.domain.valuation.MarketDailySnapshotRepository.MarketDailyRow;
@@ -110,7 +113,7 @@ public class FactorSnapshotService {
         List<SubjectRef> subjects = repository.findActiveSubjects();
         marketService.refresh(snapshotDate, subjects);
 
-        // 阶段 1：输入投影（全部载入内存——§5 容量实测：W2 窗数千行级）
+        // 阶段 1：输入投影（全部载入内存——§5 容量实测：W2 窗数千行级；M21 六输入扩位 + 行业成员投影）
         List<EventRef> events =
                 repository.findEventsInWindow(
                         snapshotDate.minusDays(params.assocWindowDays() - 1L).toString(), dateText);
@@ -119,6 +122,7 @@ public class FactorSnapshotService {
                         windowStartIso(snapshotDate, params.assocWindowDays()),
                         dayEndIso(snapshotDate));
         List<HeatRow> heatRows = repository.findH24Heat();
+        List<MemberLink> memberLinks = memberLinks(repository.findIndustryMembers());
         Map<Long, MarketDailyRow> marketMap = marketRepository.findByDate(dateText);
 
         // 阶段 2：逐标的计算
@@ -127,6 +131,7 @@ public class FactorSnapshotService {
                 IndustryAssociator.associate(
                         eventLinks(events),
                         newsLinks(newsLinks),
+                        memberLinks,
                         snapshotDate,
                         params.assocWindowDays());
         List<Double> peCrossSection = positiveValues(marketMap, MarketDailyRow::peTtm);
@@ -210,8 +215,26 @@ public class FactorSnapshotService {
                         detail,
                         writeJson(flags),
                         params.basis(),
-                        clock.instant().toString());
+                        clock.instant().toString(),
+                        lastEventDateText(f1, f3, f4));
         return new RowWithFlags(row, flags);
+    }
+
+    /**
+     * 最近事件日（M21 §4.1.6）：max(catalyst/fundamental/risk 三维护据事件的 eventDate)—— 无事件返回 null（粗筛四键 NULL
+     * 视最旧）。
+     */
+    private static String lastEventDateText(
+            CatalystFactor.Result f1, FundamentalFactor.Result f3, RiskFactor.Result f4) {
+        LocalDate latest = null;
+        for (List<FactorEntry> entries : List.of(f1.entries(), f3.entries(), f4.entries())) {
+            for (FactorEntry entry : entries) {
+                if (latest == null || entry.eventDate().isAfter(latest)) {
+                    latest = entry.eventDate();
+                }
+            }
+        }
+        return latest == null ? null : latest.toString();
     }
 
     /** 行 + flags 原值（报告计数免二次解析 JSON）。 */
@@ -348,6 +371,22 @@ public class FactorSnapshotService {
                                         row.subIndustry(),
                                         row.publishedDate()))
                 .toList();
+    }
+
+    /**
+     * 行业成员投影 → 路 C 输入（§4.1.3/4.1.4）：industry 原文经 {@code IndustryDirectory.swPrimaryOf} 映射，
+     * 未收录板块过滤不出行 （安全侧失败——少关联不误关联；映射缺漏计数观察留 JobRunStats，T183 阶段 0 detail 接线）。
+     */
+    private static List<MemberLink> memberLinks(List<IndustryMemberRow> rows) {
+        List<MemberLink> links = new ArrayList<>();
+        for (IndustryMemberRow row : rows) {
+            String swIndustry = IndustryDirectory.swPrimaryOf(row.industry());
+            if (swIndustry == null) {
+                continue;
+            }
+            links.add(new MemberLink(row.code(), swIndustry));
+        }
+        return links;
     }
 
     private static List<Double> positiveValues(

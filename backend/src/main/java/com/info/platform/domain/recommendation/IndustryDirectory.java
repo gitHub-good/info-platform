@@ -25,6 +25,15 @@ public final class IndustryDirectory {
     /** 行业名 + 别名全词表索引（词 → 行业；一词只归一行业，跨行业歧义词不收录）。 */
     private static final Map<String, String> WORD_TO_INDUSTRY = buildWordIndex();
 
+    /**
+     * 东财行业板块名 → 申万一级行业静态映射（M21 T180，ADR-0059 裁决 1③/§4.1.3）。值域为 datacenter {@code
+     * RPT_WEB_RESPREDICT.INDUSTRY_BOARD} 全量实测 127 值（2026-09-27 30 页 2933 只零缺失拉取；方案样本估 ~104，
+     * 全量值域已超样收录）；push2 clist f100 为同口径板块名（方案 §1.2 实测样本「通用设备/军工电子Ⅱ/IT服务Ⅱ」均在此表）。 未收录返
+     * null（安全侧失败：少关联不误关联）——IndustryAssociator 路 C 只读本映射输出，不读 subject_master.industry 原文（ADR-0059 对
+     * ADR-0058 裁决 2 的替代锚点）。
+     */
+    private static final Map<String, String> SW_PRIMARY_OF = buildSwPrimaryOf();
+
     private IndustryDirectory() {}
 
     /**
@@ -58,6 +67,21 @@ public final class IndustryDirectory {
     /** 反查：词所属行业（行业名或别名命中返回申万枚举名；未收录返回 null）。 */
     public static String industryOfWord(String word) {
         return word == null ? null : WORD_TO_INDUSTRY.get(word);
+    }
+
+    /**
+     * 东财行业板块名 → 申万一级行业（M21 T180 路 C 成员边映射入口；§4.1.3）。
+     *
+     * @param board 东财板块名（如 {@code 银行Ⅱ}/{@code 消费电子}/{@code IT服务Ⅱ}；null/空白返 null）
+     * @return 申万一级行业名；未收录返回 {@code null}（安全侧失败——不强行映射，缺漏由 WARN 计数观察、首跑后补表）
+     */
+    public static String swPrimaryOf(String board) {
+        return board == null ? null : SW_PRIMARY_OF.get(board);
+    }
+
+    /** 东财板块全量值域（恰 127 实测板块；单测覆盖率与值域漂移对账面）。 */
+    public static Set<String> allEastmoneyBoards() {
+        return Collections.unmodifiableSet(SW_PRIMARY_OF.keySet());
     }
 
     /** 全词表（含行业名与别名；单测覆盖率与白名单校验器消费面）。 */
@@ -130,5 +154,82 @@ public final class IndustryDirectory {
     /** 目录与申万枚举一致性自检（行业集 = {@link IndustryCategory#SW_INDUSTRIES}；测试断言面）。 */
     public static boolean coversAllSwIndustries() {
         return ALIASES.keySet().equals(IndustryCategory.SW_INDUSTRIES);
+    }
+
+    /**
+     * 东财板块 → 申万 31 映射表（127 实测值，按申万目标分组维护；一词只归一行业）。 映射口径：东财板块即申万 2021 二/三级行业名的板块化呈现——归属按申万 2021
+     * 一级行业分类树。
+     */
+    private static Map<String, String> buildSwPrimaryOf() {
+        Map<String, String> map = new LinkedHashMap<>();
+        // 农林牧渔（7 板块）
+        putAll(map, "农林牧渔", "养殖业", "农业综合Ⅱ", "农产品加工", "动物保健Ⅱ", "渔业", "种植业", "饲料");
+        // 基础化工（6）
+        putAll(map, "基础化工", "农化制品", "化学制品", "化学原料", "化学纤维", "塑料", "橡胶");
+        // 钢铁（3）
+        putAll(map, "钢铁", "冶钢原料", "普钢", "特钢Ⅱ");
+        // 有色金属（5）
+        putAll(map, "有色金属", "小金属", "工业金属", "贵金属", "能源金属", "金属新材料");
+        // 电子（6）
+        putAll(map, "电子", "半导体", "元件", "光学光电子", "消费电子", "其他电子Ⅱ", "电子化学品Ⅱ");
+        // 家用电器（7）
+        putAll(map, "家用电器", "白色家电", "黑色家电", "小家电", "厨卫电器", "照明设备Ⅱ", "家电零部件Ⅱ", "其他家电Ⅱ");
+        // 食品饮料（6）
+        putAll(map, "食品饮料", "白酒Ⅱ", "非白酒", "休闲食品", "调味发酵品Ⅱ", "食品加工", "饮料乳品");
+        // 纺织服饰（2）
+        putAll(map, "纺织服饰", "服装家纺", "纺织制造");
+        // 轻工制造（5）
+        putAll(map, "轻工制造", "包装印刷", "家居用品", "文娱用品", "造纸", "饰品");
+        // 医药生物（6）
+        putAll(map, "医药生物", "中药Ⅱ", "化学制药", "生物制品", "医疗器械", "医疗服务", "医药商业");
+        // 公用事业（2）
+        putAll(map, "公用事业", "电力", "燃气Ⅱ");
+        // 交通运输（5）
+        putAll(map, "交通运输", "物流", "航空机场", "航运港口", "铁路公路");
+        // 房地产（2）
+        putAll(map, "房地产", "房地产开发", "房地产服务");
+        // 商贸零售（5）
+        putAll(map, "商贸零售", "一般零售", "专业连锁Ⅱ", "互联网电商", "旅游零售Ⅱ", "贸易Ⅱ");
+        // 社会服务（5）
+        putAll(map, "社会服务", "专业服务", "体育Ⅱ", "教育", "旅游及景区", "酒店餐饮");
+        // 银行（1）
+        putAll(map, "银行", "银行Ⅱ");
+        // 非银金融（3）
+        putAll(map, "非银金融", "证券Ⅱ", "保险Ⅱ", "多元金融");
+        // 综合（1）
+        putAll(map, "综合", "综合Ⅱ");
+        // 建筑材料（4）
+        putAll(map, "建筑材料", "水泥", "玻璃玻纤", "装修建材", "非金属材料Ⅱ");
+        // 建筑装饰（5）
+        putAll(map, "建筑装饰", "基础建设", "专业工程", "工程咨询服务Ⅱ", "房屋建设Ⅱ", "装修装饰Ⅱ");
+        // 电力设备（6）
+        putAll(map, "电力设备", "电池", "光伏设备", "风电设备", "电网设备", "电机Ⅱ", "其他电源设备Ⅱ");
+        // 机械设备（5）
+        putAll(map, "机械设备", "通用设备", "专用设备", "工程机械", "自动化设备", "轨交设备Ⅱ");
+        // 国防军工（5）
+        putAll(map, "国防军工", "军工电子Ⅱ", "航空装备Ⅱ", "航天装备Ⅱ", "航海装备Ⅱ", "地面兵装Ⅱ");
+        // 计算机（3）
+        putAll(map, "计算机", "计算机设备", "软件开发", "IT服务Ⅱ");
+        // 传媒（6）
+        putAll(map, "传媒", "出版", "广告营销", "影视院线", "数字媒体", "游戏Ⅱ", "电视广播Ⅱ");
+        // 通信（2）
+        putAll(map, "通信", "通信设备", "通信服务");
+        // 煤炭（2）
+        putAll(map, "煤炭", "煤炭开采", "焦炭Ⅱ");
+        // 石油石化（3）
+        putAll(map, "石油石化", "油气开采Ⅱ", "油服工程", "炼化及贸易");
+        // 环保（2）
+        putAll(map, "环保", "环保设备Ⅱ", "环境治理");
+        // 美容护理（3）
+        putAll(map, "美容护理", "个护用品", "化妆品", "医疗美容");
+        // 汽车（5）
+        putAll(map, "汽车", "乘用车", "商用车", "汽车零部件", "汽车服务", "摩托车及其他");
+        return Collections.unmodifiableMap(map);
+    }
+
+    private static void putAll(Map<String, String> map, String industry, String... boards) {
+        for (String board : boards) {
+            map.put(board, industry);
+        }
     }
 }

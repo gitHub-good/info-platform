@@ -93,7 +93,7 @@ class ScoreWeightConfigFacadeImplTest {
 
         assertThat(view.wCatalyst()).isEqualTo(0.40);
         assertThat(view.wValuation()).isEqualTo(0.00);
-        assertThat(view.btCatalystMin()).isEqualTo(60);
+        assertThat(view.btCatalystMin()).isEqualTo(20); // M21 T180 校准 60→20（V31 守卫同步 DB 行）
         assertThat(view.basis()).isEqualTo(ValuationSettingsDefaults.EXPECTED_BASIS);
         assertThat(view.updatedAt()).isNull();
     }
@@ -351,6 +351,6 @@ class ScoreWeightConfigFacadeImplTest {
     /** 缺省 basis 期望串（与 ValuationParams.defaults().basis() 同源冻结）。 */
     private static final class ValuationSettingsDefaults {
         static final String EXPECTED_BASIS =
-                "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80";
+                "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=20|50|80"; // btCatalystMin M21 T180 校准 60→20
     }
 }

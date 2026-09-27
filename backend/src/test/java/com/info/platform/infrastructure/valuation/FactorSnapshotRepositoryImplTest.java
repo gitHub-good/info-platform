@@ -285,6 +285,59 @@ class FactorSnapshotRepositoryImplTest {
     }
 
     @Test
+    void upsertAll_carriesLastEventDate_sameDayOverwrite() {
+        // M21 §4.1.6：last_event_date 随行落库；当日重跑同键覆盖（含置空——无事件日如实 NULL）
+        long id = subjectId("SH990101");
+        FactorSnapshotRow withEvent = row(id, 10.0, 0.0, 50.0, 100.0, 50.0, 20.0, false, "[]");
+        FactorSnapshotRow withoutEvent =
+                new FactorSnapshotRow(
+                        id,
+                        DATE,
+                        0.0,
+                        0.0,
+                        50.0,
+                        100.0,
+                        50.0,
+                        20.0,
+                        false,
+                        "{}",
+                        "[]",
+                        "vs-v1:…",
+                        "2026-09-22T09:30:00Z",
+                        null);
+
+        repository.upsertAll(List.of(withEvent));
+        assertThat(repository.findLatestBySubject(id).orElseThrow().lastEventDate())
+                .isEqualTo("2026-09-20");
+
+        repository.upsertAll(List.of(withoutEvent));
+        assertThat(repository.findLatestBySubject(id).orElseThrow().lastEventDate()).isNull();
+    }
+
+    @Test
+    void findIndustryMembers_activeAShareWithNonBlankIndustry() {
+        // M21 六输入投影：A 股启用且 industry 非空行（东财板块原文——SW 映射在应用层）
+        jdbcTemplate.update(
+                "UPDATE subject_master SET industry = '白酒Ⅱ' WHERE subject_code = 'SH990101'");
+        jdbcTemplate.update(
+                "UPDATE subject_master SET industry = '银行Ⅱ' WHERE subject_code = 'SH990102'"); // 停用行
+        jdbcTemplate.update(
+                "UPDATE subject_master SET industry = '  ' WHERE subject_code = 'SH990104'"); // 空白串
+
+        List<FactorSnapshotRepository.IndustryMemberRow> rows = repository.findIndustryMembers();
+
+        assertThat(rows)
+                .anySatisfy(
+                        row -> {
+                            assertThat(row.code()).isEqualTo("SH990101");
+                            assertThat(row.industry()).isEqualTo("白酒Ⅱ");
+                        });
+        assertThat(rows).noneMatch(row -> "SH990102".equals(row.code())); // 停用不进投影
+        assertThat(rows).noneMatch(row -> "SH990104".equals(row.code())); // 空白串不算成员
+        assertThat(rows).noneMatch(row -> "HK990103".equals(row.code())); // 港股不进 A 股成员
+    }
+
+    @Test
     void coverageAndRankCounters() {
         long first = subjectId("SH990101");
         long second = subjectId("SH990104");
@@ -357,6 +410,7 @@ class FactorSnapshotRepositoryImplTest {
                 "{\"catalyst\":{\"raw\":0,\"entries\":[]}}",
                 flags,
                 "vs-v1:w=0.40|0.20|0.20|0.20|0.00;win=10|30;hl=5.0;k=3.0|1.5;bt=60|50|80",
-                "2026-09-22T09:30:00Z");
+                "2026-09-22T09:30:00Z",
+                "2026-09-20");
     }
 }

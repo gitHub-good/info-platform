@@ -50,7 +50,9 @@ class RetentionControllerTest {
         limits.put("newsItemDays", new FieldLimits(30, 180));
         limits.put("recommendationCardDays", new FieldLimits(30, 180));
         return new WindowsView(
-                new Windows(30, 14, 90, 90, 180, 180, 180, 365), limits, "2026-09-22T01:00:00Z");
+                new Windows(30, 14, 90, 90, 180, 180, 180, 365, 180, 180),
+                limits,
+                "2026-09-22T01:00:00Z");
     }
 
     @Test

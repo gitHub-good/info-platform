@@ -112,6 +112,11 @@ public enum ErrorCode {
     VALUATION_CONFIG_INVALID(30087, "评分权重配置校验失败", 400),
     /** 评分查询参数非法（coverage date 非 yyyy-MM-dd 等，400，M20 方案 §4.7.2） */
     VALUE_SCORE_QUERY_INVALID(30088, "评分查询参数非法", 400),
+    /**
+     * 榜单配置校验失败（market.top 字段级：poolSize 100~800 / deepDiveLimit 30~50 硬校验 / capRatio / floor，msg
+     * 逐条，400，M21 方案 §4.7.3）
+     */
+    MARKET_TOP_CONFIG_INVALID(30091, "榜单配置校验失败", 400),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);

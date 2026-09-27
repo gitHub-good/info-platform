@@ -96,8 +96,8 @@ class RetentionConfigFacadeImplTest {
         assertThat(view.windows().readingEventDays()).isEqualTo(90);
         assertThat(view.windows().newsItemDays()).isEqualTo(180);
         assertThat(view.updatedAt()).isNull();
-        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段 → T170 八字段）
-        assertThat(view.limits()).hasSize(8);
+        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段 → T170 八字段 → T180 十字段）
+        assertThat(view.limits()).hasSize(10);
         assertThat(view.limits())
                 .containsEntry(
                         "recommendationCardDays", new RetentionConfigFacade.FieldLimits(30, 180));
@@ -110,6 +110,13 @@ class RetentionConfigFacadeImplTest {
                         "marketDailySnapshotDays", new RetentionConfigFacade.FieldLimits(90, 365));
         assertThat(view.windows().subjectFactorSnapshotDays()).isEqualTo(180);
         assertThat(view.windows().marketDailySnapshotDays()).isEqualTo(365);
+        // T180（M21 方案 §4.2）：榜单两表随 RetentionLogTable 扩位（180/min30，M22 统计回算原料）
+        assertThat(view.limits())
+                .containsEntry("marketTopRankDays", new RetentionConfigFacade.FieldLimits(30, 180))
+                .containsEntry(
+                        "marketTopBatchDays", new RetentionConfigFacade.FieldLimits(30, 180));
+        assertThat(view.windows().marketTopRankDays()).isEqualTo(180);
+        assertThat(view.windows().marketTopBatchDays()).isEqualTo(180);
     }
 
     @Test
@@ -163,6 +170,8 @@ class RetentionConfigFacadeImplTest {
                                 IntNode.valueOf(30),
                                 null,
                                 null,
+                                null,
+                                null,
                                 "2026-09-22T01:00:00Z"));
 
         // Assert：写入文档六字段齐整；返回写后视图（新值 + 新 updatedAt）
@@ -203,6 +212,8 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(30),
                                                 null,
                                                 null,
+                                                null,
+                                                null,
                                                 null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
@@ -223,6 +234,8 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
                                                 null,
                                                 null,
                                                 "not-a-time")))
@@ -251,6 +264,8 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
                                                 null,
                                                 null,
                                                 "2026-09-22T00:00:00Z")))

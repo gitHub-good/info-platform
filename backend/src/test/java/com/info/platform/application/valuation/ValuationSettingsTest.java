@@ -78,7 +78,7 @@ class ValuationSettingsTest {
         assertThat(settings.params().assocWindowDays()).isEqualTo(30); // <10 回落
         assertThat(settings.params().halfLifeDays()).isEqualTo(5.0); // <1 回落
         assertThat(settings.params().k1Saturation()).isEqualTo(3.0); // >10 回落
-        assertThat(settings.params().btCatalystMin()).isEqualTo(60); // >100 回落
+        assertThat(settings.params().btCatalystMin()).isEqualTo(20); // >100 回落到缺省（M21 T180 校准后 20）
     }
 
     @Test
@@ -92,7 +92,8 @@ class ValuationSettingsTest {
     private static final class ValuationParamsDefaults {
         static com.info.platform.domain.valuation.ValuationParams expectedDefaults() {
             return new com.info.platform.domain.valuation.ValuationParams(
-                    0.40, 0.20, 0.20, 0.20, 0.00, 10, 30, 5.0, 3.0, 1.5, 60, 50, 80);
+                    0.40, 0.20, 0.20, 0.20, 0.00, 10, 30, 5.0, 3.0, 1.5, 20, 50,
+                    80); // btCatalystMin M21 T180 校准 60→20
         }
     }
 }

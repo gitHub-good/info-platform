@@ -161,7 +161,8 @@ class ValueScoreQueryServiceTest {
                 DETAIL_JSON,
                 "[\"ST_RISK\"]",
                 basis,
-                "2026-09-21T09:30:00Z");
+                "2026-09-21T09:30:00Z",
+                "2026-09-22");
     }
 
     @Test
@@ -221,7 +222,8 @@ class ValueScoreQueryServiceTest {
                         neutralDetail,
                         row.dataFlagsJson(),
                         row.weightBasis(),
-                        row.computedAtIso());
+                        row.computedAtIso(),
+                        row.lastEventDate());
         when(repository.findLatestBySubject(101L)).thenReturn(Optional.of(neutralRow));
         when(repository.countByDate("2026-09-21")).thenReturn(1L);
         when(repository.countScoreGreaterThan("2026-09-21", 90.8)).thenReturn(0L);

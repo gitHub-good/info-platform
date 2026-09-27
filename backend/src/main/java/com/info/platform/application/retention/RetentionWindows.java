@@ -22,7 +22,9 @@ public record RetentionWindows(
         int newsItemDays,
         int recommendationCardDays,
         int subjectFactorSnapshotDays,
-        int marketDailySnapshotDays) {
+        int marketDailySnapshotDays,
+        int marketTopRankDays,
+        int marketTopBatchDays) {
 
     /** 全默认窗口（键缺失/文档损坏时的兜底，值取枚举 defaultDays 单一事实源）。 */
     public static RetentionWindows defaults() {
@@ -43,7 +45,9 @@ public record RetentionWindows(
                 dayOf(doc, RetentionLogTable.NEWS_ITEM),
                 dayOf(doc, RetentionLogTable.RECOMMENDATION_CARD),
                 dayOf(doc, RetentionLogTable.SUBJECT_FACTOR_SNAPSHOT),
-                dayOf(doc, RetentionLogTable.MARKET_DAILY_SNAPSHOT));
+                dayOf(doc, RetentionLogTable.MARKET_DAILY_SNAPSHOT),
+                dayOf(doc, RetentionLogTable.MARKET_TOP_RANK),
+                dayOf(doc, RetentionLogTable.MARKET_TOP_BATCH));
     }
 
     /**
@@ -59,6 +63,8 @@ public record RetentionWindows(
             case RECOMMENDATION_CARD, RECOMMENDATION_FEEDBACK -> recommendationCardDays;
             case SUBJECT_FACTOR_SNAPSHOT -> subjectFactorSnapshotDays;
             case MARKET_DAILY_SNAPSHOT -> marketDailySnapshotDays;
+            case MARKET_TOP_RANK -> marketTopRankDays;
+            case MARKET_TOP_BATCH -> marketTopBatchDays;
         };
     }
 

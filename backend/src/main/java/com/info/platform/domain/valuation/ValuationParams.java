@@ -19,7 +19,7 @@ import java.util.Locale;
  * @param halfLifeDays 事件衰减半衰期（缺省 5.0 天，可配 1~15）
  * @param k1Saturation F1 饱和常数 K1（缺省 3.0）
  * @param k3Saturation F3 tanh 缩放常数 K3（缺省 1.5）
- * @param btCatalystMin 「有突破」F1 下限（缺省 60）
+ * @param btCatalystMin 「有突破」F1 下限（缺省 20，M21 T180 校准 OBS-M20-2：一条 3 日内 HIGH 利好 ≈ raw 0.75 → F1=20）
  * @param btConductionMin 「有突破」F2 下限（缺省 50）
  * @param btRiskMin 「有突破」F4 下限（缺省 80）
  */
@@ -38,9 +38,9 @@ public record ValuationParams(
         int btConductionMin,
         int btRiskMin) {
 
-    /** 代码缺省（方案 §4.3 键文档冻结值）。 */
+    /** 代码缺省（方案 §4.3 键文档冻结值；btCatalystMin 60→20 为 M21 T180 校准——V31 迁移守卫同步既有 DB 行）。 */
     public static ValuationParams defaults() {
-        return new ValuationParams(0.40, 0.20, 0.20, 0.20, 0.00, 10, 30, 5.0, 3.0, 1.5, 60, 50, 80);
+        return new ValuationParams(0.40, 0.20, 0.20, 0.20, 0.00, 10, 30, 5.0, 3.0, 1.5, 20, 50, 80);
     }
 
     /** 权重和（Σ&gt;0 由校验器保证；读侧兜底全零回落缺省）。 */

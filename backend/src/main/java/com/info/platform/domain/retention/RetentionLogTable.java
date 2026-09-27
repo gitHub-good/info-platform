@@ -64,7 +64,16 @@ public enum RetentionLogTable {
     SUBJECT_FACTOR_SNAPSHOT("subject_factor_snapshot", "subjectFactorSnapshotDays", 180, 30),
 
     /** 行情估值日快照表（M20 V30 T170；v2 时序分位序列资产——默认 365 天下限 90（窗更长，ADR-0058 裁决 1 配套）。 */
-    MARKET_DAILY_SNAPSHOT("market_daily_snapshot", "marketDailySnapshotDays", 365, 90);
+    MARKET_DAILY_SNAPSHOT("market_daily_snapshot", "marketDailySnapshotDays", 365, 90),
+
+    /**
+     * Top10 榜单行表（M21 V31 T180；榜单版本是 M22 统计回算原料，180 天对齐资讯库口径——方案 §4.2 键空间扩位）。 两表各自独立键（批次行数
+     * 量级低但审计窗与榜单行一致）。
+     */
+    MARKET_TOP_RANK("market_top_rank", "marketTopRankDays", 180, 30),
+
+    /** Top10 榜单批次表（M21 V31 T180；与 market_top_rank 同窗惯例、独立键）。 */
+    MARKET_TOP_BATCH("market_top_batch", "marketTopBatchDays", 180, 30);
 
     private final String physicalName;
     private final String jsonField;

@@ -9,20 +9,29 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 行业关联派生器（领域纯函数，M20 ADR-0058 裁决 2——本批最关键裁决）：绕行 {@code subject_master.industry} （5221 只 100% NULL
- * 且随源轮换漂移、入因子会结构性破坏可复算幂等），从库内两路原料派生「标的 ↔ 行业」关联集：
+ * 行业关联派生器（领域纯函数，M20 ADR-0058 裁决 2；M21 T180 扩路 C——ADR-0059 裁决 1 部分替代）：从库内三路原料派生 「标的 ↔ 行业」关联集：
  *
  * <ul>
  *   <li>路 A（事件回联）：窗内 {@code event_item.subjects} 含该标的 → {@code affected_industries} 全部记为关联行业（权重
  *       1.0）；
  *   <li>路 B（资讯归类回联）：窗内 {@code news_analysis.matched_subjects} 含该标的 → {@code main_category}（申万）
  *       记主关联（权重 1.0）、{@code sub_industry} 记次关联（权重 0.5）；容器 main 不记。
+ *   <li>路 C（行业成员回哺，M21 §4.1.4）：{@code subject_master.industry} 非空 → {@code
+ *       IndustryDirectory.swPrimaryOf} 映射输出 → (code, swIndustry) 成员边——权重 0.3 / age
+ *       0（静态成员边无「最近出现」语义，不衰减）。本类不读 industry 原文、只收 SW 映射输出（漂移面收窄到映射表，可审计）。
  * </ul>
  *
  * <p>窗口 W2（默认 30 天）锚定 snapshotDate；同 (标的, 行业) 多源融合取「权重最大 → 最近出现 → 来源优先
- * (EVENT&gt;NEWS_MAIN&gt;NEWS_SUB)」；输出按行业名排序确定性。空 code（事件未回联仅留名）跳过。
+ * (EVENT&gt;NEWS_MAIN&gt;NEWS_SUB&gt;INDUSTRY_MEMBER)」——路 C 权重 0.3 只补空，不顶替路 A/B；纯成员标的 F2 =
+ * 100×0.3×heatNorm ≤ 30 封顶（btConductionMin=50 守「突破需点名传导」语义）。输出按行业名排序确定性。空 code（事件未回联仅留名）跳过。
+ *
+ * <p>幂等口径（ADR-0059 对 ADR-0058 裁决 3 附注的扩位）：五输入 → 六输入（+行业成员投影）——成员投影变化（回填推进/东财改类）
+ * 属输入变化；同日重跑（成员不变）零漂移。
  */
 public final class IndustryAssociator {
+
+    /** 路 C 成员边权重（方案 §4.1.4 冻结值：低于路 A 1.0 / 路 B 主 1.0 次 0.5）。 */
+    static final double MEMBER_WEIGHT = 0.3;
 
     private IndustryAssociator() {}
 
@@ -37,11 +46,15 @@ public final class IndustryAssociator {
             String subIndustry,
             LocalDate publishedDate) {}
 
-    /** 关联来源（detail 落串：EVENT / NEWS_MAIN / NEWS_SUB）。 */
+    /** 路 C 原料：行业成员行（代码 + 申万一级行业——已过 swPrimaryOf 映射，非东财板块原文）。 */
+    public record MemberLink(String subjectCode, String industry) {}
+
+    /** 关联来源（detail 落串：EVENT / NEWS_MAIN / NEWS_SUB / INDUSTRY_MEMBER）。 */
     public enum Source {
         EVENT(3),
         NEWS_MAIN(2),
-        NEWS_SUB(1);
+        NEWS_SUB(1),
+        INDUSTRY_MEMBER(0);
 
         final int priority;
 
@@ -50,12 +63,12 @@ public final class IndustryAssociator {
         }
     }
 
-    /** 单条关联（weight：主 1.0 / 次 0.5；lastSeenAgeDays：距 snapshotDate 的日历日）。 */
+    /** 单条关联（weight：主 1.0 / 次 0.5 / 成员 0.3；lastSeenAgeDays：距 snapshotDate 的日历日）。 */
     public record Association(
             String industry, double weight, long lastSeenAgeDays, Source source) {}
 
     /**
-     * 派生全部标的的关联集。
+     * 派生全部标的的关联集（M20 双路口径——无成员输入的兼容入口，既有调用面不变）。
      *
      * @param events W2 窗内事件回联行（越窗行防御性跳过）
      * @param news W2 窗内资讯回联行（越窗行防御性跳过）
@@ -65,6 +78,22 @@ public final class IndustryAssociator {
      */
     public static Map<String, List<Association>> associate(
             List<EventLink> events, List<NewsLink> news, LocalDate snapshotDate, int windowDays) {
+        return associate(events, news, List.of(), snapshotDate, windowDays);
+    }
+
+    /**
+     * 派生全部标的的关联集（M21 六输入全量口径，§4.1.4）。
+     *
+     * @param members 行业成员投影（industry 为 swPrimaryOf 映射输出——未收录板块已在投影层过滤为不出行）
+     * @param events / news / snapshotDate / windowDays 同 {@link #associate(List, List, LocalDate,
+     *     int)}
+     */
+    public static Map<String, List<Association>> associate(
+            List<EventLink> events,
+            List<NewsLink> news,
+            List<MemberLink> members,
+            LocalDate snapshotDate,
+            int windowDays) {
         Map<String, Map<String, Association>> bySubject = new HashMap<>();
         for (EventLink link : events) {
             long age = ageOf(link.eventDate(), snapshotDate);
@@ -102,6 +131,19 @@ public final class IndustryAssociator {
                             new Association(link.subIndustry(), 0.5, age, Source.NEWS_SUB));
                 }
             }
+        }
+        for (MemberLink link : members == null ? List.<MemberLink>of() : members) {
+            if (link == null
+                    || link.subjectCode() == null
+                    || link.subjectCode().isBlank()
+                    || !IndustryCategory.isSwIndustry(link.industry())) {
+                continue; // 防御：投影层已过滤未收录板块，此处申万白名单双保险（不强行关联）
+            }
+            merge(
+                    bySubject,
+                    link.subjectCode(),
+                    link.industry(),
+                    new Association(link.industry(), MEMBER_WEIGHT, 0L, Source.INDUSTRY_MEMBER));
         }
         return freeze(bySubject);
     }

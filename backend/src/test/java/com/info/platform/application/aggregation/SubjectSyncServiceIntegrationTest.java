@@ -359,7 +359,11 @@ class SubjectSyncServiceIntegrationTest {
                             assertThat(row.getSubjectType()).isEqualTo(SubjectType.INDEX);
                             assertThat(row.getStatus()).isEqualTo(SubjectStatus.ENABLED);
                             assertThat(row.getMissingStreak()).isZero();
-                            assertThat(row.getIndustry()).as("行业以源为准（f100 占位归一 null）").isNull();
+                            assertThat(row.getIndustry())
+                                    .as(
+                                            "源 industry null 不抹既有行业（T180 COALESCE——ADR-0030"
+                                                    + " 写路径缺陷修复，ADR-0059 裁决 1；V17 种子行业保留）")
+                                    .isNotNull();
                             assertThat(row.getExternalCodes())
                                     .containsKey("eastmoney")
                                     .containsKey("tushare");

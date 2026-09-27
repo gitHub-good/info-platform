@@ -50,13 +50,44 @@ class ScoreComposerTest {
 
     @Test
     void breakthrough_threeThresholds_allRequired() {
-        // 恰在阈值（60/50/80）→ 真；任一维掉到阈值下 → 假
-        assertThat(ScoreComposer.compose(60, 50, 0, 80, 50, DEFAULTS).breakthrough()).isTrue();
-        assertThat(ScoreComposer.compose(59.9, 50, 0, 80, 50, DEFAULTS).breakthrough()).isFalse();
-        assertThat(ScoreComposer.compose(60, 49.9, 0, 80, 50, DEFAULTS).breakthrough()).isFalse();
-        assertThat(ScoreComposer.compose(60, 50, 0, 79.9, 50, DEFAULTS).breakthrough()).isFalse();
+        // 恰在阈值（20/50/80——btCatalystMin 60→20 为 M21 T180 校准 OBS-M20-2）→ 真；任一维掉到阈值下 → 假
+        assertThat(ScoreComposer.compose(20, 50, 0, 80, 50, DEFAULTS).breakthrough()).isTrue();
+        assertThat(ScoreComposer.compose(19.9, 50, 0, 80, 50, DEFAULTS).breakthrough()).isFalse();
+        assertThat(ScoreComposer.compose(20, 49.9, 0, 80, 50, DEFAULTS).breakthrough()).isFalse();
+        assertThat(ScoreComposer.compose(20, 50, 0, 79.9, 50, DEFAULTS).breakthrough()).isFalse();
         // F3/F5 不参与标签判定（三阈值语义）
-        assertThat(ScoreComposer.compose(60, 50, 100, 80, 100, DEFAULTS).breakthrough()).isTrue();
+        assertThat(ScoreComposer.compose(20, 50, 100, 80, 100, DEFAULTS).breakthrough()).isTrue();
+    }
+
+    @Test
+    void breakthrough_btCatalystMinCalibrated_singleStrongCatalystQualifies() {
+        // M21 T180 校准留档（方案 §4.1.5 推导）：一条 2 日内 HIGH 利好（typeCoef 1.0）→ raw≈0.757 → F1≈20.2
+        // ——新阈值 20 下 F1 维不再卡「突破候选」；旧阈值 60（当前事件密度 max raw≈0.5 时代）永不可达的根因消除
+        java.time.LocalDate snapshot = java.time.LocalDate.of(2026, 9, 22);
+        CatalystFactor.Result f1 =
+                CatalystFactor.compute(
+                        java.util.List.of(
+                                new ValuationEvent(
+                                        1L,
+                                        "业绩预增",
+                                        snapshot.minusDays(2),
+                                        com.info.platform.domain.analysis.Direction.BULLISH,
+                                        com.info.platform.domain.analysis.Importance.HIGH,
+                                        com.info.platform.domain.analysis.EventType
+                                                .EARNINGS_FORECAST)),
+                        snapshot,
+                        DEFAULTS);
+
+        assertThat(f1.score()).isGreaterThan(20.0);
+        assertThat(ScoreComposer.compose(f1.score(), 50, 50, 80, 50, DEFAULTS).breakthrough())
+                .as("一条强利好即「突破候选」——F1 维达标")
+                .isTrue();
+        assertThat(
+                        ScoreComposer.compose(
+                                        f1.score(), 50, 50, 80, 50, DEFAULTS.withBtCatalystMin(60))
+                                .breakthrough())
+                .as("旧阈值 60 下同输入仍不可达（校准前后对照）")
+                .isFalse();
     }
 
     @Test

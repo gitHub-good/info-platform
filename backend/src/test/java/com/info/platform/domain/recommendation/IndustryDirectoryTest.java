@@ -2,6 +2,7 @@ package com.info.platform.domain.recommendation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.info.platform.domain.analysis.IndustryCategory;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -83,5 +84,57 @@ class IndustryDirectoryTest {
         assertThat(IndustryDirectory.industryOfWord(null)).isNull();
         assertThat(IndustryDirectory.isDirectoryWord("锂电池")).isTrue();
         assertThat(IndustryDirectory.isDirectoryWord("不存在的词")).isFalse();
+    }
+
+    // ---- 东财板块 → 申万映射（M21 T180，ADR-0059 裁决 1③ / 方案 §4.1.3）----
+
+    @Test
+    void swPrimaryOf_planExamples_mapToSwPrimary() {
+        // 方案 §4.1.3 示例矩阵（全部为实测值域成员）
+        assertThat(IndustryDirectory.swPrimaryOf("银行Ⅱ")).isEqualTo("银行");
+        assertThat(IndustryDirectory.swPrimaryOf("房地产开发")).isEqualTo("房地产");
+        assertThat(IndustryDirectory.swPrimaryOf("消费电子")).isEqualTo("电子");
+        assertThat(IndustryDirectory.swPrimaryOf("通用设备")).isEqualTo("机械设备");
+        assertThat(IndustryDirectory.swPrimaryOf("IT服务Ⅱ")).isEqualTo("计算机");
+        assertThat(IndustryDirectory.swPrimaryOf("军工电子Ⅱ")).isEqualTo("国防军工");
+    }
+
+    @Test
+    void swPrimaryOf_fullDomain_mappedToValidSwIndustry() {
+        // 全量值域断言：恰为 127 实测板块（方案样本估 ~104，全量已超样收录）——每个映射目标都是申万 31 枚举成员
+        assertThat(IndustryDirectory.allEastmoneyBoards())
+                .as("实测值域规模守护（漂移即预警补表，ADR-0059 跟进①）")
+                .hasSize(127);
+        for (String board : IndustryDirectory.allEastmoneyBoards()) {
+            assertThat(IndustryCategory.SW_INDUSTRIES)
+                    .as("板块 %s 的映射目标须为申万枚举", board)
+                    .contains(IndustryDirectory.swPrimaryOf(board));
+        }
+    }
+
+    @Test
+    void swPrimaryOf_sampleHighVolumeBoards_expectedTargets() {
+        // 实测高频板块抽查（按 2026-09-27 全量拉取的行数 Top）
+        assertThat(IndustryDirectory.swPrimaryOf("半导体")).isEqualTo("电子");
+        assertThat(IndustryDirectory.swPrimaryOf("汽车零部件")).isEqualTo("汽车");
+        assertThat(IndustryDirectory.swPrimaryOf("化学制品")).isEqualTo("基础化工");
+        assertThat(IndustryDirectory.swPrimaryOf("医疗器械")).isEqualTo("医药生物");
+        assertThat(IndustryDirectory.swPrimaryOf("煤炭开采")).isEqualTo("煤炭");
+        assertThat(IndustryDirectory.swPrimaryOf("焦炭Ⅱ")).isEqualTo("煤炭");
+        assertThat(IndustryDirectory.swPrimaryOf("能源金属")).isEqualTo("有色金属");
+        assertThat(IndustryDirectory.swPrimaryOf("航运港口")).isEqualTo("交通运输");
+        assertThat(IndustryDirectory.swPrimaryOf("互联网电商")).isEqualTo("商贸零售");
+        assertThat(IndustryDirectory.swPrimaryOf("旅游零售Ⅱ")).isEqualTo("商贸零售");
+        assertThat(IndustryDirectory.swPrimaryOf("医疗美容")).isEqualTo("美容护理");
+        assertThat(IndustryDirectory.swPrimaryOf("油服工程")).isEqualTo("石油石化");
+    }
+
+    @Test
+    void swPrimaryOf_unmappedOrNullSafe_returnsNull() {
+        // 安全侧失败：未收录板块/空值返 null（少关联不误关联——不强行映射）
+        assertThat(IndustryDirectory.swPrimaryOf("不存在的板块")).isNull();
+        assertThat(IndustryDirectory.swPrimaryOf("")).isNull();
+        assertThat(IndustryDirectory.swPrimaryOf(" ")).isNull();
+        assertThat(IndustryDirectory.swPrimaryOf(null)).isNull();
     }
 }

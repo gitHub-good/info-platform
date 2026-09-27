@@ -210,7 +210,8 @@ class FactorSnapshotServiceTest {
                 row.factorDetailJson(),
                 row.dataFlagsJson(),
                 row.weightBasis(),
-                "COMPUTED_AT_EXEMPT");
+                "COMPUTED_AT_EXEMPT",
+                row.lastEventDate());
     }
 
     @Test
@@ -233,7 +234,9 @@ class FactorSnapshotServiceTest {
         assertThat(maotai.fRisk()).isEqualTo(100.0);
         assertThat(maotai.fValuation()).isEqualTo(100.0);
         assertThat(flags(maotai)).isEmpty();
-        assertThat(maotai.breakthrough()).isFalse(); // F1 ≈ 22.5 < 60
+        assertThat(maotai.breakthrough())
+                .as("F1≈22.5 > btCatalystMin=20（M21 T180 校准）且 F2/F4 达标 → 突破")
+                .isTrue();
 
         // 平安：BEARISH 处罚（age2）→ 1.5×10×0.5^0.4≈11.37 → F4≈88.6；PE 缺 → PB 回退链最低 → F5 100
         assertThat(pingan.fRisk()).isGreaterThan(80.0).isLessThan(100.0);
@@ -251,6 +254,52 @@ class FactorSnapshotServiceTest {
         assertThat(catl.fCatalyst()).isZero();
         assertThat(catl.fFundamental()).isEqualTo(50.0);
         assertThat(flags(catl)).containsExactly("NO_ASSOC_INDUSTRY", "NO_VALUATION_DATA");
+    }
+
+    @Test
+    void lastEventDate_carriedOnRows_maxOfEvidenceEntries_nullWhenNoEvents() {
+        // M21 §4.1.6：三维护据事件最大 eventDate（粗筛四键次级排序 + 榜单卡双用途）
+        stubHappyPath();
+
+        service.snapshotAll(SNAPSHOT);
+
+        ArgumentCaptor<List<FactorSnapshotRow>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAll(captor.capture());
+        List<FactorSnapshotRow> rows = captor.getValue();
+
+        // 茅台：catalyst 事件 101（eventDate=SNAPSHOT-1）→ last_event_date 快照前一日
+        assertThat(rowOf(rows, 1).lastEventDate()).isEqualTo(SNAPSHOT.minusDays(1).toString());
+        // 平安：risk 维事件 102（eventDate=SNAPSHOT-2）
+        assertThat(rowOf(rows, 2).lastEventDate()).isEqualTo(SNAPSHOT.minusDays(2).toString());
+        // 宁德：窗内零事件（窗外事件被 W1 剔除）→ NULL
+        assertThat(rowOf(rows, 4).lastEventDate()).isNull();
+    }
+
+    @Test
+    void industryMembers_pathC_memberOnlySubjectGetsConduction() {
+        // M21 六输入扩位（ADR-0059 裁决 1）：行业成员投影 → swPrimaryOf 映射 → 路 C 成员边 → 纯成员标的 F2 覆盖
+        stubHappyPath();
+        when(repository.findIndustryMembers())
+                .thenReturn(
+                        List.of(
+                                new FactorSnapshotRepository.IndustryMemberRow(
+                                        "SZ300750", "消费电子"), // 命中映射 → 电子
+                                new FactorSnapshotRepository.IndustryMemberRow(
+                                        "SH600003", "不存在的板块"))); // 未收录 → 投影层过滤（安全侧失败）
+
+        service.snapshotAll(SNAPSHOT);
+
+        ArgumentCaptor<List<FactorSnapshotRow>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAll(captor.capture());
+        List<FactorSnapshotRow> rows = captor.getValue();
+
+        // 宁德：电子成员边（heat 400 名次 2 → heatNorm=(31-2)/30）× weight 0.3 × decay(0)=1 → F2 = 29.0
+        FactorSnapshotRow catl = rowOf(rows, 4);
+        assertThat(catl.fConduction()).isGreaterThan(28.0).isLessThan(30.0);
+        assertThat(flags(catl)).containsExactly("NO_VALUATION_DATA"); // NO_ASSOC_INDUSTRY 消除
+
+        // ST 标的板块未收录 → 无成员边 → NO_ASSOC 如实标注不隐藏（沿 M20 口径）
+        assertThat(flags(rowOf(rows, 3))).contains("NO_ASSOC_INDUSTRY");
     }
 
     @Test
@@ -318,7 +367,8 @@ class FactorSnapshotServiceTest {
 
         // 0.4×22.5 + 0.2×91.2 + 0.2×76.1 + 0.2×100 = 62.46 → 62.5（round1）
         assertThat(maotai.totalScore()).isCloseTo(62.5, org.assertj.core.data.Offset.offset(0.05));
-        assertThat(maotai.breakthrough()).isFalse(); // F1≈22.5 < 60
+        // M21 T180 校准后：F1≈22.5 ≥ 20 且 F2≈91 ≥ 50、F4=100 ≥ 80 → 「一条强利好即突破候选」为真
+        assertThat(maotai.breakthrough()).isTrue();
         assertThat(maotai.weightBasis()).startsWith("vs-v1:");
     }
 

@@ -56,7 +56,8 @@ class RetentionWindowsTest {
         RetentionWindows windows = RetentionWindows.resolve(null);
 
         // Assert：默认窗口 30/14/90/90/180/180（枚举单一事实源，T113 扩 newsItem、T134 扩推荐两表）
-        assertThat(windows).isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180, 180, 365));
+        assertThat(windows)
+                .isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180, 180, 365, 180, 180));
     }
 
     @Test
@@ -110,12 +111,12 @@ class RetentionWindowsTest {
                                         + "\"marketDailySnapshotDays\":90}"));
 
         // Assert
-        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30, 30, 90));
+        assertThat(windows).isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30, 30, 90, 180, 180));
     }
 
     @Test
     void of_mapsEachTableToItsWindow() {
-        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300);
+        RetentionWindows windows = new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300, 120, 60);
 
         assertThat(windows.of(RetentionLogTable.JOB_EXECUTION_LOG)).isEqualTo(10);
         assertThat(windows.of(RetentionLogTable.DATA_SOURCE_EVENT)).isEqualTo(5);
@@ -130,6 +131,9 @@ class RetentionWindowsTest {
         // T170（M20）：两快照表独立窗（因子 150、行情 300——365d 序列资产下限 90）
         assertThat(windows.of(RetentionLogTable.SUBJECT_FACTOR_SNAPSHOT)).isEqualTo(150);
         assertThat(windows.of(RetentionLogTable.MARKET_DAILY_SNAPSHOT)).isEqualTo(300);
+        // T180（M21）：榜单两表独立窗（rank 120、batch 60——M22 统计回算原料）
+        assertThat(windows.of(RetentionLogTable.MARKET_TOP_RANK)).isEqualTo(120);
+        assertThat(windows.of(RetentionLogTable.MARKET_TOP_BATCH)).isEqualTo(60);
     }
 
     @Test

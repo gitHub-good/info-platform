@@ -154,6 +154,33 @@ class SubjectRepositorySyncPortTest {
     }
 
     @Test
+    void updateSnapshot_nullIndustry_keepsExistingIndustry() {
+        // T180 修前红用例（ADR-0059 裁决 1 / ADR-0030 写路径缺陷）：新浪降级轮 industry 恒 null——
+        // UPSERT 的 industry 更新必须 COALESCE 保留既有东财行业（null 入参不抹、非空入参正常覆盖）。
+        subjectRepository.save(newSubject("SH601990", "行业已回填"));
+        assertThat(subjectRepository.updateSnapshot("SH601990", "东财轮名称", "白酒Ⅱ", Map.of()))
+                .isEqualTo(1);
+
+        // Act: 新浪降级轮到达（industry=null）——名称照更、行业保留
+        int affected = subjectRepository.updateSnapshot("SH601990", "新浪轮名称", null, Map.of());
+
+        // Assert: 行照常更新（version 递增），industry 不被 null 抹回
+        assertThat(affected).isEqualTo(1);
+        Subject survived = subjectRepository.findByCode(SubjectCode.of("SH601990")).orElseThrow();
+        assertThat(survived.getName()).isEqualTo("新浪轮名称");
+        assertThat(survived.getIndustry()).isEqualTo("白酒Ⅱ");
+
+        // 东财回归轮（industry 非空）仍正常覆盖——COALESCE 不是「永不更新」
+        subjectRepository.updateSnapshot("SH601990", "东财回归轮", "白酒", Map.of());
+        assertThat(
+                        subjectRepository
+                                .findByCode(SubjectCode.of("SH601990"))
+                                .orElseThrow()
+                                .getIndustry())
+                .isEqualTo("白酒");
+    }
+
+    @Test
     void updateSnapshot_unknownCode_returnsZero() {
         int affected =
                 subjectRepository.updateSnapshot(

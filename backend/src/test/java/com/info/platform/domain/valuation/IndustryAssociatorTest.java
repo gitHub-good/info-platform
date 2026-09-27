@@ -168,4 +168,131 @@ class IndustryAssociatorTest {
     void noInputs_emptyMap_deterministic() {
         assertThat(IndustryAssociator.associate(List.of(), List.of(), SNAPSHOT, WINDOW)).isEmpty();
     }
+
+    // ---- 路 C 行业成员回哺（M21 T180，ADR-0059 裁决 1 / 方案 §4.1.4） ----
+
+    private static IndustryAssociator.MemberLink member(String code, String industry) {
+        return new IndustryAssociator.MemberLink(code, industry);
+    }
+
+    @Test
+    void pathC_memberEdge_weightPointThree_ageZero() {
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(),
+                        List.of(),
+                        List.of(member("SZ300024", "机械设备")),
+                        SNAPSHOT,
+                        WINDOW);
+
+        List<IndustryAssociator.Association> links = assoc.get("SZ300024");
+        assertThat(links).hasSize(1);
+        assertThat(links.get(0).industry()).isEqualTo("机械设备");
+        assertThat(links.get(0).weight()).isEqualTo(0.3);
+        assertThat(links.get(0).lastSeenAgeDays()).isZero();
+        assertThat(links.get(0).source()).isEqualTo(IndustryAssociator.Source.INDUSTRY_MEMBER);
+    }
+
+    @Test
+    void pathC_onlyFillsEmpty_neverDisplacesPathAOrB() {
+        // 同 (标的, 行业) 已有路 A（1.0）/ 路 B 次（0.5）→ 路 C（0.3）不顶替（权重最大者优先，只补空）
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(eventLink(List.of("SH600519"), List.of("食品饮料"), 10)),
+                        List.of(newsLink(List.of("SH600519"), "宏观", "电子", 1)),
+                        List.of(member("SH600519", "食品饮料"), member("SH600519", "电子")),
+                        SNAPSHOT,
+                        WINDOW);
+
+        List<IndustryAssociator.Association> links = assoc.get("SH600519");
+        assertThat(links).hasSize(2);
+        IndustryAssociator.Association event =
+                links.stream().filter(a -> a.industry().equals("食品饮料")).findFirst().orElseThrow();
+        IndustryAssociator.Association sub =
+                links.stream().filter(a -> a.industry().equals("电子")).findFirst().orElseThrow();
+        assertThat(event.weight()).isEqualTo(1.0);
+        assertThat(event.source()).isEqualTo(IndustryAssociator.Source.EVENT);
+        assertThat(sub.weight()).isEqualTo(0.5);
+        assertThat(sub.source()).isEqualTo(IndustryAssociator.Source.NEWS_SUB);
+    }
+
+    @Test
+    void pathC_newIndustry_addsMemberEdgeAlongsidePathA() {
+        // 路 A 行业与路 C 行业不同 → 两行并存（成员边扩 F2 覆盖面即设计目的）
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(eventLink(List.of("SH600519"), List.of("食品饮料"), 5)),
+                        List.of(),
+                        List.of(member("SH600519", "食品饮料"), member("SH600519", "银行")),
+                        SNAPSHOT,
+                        WINDOW);
+
+        List<IndustryAssociator.Association> links = assoc.get("SH600519");
+        assertThat(links).hasSize(2);
+        assertThat(links.get(0).industry()).isEqualTo("食品饮料"); // 1.0 在前
+        assertThat(links.get(1).industry()).isEqualTo("银行"); // 0.3 成员边在后
+        assertThat(links.get(1).source()).isEqualTo(IndustryAssociator.Source.INDUSTRY_MEMBER);
+    }
+
+    @Test
+    void pathC_blankCodeOrNonSwIndustry_defensivelySkipped() {
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(),
+                        List.of(),
+                        List.of(
+                                member("", "银行"),
+                                member("  ", "银行"),
+                                member("SH600000", null),
+                                member("SH600000", "银行Ⅱ"),
+                                member("SH600000", "宏观")),
+                        SNAPSHOT,
+                        WINDOW);
+
+        assertThat(assoc).isEmpty(); // 空 code / 非申万行业（板块原文/容器）双保险跳过
+    }
+
+    @Test
+    void pathC_dualArgOverload_equivalentToEmptyMembers() {
+        // 兼容入口（M20 调用面）= 全量入口传空成员集
+        Map<String, List<IndustryAssociator.Association>> viaOverload =
+                IndustryAssociator.associate(
+                        List.of(eventLink(List.of("SH600519"), List.of("食品饮料"), 3)),
+                        List.of(),
+                        SNAPSHOT,
+                        WINDOW);
+        Map<String, List<IndustryAssociator.Association>> viaFull =
+                IndustryAssociator.associate(
+                        List.of(eventLink(List.of("SH600519"), List.of("食品饮料"), 3)),
+                        List.of(),
+                        List.of(),
+                        SNAPSHOT,
+                        WINDOW);
+        assertThat(viaOverload).isEqualTo(viaFull);
+    }
+
+    @Test
+    void pathC_pureMemberF2_cappedAtThirty() {
+        // ADR-0059 裁决 1④：纯成员标的 F2 = 100 × 0.3 × heatNorm ≤ 30（heatNorm 顶格 1.0 也恰 30.0）——
+        // btConductionMin=50 不可仅凭成员达标（「突破需点名传导」语义守恒）
+        java.util.List<HeatRow> heat =
+                java.util.List.of(new HeatRow("机械设备", 99.0), new HeatRow("银行", 10.0));
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(),
+                        List.of(),
+                        List.of(member("SZ300024", "机械设备"), member("SH600000", "银行")),
+                        SNAPSHOT,
+                        WINDOW);
+        ValuationParams params = ValuationParams.defaults();
+
+        ConductionFactor.Result topHeat =
+                ConductionFactor.compute(assoc.get("SZ300024"), heat, params);
+        ConductionFactor.Result lowHeat =
+                ConductionFactor.compute(assoc.get("SH600000"), heat, params);
+
+        assertThat(topHeat.score()).isEqualTo(30.0); // 热度第 1 名（heatNorm=1.0）封顶恰 30.0
+        assertThat(lowHeat.score()).isGreaterThan(0.0).isLessThan(30.0);
+        assertThat(topHeat.assoc().get(0).source()).isEqualTo("INDUSTRY_MEMBER");
+    }
 }

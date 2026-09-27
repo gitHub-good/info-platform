@@ -41,8 +41,8 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
             INSERT INTO subject_factor_snapshot
               (subject_id, snapshot_date, f_catalyst, f_conduction, f_fundamental, f_risk,
                f_valuation, total_score, breakthrough, factor_detail, data_flags, weight_basis,
-               computed_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               computed_at, last_event_date, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(subject_id, snapshot_date) DO UPDATE SET
               f_catalyst = excluded.f_catalyst,
               f_conduction = excluded.f_conduction,
@@ -55,6 +55,7 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
               data_flags = excluded.data_flags,
               weight_basis = excluded.weight_basis,
               computed_at = excluded.computed_at,
+              last_event_date = excluded.last_event_date,
               updated_at = excluded.updated_at
             """;
 
@@ -91,6 +92,14 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
              WHERE window_type = ?
             """;
 
+    /** 行业成员投影（M21 T180 六输入）：industry 非空的 A 股启用行（路 C 映射原料，id 升序确定性）。 */
+    private static final String INDUSTRY_MEMBERS_SQL =
+            """
+            SELECT subject_code, industry FROM subject_master
+             WHERE market = 'A_SHARE' AND status = 1 AND industry IS NOT NULL AND TRIM(industry) <> ''
+             ORDER BY id ASC
+            """;
+
     private static final RowMapper<SubjectRef> SUBJECT_ROW =
             (rs, rowNum) ->
                     new SubjectRef(
@@ -121,6 +130,10 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
 
     private static final RowMapper<HeatRow> HEAT_ROW =
             (rs, rowNum) -> new HeatRow(rs.getString("industry"), rs.getDouble("heat_score"));
+
+    private static final RowMapper<IndustryMemberRow> INDUSTRY_MEMBER_ROW =
+            (rs, rowNum) ->
+                    new IndustryMemberRow(rs.getString("subject_code"), rs.getString("industry"));
 
     private static final RowMapper<FactorSnapshotRow> SNAPSHOT_ROW = snapshotRowMapper();
 
@@ -156,8 +169,9 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
                                 ps.setString(11, row.dataFlagsJson());
                                 ps.setString(12, row.weightBasis());
                                 ps.setString(13, row.computedAtIso());
-                                ps.setString(14, now);
+                                ps.setString(14, row.lastEventDate());
                                 ps.setString(15, now);
+                                ps.setString(16, now);
                             }
 
                             @Override
@@ -199,6 +213,11 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
     @Override
     public List<HeatRow> findH24Heat() {
         return jdbcTemplate.query(H24_HEAT_SQL, HEAT_ROW, HeatWindow.H24.name());
+    }
+
+    @Override
+    public List<IndustryMemberRow> findIndustryMembers() {
+        return jdbcTemplate.query(INDUSTRY_MEMBERS_SQL, INDUSTRY_MEMBER_ROW);
     }
 
     @Override
@@ -252,7 +271,7 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
                         "SELECT id, subject_id, snapshot_date, f_catalyst, f_conduction,"
                                 + " f_fundamental, f_risk, f_valuation, total_score,"
                                 + " breakthrough, factor_detail, data_flags, weight_basis,"
-                                + " computed_at FROM subject_factor_snapshot"
+                                + " computed_at, last_event_date FROM subject_factor_snapshot"
                                 + " WHERE subject_id = ? ORDER BY snapshot_date DESC LIMIT 1",
                         SNAPSHOT_ROW,
                         subjectId);
@@ -274,7 +293,8 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
                         rs.getString("factor_detail"),
                         rs.getString("data_flags"),
                         rs.getString("weight_basis"),
-                        rs.getString("computed_at"));
+                        rs.getString("computed_at"),
+                        rs.getString("last_event_date"));
     }
 
     /** JSON 解析静态映射器（静态 RowMapper 可达；SourceConfigCodec 静态 MAPPER 先例）。 */

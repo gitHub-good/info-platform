@@ -46,11 +46,17 @@ public class SubjectRepositoryImpl implements SubjectRepository {
             VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, 0)
             """;
 
-    /** §4.4 SQL ②（增补 external_codes，ADR-0029）：仅名称/行业/取数键，不碰 status / missing_streak。 */
+    /**
+     * §4.4 SQL ②（增补 external_codes，ADR-0029）：仅名称/行业/取数键，不碰 status / missing_streak。
+     *
+     * <p>T180 industry 改 {@code COALESCE(?, industry)}（ADR-0059 裁决 1，修 ADR-0030
+     * 写路径缺陷）：新浪降级轮（industry 恒 null）不再覆盖既有东财行业；东财回归轮（非空）正常刷新。
+     */
     private static final String UPDATE_SNAPSHOT_SQL =
             """
             UPDATE subject_master
-               SET name = ?, industry = ?, external_codes = ?, updated_at = ?, version = version + 1
+               SET name = ?, industry = COALESCE(?, industry), external_codes = ?, updated_at = ?,
+                   version = version + 1
              WHERE subject_code = ?
             """;
 
