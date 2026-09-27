@@ -2,6 +2,7 @@ package com.info.platform.application.valuation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.jobrun.RunningJobIndicator;
+import com.info.platform.application.markettop.IncrementalTopService;
 import com.info.platform.application.valuation.FactorSnapshotService.IncrementalReport;
 import com.info.platform.domain.markettop.MarketTopRepository;
 import com.info.platform.domain.markettop.SqueezeJudge;
@@ -25,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import org.slf4j.Logger;
@@ -63,6 +65,8 @@ public class IncrementalReevalService {
 
     private final MarketTopRepository marketTopRepository;
 
+    private final IncrementalTopService incrementalTopService;
+
     private final IncrementalReevalSettings settings;
 
     private final RunningJobIndicator runningIndicator;
@@ -76,6 +80,7 @@ public class IncrementalReevalService {
             FactorSnapshotRepository snapshotRepository,
             FactorSnapshotService factorSnapshotService,
             MarketTopRepository marketTopRepository,
+            IncrementalTopService incrementalTopService,
             IncrementalReevalSettings settings,
             RunningJobIndicator runningIndicator,
             ObjectMapper objectMapper,
@@ -84,6 +89,7 @@ public class IncrementalReevalService {
         this.snapshotRepository = snapshotRepository;
         this.factorSnapshotService = factorSnapshotService;
         this.marketTopRepository = marketTopRepository;
+        this.incrementalTopService = incrementalTopService;
         this.settings = settings;
         this.runningIndicator = runningIndicator;
         this.objectMapper = objectMapper;
@@ -174,14 +180,56 @@ public class IncrementalReevalService {
                             + ";judge=nopass",
                     roundEventIds.size());
         }
-        // T191 接线：联动间隔防抖 + IncrementalTopService.link() 收口 LINKED（本版过阈挂起 RECOMPUTED 待联动段）
+        // 联动防抖：距上一 EVENT 版本 linkMinIntervalMinutes 内 → 本轮 DEFERRED，留痕挂起下轮 tick 自动重试
+        // （事件标的分已在详情页可见，仅榜单延后——最坏 +10min 仍在 P90 红线内，方案 §3.3-5）
+        Optional<String> lastEventVersionAt = logRepository.findLastEventVersionAt(dateText);
+        if (deferForInterval(lastEventVersionAt, config, now)) {
+            logRepository.markStatus(
+                    roundEventIds, IncrementalReevalRepository.STATUS_DEFERRED, nowIso);
+            return new ReevalReport(
+                    "incr=scan:"
+                            + events.size()
+                            + ";recompute=rows:"
+                            + affectedIds.size()
+                            + ";judge=pass;defer=interval",
+                    roundEventIds.size());
+        }
+        // 联动收口：version+1(EVENT 归因) + 冲突重试在仓储层；留痕 LINKED 终态（时效口径终点 top_version_at）
+        int topVersion = incrementalTopService.link(today, verdict, roundEvents(events, pending));
+        String topVersionAt = clock.instant().toString();
+        logRepository.markLinked(roundEventIds, topVersion, topVersionAt, nowIso);
         return new ReevalReport(
                 "incr=scan:"
                         + events.size()
                         + ";recompute=rows:"
                         + affectedIds.size()
-                        + ";judge=pass;link=pending",
+                        + ";judge=pass;link=v:"
+                        + topVersion,
                 roundEventIds.size());
+    }
+
+    private boolean deferForInterval(
+            Optional<String> lastEventVersionAt, IncrementalReevalConfig config, Instant now) {
+        if (lastEventVersionAt.isEmpty()) {
+            return false;
+        }
+        try {
+            Instant lastAt = Instant.parse(lastEventVersionAt.get());
+            return now.isBefore(lastAt.plus(Duration.ofMinutes(config.linkMinIntervalMinutes())));
+        } catch (RuntimeException e) {
+            log.warn("上一 EVENT 版本时刻解析失败（不防抖直接联动）: {}", lastEventVersionAt.get());
+            return false;
+        }
+    }
+
+    /** 联动归因事件集（本轮新扫描 + 挂起轮重试事件——版本级归因口径）。 */
+    private List<ReevalEvent> roundEvents(List<ReevalEvent> events, List<PendingLink> pending) {
+        List<ReevalEvent> round = new ArrayList<>(events);
+        // 挂起轮事件仅携带 id/subjects_json——归因摘要缺失时以留痕 id 兜底（eventId 仍是下钻主键）
+        for (PendingLink link : pending) {
+            round.add(new ReevalEvent(link.eventId(), null, null, null, List.of(), List.of()));
+        }
+        return round;
     }
 
     // ---- 判定段（SqueezeJudge 纯函数输入装配） ----

@@ -110,6 +110,58 @@ class MarketTopRepositoryImplTest {
         assertThat(repository.find("2099-11-01", 1)).isEmpty();
     }
 
+    // ---- M22 T191：EVENT 归因列 + insertVersion 唯一冲突重试一次（互斥层③）----
+
+    @Test
+    void insertVersion_persistsTriggerEventsColumn() {
+        MarketTopBatchRow eventBatch =
+                new MarketTopBatchRow(
+                        DATE,
+                        1,
+                        "EVENT",
+                        DATE,
+                        "{\"topSize\":2,\"source\":\"incremental\"}",
+                        false,
+                        null,
+                        "[]",
+                        0L,
+                        1,
+                        "v1.0",
+                        "mt-v1:...",
+                        "[{\"eventId\":101,\"summary\":\"签订重大合同\",\"importance\":\"HIGH\"}]",
+                        "2099-12-31T10:00:00Z");
+        repository.insertVersion(eventBatch, List.of(rank(DATE, 1, 1, 1)));
+
+        String triggerEvents =
+                jdbcTemplate.queryForObject(
+                        "SELECT trigger_events FROM market_top_batch WHERE rank_date = ? AND version = 1",
+                        String.class,
+                        DATE);
+        assertThat(triggerEvents).contains("\"eventId\":101").contains("签订重大合同");
+    }
+
+    @Test
+    void insertVersion_uniqueConflict_retriesOnceWithNextVersion() {
+        repository.insertVersion(
+                batch(DATE, 1, false), List.of(rank(DATE, 1, 1, 1), rank(DATE, 1, 2, 2)));
+
+        // 模拟竞态：以过期 version=1 再插（DAILY 起跑与联动交叠的缝隙——重取 maxVersion+1 重试一次）
+        int inserted =
+                repository.insertVersion(
+                        batch(DATE, 1, false), List.of(rank(DATE, 1, 1, 5), rank(DATE, 1, 2, 6)));
+
+        assertThat(inserted).isEqualTo(2);
+        assertThat(repository.maxVersion(DATE)).isEqualTo(2);
+        // v2 完整落库（batch + ranks 同事务原子）
+        Optional<MarketTopVersion> v2 = repository.find(DATE, 2);
+        assertThat(v2).isPresent();
+        assertThat(v2.get().items())
+                .extracting(MarketTopRankRow::subjectId)
+                .containsExactly(5L, 6L);
+        // v1 原样保留（追加不覆盖）
+        assertThat(repository.find(DATE, 1)).isPresent();
+    }
+
     @Test
     void findLatestAnyDate_returnsMaxDateMaxVersion() {
         repository.insertVersion(batch(PREV_DATE, 1, false), List.of(rank(PREV_DATE, 1, 1, 1)));

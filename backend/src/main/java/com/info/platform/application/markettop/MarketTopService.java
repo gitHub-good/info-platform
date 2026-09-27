@@ -296,6 +296,32 @@ public class MarketTopService {
         }
     }
 
+    /**
+     * 增量联动补深析输入组装（M22 T191，包内可见）：单标的按当日快照行现算百分位/行业热度排名/关联资讯窗后复用 {@link
+     * #assembleInput}——引用白名单单源，粗筛候选与增量补析同一口径。
+     */
+    DeepDiveInput assembleIncrementalInput(PoolRow row, java.time.LocalDate rankDate) {
+        List<PoolRow> rows = snapshotRepository.findPoolRowsByDate(rankDate.toString());
+        Map<Long, Double> percentileBySubject = percentilesOf(rows);
+        return assembleInput(
+                new Candidate(
+                        row.subjectId(),
+                        row.subjectCode(),
+                        row.subjectName(),
+                        row.totalScore(),
+                        row.fCatalyst(),
+                        row.fConduction(),
+                        row.lastEventDate()),
+                row,
+                percentileBySubject,
+                heatRanks(),
+                marketRepository.findByDate(rankDate.toString()).get(row.subjectId()),
+                rankDate.minusDays(RELATED_NEWS_WINDOW_DAYS)
+                        .atStartOfDay(RANK_ZONE)
+                        .toInstant()
+                        .toString());
+    }
+
     /** 单标的深析输入组装（§4.4.2 输入契约——引用白名单单源）。 */
     private DeepDiveInput assembleInput(
             Candidate candidate,
@@ -562,8 +588,8 @@ public class MarketTopService {
         return node != null && node.isTextual() ? node.asText() : null;
     }
 
-    /** dive_detail JSON（校验后终态；factor_only 未深析 = 空结构）。 */
-    private String diveDetailJson(DeepDiveOutcome dive) {
+    /** dive_detail JSON（校验后终态；factor_only 未深析 = 空结构）。包内可见：增量联动继承补析共用（M22 T191）。 */
+    String diveDetailJson(DeepDiveOutcome dive) {
         if (dive == null) {
             return "{}";
         }

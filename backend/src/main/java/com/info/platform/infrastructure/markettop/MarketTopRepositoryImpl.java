@@ -7,11 +7,14 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.support.DataAccessUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * {@link MarketTopRepository} 端口的 SQLite 实现（M21 T183，V31 两表）：追加式版本化写（batch + ranks 同一事务）；读取按 「日期 +
@@ -22,6 +25,8 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
 
     /** 昨日榜单回看窗（自然日；跨假日取最近有榜单日 ≤7 天）。 */
     static final int PREVIOUS_LOOKBACK_DAYS = 7;
+
+    private static final Logger log = LoggerFactory.getLogger(MarketTopRepositoryImpl.class);
 
     private static final String INSERT_RANK_SQL =
             """
@@ -114,8 +119,12 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
 
     private final JdbcTemplate jdbcTemplate;
 
-    public MarketTopRepositoryImpl(JdbcTemplate jdbcTemplate) {
+    private final TransactionTemplate transactionTemplate;
+
+    public MarketTopRepositoryImpl(
+            JdbcTemplate jdbcTemplate, TransactionTemplate transactionTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
@@ -128,18 +137,90 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
         return max == null ? 0 : max;
     }
 
+    /**
+     * 追加一版本（batch + ranks 两表一事务）。互斥层③（M22 T191，ADR-0061 裁决 3）：UNIQUE(rank_date, version) 冲突（增量联动进行中
+     * DAILY 起跑的反向缝隙——重试不适用 @Transactional 自调用代理失效，改走 TransactionTemplate 程序化事务）→ version 重取
+     * maxVersion+1 重试一次；二次仍冲突或非冲突异常原样上抛。
+     */
     @Override
-    @Transactional
     public int insertVersion(MarketTopBatchRow batch, List<MarketTopRankRow> ranks) {
+        try {
+            return insertOnce(batch, ranks);
+        } catch (DataAccessException e) {
+            if (!isUniqueConflict(e)) {
+                throw e;
+            }
+            int retryVersion = maxVersion(batch.rankDate()) + 1;
+            log.warn(
+                    "榜单版本唯一冲突（并发联动），重取 version={} 重试一次: rankDate={} 原version={}",
+                    retryVersion,
+                    batch.rankDate(),
+                    batch.version());
+            return insertOnce(withVersion(batch, retryVersion), withVersion(ranks, retryVersion));
+        }
+    }
+
+    private int insertOnce(MarketTopBatchRow batch, List<MarketTopRankRow> ranks) {
         Timestamp now = Timestamp.valueOf(java.time.LocalDateTime.now(java.time.Clock.systemUTC()));
-        jdbcTemplate.update(
-                INSERT_BATCH_SQL,
+        transactionTemplate.executeWithoutResult(
+                status -> {
+                    jdbcTemplate.update(
+                            INSERT_BATCH_SQL,
+                            batch.rankDate(),
+                            batch.version(),
+                            batch.triggerSource(),
+                            batch.snapshotDate(),
+                            batch.funnelStatsJson(),
+                            batch.degraded() ? 1 : 0,
+                            batch.degradedReason(),
+                            batch.droppedSubjectsJson(),
+                            batch.diveCostMicros(),
+                            batch.diveLlmCalls(),
+                            batch.promptVersion(),
+                            batch.basis(),
+                            batch.triggerEventsJson(),
+                            now,
+                            now);
+                    jdbcTemplate.batchUpdate(
+                            INSERT_RANK_SQL,
+                            ranks,
+                            ranks.size(),
+                            (PreparedStatement ps, MarketTopRankRow rank) -> {
+                                ps.setString(1, rank.rankDate());
+                                ps.setInt(2, rank.version());
+                                ps.setInt(3, rank.rankNo());
+                                ps.setLong(4, rank.subjectId());
+                                ps.setString(5, rank.subjectCode());
+                                ps.setString(6, rank.subjectName());
+                                ps.setDouble(7, rank.totalScore());
+                                ps.setDouble(8, rank.finalScore());
+                                ps.setObject(9, rank.percentile());
+                                ps.setInt(10, rank.breakthrough() ? 1 : 0);
+                                ps.setString(11, rank.generation());
+                                ps.setString(12, rank.diveMethod());
+                                ps.setString(13, rank.diveSummary());
+                                ps.setString(14, rank.diveDetailJson());
+                                ps.setInt(15, rank.evidenceCount());
+                                ps.setString(16, rank.lastEventDate());
+                                ps.setObject(17, rank.prevRank());
+                                ps.setString(18, rank.changeType());
+                                ps.setString(19, rank.basis());
+                                ps.setString(20, rank.computedAt());
+                                ps.setTimestamp(21, now);
+                                ps.setTimestamp(22, now);
+                            });
+                });
+        return ranks.size();
+    }
+
+    private static MarketTopBatchRow withVersion(MarketTopBatchRow batch, int version) {
+        return new MarketTopBatchRow(
                 batch.rankDate(),
-                batch.version(),
+                version,
                 batch.triggerSource(),
                 batch.snapshotDate(),
                 batch.funnelStatsJson(),
-                batch.degraded() ? 1 : 0,
+                batch.degraded(),
                 batch.degradedReason(),
                 batch.droppedSubjectsJson(),
                 batch.diveCostMicros(),
@@ -147,37 +228,46 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                 batch.promptVersion(),
                 batch.basis(),
                 batch.triggerEventsJson(),
-                now,
-                now);
-        jdbcTemplate.batchUpdate(
-                INSERT_RANK_SQL,
-                ranks,
-                ranks.size(),
-                (PreparedStatement ps, MarketTopRankRow rank) -> {
-                    ps.setString(1, rank.rankDate());
-                    ps.setInt(2, rank.version());
-                    ps.setInt(3, rank.rankNo());
-                    ps.setLong(4, rank.subjectId());
-                    ps.setString(5, rank.subjectCode());
-                    ps.setString(6, rank.subjectName());
-                    ps.setDouble(7, rank.totalScore());
-                    ps.setDouble(8, rank.finalScore());
-                    ps.setObject(9, rank.percentile());
-                    ps.setInt(10, rank.breakthrough() ? 1 : 0);
-                    ps.setString(11, rank.generation());
-                    ps.setString(12, rank.diveMethod());
-                    ps.setString(13, rank.diveSummary());
-                    ps.setString(14, rank.diveDetailJson());
-                    ps.setInt(15, rank.evidenceCount());
-                    ps.setString(16, rank.lastEventDate());
-                    ps.setObject(17, rank.prevRank());
-                    ps.setString(18, rank.changeType());
-                    ps.setString(19, rank.basis());
-                    ps.setString(20, rank.computedAt());
-                    ps.setTimestamp(21, now);
-                    ps.setTimestamp(22, now);
-                });
-        return ranks.size();
+                batch.createdAt());
+    }
+
+    private static List<MarketTopRankRow> withVersion(List<MarketTopRankRow> ranks, int version) {
+        return ranks.stream()
+                .map(
+                        rank ->
+                                new MarketTopRankRow(
+                                        rank.rankDate(),
+                                        version,
+                                        rank.rankNo(),
+                                        rank.subjectId(),
+                                        rank.subjectCode(),
+                                        rank.subjectName(),
+                                        rank.totalScore(),
+                                        rank.finalScore(),
+                                        rank.percentile(),
+                                        rank.breakthrough(),
+                                        rank.generation(),
+                                        rank.diveMethod(),
+                                        rank.diveSummary(),
+                                        rank.diveDetailJson(),
+                                        rank.evidenceCount(),
+                                        rank.lastEventDate(),
+                                        rank.prevRank(),
+                                        rank.changeType(),
+                                        rank.basis(),
+                                        rank.computedAt()))
+                .toList();
+    }
+
+    /** SQLite 唯一冲突判定（xerial 未映射专用异常类型——按消息文本，V31 迁移测试同口径）。 */
+    private static boolean isUniqueConflict(DataAccessException e) {
+        String message =
+                String.valueOf(
+                        e.getMostSpecificCause() != null
+                                ? e.getMostSpecificCause().getMessage()
+                                : e.getMessage());
+        return message.contains("UNIQUE constraint failed")
+                && (message.contains("market_top_batch") || message.contains("market_top_rank"));
     }
 
     @Override

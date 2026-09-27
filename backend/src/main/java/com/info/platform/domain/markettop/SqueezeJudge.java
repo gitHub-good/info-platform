@@ -62,7 +62,8 @@ public final class SqueezeJudge {
             if (excluded(subject)) {
                 continue; // 粗筛排除复检：ST/无信号标的不入判定集（§3.3-1）
             }
-            candidates.putIfAbsent(
+            // 受影响标的的 final 为重算后新分——覆盖在榜行旧值（同标的旧 final 不得滞留判定集）
+            candidates.put(
                     subject.subjectId(),
                     new Candidate(
                             subject.subjectId(),

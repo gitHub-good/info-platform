@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.application.jobrun.RunningJobIndicator;
+import com.info.platform.application.markettop.IncrementalTopService;
 import com.info.platform.application.valuation.FactorSnapshotService.IncrementalReport;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.markettop.MarketTopRepository;
@@ -63,6 +64,8 @@ class IncrementalReevalServiceTest {
 
     private MarketTopRepository marketTopRepository;
 
+    private IncrementalTopService incrementalTopService;
+
     private RunningJobIndicator runningIndicator;
 
     private IncrementalReevalService service;
@@ -75,6 +78,7 @@ class IncrementalReevalServiceTest {
         snapshotRepository = mock(FactorSnapshotRepository.class);
         factorSnapshotService = mock(FactorSnapshotService.class);
         marketTopRepository = mock(MarketTopRepository.class);
+        incrementalTopService = mock(IncrementalTopService.class);
         runningIndicator = mock(RunningJobIndicator.class);
         RuntimeConfigService configService = mock(RuntimeConfigService.class);
         when(configService.read(anyString())).thenReturn(Optional.empty());
@@ -84,6 +88,7 @@ class IncrementalReevalServiceTest {
                         snapshotRepository,
                         factorSnapshotService,
                         marketTopRepository,
+                        incrementalTopService,
                         new IncrementalReevalSettings(configService, objectMapper),
                         runningIndicator,
                         objectMapper,
@@ -359,23 +364,50 @@ class IncrementalReevalServiceTest {
     }
 
     @Test
-    void tick_judgePassed_staysPendingForLinkSegment() {
+    void tick_judgePassed_linksVersionAndMarksLinked() {
         when(logRepository.findUnconsumedEvents(any(), any(), any(), anyInt()))
                 .thenReturn(List.of(event(101L, List.of("SH600519"), List.of())));
         when(logRepository.findScoresBySubjectIds(anyString(), anyCollection()))
                 .thenReturn(List.of(new SubjectScore(1, "SH600519", 55.0)));
         stubRecompute();
         stubTopAndPool(70.0); // 70 > 60 + 0.5 → 过阈
+        when(incrementalTopService.link(any(), any(), anyCollection())).thenReturn(2);
 
         IncrementalReevalService.ReevalReport report = service.tick();
 
-        assertThat(report.detail()).contains("pass");
-        // T190 终态：过阈挂起 RECOMPUTED（联动段 T191 接线收口 LINKED）
-        verify(logRepository, never()).markStatus(anyCollection(), anyString(), anyString());
+        assertThat(report.detail()).contains("link=v:2");
+        var verdictCaptor =
+                ArgumentCaptor.forClass(
+                        com.info.platform.domain.markettop.SqueezeJudge.Verdict.class);
+        verify(incrementalTopService)
+                .link(any(LocalDate.class), verdictCaptor.capture(), anyCollection());
+        assertThat(verdictCaptor.getValue().passed()).isTrue();
+        verify(logRepository).markLinked(anyCollection(), org.mockito.Mockito.eq(2), any(), any());
     }
 
     @Test
-    void tick_pendingRoundWithoutNewEvents_rejudgesWithoutRecompute() {
+    void tick_withinLinkInterval_marksDeferredWithoutLink() {
+        when(logRepository.findUnconsumedEvents(any(), any(), any(), anyInt()))
+                .thenReturn(List.of(event(101L, List.of("SH600519"), List.of())));
+        when(logRepository.findScoresBySubjectIds(anyString(), anyCollection()))
+                .thenReturn(List.of(new SubjectScore(1, "SH600519", 55.0)));
+        stubRecompute();
+        stubTopAndPool(70.0);
+        // 上一 EVENT 版本 5 分钟前（< 联动间隔 10min → DEFERRED 防抖）
+        when(logRepository.findLastEventVersionAt(TODAY.toString()))
+                .thenReturn(Optional.of(NOW.minusSeconds(300).toString()));
+
+        IncrementalReevalService.ReevalReport report = service.tick();
+
+        assertThat(report.detail()).contains("defer=interval");
+        verify(logRepository)
+                .markStatus(anyCollection(), org.mockito.Mockito.eq("DEFERRED"), anyString());
+        verify(incrementalTopService, never()).link(any(), any(), anyCollection());
+        verify(logRepository, never()).markLinked(anyCollection(), anyInt(), any(), any());
+    }
+
+    @Test
+    void tick_pendingRoundWithoutNewEvents_relinksWithoutRecompute() {
         when(logRepository.findPendingLink())
                 .thenReturn(
                         List.of(
@@ -386,13 +418,35 @@ class IncrementalReevalServiceTest {
                 .thenReturn(Optional.of(topVersion(60, 60, 60, 60, 60, 60, 60, 60, 60, 60)));
         when(snapshotRepository.findPoolRowsByDate(TODAY.toString()))
                 .thenReturn(List.of(poolRow(1, "SH600519", "贵州茅台", 70.0)));
+        when(incrementalTopService.link(any(), any(), anyCollection())).thenReturn(3);
 
         IncrementalReevalService.ReevalReport report = service.tick();
 
-        assertThat(report.detail()).contains("scan:0");
-        // 挂起轮：不重算（数据已就位），重走判定段
+        assertThat(report.detail()).contains("link=v:3");
+        // 挂起轮重走联动段：不再重算（数据已就位），事件留痕随联动收口
         verify(factorSnapshotService, never()).recomputeIncremental(any(), anyCollection());
-        verify(logRepository).markRecomputed(anyCollection(), any(), any(), anyBoolean(), any());
+        verify(logRepository).markLinked(anyCollection(), org.mockito.Mockito.eq(3), any(), any());
+    }
+
+    @Test
+    void tick_judgeNotPassedOnPendingRound_marksNoLinkTerminally() {
+        when(logRepository.findPendingLink())
+                .thenReturn(
+                        List.of(
+                                new PendingLink(
+                                        201L,
+                                        "[{\"id\":1,\"code\":\"SH600519\",\"before\":70.0,\"after\":60.3}]")));
+        when(marketTopRepository.findLatest(TODAY.toString()))
+                .thenReturn(Optional.of(topVersion(60, 60, 60, 60, 60, 60, 60, 60, 60, 60)));
+        when(snapshotRepository.findPoolRowsByDate(TODAY.toString()))
+                .thenReturn(List.of(poolRow(1, "SH600519", "贵州茅台", 60.3)));
+
+        IncrementalReevalService.ReevalReport report = service.tick();
+
+        // 挂起轮重判未过阈（分数回落）→ NO_LINK 终态不再重试
+        assertThat(report.detail()).contains("nopass");
+        verify(logRepository)
+                .markStatus(anyCollection(), org.mockito.Mockito.eq("NO_LINK"), anyString());
     }
 
     @Test
