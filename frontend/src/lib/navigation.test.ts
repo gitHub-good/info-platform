@@ -77,6 +77,14 @@ describe('navigation 路由工具', () => {
     expect(canonicalizeRoute('/sources?section=biz&tab=biz')).toBe('/sources?section=biz');
   });
 
+  // —— V2.4 T213：政策时事页裁撤——#/policies（含详情子路由）重定向资讯库预填 ——
+
+  it('canonicalizeRoute：/policies 与 /policies/{id} → /news-library?l1=监管·政策（预填重定向）', () => {
+    expect(canonicalizeRoute('/policies')).toBe('/news-library?l1=监管·政策');
+    expect(canonicalizeRoute('/policies/12345')).toBe('/news-library?l1=监管·政策');
+    expect(canonicalizeRoute('/policies?days=7')).toBe('/news-library?l1=监管·政策');
+  });
+
   it('canonicalizeRoute：非旧路由原样返回（归一层零误伤）', () => {
     expect(canonicalizeRoute('/overview')).toBe('/overview');
     expect(canonicalizeRoute('/sources?source=s1')).toBe('/sources?source=s1');

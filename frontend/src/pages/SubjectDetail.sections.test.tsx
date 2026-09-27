@@ -197,6 +197,18 @@ describe('SubjectDetail 分区分页接入（M12 T95）', () => {
     expect(sectionCalls(fetchMock, '/news')).toHaveLength(0);
   });
 
+  it('政策分区出口改指（V2.4 T213）：「全部政策 →」跳资讯库 L1=监管·政策 预填（政策页裁撤）', async () => {
+    const fetchMock = stubFetch({ [CODE_A]: detailData(CODE_A, '贵州茅台') });
+    renderPage(fetchMock, CODE_A);
+    await screen.findByText('贵州茅台');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('policy-more-link'));
+
+    // hash 写入后非 ASCII 以百分号编码回读，解码断言
+    expect(decodeURIComponent(window.location.hash)).toBe('#/news-library?l1=监管·政策');
+  });
+
   it('分区独立翻页（验收红线）：翻公告页仅 1 次公告子端点请求，事件/新闻/聚合零请求、内容不变', async () => {
     const fetchMock = stubFetch({ [CODE_A]: detailData(CODE_A, '贵州茅台') });
     renderPage(fetchMock, CODE_A);

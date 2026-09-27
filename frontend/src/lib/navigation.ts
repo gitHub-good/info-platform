@@ -53,6 +53,11 @@ export function canonicalizeRoute(route: string): string {
     const queryText = query.toString();
     return `/sources${queryText ? `?${queryText}` : ''}`;
   }
+  // 政策时事页裁撤（V2.4 T213，REQ-20260928-20 拍板二）：#/policies（含 /policies/{id} 详情子路由）
+  // 重定向资讯库 L1=监管·政策 预填（近似口径留档：65/68 ≈ 96% 同集，差额经源下拉补看）
+  if (path === '/policies' || path.startsWith('/policies/')) {
+    return '/news-library?l1=监管·政策';
+  }
   if (path === '/info-sources' || path.startsWith('/info-sources/')) {
     normalizeSourcesTab(query);
     const queryText = query.toString();

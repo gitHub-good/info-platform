@@ -5,7 +5,6 @@ import { LlmConfig } from '@/pages/LlmConfig';
 import { LlmCostReport } from '@/pages/LlmCostReport';
 import { Login } from '@/pages/Login';
 import { Overview } from '@/pages/Overview';
-import { Policy } from '@/pages/Policy';
 import { PromptTemplates } from '@/pages/PromptTemplates';
 import { SubjectDetail } from '@/pages/SubjectDetail';
 import { TaskCenter } from '@/pages/TaskCenter';
@@ -68,12 +67,10 @@ function useHashRoute(): string {
   if (route.startsWith('/market-top')) {
     return <MarketTop />;
   }
-  if (route.startsWith('/policies')) {
-    return <Policy />;
-  }
-  // 资讯库（M19 T161）：第 19 页，「数据」组第 4 项——news_item 原始库全量列表（自带 main+max-w-4xl）
+  // 资讯库（M19 T161）：「数据」组——news_item 原始库全量列表（自带 main+max-w-4xl）；
+  // V2.4 T213 增 URL 预填：effectiveRoute 随归一层透传（#/policies 重定向 L1=监管·政策 即达）
   if (route.startsWith('/news-library')) {
-    return <NewsLibrary />;
+    return <NewsLibrary route={route} />;
   }
   if (route.startsWith('/job-logs')) {
     // URL 参数初始化预过滤（#/job-logs?jobName=xxx，T41 任务中心「历史」跳转用）；
@@ -102,8 +99,8 @@ function useHashRoute(): string {
   if (route.startsWith('/llm-config')) {
     return <LlmConfig />;
   }
-  // 源管理（V2.3-M23 T204）：资讯源 + 业务数据源双 Tab 单页（?tab=info|biz，默认 info）；
-  // 旧 #/datasource-config / #/info-sources 由 canonicalizeRoute 归一层重定向（query 透传）
+  // 源管理（V2.4 T212 单列表分组）：资讯源六分组在前 + 业务数据源段收尾（?section=biz 段定位）；
+  // 旧 #/datasource-config / #/info-sources / ?tab= 由 canonicalizeRoute 归一层重定向归一
   if (route.startsWith('/sources')) {
     return <Sources route={route} />;
   }

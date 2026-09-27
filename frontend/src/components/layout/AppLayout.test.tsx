@@ -12,16 +12,16 @@ afterEach(() => {
 });
 
 describe('AppLayout 统一导航骨架（T38）', () => {
-  it('渲染 4 分组 19 项导航（V2.3-M23 T204 源两页合一后 20→19），当前项高亮', () => {
+  it('渲染 4 分组 18 项导航（V2.4-M24 T213 政策时事页裁撤后 19→18），当前项高亮', () => {
     render(<AppLayout currentRoute="/watchlists">内容</AppLayout>);
 
     // 分组标题
     for (const group of NAV_GROUPS) {
       expect(screen.getByText(group.label)).toBeInTheDocument();
     }
-    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：19 页 + 底部登出共 20 项
+    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：18 页 + 底部登出共 19 项
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(19);
+    expect(allItems).toHaveLength(18);
     for (const item of allItems) {
       expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
     }
@@ -31,8 +31,9 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     const marketTopItem = screen.getByTestId('nav-item-market-top');
     expect(recItem.compareDocumentPosition(marketTopItem) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // 资讯库（M19 T161）：数据组第 4 项（政策时事之后）
+    // 资讯库（M19 T161）：数据组第 3 项；政策时事页已裁撤（V2.4 T213）导航项不存在
     expect(screen.getByTestId('nav-item-news-library')).toHaveTextContent('资讯库');
+    expect(screen.queryByTestId('nav-item-policies')).toBeNull();
     // 源管理（V2.3 T204 合一）：单入口「源管理」，旧两页文案不再出现
     expect(screen.getByTestId('nav-item-sources')).toHaveTextContent('源管理');
     expect(screen.queryByTestId('nav-item-datasource-config')).toBeNull();
@@ -49,7 +50,7 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <AppLayout currentRoute="/policies">
+      <AppLayout currentRoute="/news-library">
         <div>内容区</div>
       </AppLayout>,
     );
@@ -89,7 +90,7 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     const drawer = screen.getByTestId('nav-drawer');
     expect(drawer).toBeInTheDocument();
     // 抽屉内导航完整（within 限定，避免与桌面侧栏同名 testid 冲突）
-    expect(within(drawer).getByTestId('nav-item-policies')).toBeInTheDocument();
+    expect(within(drawer).getByTestId('nav-item-news-library')).toBeInTheDocument();
 
     // 遮罩点击收起
     await user.click(screen.getByTestId('nav-overlay'));
@@ -97,9 +98,9 @@ describe('AppLayout 统一导航骨架（T38）', () => {
 
     // 再打开，点抽屉内导航项 → 收起 + hash 变化
     await user.click(screen.getByTestId('nav-toggle'));
-    await user.click(within(screen.getByTestId('nav-drawer')).getByTestId('nav-item-policies'));
+    await user.click(within(screen.getByTestId('nav-drawer')).getByTestId('nav-item-news-library'));
     expect(screen.queryByTestId('nav-drawer')).toBeNull();
-    expect(window.location.hash).toBe('#/policies');
+    expect(window.location.hash).toBe('#/news-library');
   });
 
   it('抽屉打开时 Escape 关闭', async () => {

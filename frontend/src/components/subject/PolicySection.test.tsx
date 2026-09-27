@@ -85,7 +85,7 @@ describe('PolicySection 政策分区（V2.3-M23 T206 分区对象契约）', () 
     expect(screen.queryByTestId('policy-list')).toBeNull();
   });
 
-  it('底部出口：「全部政策 →」右对齐跳 /policies + basis 口径脚注', async () => {
+  it('底部出口（V2.4 T213 改指）：「全部政策 →」跳资讯库 L1=监管·政策 预填 + basis 口径脚注', async () => {
     const user = userEvent.setup();
     renderSection(sectionView());
 
@@ -97,7 +97,10 @@ describe('PolicySection 政策分区（V2.3-M23 T206 分区对象契约）', () 
     expect(link.tagName).toBe('BUTTON');
 
     await user.click(link);
-    await vi.waitFor(() => expect(window.location.hash).toBe('#/policies'));
+    // hash 写入后非 ASCII 以百分号编码回读，解码断言（政策页裁撤，改指资讯库预填）
+    await vi.waitFor(() =>
+      expect(decodeURIComponent(window.location.hash)).toBe('#/news-library?l1=监管·政策'),
+    );
   });
 
   it('双段同现防御：items 非空时关联段优先，兜底段不渲染（徽章可解释性不破坏）', () => {

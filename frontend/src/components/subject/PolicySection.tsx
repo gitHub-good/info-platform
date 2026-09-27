@@ -112,7 +112,7 @@ export function PolicySection({ data, status }: PolicySectionProps) {
             ) : null}
             <button
               type="button"
-              onClick={() => navigate('/policies')}
+              onClick={() => navigate('/news-library?l1=监管·政策')}
               data-testid="policy-more-link"
               className="text-sm text-primary underline-offset-4 hover:underline"
             >

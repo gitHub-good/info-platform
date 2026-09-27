@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { ApiError } from '@/api/http';
 import { getInfoSources } from '@/api/infoSource';
+import { currentRoute, queryOf } from '@/lib/navigation';
 import {
   DEFAULT_NEWS_LIBRARY_L0,
   DEFAULT_NEWS_LIBRARY_PAGE_SIZE,
@@ -262,6 +263,32 @@ function buildQuery(
   };
 }
 
+/** L0 筛选合法值集（URL 预填校验：非法值忽略回默认态）。 */
+const L0_FILTER_VALUES: NewsL0Filter[] = ['PASS', 'ALL', 'NEAR_DUP', 'NOISE'];
+
+/** URL 预填初始筛选（V2.4 T213：挂载消费一次 l1/sourceId/l0——政策页重定向与大盘深查入口的落点）。 */
+interface UrlPrefill {
+  l1: string;
+  sourceId: string;
+  l0: NewsL0Filter;
+}
+
+/**
+ * 解析路由查询参数为初始筛选态：l1 须在 35 枚举内、sourceId 须为数字、l0 须为合法枚举——
+ * 非法参数忽略回默认态（REQ 故事 2 场景 3：预填仅初始化一次不锁态，用户随后改筛自由）。
+ */
+function prefillOf(route: string): UrlPrefill {
+  const query = queryOf(route);
+  const l1 = query.get('l1') ?? '';
+  const sourceId = query.get('sourceId') ?? '';
+  const l0 = query.get('l0') ?? '';
+  return {
+    l1: L1_MAIN_CATEGORIES.includes(l1) ? l1 : '',
+    sourceId: /^\d+$/.test(sourceId) ? sourceId : '',
+    l0: L0_FILTER_VALUES.includes(l0 as NewsL0Filter) ? (l0 as NewsL0Filter) : DEFAULT_NEWS_LIBRARY_L0,
+  };
+}
+
 /**
  * 资讯库页（M19 T161 第 19 页，REQ-20260926-16 拍板一）：news_item 原始库全量列表。
  * - 列表：GET /news-items?page&size&l0（页码分页，默认 20/页、仅 PASS——管道消费口径）。
@@ -271,7 +298,12 @@ function buildQuery(
  *   AbortController 单点防串台。
  * 三态：加载骨架 / 空态（区分库为空与筛选过窄）/ 错误重试；401 由 http 层统一跳 /login。
  */
-export function NewsLibrary() {
+export function NewsLibrary({ route: routeProp }: { route?: string }) {
+  // URL 预填（V2.4 T213）：挂载时消费一次路由查询参数（l1/sourceId/l0）为初始筛选态
+  // （#/policies 重定向、大盘弹框深查等入口的落点；预填不锁态，用户随后改筛自由）。
+  // route prop 优先（App 归一层后的 effectiveRoute——redirect 首帧即含目标参数）；
+  // 直挂场景（单测/嵌入）回落 window hash。
+  const [prefill] = useState(() => prefillOf(routeProp ?? currentRoute()));
   const [items, setItems] = useState<NewsLibraryItem[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_NEWS_LIBRARY_PAGE_SIZE);
@@ -279,9 +311,9 @@ export function NewsLibrary() {
   const pageSizeRef = useRef(DEFAULT_NEWS_LIBRARY_PAGE_SIZE);
   const [total, setTotal] = useState(0);
 
-  const [sourceSel, setSourceSel] = useState('');
-  const [l0, setL0] = useState<NewsL0Filter>(DEFAULT_NEWS_LIBRARY_L0);
-  const [l1, setL1] = useState('');
+  const [sourceSel, setSourceSel] = useState(prefill.sourceId);
+  const [l0, setL0] = useState<NewsL0Filter>(prefill.l0);
+  const [l1, setL1] = useState(prefill.l1);
   const [publishedFrom, setPublishedFrom] = useState('');
   const [publishedTo, setPublishedTo] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
@@ -354,11 +386,12 @@ export function NewsLibrary() {
     [fetchView],
   );
 
-  // 首次加载首页 + 源下拉选项（两请求独立：源清单失败不阻塞列表）
+  // 首次加载首页 + 源下拉选项（两请求独立：源清单失败不阻塞列表）；
+  // 首查按 URL 预填筛选态出数（T213：政策页重定向 L1=监管·政策 即达同口径数据）
   useEffect(() => {
-    void loadFirst('', DEFAULT_NEWS_LIBRARY_L0, '', '');
+    void loadFirst(prefill.sourceId, prefill.l0, prefill.l1, '');
     return () => listAbort.current?.abort();
-  }, [loadFirst]);
+  }, [loadFirst, prefill]);
 
   useEffect(() => {
     const ctrl = new AbortController();

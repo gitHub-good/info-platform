@@ -487,6 +487,39 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(screen.getByTestId('nav-item-feed')).toBeInTheDocument();
   });
 
+  // —— V2.4 T213：政策时事页裁撤——旧 hash 重定向资讯库 L1=监管·政策 预填（REQ-20260928-20 拍板二） ——
+
+  it('#/policies 重定向 #/news-library?l1=监管·政策：挂载资讯库并按预填筛选出数（导航项已裁撤）', async () => {
+    const fetchMock = renderLoggedIn('#/policies');
+
+    expect(await screen.findByTestId('news-library-page')).toBeInTheDocument();
+    // hash 写入后非 ASCII 以百分号编码回读，解码断言（URLSearchParams 消费时自动解码）
+    await waitFor(() =>
+      expect(decodeURIComponent(window.location.hash)).toBe('#/news-library?l1=监管·政策'),
+    );
+    // 预填筛选驱动首查：l1=监管·政策（政策页同集口径，重定向对账锚）
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (call) =>
+            String(call[0]).includes('/api/v1/news-items') &&
+            String(call[0]).includes('l1='),
+        ),
+      ).toBe(true),
+    );
+    // 导航「政策时事」项已移除（19→18 页）
+    expect(screen.queryByTestId('nav-item-policies')).toBeNull();
+  });
+
+  it('#/policies/{id} 详情子路由同重定向资讯库预填（场景不孤儿：详情读口退役从简）', async () => {
+    renderLoggedIn('#/policies/98765');
+
+    expect(await screen.findByTestId('news-library-page')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(decodeURIComponent(window.location.hash)).toBe('#/news-library?l1=监管·政策'),
+    );
+  });
+
   it('#/sources（V2.4 T212 单列表分组）：无 Tab，资讯源段 + 业务数据源段同屏渲染', async () => {
     renderLoggedIn('#/sources');
 

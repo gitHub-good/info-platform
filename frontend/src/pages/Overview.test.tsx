@@ -446,11 +446,14 @@ describe('Overview 概览仪表盘（T42）', () => {
     await waitFor(() => expect(screen.getByTestId('stat-card-llm-today-link')).toBeInTheDocument());
     expect(screen.getByTestId('stat-card-llm-today-link')).toHaveAttribute('href', '#/cost-report');
     expect(screen.getByTestId('stat-card-anomaly-link')).toHaveAttribute('href', '#/watchlists');
-    expect(screen.getByTestId('stat-card-policy-link')).toHaveAttribute('href', '#/policies');
+    expect(screen.getByTestId('stat-card-policy-link')).toHaveAttribute(
+      'href',
+      '#/news-library?l1=监管·政策',
+    );
     expect(screen.getByTestId('stat-card-job-health-link')).toHaveAttribute('href', '#/task-center');
     expect(screen.getByTestId('stat-card-source-health-link')).toHaveAttribute(
       'href',
-      '#/sources?tab=biz',
+      '#/sources?section=biz',
     );
 
     // 键盘可达路径同锚点：点击后 hash 真实跳变

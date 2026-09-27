@@ -195,7 +195,7 @@ export function Overview() {
                           ? `最新：${data.policy24h.latest[0].title}`
                           : '近 24h 无新入库政策'
                       }
-                      href="#/policies"
+                      href="#/news-library?l1=监管·政策"
                       error={data.policy24h.error}
                       onRetry={() => void load()}
                       testId="policy"
@@ -271,7 +271,7 @@ export function Overview() {
                     subtitle="近 24h"
                     value={`抓取成功 ${okCount}/${sources.length || '—'}`}
                     hint={sourceHint}
-                    href="#/sources?tab=biz"
+                    href="#/sources?section=biz"
                     error={data.sourceHealthError}
                     onRetry={() => void load()}
                     testId="source-health"

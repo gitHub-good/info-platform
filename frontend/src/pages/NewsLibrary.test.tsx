@@ -426,3 +426,66 @@ describe('资讯库页（M19 T161，REQ-20260926-16 拍板一）', () => {
     await screen.findByTestId('news-library-item-1');
   });
 });
+
+describe('资讯库 URL 预填（V2.4 T213，REQ-20260928-20 拍板二：政策页重定向落点）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+    window.location.hash = '';
+  });
+
+  it('l1 预填：#/news-library?l1=监管·政策 挂载即按预填筛选出数（控件初始态一致）', async () => {
+    window.location.hash = '#/news-library?l1=监管·政策';
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    const calls = newsLibraryCalls(fetchMock);
+    expect(calls[0]).toContain('l1=');
+    expect(decodeURIComponent(calls[0])).toContain('l1=监管·政策');
+    // 控件初始态与参数一致（select 值即 l1）
+    expect(screen.getByTestId('news-library-l1-filter')).toHaveValue('监管·政策');
+  });
+
+  it('sourceId/l0 预填：#/news-library?sourceId=7&l0=ALL 首查带源与全量口径', async () => {
+    window.location.hash = '#/news-library?sourceId=7&l0=ALL';
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    const calls = newsLibraryCalls(fetchMock);
+    expect(calls[0]).toContain('sourceId=7');
+    expect(calls[0]).toContain('l0=ALL');
+    expect(screen.getByTestId('news-library-source-filter')).toHaveValue('7');
+  });
+
+  it('非法参数忽略回默认态：l1 非 35 枚举 / sourceId 非数字 / l0 非法枚举不进筛选', async () => {
+    window.location.hash = '#/news-library?l1=不存在的分类&sourceId=abc&l0=FOO';
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    const calls = newsLibraryCalls(fetchMock);
+    expect(calls[0]).toContain('l0=PASS');
+    expect(calls[0]).not.toContain('l1=');
+    expect(calls[0]).not.toContain('sourceId=');
+    expect(screen.getByTestId('news-library-l1-filter')).toHaveValue('');
+  });
+
+  it('预填仅初始化一次不锁态：挂载后改筛自由（清空 l1 走全量口径）', async () => {
+    window.location.hash = '#/news-library?l1=监管·政策';
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.selectOptions(screen.getByTestId('news-library-l1-filter'), '');
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(decodeURIComponent(last)).not.toContain('l1=');
+    });
+  });
+});
