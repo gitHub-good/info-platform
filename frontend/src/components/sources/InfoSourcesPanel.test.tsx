@@ -1,7 +1,10 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { InfoSourcesPanel } from '@/components/sources/InfoSourcesPanel';
+import {
+  InfoSourcesPanel,
+  type InfoSourcesPanelHandle,
+} from '@/components/sources/InfoSourcesPanel';
 import type { InfoSourceCardView, InfoSourcesView } from '@/types/infoSource';
 
 // —— fetch mock：info-sources 组（GET 分组视图 / POST 新增 / PATCH 编辑 / DELETE 归档 /
@@ -237,11 +240,14 @@ function makeStore({ view = fullView(), failGet = false, pollStatus = 'accepted'
 
 function renderPage(store: ReturnType<typeof makeStore>) {
   vi.stubGlobal('fetch', store.fetchMock);
-  render(<InfoSourcesPanel />);
+  // V2.4 T212：新增入口上移页头全局唯一——面板直挂测试经命令句柄 openAdd() 打开（等价页头按钮触发）
+  const ref = { current: null as InfoSourcesPanelHandle | null };
+  render(<InfoSourcesPanel ref={ref} />);
+  return ref;
 }
 
-async function openAddDialog() {
-  await userEvent.click(await screen.findByTestId('info-sources-add'));
+async function openAddDialog(ref?: { current: InfoSourcesPanelHandle | null }) {
+  act(() => ref?.current?.openAdd());
   return screen.getByTestId('dialog');
 }
 
@@ -252,19 +258,18 @@ describe('InfoSourcesPanel 资讯源面板（M13 T105 → V2.3 T204 抽面板）
     localStorage.clear();
   });
 
-  // —— V2.3 T204：面板头保留轮询采集型副标，互链改指 #/sources?tab=biz（Tab 切换） ——
+  // —— V2.4 T212：去 Tab 单列表分段——面板头无互链（业务段同屏收尾）、新增入口上移页头 ——
 
-  it('面板头：标题「资讯源」+ 轮询采集型副标 + 互链直达业务数据源 Tab（#/sources?tab=biz）', async () => {
+  it('面板头：标题「资讯源」+ 轮询采集型副标；无新增按钮与互链（页头全局唯一入口）', async () => {
     renderPage(makeStore());
 
     const page = await screen.findByTestId('info-sources-panel');
     expect(screen.getByRole('heading', { name: '资讯源' })).toBeInTheDocument();
     expect(page).toHaveTextContent('轮询采集型');
     expect(page).toHaveTextContent('7×24');
-    expect(screen.getByTestId('info-sources-datasource-link')).toHaveAttribute(
-      'href',
-      '#/sources?tab=biz',
-    );
+    // Tab 消亡：互链退役；新增按钮上移页头（面板内无第二入口）
+    expect(screen.queryByTestId('info-sources-datasource-link')).toBeNull();
+    expect(screen.queryByTestId('info-sources-add')).toBeNull();
   });
 
   it('渲染分组视图：分组标题 / 类型徽章 / 指标行（间隔·今日+新增）', async () => {
@@ -381,8 +386,8 @@ describe('InfoSourcesPanel 资讯源面板（M13 T105 → V2.3 T204 抽面板）
   });
 
   it('新增源 Dialog：JSON 切换展开映射字段集，RSS 隐藏整区；校验拦截空名称', async () => {
-    renderPage(makeStore());
-    const dialog = await openAddDialog();
+    const ref = renderPage(makeStore());
+    const dialog = await openAddDialog(ref);
 
     expect(within(dialog).getByTestId('info-source-add-type-rss')).toBeEnabled();
     expect(within(dialog).queryByTestId('info-source-add-list-path')).not.toBeInTheDocument();
@@ -399,8 +404,8 @@ describe('InfoSourcesPanel 资讯源面板（M13 T105 → V2.3 T204 抽面板）
 
   it('新增源：JSON 轻量映射序列化（transform 按目标字段缺省）+ 保存成功引导条不自动关', async () => {
     const store = makeStore();
-    renderPage(store);
-    const dialog = await openAddDialog();
+    const ref = renderPage(store);
+    const dialog = await openAddDialog(ref);
 
     await userEvent.click(within(dialog).getByTestId('info-source-add-type-json'));
     await userEvent.type(within(dialog).getByTestId('info-source-add-name'), '金十镜像');
@@ -441,8 +446,8 @@ describe('InfoSourcesPanel 资讯源面板（M13 T105 → V2.3 T204 抽面板）
 
   it('新增源 RSS 类型不带映射键；完成关闭并刷新（新卡入分组）', async () => {
     const store = makeStore();
-    renderPage(store);
-    const dialog = await openAddDialog();
+    const ref = renderPage(store);
+    const dialog = await openAddDialog(ref);
 
     await userEvent.type(within(dialog).getByTestId('info-source-add-name'), 'New Rss');
     await userEvent.type(
@@ -467,8 +472,8 @@ describe('InfoSourcesPanel 资讯源面板（M13 T105 → V2.3 T204 抽面板）
       if (String(url).endsWith('/info-sources')) return ok(fullView());
       return fail(404, 50000, 'x');
     });
-    renderPage(store);
-    const dialog = await openAddDialog();
+    const ref = renderPage(store);
+    const dialog = await openAddDialog(ref);
 
     await userEvent.type(within(dialog).getByTestId('info-source-add-name'), 'New Rss');
     await userEvent.type(

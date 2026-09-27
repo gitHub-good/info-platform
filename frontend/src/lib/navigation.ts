@@ -32,18 +32,11 @@ export function queryOf(route: string): URLSearchParams {
   return new URLSearchParams(queryIndex >= 0 ? route.slice(queryIndex + 1) : '');
 }
 
-/** 源管理页 Tab 键（V2.3-M23 T204：info=资讯源默认 / biz=业务数据源）。 */
-export type SourcesTab = 'info' | 'biz';
-
-/** /sources 路由的 ?tab= 解析（缺省/非法值回落默认 info——方案 §3.4 默认高频运维面）。 */
-export function sourcesTabOf(route: string): SourcesTab {
-  return queryOf(route).get('tab') === 'biz' ? 'biz' : 'info';
-}
-
 /**
- * 旧源页路由归一（V2.3-M23 T204，方案 §3.4 兼容红线）：
- * - /datasource-config（含 query 透传）→ /sources?tab=biz
+ * 旧源页路由归一（V2.3-M23 T204 → V2.4 T212 去 Tab 修订，REQ-20260928-20 拍板一路由兼容红线）：
+ * - /datasource-config（含 query 透传）→ /sources?section=biz（业务数据源段定位）
  * - /info-sources → /sources（?source= 等定位参数原样透传，面板定位逻辑不变）
+ * - /sources 自身：?tab=biz → ?section=biz（段定位参数）；?tab=info 静默归一（删除）
  * 归一层全局兜底（前缀匹配）：书签/深链等未枚举散点自动被捕获；非旧路由原样返回。
  */
 export function canonicalizeRoute(route: string): string {
@@ -51,14 +44,43 @@ export function canonicalizeRoute(route: string): string {
   const path = queryIndex >= 0 ? route.slice(0, queryIndex) : route;
   const query = queryOf(route);
   if (path === '/datasource-config' || path.startsWith('/datasource-config/')) {
-    if (!query.get('tab')) query.set('tab', 'biz');
-    return `/sources?${query.toString()}`;
+    // 旧页语义 = 业务数据源配置：无 tab / tab=biz 落业务段定位；tab=info/非法值回默认（无段定位）
+    const tab = query.get('tab');
+    normalizeSourcesTab(query);
+    if ((!tab || tab === 'biz') && !query.get('section')) {
+      query.set('section', 'biz');
+    }
+    const queryText = query.toString();
+    return `/sources${queryText ? `?${queryText}` : ''}`;
   }
   if (path === '/info-sources' || path.startsWith('/info-sources/')) {
+    normalizeSourcesTab(query);
+    const queryText = query.toString();
+    return `/sources${queryText ? `?${queryText}` : ''}`;
+  }
+  if (path === '/sources' || path.startsWith('/sources/')) {
+    if (!normalizeSourcesTab(query)) {
+      return route; // 无 tab 参数：原样返回（零改写零误伤）
+    }
     const queryText = query.toString();
     return `/sources${queryText ? `?${queryText}` : ''}`;
   }
   return route;
+}
+
+/**
+ * ?tab= 参数退役归一（V2.4 T212）：tab=biz → section=biz 段定位；tab=info/非法值静默删除。
+ *
+ * @returns 是否发生变更（无 tab 参数返回 false，路由保持原样）
+ */
+function normalizeSourcesTab(query: URLSearchParams): boolean {
+  const tab = query.get('tab');
+  if (!tab) return false;
+  query.delete('tab');
+  if (tab === 'biz' && !query.get('section')) {
+    query.set('section', 'biz');
+  }
+  return true;
 }
 
 /**

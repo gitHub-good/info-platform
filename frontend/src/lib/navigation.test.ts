@@ -7,7 +7,6 @@ import {
   parseSubjectCode,
   queryOf,
   rememberSubject,
-  sourcesTabOf,
 } from '@/lib/navigation';
 
 afterEach(() => {
@@ -52,13 +51,14 @@ describe('navigation 路由工具', () => {
     expect(`#/subjects/${lastViewedSubject()}`).toBe('#/subjects/SZ000001');
   });
 
-  // —— V2.3-M23 T204：源页路由归一 + /sources Tab 解析 ——
+  // —— V2.3-M23 T204 源页归一 → V2.4 T212 去 Tab 修订：?tab= 退役、?section=biz 段定位 ——
 
-  it('canonicalizeRoute：datasource-config → /sources?tab=biz（query 合流透传）', () => {
-    expect(canonicalizeRoute('/datasource-config')).toBe('/sources?tab=biz');
-    expect(canonicalizeRoute('/datasource-config?foo=1')).toBe('/sources?foo=1&tab=biz');
-    // 已带 tab 参数不重复覆写
-    expect(canonicalizeRoute('/datasource-config?tab=info')).toBe('/sources?tab=info');
+  it('canonicalizeRoute：datasource-config → /sources?section=biz（query 合流透传）', () => {
+    expect(canonicalizeRoute('/datasource-config')).toBe('/sources?section=biz');
+    expect(canonicalizeRoute('/datasource-config?foo=1')).toBe('/sources?foo=1&section=biz');
+    // 旧 ?tab= 参数一并归一（biz → section；info 静默删除）
+    expect(canonicalizeRoute('/datasource-config?tab=info')).toBe('/sources');
+    expect(canonicalizeRoute('/datasource-config?tab=biz')).toBe('/sources?section=biz');
   });
 
   it('canonicalizeRoute：info-sources → /sources（?source= 定位参数原样透传）', () => {
@@ -68,16 +68,19 @@ describe('navigation 路由工具', () => {
     );
   });
 
-  it('canonicalizeRoute：非旧路由原样返回（归一层零误伤）', () => {
-    expect(canonicalizeRoute('/overview')).toBe('/overview');
-    expect(canonicalizeRoute('/sources?tab=biz')).toBe('/sources?tab=biz');
-    expect(canonicalizeRoute('/feed-dashboard')).toBe('/feed-dashboard');
+  it('canonicalizeRoute：?tab= 退役归一——/sources?tab=biz → ?section=biz；tab=info 静默删除', () => {
+    expect(canonicalizeRoute('/sources?tab=biz')).toBe('/sources?section=biz');
+    expect(canonicalizeRoute('/sources?tab=info')).toBe('/sources');
+    expect(canonicalizeRoute('/sources?tab=info&source=s1')).toBe('/sources?source=s1');
+    expect(canonicalizeRoute('/sources?tab=unknown')).toBe('/sources');
+    // section 已显式时不重复覆写；其余参数原样保留
+    expect(canonicalizeRoute('/sources?section=biz&tab=biz')).toBe('/sources?section=biz');
   });
 
-  it('sourcesTabOf：?tab=biz → biz；缺省/非法值 → info（默认高频运维面）', () => {
-    expect(sourcesTabOf('/sources')).toBe('info');
-    expect(sourcesTabOf('/sources?tab=biz')).toBe('biz');
-    expect(sourcesTabOf('/sources?tab=info&source=s1')).toBe('info');
-    expect(sourcesTabOf('/sources?tab=unknown')).toBe('info');
+  it('canonicalizeRoute：非旧路由原样返回（归一层零误伤）', () => {
+    expect(canonicalizeRoute('/overview')).toBe('/overview');
+    expect(canonicalizeRoute('/sources?source=s1')).toBe('/sources?source=s1');
+    expect(canonicalizeRoute('/sources')).toBe('/sources');
+    expect(canonicalizeRoute('/feed-dashboard')).toBe('/feed-dashboard');
   });
 });

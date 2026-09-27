@@ -487,27 +487,25 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(screen.getByTestId('nav-item-feed')).toBeInTheDocument();
   });
 
-  it('#/sources 双 Tab（V2.3 T204）：默认资讯源面板，切 biz Tab 渲染业务数据源面板且 URL 随行', async () => {
-    const user = userEvent.setup();
+  it('#/sources（V2.4 T212 单列表分组）：无 Tab，资讯源段 + 业务数据源段同屏渲染', async () => {
     renderLoggedIn('#/sources');
 
     expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
     expect(screen.getByTestId('info-sources-panel')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('sources-tab-biz'));
-    expect(await screen.findByTestId('biz-sources-panel')).toBeInTheDocument();
-    await waitFor(() => expect(window.location.hash).toBe('#/sources?tab=biz'));
+    expect(screen.getByTestId('biz-sources-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('sources-tabs')).toBeNull();
   });
 
-  it('旧源页路由归一（T204 三向重定向）：#/datasource-config → #/sources?tab=biz 且渲染业务面板', async () => {
+  it('旧源页路由归一（T212）：#/datasource-config → #/sources?section=biz 且两段同屏渲染', async () => {
     renderLoggedIn('#/datasource-config');
 
     expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    expect(screen.getByTestId('info-sources-panel')).toBeInTheDocument();
     expect(screen.getByTestId('biz-sources-panel')).toBeInTheDocument();
-    await waitFor(() => expect(window.location.hash).toBe('#/sources?tab=biz'));
+    await waitFor(() => expect(window.location.hash).toBe('#/sources?section=biz'));
   });
 
-  it('旧源页路由归一（T204）：#/info-sources → #/sources 默认资讯面板，?source= 定位参数透传', async () => {
+  it('旧源页路由归一（T212）：#/info-sources → #/sources 默认资讯段，?source= 定位参数透传', async () => {
     renderLoggedIn('#/info-sources?source=mw_topstories');
 
     expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
@@ -517,14 +515,24 @@ describe('App 路由与登录守卫（T38）', () => {
     );
   });
 
-  it('旧源页路由归一（T204）：#/datasource-config 带 query → tab=biz 与原参数合流', async () => {
+  it('旧源页路由归一（T212）：#/datasource-config 带 query → section=biz 与原参数合流；?tab= 退役归一', async () => {
     renderLoggedIn('#/datasource-config?foo=1');
 
     expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
     expect(screen.getByTestId('biz-sources-panel')).toBeInTheDocument();
     await waitFor(() =>
-      expect(window.location.hash).toBe('#/sources?foo=1&tab=biz'),
+      expect(window.location.hash).toBe('#/sources?foo=1&section=biz'),
     );
+  });
+
+  it('?tab= 退役归一（T212）：#/sources?tab=biz → #/sources?section=biz（段定位），tab=info 静默删除', async () => {
+    renderLoggedIn('#/sources?tab=biz');
+
+    expect(await screen.findByTestId('sources-page')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/sources?section=biz'));
+
+    window.location.hash = '#/sources?tab=info';
+    await waitFor(() => expect(window.location.hash).toBe('#/sources'));
   });
 
   it('未知路由已登录时无内容区崩坏（侧栏仍在，内容区空）', () => {

@@ -186,20 +186,21 @@ describe('BizSourcesPanel 业务数据源面板（T40 → V2.3 T204 抽面板）
     expect(screen.queryByTestId('datasource-edit-params-EVENT')).toBeNull();
   });
 
-  // —— V2.3 T204：面板头保留运行形态副标，互链改指 #/sources?tab=info（Tab 切换） ——
+  // —— V2.4 T212：单列表分段收尾段——stale「六域 7 源」文案对齐五域五源、互链退役、代码注册域明示 ——
 
-  it('面板头：标题「业务数据源」+ 按需拉取型副标 + 互链直达资讯源 Tab（#/sources?tab=info）', async () => {
+  it('面板头：标题「业务数据源」+ 五域五源副标（stale 六域清除）+ 代码注册域明示，无新增/互链入口', async () => {
     const store = makeStore();
     renderPage(store);
 
     expect(await screen.findByTestId('biz-sources-panel')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '业务数据源' })).toBeInTheDocument();
     expect(screen.getByTestId('biz-sources-panel')).toHaveTextContent('按需拉取型');
-    expect(screen.getByTestId('biz-sources-panel')).toHaveTextContent('六域');
-    expect(screen.getByTestId('datasource-config-info-sources-link')).toHaveAttribute(
-      'href',
-      '#/sources?tab=info',
+    expect(screen.getByTestId('biz-sources-panel')).toHaveTextContent('五域');
+    expect(screen.getByTestId('biz-sources-panel')).not.toHaveTextContent('六域');
+    expect(screen.getByTestId('biz-sources-code-registered-note')).toHaveTextContent(
+      '不提供新增入口',
     );
+    expect(screen.queryByTestId('datasource-config-info-sources-link')).toBeNull();
   });
 
   it('mock 模式卡顶常显提示条；真实→mock 切换弹确认（PRD 风险对策）', async () => {

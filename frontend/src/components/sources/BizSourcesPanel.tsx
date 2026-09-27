@@ -884,18 +884,11 @@ export function BizSourcesPanel({ filter = '' }: { filter?: string }) {
       <header className="mb-4">
         <h2 className="text-base font-medium">业务数据源</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          按需拉取型 · 行情 / 财务 / 估值 / 公告 / 新闻 / 政策六域——7 源开关 / 运行模式 / 降级链 / 弹性参数与健康状态一页管理
+          按需拉取型 · 行情 / 财务 / 估值 / 公告 / 新闻五域——5 源开关 / 运行模式 / 降级链 / 弹性参数与健康状态一页管理
         </p>
-        {/* 源页面轻整合互链（M19 T165 → V2.3 T204 归一）：轮询采集的另一套「源」面板直达（Tab 切换） */}
-        <p className="mt-1 text-sm text-muted-foreground">
-          轮询抓取的资讯源管理 →{' '}
-          <a
-            href="#/sources?tab=info"
-            data-testid="datasource-config-info-sources-link"
-            className="underline underline-offset-2 transition-colors hover:text-foreground"
-          >
-            资讯源
-          </a>
+        {/* V2.4 T212：业务源为代码注册域（adapter bean + 降级链），不提供页面新增——「单一新增配置」由页头资讯源入口唯一达成 */}
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="biz-sources-code-registered-note">
+          业务源为代码注册域（写代码注册 adapter），页面不提供新增入口
         </p>
       </header>
 

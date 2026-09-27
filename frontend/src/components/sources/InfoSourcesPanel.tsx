@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
 import {
   archiveInfoSource,
@@ -26,12 +26,19 @@ import type {
   InfoSourcesView,
 } from '@/types/infoSource';
 
-// 资讯源面板（M13 T105 → V2.3-M23 T204 抽面板：页体自 #/info-sources 独立页迁入 #/sources 双 Tab 容器，
-// 数据加载/卡片交互/testid 全量保留，仅剥 <main> 外壳——宽度容器由 Sources.tsx 提供）。
+// 资讯源面板（M13 T105 → V2.3-M23 T204 抽面板 → V2.4 T212 单列表分段分组：#/sources 去 Tab 后作为首段嵌入），
+// 数据加载/卡片交互/testid 全量保留，仅剥 <main> 外壳——宽度容器由 Sources.tsx 提供。
 // 卡片分组网格（category 分组 + 归档区）/五态徽章/新增单 Dialog 类型切换字段集/JSON 轻量映射/
 // 编辑热生效/启停/软删二次确认/恢复/立即抓取 202+3s 轻轮询/连通性测试/新增保存后引导条。
+// 新增入口（V2.4 T212）：Dialog 归面板所有、触发按钮上移页头全局唯一——经 ref 命令句柄 openAdd() 触发。
 // 刷新策略（UI §6.4）：编辑/启停/归档/恢复按卡局部更新；仅手动抓取触发 3s 轻轮询（上限 30s，document.hidden 暂停）。
 // filter（V2.3 T204 统一搜索）：按源名/代码包含过滤卡片（不区分大小写；空串不过滤），由 Sources 页搜索框下发。
+
+/** 面板命令句柄（V2.4 T212）：页头「＋新增源」全局唯一按钮经此打开面板内 SourceFormDialog。 */
+export interface InfoSourcesPanelHandle {
+  /** 打开新增源 Dialog（RSS/JSON 两型 + 分组选择，沿既有表单）。 */
+  openAdd: () => void;
+}
 
 const CATEGORIES = ['快讯', '媒体', '政策', '宏观', '国际', '自建'] as const;
 const DEFAULT_CATEGORY = '自建';
@@ -824,13 +831,22 @@ function ArchivedCard({ source, onSaved }: ArchivedCardProps) {
 
 // —— 页面 ——
 
-export function InfoSourcesPanel({ filter = '' }: { filter?: string }) {
+export const InfoSourcesPanel = forwardRef<InfoSourcesPanelHandle, { filter?: string }>(
+  function InfoSourcesPanel({ filter = '' }, ref) {
   const [view, setView] = useState<InfoSourcesView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [nowMillis, setNowMillis] = useState(() => Date.now());
   const [addOpen, setAddOpen] = useState(false);
+  // V2.4 T212：页头全局唯一「＋新增源」按钮经命令句柄触发面板内新增 Dialog
+  useImperativeHandle(
+    ref,
+    () => ({
+      openAdd: () => setAddOpen(true),
+    }),
+    [],
+  );
   const [editing, setEditing] = useState<InfoSourceCardView | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<InfoSourceCardView | null>(null);
   const [pollingCodes, setPollingCodes] = useState<Set<string>>(new Set());
@@ -1049,18 +1065,9 @@ export function InfoSourcesPanel({ filter = '' }: { filter?: string }) {
         <h2 className="text-base font-medium">资讯源</h2>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="max-w-3xl text-sm text-muted-foreground">
-            轮询采集型 · 30 源采集管道——资讯源 7×24 分钟级轮询入库，本页管理源的启停 / 参数 / 新增 / 归档；按需拉取的业务数据源配置 →{' '}
-            <a
-              href="#/sources?tab=biz"
-              data-testid="info-sources-datasource-link"
-              className="underline underline-offset-2 transition-colors hover:text-foreground"
-            >
-              业务数据源
-            </a>
+            轮询采集型 · 30 源采集管道——资讯源 7×24 分钟级轮询入库，本段管理源的启停 / 参数 / 新增
+            / 归档（新增入口见页头「＋新增源」）；按需拉取的业务数据源见下方末段
           </p>
-          <Button size="sm" className="ml-auto" onClick={() => setAddOpen(true)} data-testid="info-sources-add">
-            ＋新增源
-          </Button>
         </div>
       </header>
 
@@ -1192,6 +1199,7 @@ export function InfoSourcesPanel({ filter = '' }: { filter?: string }) {
       />
     </div>
   );
-}
+  },
+);
 
 export default InfoSourcesPanel;

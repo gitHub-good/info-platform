@@ -1,25 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { getDatasourceConfigs } from '@/api/datasourceConfig';
 import { getInfoSources } from '@/api/infoSource';
 import { BizSourcesPanel } from '@/components/sources/BizSourcesPanel';
-import { InfoSourcesPanel } from '@/components/sources/InfoSourcesPanel';
+import { InfoSourcesPanel, type InfoSourcesPanelHandle } from '@/components/sources/InfoSourcesPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { currentRoute, navigate, queryOf, sourcesTabOf, type SourcesTab } from '@/lib/navigation';
+import { currentRoute, queryOf } from '@/lib/navigation';
 import type { DataSourceConfigView } from '@/types/datasourceConfig';
 import type { InfoSourcesView } from '@/types/infoSource';
 
-// 源管理页（V2.3-M23 T204，方案 §3.4 / §4.5）：#/sources 双 Tab 单页——
-// 资讯源（轮询采集型，默认高频运维面）与业务数据源（按需拉取型）两面板组件复用（components/sources/*），
-// 页壳只提供：页头 + 统一搜索 + 概览条 + Tab 容器（?tab=info|biz，URL 态随刷新/分享保持）。
-// 概览条零新端点：GET /info-sources 与既有 datasource-configs 两列表端点前端聚合（失败段静默降级为 —）。
-// 旧路由 #/datasource-config / #/info-sources 由 App.tsx 归一层 replace 重定向（query 透传）。
-
-const TAB_META: Record<SourcesTab, { label: string; testId: string }> = {
-  info: { label: '资讯源', testId: 'sources-tab-info' },
-  biz: { label: '业务数据源', testId: 'sources-tab-biz' },
-};
+// 源管理页（V2.3-M23 T204 双 Tab → V2.4 T212 去 Tab 单列表分组，REQ-20260928-20 拍板一）：
+// 一屏之内分段分组——资讯源（服务端 category 六分组：快讯/媒体/政策/宏观/国际/自建）在前 +
+// 「业务数据源」一段收尾（低频配置域置底）；两面板组件（卡片及交互）原样复用不动，仅外层容器
+// 从 Tab 切换改为纵向分段渲染（V2.3 拍板五「卡片范式硬统一重构」否定继续成立）。
+// 新增源入口页头全局唯一（沿资讯源 SourceFormDialog；业务源为代码注册域不可自增）；
+// 统一搜索跨全部分段；概览条口径不变（两列表端点前端聚合，失败段静默降级为 —）。
+// 路由兼容：?tab=biz → ?section=biz（段定位参数，归一层映射）；?tab=info 静默归一；
+// 旧 #/datasource-config → /sources?section=biz、#/info-sources → /sources（query 透传）；
+// ?source= 定位高亮语义保留（大盘失败跳转零断链）。
 
 interface InfoOverviewStat {
   enabled: number;
@@ -50,14 +49,6 @@ function bizStatOf(view: DataSourceConfigView): BizOverviewStat {
   };
 }
 
-/** 关键词对源卡（名称/代码）的包含匹配（统一搜索口径，不区分大小写；空串全命中）。 */
-function sourceMatches(keyword: string, name: string, code: string): boolean {
-  const kw = keyword.trim().toLowerCase();
-  return (
-    !kw || name.toLowerCase().includes(kw) || code.toLowerCase().includes(kw)
-  );
-}
-
 interface OverviewBarProps {
   info: InfoOverviewStat | null;
   biz: BizOverviewStat | null;
@@ -80,41 +71,15 @@ function OverviewBar({ info, biz }: OverviewBarProps) {
   );
 }
 
-interface SourcesTabsProps {
-  tab: SourcesTab;
-  onSwitch: (tab: SourcesTab) => void;
-}
-
-/** 双 Tab 切换（URL ?tab= 态驱动；默认 info）。 */
-function SourcesTabs({ tab, onSwitch }: SourcesTabsProps) {
-  return (
-    <div role="tablist" aria-label="源管理分区" data-testid="sources-tabs" className="flex items-center gap-1">
-      {(Object.keys(TAB_META) as SourcesTab[]).map((key) => (
-        <Button
-          key={key}
-          role="tab"
-          size="sm"
-          variant={key === tab ? 'default' : 'outline'}
-          aria-selected={key === tab}
-          onClick={() => onSwitch(key)}
-          data-testid={TAB_META[key].testId}
-        >
-          {TAB_META[key].label}
-        </Button>
-      ))}
-    </div>
-  );
-}
-
 interface SourcesPageProps {
   /**
-   * 当前规范路由（App 归一层后的 /sources?...，Tab 态解析源）。
+   * 当前规范路由（App 归一层后的 /sources?...，段定位参数解析源）。
    * 可缺省：直挂场景（单测/未来嵌入）以 window hash 为准并自听 hashchange。
    */
   route?: string;
 }
 
-/** hash 路由直读 + hashchange 自订阅（route prop 缺省时的 Tab 态驱动源）。 */
+/** hash 路由直读 + hashchange 自订阅（route prop 缺省时的驱动源）。 */
 function useLiveRoute(): string {
   const [route, setRoute] = useState(() => currentRoute());
   useEffect(() => {
@@ -126,20 +91,22 @@ function useLiveRoute(): string {
 }
 
 /**
- * 源管理页（V2.3-M23 T204，全站第 19 页形态：20→19 归一）。
- * - Tab：`?tab=info|biz` URL 态（默认 info）；切换走 navigate 改 hash（其余 query 原样保留——
- *   `?source=` 大盘定位参数跨 Tab 切换不丢失，回 info Tab 面板重挂载即重新定位）。
- * - 统一搜索：单输入框过滤当前 Tab 卡片（不区分大小写，按源名/代码包含）；跨 Tab 命中以轻提示呈现
- *   （REQ 场景 2 形态裁量：概览数据就地计数，零额外请求）。
+ * 源管理页（V2.4 T212 单列表分段分组形态）。
+ * - 分段：资讯源六分组在前 + 业务数据源段收尾（?section=biz 进入时滚动定位业务段，一次性消费）。
+ * - 统一搜索：单输入框同步过滤全部分段卡片（不区分大小写，按源名/代码包含；Tab 消亡，跨 Tab 提示机制退役）。
+ * - 新增源：页头「＋新增源」全局唯一（经面板命令句柄打开既有 SourceFormDialog）。
  * - 概览条：两列表端点前端聚合，任一失败静默降级（面板自身三态不受影响）。
  */
 export function Sources({ route: routeProp }: SourcesPageProps) {
   const liveRoute = useLiveRoute();
   const route = routeProp ?? liveRoute;
-  const tab = sourcesTabOf(route);
   const [search, setSearch] = useState('');
   const [infoView, setInfoView] = useState<InfoSourcesView | null>(null);
   const [bizView, setBizView] = useState<DataSourceConfigView | null>(null);
+  const infoPanelRef = useRef<InfoSourcesPanelHandle>(null);
+  const bizSectionRef = useRef<HTMLElement | null>(null);
+  // ?section=biz 段定位（T212：?tab=biz 归一后的落点）：挂载一次性消费（沿 ?source= 定位先例）
+  const focusSectionRef = useRef<string | null>(queryOf(route).get('section'));
 
   // 概览条数据（一次性拉取；失败段静默降级为 —，不进错误态——面板有各自的加载/重试）
   useEffect(() => {
@@ -154,34 +121,18 @@ export function Sources({ route: routeProp }: SourcesPageProps) {
     return () => ctrl.abort();
   }, []);
 
-  const switchTab = (next: SourcesTab) => {
-    if (next === tab) return;
-    // 仅改 tab 参数，其余 query（?source= 定位等）原样保留
-    const params = queryOf(route);
-    params.set('tab', next);
-    navigate(`/sources?${params.toString()}`);
-  };
+  // 业务段定位：首帧渲染后滚动可见（jsdom 无 scrollIntoView 时跳过，不干扰渲染）
+  useEffect(() => {
+    if (focusSectionRef.current !== 'biz') return;
+    focusSectionRef.current = null;
+    const timer = window.setTimeout(() => {
+      bizSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const infoStat = useMemo(() => (infoView ? infoStatOf(infoView) : null), [infoView]);
   const bizStat = useMemo(() => (bizView ? bizStatOf(bizView) : null), [bizView]);
-
-  // 跨 Tab 命中提示：搜索非空时，用概览数据就地数另一 Tab 的命中数（零额外请求）
-  const keyword = search.trim();
-  const crossTabHint = useMemo(() => {
-    if (!keyword) return null;
-    if (tab === 'info') {
-      if (!bizView) return null;
-      const hits = bizView.sources.filter((source) =>
-        sourceMatches(keyword, source.label, source.sourceCode),
-      ).length;
-      return hits > 0 ? `「${TAB_META.biz.label}」命中 ${hits} 个源` : null;
-    }
-    if (!infoView) return null;
-    const hits = infoView.groups
-      .flatMap((group) => group.sources)
-      .filter((source) => sourceMatches(keyword, source.name, source.sourceCode)).length;
-    return hits > 0 ? `「${TAB_META.info.label}」命中 ${hits} 个源` : null;
-  }, [keyword, tab, bizView, infoView]);
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="sources-page">
@@ -192,35 +143,40 @@ export function Sources({ route: routeProp }: SourcesPageProps) {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索源名称 / 源代码（过滤当前分区）"
+              placeholder="搜索源名称 / 源代码（过滤全部分段）"
               aria-label="搜索源名称或源代码"
               className="w-full sm:w-64"
               data-testid="sources-search"
             />
             <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
           </div>
+          {/* V2.4 T212：新增源入口页头全局唯一——弹出既有资讯源 SourceFormDialog（业务源代码注册域不可自增） */}
+          <Button
+            size="sm"
+            className="ml-auto"
+            onClick={() => infoPanelRef.current?.openAdd()}
+            data-testid="sources-add"
+          >
+            ＋新增源
+          </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          全站源体系一页管理：资讯源 7×24 分钟级轮询采集 · 业务数据源按需拉取——启停 / 参数 / 健康 / 归档统一入口
+          全站源体系一页管理：资讯源按分组（快讯 / 媒体 / 政策 / 宏观 / 国际 / 自建）7×24
+          分钟级轮询采集在前 · 业务数据源按需拉取一段收尾——启停 / 参数 / 健康 / 归档统一入口
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <SourcesTabs tab={tab} onSwitch={switchTab} />
           <div className="min-w-0 flex-1">
             <OverviewBar info={infoStat} biz={bizStat} />
           </div>
         </div>
-        {crossTabHint ? (
-          <p className="text-xs text-muted-foreground" data-testid="sources-cross-tab-hint">
-            {crossTabHint}
-          </p>
-        ) : null}
       </header>
 
-      {tab === 'info' ? (
-        <InfoSourcesPanel filter={search} />
-      ) : (
-        <BizSourcesPanel filter={search} />
-      )}
+      <div className="flex flex-col gap-8">
+        <InfoSourcesPanel ref={infoPanelRef} filter={search} />
+        <section ref={bizSectionRef} data-testid="sources-biz-section" aria-label="业务数据源分段">
+          <BizSourcesPanel filter={search} />
+        </section>
+      </div>
     </main>
   );
 }
