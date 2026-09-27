@@ -10,10 +10,15 @@ import java.util.List;
  *
  * @param global 全局统计卡（今日入库/活跃源/失败源/感知延迟）
  * @param sources 源维度表行（异常置顶，其余今日新增降序；含停用与归档源行，前端默认折叠切换）
- * @param failures 近期失败列表（时间倒序，旁路事件 + 运行态 last_error 组装）
+ * @param failures 近期失败列表（时间倒序，旁路事件 + 运行态 last_error 组装；T211 恢复过滤——仅当前 runState ∈ {fail, backoff}
+ *     的源展示，已恢复/停用/归档/已删源零展示，事件表留痕零删除）
+ * @param failuresHiddenRecovered 被恢复过滤隐藏的失败记录条数（旁路事件 + 现态合并口径；留痕在库可经 Job 日志/事件留痕面追溯）
  */
 public record FeedDashboardView(
-        GlobalView global, List<SourceRowView> sources, List<FailureView> failures) {
+        GlobalView global,
+        List<SourceRowView> sources,
+        List<FailureView> failures,
+        long failuresHiddenRecovered) {
 
     /** 感知延迟口径版本（ADR-0045）：仅增量轮 = 排除每源首日回灌 + 排除日粒度源（published_at 口径失真）。 */
     public static final String LATENCY_BASIS =

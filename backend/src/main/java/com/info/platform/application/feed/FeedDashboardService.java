@@ -17,6 +17,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
@@ -88,8 +89,9 @@ public class FeedDashboardService {
                         .map(s -> toRow(s, todayRows, states, totals, now))
                         .sorted(rowOrder())
                         .toList();
+        FailuresResult failures = failures(sources, states, now);
         return new FeedDashboardView(
-                toGlobal(rows, sources, today), rows, failures(sources, states));
+                toGlobal(rows, sources, today), rows, failures.visible(), failures.hidden());
     }
 
     // —— global 区块 ——
@@ -207,14 +209,31 @@ public class FeedDashboardService {
 
     // —— failures 区块 ——
 
-    /** 失败列表：旁路事件（主源，节流内幕如实）+ 运行态 last_error 现态补充，时间倒序截 {@value #FAILURE_LIST_LIMIT}。 */
-    private List<FeedDashboardView.FailureView> failures(
-            List<InfoSource> sources, Map<Long, SourcePollState> states) {
+    /**
+     * 失败列表组装结果（T211）：visible = 恢复过滤后展示条目；hidden = 被过滤隐藏条数。
+     *
+     * @param visible 时间倒序截 {@value #FAILURE_LIST_LIMIT} 的展示列表
+     * @param hidden 被恢复过滤隐藏的合并条目数（留痕在库零删除，仅大盘展示过滤）
+     */
+    private record FailuresResult(List<FeedDashboardView.FailureView> visible, long hidden) {}
+
+    /**
+     * 失败列表：旁路事件（主源，节流内幕如实）+ 运行态 last_error 现态补充，时间倒序截 {@value #FAILURE_LIST_LIMIT}；T211
+     * 恢复过滤（REQ-20260928-20 拍板四）——仅当前 runState ∈ {fail, backoff} 的源展示失败记录，已恢复（ok）/停用/归档/已物理删除源（源行不在
+     * findAll，runState 未知）零展示； 事件表留痕零删除，追溯走 Job 日志/失败事件留痕面。
+     */
+    private FailuresResult failures(
+            List<InfoSource> sources, Map<Long, SourcePollState> states, Instant now) {
         Map<String, InfoSource> byCode =
                 sources.stream().collect(Collectors.toMap(InfoSource::getSourceCode, s -> s));
         Map<Long, String> codeById =
                 sources.stream()
                         .collect(Collectors.toMap(InfoSource::getId, InfoSource::getSourceCode));
+        Set<String> failingCodes =
+                sources.stream()
+                        .filter(s -> SourceRunState.of(s, states.get(s.getId()), now).abnormal())
+                        .map(InfoSource::getSourceCode)
+                        .collect(Collectors.toSet());
         List<FeedDashboardView.FailureView> merged = new ArrayList<>();
         failureEventRepository.findRecent(FAILURE_LIST_LIMIT).stream()
                 .map(
@@ -246,7 +265,11 @@ public class FeedDashboardService {
         merged.sort(
                 Comparator.comparing(
                         FeedDashboardView.FailureView::occurredAt, Comparator.reverseOrder()));
-        return List.copyOf(merged.stream().limit(FAILURE_LIST_LIMIT).toList());
+        List<FeedDashboardView.FailureView> visible =
+                merged.stream().filter(f -> failingCodes.contains(f.sourceCode())).toList();
+        long hidden = merged.size() - visible.size();
+        return new FailuresResult(
+                List.copyOf(visible.stream().limit(FAILURE_LIST_LIMIT).toList()), hidden);
     }
 
     /** 现态失败：最近尝试晚于最近成功（最近一轮是失败且 last_error 在案）。 */

@@ -211,7 +211,7 @@ class FeedDashboardServiceTest {
                 .containsExactly("fail", "backoff", "disabled", "pending", "ok");
     }
 
-    // —— 失败列表（REQ 场景 4） ——
+    // —— 失败列表（REQ 场景 4；T211 恢复过滤 REQ-20260928-20 拍板四） ——
 
     @Test
     void failures_mergedFromEventsAndLiveState_timeDescCappedAt20() {
@@ -219,7 +219,7 @@ class FeedDashboardServiceTest {
         when(infoSourceRepository.findAll()).thenReturn(List.of(known));
         List<FeedFailureEvent> events = new ArrayList<>();
         for (int i = 0; i < 21; i++) {
-            // 21 条旁路事件（时间倒序入桩）：i=0 最新
+            // 21 条旁路事件（时间倒序入桩）：i=0 最新；奇数位为已物理删除源（t114_gone，源行不在 findAll）
             events.add(
                     new FeedFailureEvent(
                             i % 2 == 0 ? "t114_a" : "t114_gone",
@@ -231,20 +231,18 @@ class FeedDashboardServiceTest {
         when(stateRepository.findBySourceId(1L))
                 .thenReturn(Optional.of(state(1, 1, null, "运行态错误"))); // 现态失败（最新）
 
-        List<FeedDashboardView.FailureView> failures = service.dashboard().failures();
+        FeedDashboardView view = service.dashboard();
+        List<FeedDashboardView.FailureView> failures = view.failures();
 
-        assertThat(failures).hasSize(FeedDashboardService.FAILURE_LIST_LIMIT);
+        // t114_a 现态 fail：事件 11 条（偶数位）+ 现态 1 条；t114_gone 10 条按恢复过滤隐藏
+        assertThat(failures).hasSize(12);
+        assertThat(view.failuresHiddenRecovered()).isEqualTo(10);
         // 最新在前：现态条目（NOW）置顶，其后旁路事件按时间倒序
         assertThat(failures.get(0).origin()).isEqualTo("state");
         assertThat(failures.get(0).sourceName()).isEqualTo("t114_a 名称");
         assertThat(failures.get(1).origin()).isEqualTo("event");
-        // 未知源代码（已删源）回落以代码为名
-        assertThat(failures)
-                .anySatisfy(
-                        f -> {
-                            assertThat(f.sourceCode()).isEqualTo("t114_gone");
-                            assertThat(f.sourceName()).isEqualTo("t114_gone");
-                        });
+        // 已删源事件零展示（T211：未知源 runState ∉ {fail, backoff}）
+        assertThat(failures).noneSatisfy(f -> assertThat(f.sourceCode()).isEqualTo("t114_gone"));
         // 时间倒序
         assertThat(failures)
                 .isSortedAccordingTo((a, b) -> b.occurredAt().compareTo(a.occurredAt()));
@@ -272,6 +270,133 @@ class FeedDashboardServiceTest {
         when(stateRepository.findBySourceId(1L)).thenReturn(Optional.of(recoveredState));
 
         assertThat(service.dashboard().failures()).isEmpty();
+    }
+
+    // —— T211（M24 V2.4，REQ-20260928-20 拍板四）：恢复过滤——仅当前 runState ∈ {fail, backoff} 的源展示 ——
+
+    /** 已恢复源运行态夹具：最近一轮成功（lastSuccess=NOW 晚于尝试）、lastError 为历史残留。 */
+    private static SourcePollState recoveredState(long sourceId) {
+        return new SourcePollState(
+                sourceId,
+                NOW.minus(Duration.ofMinutes(1)),
+                NOW,
+                NOW.plus(Duration.ofMinutes(5)),
+                null,
+                null,
+                0,
+                null,
+                100L,
+                "new=3",
+                "历史错误残留",
+                NOW.minus(Duration.ofDays(1)),
+                NOW);
+    }
+
+    @Test
+    void failures_recoveredSourceHidden_zeroDisplay() {
+        // 对账断言之三（恢复零展示）：源曾有失败事件在案，但当前 runState=ok（最近一轮成功）→ 全部失败记录零展示
+        InfoSource recovered = source(1, "t211_ok", true);
+        when(infoSourceRepository.findAll()).thenReturn(List.of(recovered));
+        when(failureEventRepository.findRecent(FeedDashboardService.FAILURE_LIST_LIMIT))
+                .thenReturn(
+                        List.of(
+                                new FeedFailureEvent(
+                                        "t211_ok",
+                                        NOW.minus(Duration.ofMinutes(5)),
+                                        "FeedFetchException: 超时"),
+                                new FeedFailureEvent(
+                                        "t211_ok", NOW.minus(Duration.ofMinutes(9)), "DNS 解析失败")));
+        when(stateRepository.findBySourceId(1L)).thenReturn(Optional.of(recoveredState(1L)));
+
+        FeedDashboardView view = service.dashboard();
+
+        assertThat(view.failures()).isEmpty();
+        assertThat(view.failuresHiddenRecovered()).isEqualTo(2); // 留痕不删，仅展示过滤
+    }
+
+    @Test
+    void failures_disabledSourceHidden_zeroDisplay() {
+        // 停用源（enabled=0，调度已摘除）：旁路事件与残留 lastError 现态均零展示
+        InfoSource disabled = source(2, "t211_off", false);
+        when(infoSourceRepository.findAll()).thenReturn(List.of(disabled));
+        when(failureEventRepository.findRecent(FeedDashboardService.FAILURE_LIST_LIMIT))
+                .thenReturn(
+                        List.of(
+                                new FeedFailureEvent(
+                                        "t211_off",
+                                        NOW.minus(Duration.ofMinutes(3)),
+                                        "FeedFetchException: 超时")));
+        when(stateRepository.findBySourceId(2L))
+                .thenReturn(Optional.of(state(2, 1, null, "停用前错误残留")));
+
+        FeedDashboardView view = service.dashboard();
+
+        assertThat(view.failures()).isEmpty();
+        assertThat(view.failuresHiddenRecovered()).isEqualTo(2); // 事件 1 + 现态 1 均隐藏
+    }
+
+    @Test
+    void failures_failingAndBackoffSourcesKept_withEventsAndLiveState() {
+        // 仍失败在列：runState ∈ {fail, backoff} 的源——事件与现态合并展示、时间倒序沿既有口径
+        InfoSource failing = source(3, "t211_fail", true);
+        InfoSource backoff = source(4, "t211_bo", true);
+        when(infoSourceRepository.findAll()).thenReturn(List.of(failing, backoff));
+        when(failureEventRepository.findRecent(FeedDashboardService.FAILURE_LIST_LIMIT))
+                .thenReturn(
+                        List.of(
+                                new FeedFailureEvent(
+                                        "t211_fail", NOW.minus(Duration.ofMinutes(2)), "超时"),
+                                new FeedFailureEvent(
+                                        "t211_bo", NOW.minus(Duration.ofMinutes(4)), "DNS 解析失败"),
+                                new FeedFailureEvent(
+                                        "t211_fail", NOW.minus(Duration.ofMinutes(7)), "连接重置")));
+        when(stateRepository.findBySourceId(3L))
+                .thenReturn(Optional.of(state(3, 1, null, "现态超时"))); // runState=fail
+        when(stateRepository.findBySourceId(4L))
+                .thenReturn(
+                        Optional.of(
+                                state(
+                                        4,
+                                        2,
+                                        NOW.plus(Duration.ofMinutes(5)),
+                                        "现态 DNS"))); // runState=backoff
+
+        FeedDashboardView view = service.dashboard();
+
+        assertThat(view.failures())
+                .extracting(FeedDashboardView.FailureView::sourceCode)
+                .containsOnly("t211_fail", "t211_bo");
+        assertThat(view.failures()).hasSize(5); // 事件 3 + 现态 2
+        assertThat(view.failuresHiddenRecovered()).isZero();
+        assertThat(view.failures())
+                .isSortedAccordingTo((a, b) -> b.occurredAt().compareTo(a.occurredAt()));
+    }
+
+    @Test
+    void failures_hiddenRecoveredCountsMixedHiddenEntries() {
+        // 混合：恢复源 2 事件 + 仍失败源 1 事件 + 仍失败源现态 → 展示 2、隐藏计数 2
+        InfoSource recovered = source(1, "t211_ok", true);
+        InfoSource failing = source(2, "t211_fail", true);
+        when(infoSourceRepository.findAll()).thenReturn(List.of(recovered, failing));
+        when(failureEventRepository.findRecent(FeedDashboardService.FAILURE_LIST_LIMIT))
+                .thenReturn(
+                        List.of(
+                                new FeedFailureEvent(
+                                        "t211_ok", NOW.minus(Duration.ofMinutes(1)), "已恢复历史一"),
+                                new FeedFailureEvent(
+                                        "t211_fail", NOW.minus(Duration.ofMinutes(2)), "仍失败事件"),
+                                new FeedFailureEvent(
+                                        "t211_ok", NOW.minus(Duration.ofMinutes(3)), "已恢复历史二")));
+        when(stateRepository.findBySourceId(1L)).thenReturn(Optional.of(recoveredState(1L)));
+        when(stateRepository.findBySourceId(2L)).thenReturn(Optional.of(state(2, 1, null, "现态错误")));
+
+        FeedDashboardView view = service.dashboard();
+
+        assertThat(view.failures())
+                .extracting(FeedDashboardView.FailureView::sourceCode)
+                .containsOnly("t211_fail");
+        assertThat(view.failures()).hasSize(2);
+        assertThat(view.failuresHiddenRecovered()).isEqualTo(2);
     }
 
     // —— 空数据（REQ 场景 7） ——

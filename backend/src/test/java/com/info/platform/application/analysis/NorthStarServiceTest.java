@@ -114,7 +114,10 @@ class NorthStarServiceTest {
             FeedDashboardView.LatencyView latency,
             List<FeedDashboardView.SourceRowView> rows) {
         return new FeedDashboardView(
-                new FeedDashboardView.GlobalView(todayNew, 30, 31, 1, latency), rows, List.of());
+                new FeedDashboardView.GlobalView(todayNew, 30, 31, 1, latency),
+                rows,
+                List.of(),
+                0L); // T211：failuresHiddenRecovered 缺省 0（北极星口径不消费失败列表）
     }
 
     private static SourceDailyStats stat(

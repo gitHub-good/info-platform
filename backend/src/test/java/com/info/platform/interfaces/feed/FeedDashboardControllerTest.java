@@ -106,7 +106,8 @@ class FeedDashboardControllerTest {
                                 "失败源",
                                 "2026-09-22T07:59:00Z",
                                 "FeedFetchException: 超时",
-                                "state")));
+                                "state")),
+                3L); // T211 恢复过滤隐藏计数（已恢复/停用源失败记录数）
     }
 
     @Test
@@ -138,7 +139,8 @@ class FeedDashboardControllerTest {
                 .andExpect(jsonPath("$.data.sources[1].runState").value("ok"))
                 .andExpect(jsonPath("$.data.failures.length()").value(1))
                 .andExpect(jsonPath("$.data.failures[0].sourceCode").value("t114_b"))
-                .andExpect(jsonPath("$.data.failures[0].origin").value("state"));
+                .andExpect(jsonPath("$.data.failures[0].origin").value("state"))
+                .andExpect(jsonPath("$.data.failuresHiddenRecovered").value(3));
     }
 
     @Test
