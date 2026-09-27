@@ -239,13 +239,15 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
             // main_category 仅 L1 DONE 有值：PENDING/FAILED/无 analysis 行自然不含（REQ 故事 2 场景 3）
             query.append(" AND na.main_category = ?", filter.mainCategory());
         }
-        // 发布时间窗（BUG-M23-01 补齐）：ISO yyyy-MM-dd，published_at 为 ISO UTC 文本，字典序可比。
-        // 上海日界换算：from → UTC 前一日 16:00 起、to → UTC 当日 16:00 止（含端点）。
+        // 发布时间窗（BUG-M23-01 补齐 + V2.4 修正）：ISO yyyy-MM-dd，published_at 为 ISO UTC 文本，字典序可比。
+        // 上海日 D = UTC [D-1 16:00:00, D 16:00:00)——原实现 from 晚一日/to 溢出 59 秒（与 javadoc 口径不符），
+        // 修前红用例见
+        // NewsItemsLibraryIntegrationTest#listPaged_publishedWindow_shanghaiDayBoundaryInclusive。
         if (filter.publishedFrom() != null) {
-            query.append(" AND ni.published_at >= ?", filter.publishedFrom() + "T16:00:00");
+            query.append(" AND ni.published_at >= ?", shDayStartUtc(filter.publishedFrom()));
         }
         if (filter.publishedTo() != null) {
-            query.append(" AND ni.published_at <= ?", filter.publishedTo() + "T16:00:59");
+            query.append(" AND ni.published_at < ?", shDayEndExclusiveUtc(filter.publishedTo()));
         }
         // 入库时间窗（T210，M24 V2.4，REQ-20260928-20 拍板三对账锚）：fetched_at 为 ISO UTC 文本，字典序可比；
         // 上海日 D = UTC [D-1 16:00:00, D 16:00:00)——与 source_daily_stats.stat_date 同口径

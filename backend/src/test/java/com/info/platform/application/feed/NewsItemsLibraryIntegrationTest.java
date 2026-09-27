@@ -376,6 +376,50 @@ class NewsItemsLibraryIntegrationTest {
         return insertItem(title, null, "https://example.com/" + title, fetchedAt, fetchedAt);
     }
 
+    // —— 发布时间窗上海日界精确回归（BUG-M23-01 遗留：from 边界晚一日、to 边界溢出 59 秒） ——
+
+    @Test
+    void listPaged_publishedWindow_shanghaiDayBoundaryInclusive() {
+        // 上海日 2026-09-22 = UTC [2026-09-21T16:00:00Z, 2026-09-22T16:00:00Z)
+        long before =
+                insertItem(
+                        "发布窗外前日",
+                        null,
+                        "https://example.com/pub-before",
+                        Instant.parse("2026-09-21T15:59:59Z"));
+        long in1 =
+                insertItem(
+                        "发布窗内首秒",
+                        null,
+                        "https://example.com/pub-in1",
+                        Instant.parse("2026-09-21T16:00:00Z"));
+        long in2 =
+                insertItem(
+                        "发布窗内末秒",
+                        null,
+                        "https://example.com/pub-in2",
+                        Instant.parse("2026-09-22T15:59:59Z"));
+        long after =
+                insertItem(
+                        "发布窗外次日",
+                        null,
+                        "https://example.com/pub-after",
+                        Instant.parse("2026-09-22T16:00:00Z"));
+        // setUp 种子 6 条发布时刻 09-22T05:00Z（上海日 09-22 窗内），一并计入窗口结果
+
+        NewsItemsPagedView view =
+                service.listPaged(
+                        new LibraryFilter(
+                                sourceId, null, null, null, "2026-09-22", "2026-09-22", null, null),
+                        1,
+                        20);
+
+        assertThat(view.items())
+                .extracting(NewsItemView::id)
+                .containsExactly(in2, in1, n6, n5, n4, n3, n2, n1);
+        assertThat(view.items()).extracting(NewsItemView::id).doesNotContain(before, after);
+    }
+
     @Test
     void listCursor_returnsAllStatesWithAnalysisFields_regression() {
         // 游标路径（信息流侧语义不动）：不按 l0 过滤，三态混合 id DESC；增量字段随行返回

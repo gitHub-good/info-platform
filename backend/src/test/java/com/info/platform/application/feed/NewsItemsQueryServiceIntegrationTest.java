@@ -129,24 +129,35 @@ class NewsItemsQueryServiceIntegrationTest {
 
     @Test
     void listPaged_publishedWindow_filtersCorrectly() {
-        // BUG-M23-01 补齐回归：发布时间窗（上海日界换算含端点）
+        // BUG-M23-01 补齐回归：发布时间窗（上海日界含端点——窗口参数口径 = 上海本地日，非 UTC 日）
         NewsItemsPagedView all =
                 service.listPaged(
                         new LibraryFilter(null, null, null, null, null, null, null, null), 1, 100);
         org.assertj.core.api.Assertions.assertThat(all.total()).isPositive();
-        String anyDate = all.items().get(0).publishedAt().substring(0, 10);
+        String shDay =
+                java.time.LocalDate.ofInstant(
+                                Instant.parse(all.items().get(0).publishedAt()),
+                                java.time.ZoneId.of("Asia/Shanghai"))
+                        .toString();
         NewsItemsPagedView windowed =
                 service.listPaged(
-                        new LibraryFilter(null, null, null, null, anyDate, anyDate, null, null),
+                        new LibraryFilter(null, null, null, null, shDay, shDay, null, null),
                         1,
                         100);
         org.assertj.core.api.Assertions.assertThat(windowed.total())
                 .as("同日窗口应过滤出该日条目（且小于全量）")
                 .isLessThanOrEqualTo(all.total());
+        java.time.Instant dayStart =
+                java.time.LocalDate.parse(shDay)
+                        .atStartOfDay(java.time.ZoneId.of("Asia/Shanghai"))
+                        .toInstant();
+        java.time.Instant dayEnd = dayStart.plus(java.time.Duration.ofDays(1));
         windowed.items()
                 .forEach(
                         it ->
-                                org.assertj.core.api.Assertions.assertThat(it.publishedAt())
-                                        .startsWith(anyDate));
+                                org.assertj.core.api.Assertions.assertThat(
+                                                Instant.parse(it.publishedAt()))
+                                        .as("窗口内条目发布时刻应落在上海日 %s", shDay)
+                                        .isBetween(dayStart, dayEnd.minusNanos(1)));
     }
 }
