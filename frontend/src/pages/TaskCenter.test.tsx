@@ -121,6 +121,16 @@ function fiveJobs(): JobView[] {
       cron: '0 30 17 * * ?',
       lastExecution: null,
     }),
+    jobOf({
+      jobKey: 'MARKET_TOP_JOB',
+      jobName: 'MarketTopJob',
+      name: '全市场榜单',
+      description: '盘后 18:00 行业回填 → 粗筛 ~300 → LLM 深析 → Top10 榜单版本化',
+      scheduleType: 'CRON',
+      intervalMillis: null,
+      cron: '0 0 18 * * ?',
+      lastExecution: null,
+    }),
   ];
 }
 
@@ -168,6 +178,18 @@ function weightsView() {
   };
 }
 
+/** 漏斗配置视图（对齐后端 GET /market-top/config 契约：池 300 / 深析 40 / 占比 0.30 / 预估 100000μ¥ / 覆盖率阈值 0.80）。 */
+function marketTopConfigView() {
+  return {
+    poolSize: 300,
+    deepDiveLimit: 40,
+    deepDiveCostCapRatio: 0.3,
+    diveCostEstimateMicros: 100000,
+    memberCoverageFloor: 0.8,
+    updatedAt: '2026-09-22T01:00:00Z',
+  };
+}
+
 interface StoreOpts {
   jobs?: JobView[];
   failGet?: boolean;
@@ -183,7 +205,7 @@ interface StoreOpts {
 
 /** 状态化 mock：GET 返回任务列表副本；PATCH 合并返回；run 受理或按需失败/409；retention/windows 与 value-scores/weights 独立状态。 */
 function makeStore({ jobs = fiveJobs(), failGet = false, failRunFor = [], runningRejectFor = [], failWindowsGet = false, failWeightsGet = false }: StoreOpts = {}) {
-  const state = { jobs, retention: retentionView(), weights: weightsView() };
+  const state = { jobs, retention: retentionView(), weights: weightsView(), marketTop: marketTopConfigView() };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
     if (path.endsWith('/value-scores/weights')) {
@@ -198,6 +220,16 @@ function makeStore({ jobs = fiveJobs(), failGet = false, failRunFor = [], runnin
         return fail(500, 50000, '服务异常');
       }
       return ok({ ...state.weights });
+    }
+    if (path.endsWith('/market-top/config')) {
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, number | string>;
+        const { expectedUpdatedAt: _ignored, ...fields } = body;
+        const next = { ...state.marketTop, ...fields, updatedAt: '2026-09-22T08:00:00Z' };
+        state.marketTop = next;
+        return ok(next);
+      }
+      return ok({ ...state.marketTop });
     }
     if (path.endsWith('/retention/windows')) {
       if (init?.method === 'PATCH') {
@@ -873,5 +905,83 @@ describe('TaskCenter 页面（T41）', () => {
     expect(
       store.fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/value-scores/weights')),
     ).toHaveLength(1);
+  });
+
+  // —— MARKET_TOP_JOB 漏斗配置分组（M21 T181，方案 §4.7.3：FACTOR_SNAPSHOT 权重 Dialog 同款先例） ——
+
+  it('MARKET_TOP_JOB 行渲染 + 编辑 Dialog：GET 预填五字段 + 保存 PATCH 全量 + expectedUpdatedAt', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId('task-row-MARKET_TOP_JOB')).toBeInTheDocument();
+    expect(screen.getByTestId('task-schedule-MARKET_TOP_JOB')).toHaveTextContent('cron 0 0 18 * * ?');
+
+    await user.click(screen.getByTestId('task-edit-MARKET_TOP_JOB'));
+
+    // Dialog 打开即 GET /market-top/config 预填（300/40/0.3/100000/0.8）
+    await waitFor(() =>
+      expect(
+        store.fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/market-top/config')),
+      ).toBe(true),
+    );
+    expect(await screen.findByTestId('task-edit-mtconfig-MARKET_TOP_JOB-poolSize')).toHaveValue('300');
+    expect(screen.getByTestId('task-edit-mtconfig-MARKET_TOP_JOB-deepDiveLimit')).toHaveValue('40');
+    expect(screen.getByTestId('task-edit-mtconfig-MARKET_TOP_JOB-deepDiveCostCapRatio')).toHaveValue('0.3');
+    expect(screen.getByTestId('task-edit-mtconfig-MARKET_TOP_JOB-diveCostEstimateMicros')).toHaveValue('100000');
+    expect(screen.getByTestId('task-edit-mtconfig-MARKET_TOP_JOB-memberCoverageFloor')).toHaveValue('0.8');
+
+    // 改池大小 300→500 后保存：PATCH 5 字段全量 + expectedUpdatedAt 防呆（下一轮 18:00 按新参数）
+    const poolSize = screen.getByTestId('task-edit-mtconfig-MARKET_TOP_JOB-poolSize');
+    await user.clear(poolSize);
+    await user.type(poolSize, '500');
+    await user.click(screen.getByTestId('task-edit-save-MARKET_TOP_JOB'));
+
+    await waitFor(() =>
+      expect(
+        store.fetchMock.mock.calls.some(
+          (call) =>
+            String(call[0]).endsWith('/market-top/config') &&
+            call[1]?.method === 'PATCH' &&
+            String(call[1]?.body).includes('"poolSize":500') &&
+            String(call[1]?.body).includes('"deepDiveLimit":40') &&
+            String(call[1]?.body).includes('"memberCoverageFloor":0.8') &&
+            String(call[1]?.body).includes('"expectedUpdatedAt":"2026-09-22T01:00:00Z"'),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('漏斗配置非法值前端拦截不发请求（deepDiveLimit=60 越蓝图区间，对齐后端 30091）', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-MARKET_TOP_JOB');
+
+    await user.click(screen.getByTestId('task-edit-MARKET_TOP_JOB'));
+    const diveLimit = await screen.findByTestId('task-edit-mtconfig-MARKET_TOP_JOB-deepDiveLimit');
+    await user.clear(diveLimit);
+    await user.type(diveLimit, '60');
+    await user.click(screen.getByTestId('task-edit-save-MARKET_TOP_JOB'));
+
+    expect(await screen.findByText('LLM 深析候选数须为 30 ~ 50 的整数')).toBeInTheDocument();
+    expect(
+      store.fetchMock.mock.calls.filter(
+        (call) => String(call[0]).endsWith('/market-top/config') && call[1]?.method === 'PATCH',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('非 MARKET_TOP_JOB 任务不渲染漏斗分组、不发 /market-top/config 请求', async () => {
+    const store = makeStore();
+    renderPage(store);
+    const user = userEvent.setup();
+    await screen.findByTestId('task-row-RETENTION_CLEANUP');
+
+    await user.click(screen.getByTestId('task-edit-RETENTION_CLEANUP'));
+    await screen.findByTestId('task-edit-window-RETENTION_CLEANUP-jobExecutionLogDays');
+    expect(screen.queryByTestId('task-edit-mtconfig-RETENTION_CLEANUP-poolSize')).toBeNull();
+    expect(
+      store.fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/market-top/config')),
+    ).toHaveLength(0);
   });
 });

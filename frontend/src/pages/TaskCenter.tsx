@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
 import { getRetentionWindows, patchRetentionWindows } from '@/api/retention';
 import { getScoreWeights, patchScoreWeights } from '@/api/valueScore';
+import { getMarketTopConfig, patchMarketTopConfig } from '@/api/marketTop';
 import { getJobs, patchJob, runJob } from '@/api/taskCenter';
 import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +21,7 @@ import {
 import { navigate } from '@/lib/navigation';
 import type { RetentionFieldLimits, RetentionWindowField } from '@/types/retention';
 import type { ScoreWeightField, ScoreWeightsView } from '@/types/valueScore';
+import type { MarketTopConfigField, MarketTopConfigView } from '@/types/marketTop';
 import type { JobConfigUpdate, JobEffectiveMode, JobView } from '@/types/taskCenter';
 
 // —— 常量与工具 ——
@@ -166,6 +168,84 @@ function weightValuesOf(view: ScoreWeightsView): Record<ScoreWeightField, string
   };
 }
 
+// —— MARKET_TOP_JOB 漏斗配置分组（M21 T181，方案 §4.7.3：FACTOR_SNAPSHOT 权重 Dialog 同款先例，零新页面） ——
+
+/** 榜单任务键（漏斗配置分组仅该任务显示；Job 本体随 T183 收编，行出现前分组自然不渲染）。 */
+const MARKET_TOP_JOB_KEY = 'MARKET_TOP_JOB';
+
+/** 漏斗配置字段元数据：含义 + 区间（对齐后端 MarketTopConfigValidator 30091 拦截口径）。 */
+const MARKET_TOP_FIELDS: {
+  field: MarketTopConfigField;
+  label: string;
+  kind: 'int' | 'decimal';
+  min: number;
+  max: number;
+  hint: string;
+}[] = [
+  { field: 'poolSize', label: '粗筛池大小', kind: 'int', min: 100, max: 800, hint: '全量快照 → 池收敛 ≤10%' },
+  {
+    field: 'deepDiveLimit',
+    label: 'LLM 深析候选数',
+    kind: 'int',
+    min: 30,
+    max: 50,
+    hint: '蓝图区间硬校验（防全量逐股）',
+  },
+  {
+    field: 'deepDiveCostCapRatio',
+    label: '深析成本护栏占比',
+    kind: 'decimal',
+    min: 0.05,
+    max: 1.0,
+    hint: 'scene-10 占管道日预算上限',
+  },
+  {
+    field: 'diveCostEstimateMicros',
+    label: '单次深析成本预估（μ¥）',
+    kind: 'int',
+    min: 1,
+    max: 100000000,
+    hint: '预检口径保守值',
+  },
+  {
+    field: 'memberCoverageFloor',
+    label: '行业成员覆盖率阈值',
+    kind: 'decimal',
+    min: 0,
+    max: 1,
+    hint: '低于即触发阶段 0 回填',
+  },
+];
+
+/** 漏斗配置字段粗校验：整型/小数按区间（对齐后端 30091 字段级拦截，提交前先拦）。 */
+function marketTopValueError(
+  label: string,
+  raw: string,
+  kind: 'int' | 'decimal',
+  min: number,
+  max: number,
+): string | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    return `${label}须为 ${min} ~ ${max} 的${kind === 'int' ? '整数' : '数值'}`;
+  }
+  if (kind === 'int' && !Number.isInteger(n)) {
+    return `${label}须为整数`;
+  }
+  return null;
+}
+
+/** GET 视图 → 五个可编辑字段字符串态（预填与 dirty 基线同构）。 */
+function marketTopValuesOf(view: MarketTopConfigView): Record<MarketTopConfigField, string> {
+  return {
+    poolSize: String(view.poolSize),
+    deepDiveLimit: String(view.deepDiveLimit),
+    deepDiveCostCapRatio: String(view.deepDiveCostCapRatio),
+    diveCostEstimateMicros: String(view.diveCostEstimateMicros),
+    memberCoverageFloor: String(view.memberCoverageFloor),
+  };
+}
+
 // —— 上次执行徽章（三色 + 运行中 amber，沿用 JobLog 状态徽章惯例） ——
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -265,6 +345,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   const showUserIds = job.jobKey === 'DAILY_RECOMMEND';
   const showWindows = job.jobKey === RETENTION_JOB_KEY;
   const showWeights = job.jobKey === FACTOR_JOB_KEY;
+  const showMarketTop = job.jobKey === MARKET_TOP_JOB_KEY;
   const [intervalSeconds, setIntervalSeconds] = useState(
     job.intervalMillis != null ? String(Math.round(job.intervalMillis / 1000)) : '',
   );
@@ -290,6 +371,16 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   >(null);
   const [weightsError, setWeightsError] = useState<string | null>(null);
   const [weightFieldError, setWeightFieldError] = useState<string | null>(null);
+  // 漏斗配置分组（M21 T181）：GET 视图（PATCH 5 字段全量）+ 五个可编辑字段字符串态 + 加载基线 + 防呆时间戳
+  const [marketTopView, setMarketTopView] = useState<MarketTopConfigView | null>(null);
+  const [marketTopValues, setMarketTopValues] = useState<Record<MarketTopConfigField, string> | null>(
+    null,
+  );
+  const [marketTopValuesLoaded, setMarketTopValuesLoaded] = useState<
+    Record<MarketTopConfigField, string> | null
+  >(null);
+  const [marketTopError, setMarketTopError] = useState<string | null>(null);
+  const [marketTopFieldError, setMarketTopFieldError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 保存失败文案（Dialog 内字段下方展示，保持 Dialog 打开不丢输入）
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -297,6 +388,7 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
   // 双 PATCH 部分成功标记：cron/权重已保存后重试不再重复提交（避免 expectedUpdatedAt 过期 30065）
   const cronSavedRef = useRef(false);
   const weightsSavedRef = useRef(false);
+  const marketTopSavedRef = useRef(false);
 
   // Dialog 打开即 GET 预填（窗口的操作心智挂在这个清理任务上，方案 §3.5）
   useEffect(() => {
@@ -354,6 +446,30 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
     };
   }, [showWeights]);
 
+  // Dialog 打开即 GET 预填（漏斗配置分组的操作心智挂在榜单任务上，M21 方案 §4.7.3）
+  useEffect(() => {
+    if (!showMarketTop) {
+      return;
+    }
+    let cancelled = false;
+    getMarketTopConfig()
+      .then((view) => {
+        if (cancelled) return;
+        const loaded = marketTopValuesOf(view);
+        setMarketTopView(view);
+        setMarketTopValues(loaded);
+        setMarketTopValuesLoaded(loaded);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMarketTopError(`漏斗配置加载失败：${messageOf(err, '请稍后重试')}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showMarketTop]);
+
   const minOf = (field: RetentionWindowField): number => {
     const meta = RETENTION_FIELDS.find((item) => item.field === field);
     return windowsLimits?.[field]?.min ?? meta?.fallbackMin ?? 1;
@@ -371,13 +487,20 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
     weightValuesLoaded != null &&
     SCORE_WEIGHT_FIELDS.some(({ field }) => weightValues[field].trim() !== weightValuesLoaded[field]);
 
+  const marketTopChanged =
+    showMarketTop &&
+    marketTopValues != null &&
+    marketTopValuesLoaded != null &&
+    MARKET_TOP_FIELDS.some(({ field }) => marketTopValues[field].trim() !== marketTopValuesLoaded[field]);
+
   const dirty =
     (isCron
       ? cron.trim() !== (job.cron ?? '') ||
         (showUserIds && userIds.trim() !== (job.userIds ?? ''))
       : Number(intervalSeconds) * 1000 !== job.intervalMillis) ||
     windowsChanged ||
-    weightsChanged;
+    weightsChanged ||
+    marketTopChanged;
 
   const handleSave = async () => {
     const validation = isCron ? cronError(cron) : positiveSecondsError(intervalSeconds);
@@ -396,11 +519,25 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
               : weightError(label, weightValues[field]),
           ).find((message) => message != null) ?? weightSumError(weightValues))
         : null;
+    const marketTopValidation =
+      showMarketTop && marketTopValues != null
+        ? (MARKET_TOP_FIELDS.map(({ field, label, kind, min, max }) =>
+            marketTopValueError(label, marketTopValues[field], kind, min, max),
+          ).find((message) => message != null) ?? null)
+        : null;
     setError(validation ?? usersValidation);
     setWindowFieldError(windowValidation);
     setWeightFieldError(weightValidation);
+    setMarketTopFieldError(marketTopValidation);
     setSaveError(null);
-    if (validation || usersValidation || windowValidation || weightValidation || !dirty) {
+    if (
+      validation ||
+      usersValidation ||
+      windowValidation ||
+      weightValidation ||
+      marketTopValidation ||
+      !dirty
+    ) {
       return;
     }
     const changed: string[] = [];
@@ -463,6 +600,20 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
         });
         weightsSavedRef.current = true;
         changed.push('weights');
+      }
+      if (marketTopChanged && !marketTopSavedRef.current) {
+        // 5 字段全量替换 + expectedUpdatedAt 并发防呆（后端 30091 字段级 / 30065 冲突）
+        const values = marketTopValues as Record<MarketTopConfigField, string>;
+        await patchMarketTopConfig({
+          poolSize: Number(values.poolSize),
+          deepDiveLimit: Number(values.deepDiveLimit),
+          deepDiveCostCapRatio: Number(values.deepDiveCostCapRatio),
+          diveCostEstimateMicros: Number(values.diveCostEstimateMicros),
+          memberCoverageFloor: Number(values.memberCoverageFloor),
+          expectedUpdatedAt: marketTopView?.updatedAt ?? undefined,
+        });
+        marketTopSavedRef.current = true;
+        changed.push('marketTop');
       }
       onSaved({ saved, changed, jobKey: job.jobKey });
       onClose();
@@ -637,6 +788,43 @@ function ScheduleEditDialog({ job, onClose, onSaved }: EditDialogProps) {
           {weightFieldError ? (
             <span className="text-xs text-destructive" role="alert">
               {weightFieldError}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {showMarketTop ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">全市场榜单漏斗配置</span>
+          <p className="text-xs text-muted-foreground">
+            保存即热生效——下一轮 18:00 榜单按新参数；深析候选数 30~50 为蓝图区间硬校验（防全量逐股）。
+          </p>
+          {marketTopError ? (
+            <p
+              className="text-xs text-destructive"
+              role="alert"
+              data-testid={`task-edit-mtconfig-error-${job.jobKey}`}
+            >
+              {marketTopError}
+            </p>
+          ) : null}
+          {MARKET_TOP_FIELDS.map(({ field, label, kind, min, max, hint }) => (
+            <label key={field} className="flex flex-col gap-1 text-sm">
+              <span>{`${label}（${min}~${max}，${hint}）`}</span>
+              <Input
+                value={marketTopValues ? marketTopValues[field] : ''}
+                onChange={(e) =>
+                  setMarketTopValues((prev) => (prev ? { ...prev, [field]: e.target.value } : prev))
+                }
+                aria-label={label}
+                inputMode={kind === 'int' ? 'numeric' : 'decimal'}
+                disabled={marketTopValues == null || marketTopError != null}
+                data-testid={`task-edit-mtconfig-${job.jobKey}-${field}`}
+              />
+            </label>
+          ))}
+          {marketTopFieldError ? (
+            <span className="text-xs text-destructive" role="alert">
+              {marketTopFieldError}
             </span>
           ) : null}
         </div>
@@ -867,8 +1055,8 @@ export function TaskCenter() {
       const restart = changed.some((field) => modes[field] === 'RESTART');
       const nextCycle = changed.some((field) => modes[field] === 'LIVE_NEXT_CYCLE');
       setNote(jobKey, restart ? 'restart' : nextCycle ? 'next-cycle' : 'done');
-    } else if (changed.includes('windows') || changed.includes('weights')) {
-      // 仅窗口/权重变更（无调度 PATCH）：下一轮清理/快照按新参数（热生效，M10 T73 / M20 T172）
+    } else if (changed.includes('windows') || changed.includes('weights') || changed.includes('marketTop')) {
+      // 仅窗口/权重/漏斗配置变更（无调度 PATCH）：下一轮清理/快照/榜单按新参数（热生效，M10 T73 / M20 T172 / M21 T181）
       setNote(jobKey, 'next-cycle');
     }
     void refresh(true);
