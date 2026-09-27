@@ -1,8 +1,8 @@
 import { cn } from 'cn';
 
 interface IndustryFilterProps {
-  /** 可选行业集合（由已加载政策 relatedIndustries 去重聚合）。 */
-  industries: string[];
+  /** 可选行业集合（V2.3 T205 起为静态 L1 口径枚举：申万 31 + 监管·政策 容器）。 */
+  industries: readonly string[];
   /** 当前选中行业；'' 表示「全部行业」（不发送 industry 参数）。 */
   value: string;
   onChange: (industry: string) => void;
@@ -10,8 +10,9 @@ interface IndustryFilterProps {
 }
 
 /**
- * 行业过滤下拉（§4.1.5 industry 过滤）。
- * 选项来自已加载政策的 relatedIndustries 去重；「全部行业」清空 industry 参数。
+ * 行业过滤下拉（§4.1 industry 过滤，L1 口径）。
+ * 选项为静态枚举全集（POLICY_INDUSTRY_OPTIONS，后端 IndustryCategory 镜像）——
+ * 旧行业字典（响应 relatedIndustries 去重聚合）随轨 B 退役（3 行业字典 35 条 29 空 → 31+容器全量可选）。
  * 用原生 <select>：项目无 shadcn Select 原语，原生控件零新依赖、无障碍可用、
  * 暗色 token 与 Input 一致（border-input / bg-input/30 / ring）。
  */

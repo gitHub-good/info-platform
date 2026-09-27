@@ -7,15 +7,19 @@ import { Pagination } from '@/components/ui/pagination';
 import { IndustryFilter } from '@/components/policy/IndustryFilter';
 import { PolicyDetail } from '@/components/policy/PolicyDetail';
 import { PolicyList } from '@/components/policy/PolicyList';
+import { SourceFilter, type PolicySourceOption } from '@/components/policy/SourceFilter';
 import { ApiError } from '@/api/http';
+import { getInfoSources } from '@/api/infoSource';
 import { trackReadingOnce } from '@/api/readingEvent';
 import { DEFAULT_POLICY_DAYS, getPolicy, listPoliciesPaged } from '@/api/policy';
-import type { PolicyDetailView, PolicyPagedView, PolicyView } from '@/types/policy';
+import { POLICY_INDUSTRY_OPTIONS, type PolicyDetailView, type PolicyPagedView, type PolicyView } from '@/types/policy';
 
 /** 每页条数默认值（选项 10/20/50 由 Pagination 提供）。 */
 const DEFAULT_PAGE_SIZE = 20;
 /** 关键词最小长度（后端契约 ≥2 ≤64，前端先行拦截；PRD 非功能）。 */
 const MIN_KEYWORD_LENGTH = 2;
+/** 源下拉纳入的政策 scope 源类别（政策类 ∪ 宏观类——显式选源旁路 scope 口径，ADR-0062 随批 4）。 */
+const SOURCE_FILTER_CATEGORIES = ['政策', '宏观'];
 
 /** 非 ApiError 兜底文案。 */
 function messageOf(err: unknown, fallback: string): string {
@@ -35,10 +39,22 @@ function scrollToListTop(el: HTMLElement | null): void {
   }
 }
 
-interface PolicyQuery {
+/** 筛选条件全集（V2.3 T205 加 sourceCode；对象收拢，loadFirst/fetchPage 单参传递）。 */
+interface PolicyFilters {
   days: number;
   industry: string;
+  sourceCode: string;
   keyword: string;
+}
+
+const DEFAULT_FILTERS: PolicyFilters = {
+  days: DEFAULT_POLICY_DAYS,
+  industry: '',
+  sourceCode: '',
+  keyword: '',
+};
+
+interface PolicyQuery extends PolicyFilters {
   page: number;
   size: number;
 }
@@ -53,7 +69,14 @@ async function fetchPolicies(
 ): Promise<{ data: PolicyPagedView; page: number }> {
   const call = (page: number) =>
     listPoliciesPaged(
-      { days: q.days, industry: q.industry, keyword: q.keyword, page, size: q.size },
+      {
+        days: q.days,
+        industry: q.industry,
+        sourceCode: q.sourceCode,
+        keyword: q.keyword,
+        page,
+        size: q.size,
+      },
       signal,
     );
   let data = await call(q.page);
@@ -172,7 +195,7 @@ function PolicyEmpty({ days, keyword, hasFilter, onClear }: PolicyEmptyProps) {
       <p className="text-sm text-foreground">
         {keyword ? `未找到包含「${keyword}」的政策` : '未找到匹配的政策条目'}
       </p>
-      <p className="text-xs text-muted-foreground">可调整关键词、行业或时间窗后重试</p>
+      <p className="text-xs text-muted-foreground">可调整关键词、行业、源或时间窗后重试</p>
       <Button
         variant="outline"
         size="sm"
@@ -186,12 +209,14 @@ function PolicyEmpty({ days, keyword, hasFilter, onClear }: PolicyEmptyProps) {
 }
 
 /**
- * 政策时事页（M9 T64 页码分页化，UI 设计 §3 + §5 联动语义）。
- * - 列表：GET /policies?days&industry&keyword&page&size（页码分页，默认 20/页）。
- * - 筛选行：关键词搜索（显式触发）+ 时间窗分段（7/30 天）+ 行业下拉；变更 → page=1 骨架重查。
+ * 政策时事页（V2.3-M23 T205 数据面换代：policy-scope-v1 news 背书）。
+ * - 列表：GET /policies?days&industry&keyword&sourceCode&page&size（页码分页，默认 20/页）。
+ * - 筛选行：关键词搜索（显式触发）+ 时间窗分段（7/30 天）+ 行业下拉（静态 31+容器 L1 口径）
+ *   + 源下拉（/info-sources 政策/宏观源，显式选源旁路 scope，失败静默降级仅「全部源」）。
  * - 联动（§5）：listLoading（骨架）与 pageLoading（在途禁用）分离；翻页/条数切换保留数据，
  *   失败保留当前页 + 错误行 + 重试（重发同目标页）；空页漂移静默回退末页；AbortController 单点防串台。
- * - 详情：点条目 → GET /policies/{id} → 详情 + 关联自选标的 + aiTendency 倾向徽章（不动）。
+ * - 详情：点条目 → GET /policies/{id} → 回联标的 chips（跳标的详情）+ 关联 L2 政策发布事件
+ *   （direction 徽章承接 ai_tendency + 事件流下钻）；倾向徽章随旧数据面退役。
  * 三态：加载骨架 / 空数据引导（区分筛选来源）/ 错误重试；401 由 http 层统一跳 /login。
  */
 export function Policy() {
@@ -202,12 +227,10 @@ export function Policy() {
   const pageSizeRef = useRef(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
 
-  const [days, setDays] = useState(DEFAULT_POLICY_DAYS);
-  const [industry, setIndustry] = useState('');
+  const [filters, setFilters] = useState<PolicyFilters>(DEFAULT_FILTERS);
   const [keywordInput, setKeywordInput] = useState('');
-  const [keyword, setKeyword] = useState('');
-  // 行业选项全集缓存：仅在无过滤的第 1 页响应聚合，过滤态下拉不随结果收缩（§7.1-5）
-  const [allIndustries, setAllIndustries] = useState<string[]>([]);
+  // 源下拉选项：info-sources 政策/宏观类源（辅助筛选，失败静默降级）
+  const [sources, setSources] = useState<PolicySourceOption[]>([]);
 
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -227,55 +250,55 @@ export function Policy() {
   const listSectionRef = useRef<HTMLElement | null>(null);
 
   /** 骨架通道（首屏/筛选/搜索/时间窗变更 → 新结果集查询，§5.1）。 */
-  const loadFirst = useCallback(
-    async (nextDays: number, nextIndustry: string, nextKeyword: string) => {
-      listAbort.current?.abort();
-      const ctrl = new AbortController();
-      listAbort.current = ctrl;
-      setListLoading(true);
-      setListError(null);
-      setPageLoading(false);
-      setPageError(null);
-      setPage(1);
-      try {
-        const { data, page: landed } = await fetchPolicies(
-          {
-            days: nextDays,
-            industry: nextIndustry,
-            keyword: nextKeyword,
-            page: 1,
-            size: pageSizeRef.current,
-          },
-          ctrl.signal,
-        );
-        if (ctrl.signal.aborted) return;
-        setItems(data.policies);
-        setTotal(data.total);
-        setPage(landed);
-        // 无过滤（无行业、无关键词）首页响应才聚合行业全集
-        if (!nextIndustry && !nextKeyword && landed === 1) {
-          setAllIndustries((prev) =>
-            Array.from(
-              new Set([...prev, ...data.policies.flatMap((p) => p.relatedIndustries)]),
-            ).sort(),
-          );
-        }
-        scrollToListTop(listSectionRef.current);
-      } catch (err) {
-        if (ctrl.signal.aborted) return;
-        setListError(messageOf(err, '政策列表加载失败'));
-      } finally {
-        if (!ctrl.signal.aborted) setListLoading(false);
-      }
-    },
-    [],
-  );
+  const loadFirst = useCallback(async (next: PolicyFilters) => {
+    listAbort.current?.abort();
+    const ctrl = new AbortController();
+    listAbort.current = ctrl;
+    setListLoading(true);
+    setListError(null);
+    setPageLoading(false);
+    setPageError(null);
+    setPage(1);
+    try {
+      const { data, page: landed } = await fetchPolicies(
+        { ...next, page: 1, size: pageSizeRef.current },
+        ctrl.signal,
+      );
+      if (ctrl.signal.aborted) return;
+      setItems(data.policies);
+      setTotal(data.total);
+      setPage(landed);
+      scrollToListTop(listSectionRef.current);
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      setListError(messageOf(err, '政策列表加载失败'));
+    } finally {
+      if (!ctrl.signal.aborted) setListLoading(false);
+    }
+  }, []);
 
-  // 首次加载首页（挂载即首查，初始筛选 = 默认时间窗 + 全量）
+  // 首次加载首页（挂载即首查，初始筛选 = 默认时间窗 + 全量）+ 源下拉选项（两请求独立）
   useEffect(() => {
-    void loadFirst(DEFAULT_POLICY_DAYS, '', '');
+    void loadFirst(DEFAULT_FILTERS);
     return () => listAbort.current?.abort();
   }, [loadFirst]);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    getInfoSources(ctrl.signal)
+      .then((view) => {
+        setSources(
+          view.groups
+            .flatMap((group) => group.sources)
+            .filter((source) => SOURCE_FILTER_CATEGORIES.includes(source.category))
+            .map((source) => ({ sourceCode: source.sourceCode, name: source.name })),
+        );
+      })
+      .catch(() => {
+        // 源下拉为辅助筛选：失败静默降级为仅「全部源」，列表主路径不受阻
+      });
+    return () => ctrl.abort();
+  }, []);
 
   /** 在途保留通道（同筛选条件下的翻页/条数切换，§5.1）。 */
   const fetchPage = useCallback(
@@ -287,7 +310,7 @@ export function Policy() {
       setPageError(null);
       try {
         const { data, page: landed } = await fetchPolicies(
-          { days, industry, keyword, page: target, size },
+          { ...filters, page: target, size },
           ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
@@ -302,27 +325,31 @@ export function Policy() {
         if (!ctrl.signal.aborted) setPageLoading(false);
       }
     },
-    [days, industry, keyword],
+    [filters],
   );
 
   const handleDaysChange = (next: number) => {
-    if (next === days) return;
-    setDays(next);
-    void loadFirst(next, industry, keyword);
+    if (next === filters.days) return;
+    setFilters((prev) => ({ ...prev, days: next }));
+    void loadFirst({ ...filters, days: next });
   };
 
   const handleIndustryChange = (next: string) => {
-    setIndustry(next);
+    setFilters((prev) => ({ ...prev, industry: next }));
     // 现状行为保留：切换行业清空已选详情
-    setSelectedId(null);
-    setDetail(null);
-    setDetailError(null);
-    void loadFirst(days, next, keyword);
+    clearDetail();
+    void loadFirst({ ...filters, industry: next });
+  };
+
+  const handleSourceChange = (next: string) => {
+    setFilters((prev) => ({ ...prev, sourceCode: next }));
+    clearDetail();
+    void loadFirst({ ...filters, sourceCode: next });
   };
 
   const handleSearchSubmit = (next: string) => {
-    setKeyword(next);
-    void loadFirst(days, industry, next);
+    setFilters((prev) => ({ ...prev, keyword: next }));
+    void loadFirst({ ...filters, keyword: next });
   };
 
   const handlePageChange = (target: number) => {
@@ -344,14 +371,17 @@ export function Policy() {
 
   const handleClearFilters = () => {
     setKeywordInput('');
-    setKeyword('');
-    setIndustry('');
-    setDays(DEFAULT_POLICY_DAYS);
+    setFilters(DEFAULT_FILTERS);
+    clearDetail();
+    void loadFirst(DEFAULT_FILTERS);
+  };
+
+  /** 筛选变更/清除时同步清空已选详情（旧状态详情与新列表口径不符）。 */
+  function clearDetail() {
     setSelectedId(null);
     setDetail(null);
     setDetailError(null);
-    void loadFirst(DEFAULT_POLICY_DAYS, '', '');
-  };
+  }
 
   const handleSelect = useCallback(async (id: number) => {
     setSelectedId(id);
@@ -373,17 +403,16 @@ export function Policy() {
     }
   }, []);
 
-  const handleRetryList = () => void loadFirst(days, industry, keyword);
+  const handleRetryList = () => void loadFirst(filters);
   const handleRetryDetail = () => {
     if (selectedId != null) void handleSelect(selectedId);
   };
 
-  // 行业选项：全量缓存 ∪ 当前页条目（去重排序），过滤后不收缩
-  const industries = Array.from(
-    new Set([...allIndustries, ...items.flatMap((p) => p.relatedIndustries)]),
-  ).sort();
-
-  const hasFilter = industry !== '' || keyword !== '' || days !== DEFAULT_POLICY_DAYS;
+  const hasFilter =
+    filters.industry !== '' ||
+    filters.sourceCode !== '' ||
+    filters.keyword !== '' ||
+    filters.days !== DEFAULT_POLICY_DAYS;
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="policy-page">
@@ -398,11 +427,17 @@ export function Policy() {
           onSubmit={handleSearchSubmit}
           disabled={listLoading}
         />
-        <DaysSwitcher value={days} onChange={handleDaysChange} disabled={listLoading} />
+        <DaysSwitcher value={filters.days} onChange={handleDaysChange} disabled={listLoading} />
         <IndustryFilter
-          industries={industries}
-          value={industry}
+          industries={POLICY_INDUSTRY_OPTIONS}
+          value={filters.industry}
           onChange={handleIndustryChange}
+          disabled={listLoading}
+        />
+        <SourceFilter
+          sources={sources}
+          value={filters.sourceCode}
+          onChange={handleSourceChange}
           disabled={listLoading}
         />
       </div>
@@ -438,8 +473,8 @@ export function Policy() {
             </div>
           ) : items.length === 0 ? (
             <PolicyEmpty
-              days={days}
-              keyword={keyword}
+              days={filters.days}
+              keyword={filters.keyword}
               hasFilter={hasFilter}
               onClear={handleClearFilters}
             />

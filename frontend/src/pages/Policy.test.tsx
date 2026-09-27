@@ -2,14 +2,16 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Policy } from '@/pages/Policy';
+import { formatDateTime } from '@/lib/format';
+import type { InfoSourceCardView, InfoSourcesView } from '@/types/infoSource';
 import type {
-  AiTendencyCode,
   PolicyDetailView,
   PolicyPagedView,
   PolicyView,
 } from '@/types/policy';
 
-// —— fetch mock：GET /policies（页码分页 + 行业/关键词过滤）/ GET /policies/{id}（详情） —— #
+// —— fetch mock：GET /policies（页码分页 + 行业/源/关键词过滤）/ GET /policies/{id}（详情）/
+//    GET /info-sources（源下拉选项，V2.3 T205） ——
 
 const HTTP_BY_CODE: Record<number, number> = {
   30040: 404,
@@ -45,17 +47,85 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/** 源下拉选项最小卡片（/info-sources 响应用，仅需 name/sourceCode/category 生效字段）。 */
+function sourceCardOf(
+  id: number,
+  sourceCode: string,
+  name: string,
+  category: string,
+): InfoSourceCardView {
+  return {
+    id,
+    sourceCode,
+    name,
+    category,
+    adapterType: 'rss',
+    adapterRef: null,
+    endpoint: 'https://example.com/feed',
+    config: {
+      listPath: null,
+      stripPrefix: null,
+      stripSuffix: null,
+      itemMapping: [],
+      headers: {},
+      maxItems: null,
+      pageSize: null,
+      cursorType: 'NONE',
+      cursorField: null,
+      aiExclusion: 'NONE',
+      staleSince: null,
+    },
+    intervalMinutes: 15,
+    enabled: true,
+    preset: true,
+    deleted: false,
+    today: { pollCount: 0, failCount: 0, newCount: 0, dupCount: 0 },
+    state: {
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      nextDueAt: null,
+      cursorValue: null,
+      consecutiveFailures: 0,
+      backoffUntil: null,
+      lastDurationMillis: null,
+      lastRoundDetail: null,
+      lastError: null,
+    },
+    createdAt: '2026-09-22T00:00:00Z',
+    updatedAt: '2026-09-22T00:00:00Z',
+  };
+}
+
+function infoSourcesView(): InfoSourcesView {
+  return {
+    groups: [
+      {
+        category: '政策',
+        sources: [
+          sourceCardOf(1, 'gov_policy', '中国政府网·政策', '政策'),
+          sourceCardOf(2, 'csrc_news', '中国证监会·要闻', '政策'),
+        ],
+      },
+      { category: '宏观', sources: [sourceCardOf(3, 'stats_release', '国家统计局·最新发布', '宏观')] },
+      { category: '快讯', sources: [sourceCardOf(4, 'jin10_flash', '金十数据·快讯', '快讯')] },
+    ],
+    archived: [],
+  };
+}
+
 interface ServerOpts {
   items?: PolicyView[];
   detail?: PolicyDetailView;
   detailById?: Record<number, PolicyDetailView>;
   detailCode?: number;
   listCode?: number;
+  /** /info-sources 响应（源下拉选项）；'fail' 模拟接口失败。 */
+  infoSources?: InfoSourcesView | 'fail';
 }
 
 /**
- * 构造页码模式服务端 mock：按 query 参数（page/size/industry/keyword）过滤切片，
- * 返回 { policies, total, page, size }（对齐后端契约：越界页 200 空列表 + 精确 total）。
+ * 构造页码模式服务端 mock：按 query 参数（page/size/industry/sourceCode/keyword）过滤切片，
+ * 返回 { policies, total, page, size, basis }（对齐后端契约：越界页 200 空列表 + 精确 total）。
  */
 function makeServer(opts: ServerOpts = {}) {
   let items = opts.items ?? [];
@@ -63,6 +133,12 @@ function makeServer(opts: ServerOpts = {}) {
     const method = init?.method ?? 'GET';
     const path = String(url);
     if (method !== 'GET') return fail(50000);
+
+    // 源下拉选项：/api/v1/info-sources
+    if (/\/info-sources(\?|$)/.test(path)) {
+      if (opts.infoSources === 'fail') return fail(50000);
+      return ok(opts.infoSources ?? infoSourcesView());
+    }
 
     // 详情：/api/v1/policies/{id}
     const d = path.match(/\/policies\/(\d+)$/);
@@ -74,23 +150,32 @@ function makeServer(opts: ServerOpts = {}) {
       return ok(opts.detail ?? null);
     }
 
-    // 列表：/api/v1/policies?page&size&industry&keyword
+    // 列表：/api/v1/policies?page&size&industry&sourceCode&keyword
     if (/\/policies\?/.test(path)) {
       if (opts.listCode) return fail(opts.listCode);
       const q = new URL(path, 'http://x').searchParams;
       const page = Number(q.get('page') ?? '1');
       const size = Number(q.get('size') ?? '20');
       const industry = q.get('industry') ?? '';
+      const sourceCode = q.get('sourceCode') ?? '';
       const keyword = (q.get('keyword') ?? '').trim().toLowerCase();
       let filtered = items;
       if (industry) {
-        filtered = filtered.filter((p) => p.relatedIndustries.includes(industry));
+        // L1 口径（§4.1）：申万 main/sub 命中；监管·政策 容器仅 main
+        filtered = filtered.filter((p) =>
+          industry === '监管·政策'
+            ? p.mainCategory === industry
+            : p.mainCategory === industry || p.subIndustry === industry,
+        );
+      }
+      if (sourceCode) {
+        filtered = filtered.filter((p) => p.sourceCode === sourceCode);
       }
       if (keyword) {
         filtered = filtered.filter(
           (p) =>
             p.title.toLowerCase().includes(keyword) ||
-            p.summary.toLowerCase().includes(keyword),
+            (p.summary ?? '').toLowerCase().includes(keyword),
         );
       }
       const view: PolicyPagedView = {
@@ -98,6 +183,7 @@ function makeServer(opts: ServerOpts = {}) {
         total: filtered.length,
         page,
         size,
+        basis: 'policy-scope-v1',
       };
       return ok(view);
     }
@@ -112,7 +198,7 @@ function makeServer(opts: ServerOpts = {}) {
   };
 }
 
-/** 取列表请求调用（排除详情请求），便于断言 query 参数。 */
+/** 取列表请求调用（排除详情/源下拉请求），便于断言 query 参数。 */
 function listCallsOf(
   fetchMock: ReturnType<typeof makeServer>['fetch'],
 ): { url: string }[] {
@@ -125,38 +211,57 @@ function paramsOf(call: { url: string }): URLSearchParams {
   return new URL(call.url, 'http://x').searchParams;
 }
 
-// —— fixtures：1 条新能源 + 44 条半导体 = 45 条（3 页 @20） —— #
+// —— fixtures：1 条汽车（gov_policy，带回联标的）+ 44 条电子 = 45 条（3 页 @20） —— #
 
 const POLICY_A: PolicyView = {
   id: 101,
   title: '关于促进新能源汽车产业高质量发展的若干政策',
-  source: '国务院',
-  publishedAt: '2026-09-19',
   summary: '加大充电基础设施与锂电池研发补贴，利好产业链上下游。',
-  relatedIndustries: ['新能源', '锂电池'],
+  url: 'http://gov.cn/policy-101',
+  sourceCode: 'gov_policy',
+  sourceName: '中国政府网·政策',
+  publishedAt: '2026-09-19T00:00:00Z',
+  mainCategory: '汽车',
+  subIndustry: '汽车零部件',
+  matchedSubjects: [
+    { code: 'SZ300750', name: '宁德时代', industry: '电力设备' },
+    { code: 'SH600884', name: '杉杉股份', industry: '汽车零部件' },
+  ],
 };
 const REST: PolicyView[] = Array.from({ length: 44 }, (_, i) => ({
   id: 200 + i,
   title: `半导体产业扶持政策第 ${i + 1} 号`,
-  source: '工信部',
-  publishedAt: '2026-09-18',
   summary: `第 ${i + 1} 条：设立专项基金支持先进制程与设备国产化。`,
-  relatedIndustries: ['半导体'],
+  url: `http://csrc.gov.cn/policy-${200 + i}`,
+  sourceCode: 'csrc_news',
+  sourceName: '中国证监会·要闻',
+  publishedAt: '2026-09-18T00:00:00Z',
+  mainCategory: '电子',
+  subIndustry: '半导体',
+  matchedSubjects: [],
 }));
 const ALL_ITEMS: PolicyView[] = [POLICY_A, ...REST];
 
-const DETAIL_BULL: PolicyDetailView = {
+const DETAIL_WITH_EVENT: PolicyDetailView = {
   id: 101,
   title: POLICY_A.title,
-  source: '国务院',
-  publishedAt: '2026-09-19',
-  summary: '加大充电基础设施与锂电池研发补贴，利好产业链上下游。',
-  relatedIndustries: ['新能源', '锂电池'],
-  sourceUrl: 'http://gov.cn/policy-101',
-  aiTendency: 1,
-  relatedSubjects: [
-    { subjectCode: 'SZ300750', subjectName: '宁德时代', industry: '新能源' },
-    { subjectCode: 'SH600884', subjectName: '杉杉股份', industry: '锂电池' },
+  summary: POLICY_A.summary,
+  url: 'http://gov.cn/policy-101',
+  sourceCode: 'gov_policy',
+  sourceName: '中国政府网·政策',
+  publishedAt: '2026-09-19T00:00:00Z',
+  mainCategory: '汽车',
+  subIndustry: '汽车零部件',
+  matchedSubjects: POLICY_A.matchedSubjects,
+  relatedEvents: [
+    {
+      id: 55,
+      eventType: 'POLICY_RELEASE',
+      summary: '新能源车补贴延续，产业链受益',
+      direction: 'BULLISH',
+      importance: 'HIGH',
+      eventDate: '2026-09-19',
+    },
   ],
 };
 
@@ -175,18 +280,20 @@ afterEach(() => {
 
 describe('Policy 政策时事页 · 首屏与分页条', () => {
   it('首屏：列表 + 分页条（共 45 条 / 第 1 / 3 页 / 三页码），首查 page=1&size=20&days=7', async () => {
-    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_BULL });
+    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_WITH_EVENT });
     vi.stubGlobal('fetch', server.fetch);
     render(<Policy />);
 
-    // 第一页条目 + 详情空态
+    // 第一页条目 + 详情空态（V2.3 T205 换面：源名/时间/L1 徽章/回联标的徽章）
     const itemA = await screen.findByTestId('policy-item-101');
     expect(itemA).toHaveTextContent('新能源汽车');
-    expect(itemA).toHaveTextContent('国务院');
-    expect(itemA).toHaveTextContent('2026-09-19');
-    expect(
-      within(itemA).getByTestId('policy-item-101-industry-锂电池'),
-    ).toBeInTheDocument();
+    expect(itemA).toHaveTextContent('来源：中国政府网·政策');
+    expect(itemA).toHaveTextContent(formatDateTime(POLICY_A.publishedAt));
+    expect(within(itemA).getByTestId('policy-item-101-category-汽车')).toBeInTheDocument();
+    expect(within(itemA).getByTestId('policy-item-101-sub-汽车零部件')).toBeInTheDocument();
+    expect(within(itemA).getByTestId('policy-item-101-subject-SZ300750')).toHaveTextContent(
+      '宁德时代',
+    );
     expect(screen.getByTestId('policy-detail-empty')).toBeInTheDocument();
 
     // 分页条
@@ -271,7 +378,7 @@ describe('Policy 政策时事页 · 首屏与分页条', () => {
     expect(screen.getByTestId('policy-keyword-input')).toBeEnabled();
 
     // 放行：整体替换 + 状态行消失
-    d.resolve(ok({ policies: [REST[19]], total: 45, page: 2, size: 20 }));
+    d.resolve(ok({ policies: [REST[19]], total: 45, page: 2, size: 20, basis: 'policy-scope-v1' }));
     expect(await screen.findByTestId('policy-item-219')).toBeInTheDocument();
     expect(screen.queryByTestId('policy-item-101')).toBeNull();
     await waitFor(() =>
@@ -346,9 +453,9 @@ describe('Policy 政策时事页 · 首屏与分页条', () => {
   });
 });
 
-describe('Policy 政策时事页 · 筛选联动', () => {
-  it('行业筛选：回第 1 页 + industry 参数 + total 按筛选刷新 + 清空已选详情', async () => {
-    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_BULL });
+describe('Policy 政策时事页 · 筛选联动（V2.3 T205：L1 静态下拉 + 源下拉）', () => {
+  it('行业筛选（L1 口径）：汽车命中 main（第 101 条），回第 1 页 + industry 参数 + 清空已选详情', async () => {
+    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_WITH_EVENT });
     vi.stubGlobal('fetch', server.fetch);
     const user = userEvent.setup();
     render(<Policy />);
@@ -363,7 +470,7 @@ describe('Policy 政策时事页 · 筛选联动', () => {
 
     await user.selectOptions(
       screen.getByTestId('policy-industry-filter'),
-      '新能源',
+      '汽车',
     );
 
     expect(await screen.findByTestId('policy-item-101')).toBeInTheDocument();
@@ -375,8 +482,78 @@ describe('Policy 政策时事页 · 筛选联动', () => {
 
     const calls = listCallsOf(server.fetch);
     const last = paramsOf(calls[calls.length - 1]);
-    expect(last.get('industry')).toBe('新能源');
+    expect(last.get('industry')).toBe('汽车');
     expect(last.get('page')).toBe('1');
+  });
+
+  it('行业筛选：电子收缩到 44 条（subIndustry 徽章为展示面，筛选为 L1 枚举）', async () => {
+    const server = makeServer({ items: ALL_ITEMS });
+    vi.stubGlobal('fetch', server.fetch);
+    const user = userEvent.setup();
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-101');
+
+    await user.selectOptions(screen.getByTestId('policy-industry-filter'), '电子');
+
+    expect(await screen.findByTestId('policy-item-200')).toBeInTheDocument();
+    expect(screen.queryByTestId('policy-item-101')).toBeNull();
+    expect(screen.getByTestId('pagination-total')).toHaveTextContent('共 44 条');
+    const last = paramsOf(listCallsOf(server.fetch)[listCallsOf(server.fetch).length - 1]);
+    expect(last.get('industry')).toBe('电子');
+  });
+
+  it('行业下拉静态枚举：31 申万 + 监管·政策 容器全量可选（过滤态不收缩）', async () => {
+    const server = makeServer({ items: ALL_ITEMS });
+    vi.stubGlobal('fetch', server.fetch);
+    const user = userEvent.setup();
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-101');
+    await user.selectOptions(screen.getByTestId('policy-industry-filter'), '电子');
+    await screen.findByTestId('policy-item-200');
+
+    const select = screen.getByTestId('policy-industry-filter');
+    expect(within(select).getByRole('option', { name: '全部行业' })).toBeInTheDocument();
+    // 当前页数据不含银行/监管·政策，静态枚举仍可选（旧响应聚合字典收缩问题消除）
+    expect(within(select).getByRole('option', { name: '银行' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: '监管·政策' })).toBeInTheDocument();
+    expect(within(select).getAllByRole('option')).toHaveLength(33); // 全部 + 32 枚举
+  });
+
+  it('源筛选：下拉加载政策/宏观类源（快讯源不入列），选择发送 sourceCode 参数 + total 收缩', async () => {
+    const server = makeServer({ items: ALL_ITEMS });
+    vi.stubGlobal('fetch', server.fetch);
+    const user = userEvent.setup();
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-101');
+    const select = await screen.findByTestId('policy-source-filter');
+    // 政策 scope 内源：政策 2 + 宏观 1（快讯 jin10_flash 不入列）
+    expect(within(select).getAllByRole('option')).toHaveLength(4);
+    expect(within(select).getByRole('option', { name: '中国政府网·政策' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: '国家统计局·最新发布' })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: '金十数据·快讯' })).toBeNull();
+
+    await user.selectOptions(select, 'gov_policy');
+
+    expect(await screen.findByTestId('policy-item-101')).toBeInTheDocument();
+    expect(screen.queryByTestId('policy-item-200')).toBeNull();
+    expect(screen.getByTestId('pagination-total')).toHaveTextContent('共 1 条');
+    const last = paramsOf(listCallsOf(server.fetch)[listCallsOf(server.fetch).length - 1]);
+    expect(last.get('sourceCode')).toBe('gov_policy');
+    expect(last.get('page')).toBe('1');
+  });
+
+  it('源下拉降级：/info-sources 失败 → 仅「全部源」，列表主路径不受阻', async () => {
+    const server = makeServer({ items: ALL_ITEMS, infoSources: 'fail' });
+    vi.stubGlobal('fetch', server.fetch);
+    render(<Policy />);
+
+    expect(await screen.findByTestId('policy-item-101')).toBeInTheDocument();
+    const select = screen.getByTestId('policy-source-filter');
+    expect(within(select).getAllByRole('option')).toHaveLength(1);
+    expect(within(select).getByRole('option', { name: '全部源' })).toBeInTheDocument();
   });
 
   it('时间窗切换：近 30 天 → days=30 + page=1 重查，分段高亮切换', async () => {
@@ -483,7 +660,7 @@ describe('Policy 政策时事页 · 筛选联动', () => {
     expect(paramsOf(calls[calls.length - 1]).get('keyword')).toBeNull();
   });
 
-  it('三条件组合：keyword × industry × days 一次请求', async () => {
+  it('四条件组合：keyword × industry × sourceCode × days 一次请求', async () => {
     const server = makeServer({ items: ALL_ITEMS });
     vi.stubGlobal('fetch', server.fetch);
     const user = userEvent.setup();
@@ -492,10 +669,9 @@ describe('Policy 政策时事页 · 筛选联动', () => {
     await screen.findByTestId('policy-item-101');
     await user.click(screen.getByTestId('policy-days-30'));
     await screen.findByTestId('policy-item-101');
-    await user.selectOptions(
-      screen.getByTestId('policy-industry-filter'),
-      '新能源',
-    );
+    await user.selectOptions(screen.getByTestId('policy-industry-filter'), '汽车');
+    await screen.findByTestId('policy-item-101');
+    await user.selectOptions(screen.getByTestId('policy-source-filter'), 'gov_policy');
     await screen.findByTestId('policy-item-101');
     await user.type(screen.getByTestId('policy-keyword-input'), '新能源汽车');
     await user.click(screen.getByTestId('policy-keyword-search'));
@@ -504,7 +680,8 @@ describe('Policy 政策时事页 · 筛选联动', () => {
     const calls = listCallsOf(server.fetch);
     const last = paramsOf(calls[calls.length - 1]);
     expect(last.get('days')).toBe('30');
-    expect(last.get('industry')).toBe('新能源');
+    expect(last.get('industry')).toBe('汽车');
+    expect(last.get('sourceCode')).toBe('gov_policy');
     expect(last.get('keyword')).toBe('新能源汽车');
     expect(last.get('page')).toBe('1');
   });
@@ -523,13 +700,13 @@ describe('Policy 政策时事页 · 空态与防御', () => {
 
     const empty = await screen.findByTestId('policy-list-empty');
     expect(empty).toHaveTextContent('未找到包含「量子计算机」的政策');
-    expect(empty).toHaveTextContent('可调整关键词、行业或时间窗后重试');
+    expect(empty).toHaveTextContent('可调整关键词、行业、源或时间窗后重试');
     expect(screen.getByTestId('policy-clear-filters')).toBeInTheDocument();
     expect(screen.queryByTestId('pagination-root')).toBeNull();
   });
 
-  it('清除筛选 CTA：重置 keyword/industry/days + 回第 1 页 + 清空详情', async () => {
-    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_BULL });
+  it('清除筛选 CTA：重置 keyword/industry/sourceCode/days + 回第 1 页 + 清空详情', async () => {
+    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_WITH_EVENT });
     vi.stubGlobal('fetch', server.fetch);
     const user = userEvent.setup();
     render(<Policy />);
@@ -538,14 +715,11 @@ describe('Policy 政策时事页 · 空态与防御', () => {
     await user.click(screen.getByTestId('policy-item-101'));
     await screen.findByTestId('policy-detail');
 
-    // 叠满三类筛选后无结果
+    // 叠满筛选后无结果（银行 + 未知源 + 量子计算机）
     await user.click(screen.getByTestId('policy-days-30'));
     await screen.findByTestId('policy-item-101');
-    await user.selectOptions(
-      screen.getByTestId('policy-industry-filter'),
-      '锂电池',
-    );
-    await screen.findByTestId('policy-item-101');
+    await user.selectOptions(screen.getByTestId('policy-industry-filter'), '银行');
+    await screen.findByTestId('policy-list-empty');
     await user.type(screen.getByTestId('policy-keyword-input'), '量子计算机');
     await user.click(screen.getByTestId('policy-keyword-search'));
     await screen.findByTestId('policy-clear-filters');
@@ -557,12 +731,14 @@ describe('Policy 政策时事页 · 空态与防御', () => {
     expect(screen.getByTestId('pagination-total')).toHaveTextContent('共 45 条');
     expect(screen.getByTestId('policy-keyword-input')).toHaveValue('');
     expect(screen.getByTestId('policy-industry-filter')).toHaveValue('');
+    expect(screen.getByTestId('policy-source-filter')).toHaveValue('');
     expect(screen.getByTestId('policy-days-7').className).toContain('bg-primary');
     expect(screen.getByTestId('policy-detail-empty')).toBeInTheDocument();
     const calls = listCallsOf(server.fetch);
     const last = paramsOf(calls[calls.length - 1]);
     expect(last.get('days')).toBe('7');
     expect(last.get('industry')).toBeNull();
+    expect(last.get('sourceCode')).toBeNull();
     expect(last.get('keyword')).toBeNull();
     expect(last.get('page')).toBe('1');
   });
@@ -619,17 +795,14 @@ describe('Policy 政策时事页 · 空态与防御', () => {
     await user.click(screen.getByTestId('pagination-page-2'));
     expect(await screen.findByTestId('policy-page-loading')).toBeInTheDocument();
 
-    // 筛选变更中止翻页、走骨架新查询（半导体 44 条）
-    await user.selectOptions(
-      screen.getByTestId('policy-industry-filter'),
-      '半导体',
-    );
+    // 筛选变更中止翻页、走骨架新查询（电子 44 条）
+    await user.selectOptions(screen.getByTestId('policy-industry-filter'), '电子');
     expect(await screen.findByTestId('policy-item-200')).toBeInTheDocument();
     expect(screen.getByTestId('pagination-total')).toHaveTextContent('共 44 条');
 
     // 旧翻页响应迟到：含独有标记条目 999，不得覆盖筛选结果
     d.resolve(
-      ok({ policies: [{ ...POLICY_A, id: 999 }], total: 45, page: 2, size: 20 }),
+      ok({ policies: [{ ...POLICY_A, id: 999 }], total: 45, page: 2, size: 20, basis: 'policy-scope-v1' }),
     );
     await waitFor(() =>
       expect(screen.queryByTestId('policy-page-loading')).toBeNull(),
@@ -640,27 +813,9 @@ describe('Policy 政策时事页 · 空态与防御', () => {
   });
 });
 
-describe('Policy 政策时事页 · 回归保留', () => {
-  it('行业下拉缓存全量集：过滤后下拉仍含全部行业', async () => {
-    const server = makeServer({ items: ALL_ITEMS });
-    vi.stubGlobal('fetch', server.fetch);
-    const user = userEvent.setup();
-    render(<Policy />);
-
-    await screen.findByTestId('policy-item-101');
-    await user.selectOptions(
-      screen.getByTestId('policy-industry-filter'),
-      '半导体',
-    );
-    await screen.findByTestId('policy-item-200');
-
-    const select = screen.getByTestId('policy-industry-filter');
-    expect(within(select).getByRole('option', { name: '全部行业' })).toBeInTheDocument();
-    expect(within(select).getByRole('option', { name: '半导体' })).toBeInTheDocument();
-  });
-
-  it('点击条目：拉详情 + 关联自选标的表 + 倾向徽章（利好）', async () => {
-    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_BULL });
+describe('Policy 政策时事页 · 详情换面（V2.3 T205：relatedEvents 承接 aiTendency）', () => {
+  it('点击条目：详情 + 回联标的 chips（跳标的详情）+ 关联事件（方向徽章利好/重要度/事件流下钻）', async () => {
+    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_WITH_EVENT });
     vi.stubGlobal('fetch', server.fetch);
     const user = userEvent.setup();
     render(<Policy />);
@@ -670,43 +825,71 @@ describe('Policy 政策时事页 · 回归保留', () => {
 
     const detail = await screen.findByTestId('policy-detail');
     expect(detail).toHaveTextContent('充电基础设施与锂电池研发补贴');
+    expect(detail).toHaveTextContent('来源：中国政府网·政策');
+    expect(screen.getByTestId('policy-detail-category')).toHaveTextContent('汽车');
     expect(screen.getByTestId('policy-source-url')).toHaveAttribute(
       'href',
       'http://gov.cn/policy-101',
     );
-    expect(screen.getByTestId('policy-tendency')).toHaveTextContent('利好');
-    const row = screen.getByTestId('policy-related-SZ300750');
-    expect(within(row).getByText('宁德时代')).toBeInTheDocument();
-    expect(screen.getByTestId('policy-related-SH600884')).toHaveTextContent('杉杉股份');
+
+    // 回联标的 chips：站内跳标的详情（hash 路由锚点）
+    const subjectChip = screen.getByTestId('policy-matched-SZ300750');
+    expect(subjectChip).toHaveTextContent('宁德时代');
+    expect(subjectChip).toHaveAttribute('href', '#/subjects/SZ300750');
+    expect(screen.getByTestId('policy-matched-SH600884')).toHaveTextContent('杉杉股份');
+
+    // 关联 L2 政策发布事件：direction 徽章承接倾向 + 事件流下钻
+    const event = screen.getByTestId('policy-related-event-55');
+    expect(within(event).getByTestId('policy-related-event-direction-55')).toHaveTextContent(
+      '利好',
+    );
+    expect(event).toHaveTextContent('政策发布');
+    expect(event).toHaveTextContent('重要度 高');
+    expect(event).toHaveTextContent('新能源车补贴延续，产业链受益');
+    expect(
+      within(event).getByTestId('policy-related-event-link-55'),
+    ).toHaveAttribute('href', '#/events?focus=55');
   });
 
-  it('倾向徽章 4 态：利好(1)/利空(2)/中性(3)/未判(0)', async () => {
-    const cases: { id: number; tendency: AiTendencyCode; label: string }[] = [
-      { id: 101, tendency: 1, label: '利好' },
-      { id: 102, tendency: 2, label: '利空' },
-      { id: 103, tendency: 3, label: '中性' },
-      { id: 104, tendency: 0, label: '待判' },
+  it('aiTendency 退役：倾向徽章不再渲染（由 relatedEvents direction 承接）', async () => {
+    const server = makeServer({ items: ALL_ITEMS, detail: DETAIL_WITH_EVENT });
+    vi.stubGlobal('fetch', server.fetch);
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-101');
+    // 旧倾向徽章 testid（policy-tendency / tendency-1）全站零出现
+    expect(screen.queryByTestId('policy-tendency')).toBeNull();
+    expect(screen.queryByTestId('tendency-1')).toBeNull();
+  });
+
+  it('方向徽章 3 态：利好(BULLISH 红) / 利空(BEARISH 绿) / 中性(NEUTRAL 灰)', async () => {
+    const cases = [
+      { id: 101, direction: 'BULLISH', label: '利好' },
+      { id: 102, direction: 'BEARISH', label: '利空' },
+      { id: 103, direction: 'NEUTRAL', label: '中性' },
     ];
     const items: PolicyView[] = cases.map((c) => ({
+      ...POLICY_A,
       id: c.id,
       title: `政策${c.id}`,
-      source: 's',
-      publishedAt: '2026-09-19',
-      summary: `摘要${c.id}`,
-      relatedIndustries: ['新能源'],
+      matchedSubjects: [],
     }));
     const detailById: Record<number, PolicyDetailView> = {};
     for (const c of cases) {
       detailById[c.id] = {
+        ...DETAIL_WITH_EVENT,
         id: c.id,
-        title: `政策${c.id}`,
-        source: 's',
-        publishedAt: '2026-09-19',
-        summary: `摘要${c.id}`,
-        relatedIndustries: ['新能源'],
-        sourceUrl: null,
-        aiTendency: c.tendency,
-        relatedSubjects: [],
+        matchedSubjects: [],
+        relatedEvents: [
+          {
+            id: c.id + 500,
+            eventType: 'POLICY_RELEASE',
+            summary: null,
+            direction: c.direction,
+            importance: 'MEDIUM',
+            eventDate: '2026-09-19',
+          },
+        ],
       };
     }
     const server = makeServer({ items, detailById });
@@ -717,8 +900,27 @@ describe('Policy 政策时事页 · 回归保留', () => {
     await screen.findByTestId('policy-item-101');
     for (const c of cases) {
       await user.click(screen.getByTestId(`policy-item-${c.id}`));
-      expect(await screen.findByTestId('policy-tendency')).toHaveTextContent(c.label);
+      const badge = await screen.findByTestId(
+        `policy-related-event-direction-${c.id + 500}`,
+      );
+      expect(badge).toHaveTextContent(c.label);
     }
+  });
+
+  it('relatedEvents 空数组：关联事件区不渲染（无事件不占位）', async () => {
+    const server = makeServer({
+      items: ALL_ITEMS,
+      detail: { ...DETAIL_WITH_EVENT, relatedEvents: [] },
+    });
+    vi.stubGlobal('fetch', server.fetch);
+    const user = userEvent.setup();
+    render(<Policy />);
+
+    await screen.findByTestId('policy-item-101');
+    await user.click(screen.getByTestId('policy-item-101'));
+
+    expect(await screen.findByTestId('policy-detail')).toBeInTheDocument();
+    expect(screen.queryByTestId('policy-related-events')).toBeNull();
   });
 
   it('列表 500：整页错误 + 重试恢复（重试回第 1 页）', async () => {
@@ -738,6 +940,7 @@ describe('Policy 政策时事页 · 回归保留', () => {
         total: ALL_ITEMS.length,
         page: Number(q.get('page') ?? '1'),
         size: Number(q.get('size') ?? '20'),
+        basis: 'policy-scope-v1',
       });
     });
     await user.click(screen.getByTestId('policy-list-retry'));
