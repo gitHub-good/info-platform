@@ -13,7 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import { currentRoute, queryOf } from '@/lib/navigation';
-import { formatDateTime } from '@/lib/format';
+import { directionToneClass, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   DIRECTION_LABELS,
@@ -43,14 +43,14 @@ function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError && err.msg ? err.msg : fallback;
 }
 
-/** 方向徽章（沿 A 股惯例：利好红 / 利空绿 / 中性灰）。 */
+/** 方向徽章（沿 A 股惯例：利好红 / 利空绿 / 中性灰——方向轨单点 directionToneClass，T229）。 */
 function DirectionBadge({ item }: { item: RecommendationCardItem }) {
   const tone =
     item.direction === 'BULLISH'
-      ? 'bg-red-500/15 text-red-500'
+      ? directionToneClass('up')
       : item.direction === 'BEARISH'
-        ? 'bg-green-500/15 text-green-500'
-        : 'bg-muted text-muted-foreground';
+        ? directionToneClass('down')
+        : directionToneClass('flat');
   return (
     <Badge className={tone} data-testid={`rec-direction-${item.id}`}>
       {labelOf(DIRECTION_LABELS, item.direction)}

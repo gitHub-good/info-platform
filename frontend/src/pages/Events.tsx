@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatDateTime } from '@/lib/format';
+import { directionToneClass, formatDateTime } from '@/lib/format';
 import {
   DIRECTION_LABELS,
   EVENT_TYPE_LABELS,
@@ -32,15 +32,15 @@ function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.msg : fallback;
 }
 
-/** 事件方向徽章（利好红 / 利空绿 / 中性灰，A 股惯例）。 */
+/** 事件方向徽章（利好红 / 利空绿 / 中性灰，A 股惯例——方向轨单点 directionToneClass，T229）。 */
 function DirectionBadge({ direction, testId }: { direction: string; testId: string }) {
   const label = labelOf(DIRECTION_LABELS, direction);
   const tone =
     direction === 'BULLISH'
-      ? 'bg-red-500/15 text-red-500'
+      ? directionToneClass('up')
       : direction === 'BEARISH'
-        ? 'bg-green-500/15 text-green-500'
-        : 'bg-muted text-muted-foreground';
+        ? directionToneClass('down')
+        : directionToneClass('flat');
   return (
     <Badge className={tone} data-testid={testId}>
       {label}

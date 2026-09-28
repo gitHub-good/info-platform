@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisclaimerBadge } from './DisclaimerBadge';
+import { directionToneClass } from '@/lib/format';
 import type { BriefContent, BriefKeyEvent } from '@/types/aibrief';
 
 interface BriefContentCardProps {
@@ -12,7 +13,7 @@ interface BriefContentCardProps {
 
 interface Tendency {
   label: string;
-  /** 倾向配色（A 股惯例：涨红跌绿 → 利好红、利空绿、中性灰）。 */
+  /** 倾向配色（A 股惯例：涨红跌绿 → 利好红、利空绿、中性灰——方向轨单点，T229）。 */
   className: string;
 }
 
@@ -27,7 +28,8 @@ const GENERIC_EVENT_TITLE = '关键事件';
 
 /**
  * bias / keyEvent.impact 倾向配色。
- * A 股惯例涨红跌绿：利好→红（rose）、利空→绿（emerald）、中性→灰（muted）。
+ * A 股惯例涨红跌绿：利好→红、利空→绿、中性→灰（T229 色收口：由状态轨 rose/emerald
+ * 修正为方向轨 red/green 系——directionToneClass 单点，与事件流方向徽章同轨）。
  * 文字标签明示，消除纯色歧义；与 BriefStatusBadge 的 destructive 红（失败）不同时出现
  * （失败时 content 为 null，无 bias 展示）。
  */
@@ -35,10 +37,10 @@ function tendencyMeta(t?: string): Tendency | null {
   const s = (t ?? '').trim();
   if (!s) return null;
   if (s.includes('利空')) {
-    return { label: '利空', className: 'bg-emerald-500/15 text-emerald-400' };
+    return { label: '利空', className: directionToneClass('down') };
   }
   if (s.includes('利好')) {
-    return { label: '利好', className: 'bg-rose-500/15 text-rose-400' };
+    return { label: '利好', className: directionToneClass('up') };
   }
   if (s.includes('中性')) {
     return { label: '中性', className: 'bg-muted text-muted-foreground' };

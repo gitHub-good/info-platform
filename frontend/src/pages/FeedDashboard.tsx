@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { statusTextClass, statusToneClass } from '@/lib/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { navigate } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
@@ -95,15 +96,15 @@ function typeBadgeOf(adapterType: FeedDashboardSourceRow['adapterType']): {
 function statusBadgeOf(row: FeedDashboardSourceRow): { text: string; className: string } {
   switch (row.runState) {
     case 'backoff':
-      return { text: '退避中', className: 'bg-amber-500/15 text-amber-400' };
+      return { text: '退避中', className: statusToneClass('warning') };
     case 'fail':
-      return { text: '失败', className: 'bg-rose-500/15 text-rose-400' };
+      return { text: '失败', className: statusToneClass('failure') };
     case 'disabled':
-      return { text: '停用', className: 'bg-muted text-muted-foreground' };
+      return { text: '停用', className: statusToneClass('neutral') };
     case 'pending':
-      return { text: '暂未抓取', className: 'bg-muted text-muted-foreground' };
+      return { text: '暂未抓取', className: statusToneClass('neutral') };
     default:
-      return { text: '正常', className: 'bg-emerald-500/15 text-emerald-400' };
+      return { text: '正常', className: statusToneClass('success') };
   }
 }
 
@@ -531,7 +532,7 @@ export function FeedDashboard() {
                                 compact
                               />
                               {row.todayFailCount > 0 ? (
-                                <span className="ml-1 text-xs text-rose-400">
+                                <span className={cn('ml-1 text-xs', statusTextClass('failure'))}>
                                   （败 {row.todayFailCount}）
                                 </span>
                               ) : null}

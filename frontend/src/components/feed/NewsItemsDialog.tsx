@@ -3,6 +3,7 @@ import { ExternalLink } from 'lucide-react';
 import { ApiError } from '@/api/http';
 import { listNewsLibraryPaged } from '@/api/newsItem';
 import { Badge } from '@/components/ui/badge';
+import { statusToneClass } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Pagination } from '@/components/ui/pagination';
@@ -44,9 +45,9 @@ interface NewsItemsDialogProps {
 
 /** L0 徽章（沿资讯库同语义）。 */
 const L0_BADGES: Record<string, { label: string; className: string }> = {
-  PASS: { label: '通过', className: 'bg-emerald-500/15 text-emerald-400' },
-  NOISE: { label: '噪音', className: 'bg-muted text-muted-foreground' },
-  NEAR_DUP: { label: '近重复', className: 'bg-amber-500/15 text-amber-400' },
+  PASS: { label: '通过', className: statusToneClass('success') },
+  NOISE: { label: '噪音', className: statusToneClass('neutral') },
+  NEAR_DUP: { label: '近重复', className: statusToneClass('warning') },
 };
 
 function messageOf(err: unknown, fallback: string): string {

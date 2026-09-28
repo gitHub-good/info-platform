@@ -126,6 +126,7 @@ describe('Events 事件流页（T127 + T224 分页化，#/events）', () => {
     render(<Events />);
 
     await screen.findByTestId('event-card-1');
+    // T229 抽查：方向徽章走方向轨单点 directionToneClass（利好红 / 利空绿 / 中性灰）
     expect(screen.getByTestId('event-direction-1').className).toContain('text-red-500');
     expect(screen.getByTestId('event-direction-2').className).toContain('text-green-500');
     expect(screen.getByTestId('event-direction-3').className).toContain('text-muted-foreground');

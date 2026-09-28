@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { statusTextClass, statusToneClass } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { currentRoute, queryOf } from '@/lib/navigation';
@@ -103,7 +105,7 @@ function aiExclusionBadgeOf(level: InfoSourceCardView['config']['aiExclusion']):
         className: 'bg-violet-500/15 text-violet-400',
       };
     case 'ALL':
-      return { label: 'AI 全排除', className: 'bg-rose-500/15 text-rose-400' };
+      return { label: 'AI 全排除', className: statusToneClass('failure') };
     default:
       return null;
   }
@@ -116,11 +118,14 @@ function statusBadgeOf(
   polling: boolean,
 ): { text: string; className: string; title?: string } {
   if (polling) {
-    return { text: '抓取中…', className: 'bg-amber-500/15 text-amber-400 animate-pulse' };
+    return {
+      text: '抓取中…',
+      className: `${statusToneClass('warning')} animate-pulse`,
+    };
   }
   const state = card.state;
   if (!state.lastAttemptAt) {
-    return { text: '暂未抓取', className: 'bg-muted text-muted-foreground' };
+    return { text: '暂未抓取', className: statusToneClass('neutral') };
   }
   const backoffAt = state.backoffUntil ? Date.parse(state.backoffUntil) : 0;
   const attemptAt = Date.parse(state.lastAttemptAt);
@@ -128,13 +133,13 @@ function statusBadgeOf(
   if (state.consecutiveFailures >= 2 && backoffAt > nowMillis) {
     return {
       text: `连续失败 ${state.consecutiveFailures} 次 · ${formatTime(state.backoffUntil)} 后重试`,
-      className: 'bg-amber-500/15 text-amber-400',
+      className: statusToneClass('warning'),
     };
   }
   if (state.lastError && attemptAt > successAt) {
     return {
       text: `失败 · ${truncateText(state.lastError, 24)}`,
-      className: 'bg-rose-500/15 text-rose-400',
+      className: statusToneClass('failure'),
       title: state.lastError,
     };
   }
@@ -142,7 +147,7 @@ function statusBadgeOf(
   const addedText = added == null ? '' : ` · 新${added}`;
   return {
     text: `成功 ${formatTime(state.lastSuccessAt)}${addedText}`,
-    className: 'bg-emerald-500/15 text-emerald-400',
+    className: statusToneClass('success'),
   };
 }
 
@@ -364,7 +369,7 @@ function SourceFormDialog({ open, editing, onClose, onSaved, onPollNow }: Source
     >
       {created ? (
         <p
-          className="rounded bg-emerald-500/15 px-3 py-2 text-sm text-emerald-400"
+          className={cn('rounded px-3 py-2 text-sm', statusToneClass('success'))}
           aria-live="polite"
           data-testid="info-source-add-guide"
         >
@@ -373,7 +378,10 @@ function SourceFormDialog({ open, editing, onClose, onSaved, onPollNow }: Source
       ) : (
         <>
           {serverError ? (
-            <p className="rounded bg-rose-500/15 px-3 py-2 text-sm text-rose-400" role="alert">
+            <p
+              className={cn('rounded px-3 py-2 text-sm', statusToneClass('failure'))}
+              role="alert"
+            >
               {serverError}
             </p>
           ) : null}
@@ -749,7 +757,10 @@ function SourceCard({
         </div>
         {connectivity !== 'idle' && connectivity !== 'testing' ? (
           <p
-            className={connectivity.ok ? 'text-xs text-emerald-400' : 'text-xs text-rose-400'}
+            className={cn(
+              'text-xs',
+              statusTextClass(connectivity.ok ? 'success' : 'failure'),
+            )}
             role="status"
             title={connectivity.error ?? undefined}
             data-testid={`info-source-connect-result-${code}`}

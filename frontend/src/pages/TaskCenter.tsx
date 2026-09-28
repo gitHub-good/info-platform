@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { statusTextClass, statusToneClass } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -250,9 +252,9 @@ function marketTopValuesOf(view: MarketTopConfigView): Record<MarketTopConfigFie
 // —— 上次执行徽章（三色 + 运行中 amber，沿用 JobLog 状态徽章惯例） ——
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
-  SUCCESS: { label: '成功', className: 'bg-emerald-500/15 text-emerald-400' },
-  FAILED: { label: '失败', className: 'bg-rose-500/15 text-rose-400' },
-  STARTED: { label: '执行中', className: 'bg-amber-500/15 text-amber-400' },
+  SUCCESS: { label: '成功', className: statusToneClass('success') },
+  FAILED: { label: '失败', className: statusToneClass('failure') },
+  STARTED: { label: '执行中', className: statusToneClass('warning') },
 };
 
 function LastExecutionCell({ job }: { job: JobView }) {
@@ -320,7 +322,7 @@ function ScheduleNote({ note }: { note: ScheduleNoteKind }) {
     );
   }
   return (
-    <span className="text-xs text-emerald-400" data-testid="task-note-done">
+    <span className={cn('text-xs', statusTextClass('success'))} data-testid="task-note-done">
       已生效
     </span>
   );

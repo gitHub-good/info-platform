@@ -109,6 +109,8 @@ describe('Recommendations 推荐中心页（T135，#/recommendations 第 18 页�
     expect(await screen.findByTestId('rec-card-9')).toBeInTheDocument();
     expect(screen.getByTestId('rec-type-9')).toHaveTextContent('回购');
     expect(screen.getByTestId('rec-direction-9')).toHaveTextContent('利好');
+    // T229 抽查：方向徽章走方向轨单点 directionToneClass（利好红）
+    expect(screen.getByTestId('rec-direction-9').className).toContain('text-red-500');
     expect(screen.getByTestId('rec-importance-9')).toHaveTextContent('高');
     expect(screen.getByTestId('rec-level-9')).toHaveTextContent('标的直接');
     // 逻辑链突出展示（可解释红线：零新增事实）

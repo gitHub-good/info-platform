@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { statusToneClass } from '@/lib/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { ApiError } from '@/api/http';
@@ -24,9 +25,9 @@ const MIN_KEYWORD_LENGTH = 2;
 
 /** L0 状态徽章（REQ 拍板一：PASS 通过·绿 / NOISE 噪音·灰 / NEAR_DUP 近重复·琥珀——沿用既有徽章语义体系）。 */
 const L0_BADGES: Record<NewsL0Result, { label: string; className: string }> = {
-  PASS: { label: '通过', className: 'bg-emerald-500/15 text-emerald-400' },
-  NOISE: { label: '噪音', className: 'bg-muted text-muted-foreground' },
-  NEAR_DUP: { label: '近重复', className: 'bg-amber-500/15 text-amber-400' },
+  PASS: { label: '通过', className: statusToneClass('success') },
+  NOISE: { label: '噪音', className: statusToneClass('neutral') },
+  NEAR_DUP: { label: '近重复', className: statusToneClass('warning') },
 };
 
 /** L0 状态筛选段（默认「有效 PASS」；其余：全部 / 近重复 / 噪音——REQ 拍板一）。 */

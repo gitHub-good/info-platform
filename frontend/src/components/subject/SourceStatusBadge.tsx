@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { statusToneClass } from '@/lib/format';
 import type { SourceStatus } from '@/types/subject-detail';
 
 interface SourceStatusBadgeProps {
@@ -14,10 +15,10 @@ interface SourceStatusBadgeProps {
  * - timeout：响应超时（rose）
  */
 const STATUS_META: Record<SourceStatus, { label: string; className: string }> = {
-  ok: { label: '数据正常', className: 'bg-emerald-500/15 text-emerald-400' },
-  missing: { label: '暂无数据', className: 'bg-muted text-muted-foreground' },
-  failed: { label: '获取失败', className: 'bg-rose-500/15 text-rose-400' },
-  timeout: { label: '响应超时', className: 'bg-rose-500/15 text-rose-400' },
+  ok: { label: '数据正常', className: statusToneClass('success') },
+  missing: { label: '暂无数据', className: statusToneClass('neutral') },
+  failed: { label: '获取失败', className: statusToneClass('failure') },
+  timeout: { label: '响应超时', className: statusToneClass('failure') },
 };
 
 export function SourceStatusBadge({ status }: SourceStatusBadgeProps) {

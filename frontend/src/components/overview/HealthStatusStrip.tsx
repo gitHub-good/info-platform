@@ -4,6 +4,7 @@ import { getPipelineStatus } from '@/api/pipelineStatus';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { statusTextClass } from '@/lib/format';
 import type { FeedDashboardView } from '@/types/feedDashboard';
 import type { PipelineStatusView } from '@/types/pipelineStatus';
 import type { OverviewLlmStatus } from '@/types/overview';
@@ -51,9 +52,9 @@ function pipelineLabel(level: PipelineStatusView['level']): string {
 type SegmentTone = 'muted' | 'amber' | 'rose';
 
 const TONE_TEXT: Record<SegmentTone, string> = {
-  muted: 'text-muted-foreground',
-  amber: 'text-amber-400',
-  rose: 'text-rose-400',
+  muted: statusTextClass('neutral'),
+  amber: statusTextClass('warning'),
+  rose: statusTextClass('failure'),
 };
 
 const TONE_DOT: Record<SegmentTone, string> = {

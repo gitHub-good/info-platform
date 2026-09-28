@@ -1,4 +1,7 @@
 /** 分区保存反馈相位（UI 方案 §4.3 状态机：idle → dirty → saving → saved/error）。 */
+import { cn } from 'cn';
+import { statusTextClass } from '@/lib/format';
+
 export type SaveFeedbackState = 'idle' | 'saving' | 'success' | 'error';
 
 interface SaveFeedbackBarProps {
@@ -64,7 +67,7 @@ export function SaveFeedbackBar({
   }
   return (
     <p
-      className="text-xs text-emerald-400"
+      className={cn('text-xs', statusTextClass('success'))}
       aria-live="polite"
       data-testid={testId}
     >

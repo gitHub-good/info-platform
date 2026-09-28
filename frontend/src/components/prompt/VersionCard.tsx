@@ -3,6 +3,7 @@
 // 激活卡 ring-1 ring-emerald-500/40 + emerald「使用中」；置废卡 opacity-60 hover 恢复（D8）。
 
 import { Badge } from '@/components/ui/badge';
+import { statusToneClass } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -71,7 +72,7 @@ export function VersionCard({
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <span className="font-mono">{version.version}</span>
           {isActive ? (
-            <Badge className="bg-emerald-500/15 text-emerald-400">使用中</Badge>
+            <Badge className={statusToneClass('success')}>使用中</Badge>
           ) : (
             <Badge variant="secondary">已置废</Badge>
           )}

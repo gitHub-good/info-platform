@@ -17,7 +17,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { formatDateTime, formatNumber, formatPct } from '@/lib/format';
+import {
+  directionTextClass,
+  directionToneClass,
+  formatDateTime,
+  formatNumber,
+  formatPct,
+  statusToneClass,
+} from '@/lib/format';
 import { currentRoute, queryOf } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 import {
@@ -72,10 +79,14 @@ function PipelineBanner({ level }: { level: GuardLevel }) {
   );
 }
 
-/** 环比徽章（A 股惯例：涨红跌绿持平灰；prev=0 记 100 由后端口径产出）。 */
+/** 环比徽章（A 股惯例涨红跌绿——方向轨单点 directionTextClass，T229；prev=0 记 100 由后端口径产出）。 */
 function DeltaBadge({ deltaPct, testId }: { deltaPct: number; testId: string }) {
   const tone =
-    deltaPct > 0 ? 'text-red-500' : deltaPct < 0 ? 'text-green-500' : 'text-muted-foreground';
+    deltaPct > 0
+      ? directionTextClass('up')
+      : deltaPct < 0
+        ? directionTextClass('down')
+        : 'text-muted-foreground';
   return (
     <span className={cn('text-xs font-medium tabular-nums', tone)} data-testid={testId}>
       {deltaPct > 0 ? '+' : ''}
@@ -84,15 +95,15 @@ function DeltaBadge({ deltaPct, testId }: { deltaPct: number; testId: string }) 
   );
 }
 
-/** 事件方向徽章（利好红 / 利空绿 / 中性灰，A 股惯例）。 */
+/** 事件方向徽章（利好红 / 利空绿 / 中性灰，A 股惯例——方向轨单点 directionToneClass，T229）。 */
 function DirectionBadge({ direction }: { direction: string | null }) {
   const label = labelOf(DIRECTION_LABELS, direction);
   const tone =
     direction === 'BULLISH'
-      ? 'bg-red-500/15 text-red-500'
+      ? directionToneClass('up')
       : direction === 'BEARISH'
-        ? 'bg-green-500/15 text-green-500'
-        : 'bg-muted text-muted-foreground';
+        ? directionToneClass('down')
+        : directionToneClass('flat');
   return <Badge className={tone}>{label}</Badge>;
 }
 
@@ -525,8 +536,8 @@ function ReportDetail({ detail, onBack }: { detail: IndustryReportDetailView; on
         <Badge
           className={
             detail.status === 'SUCCESS'
-              ? 'bg-emerald-500/15 text-emerald-400'
-              : 'bg-rose-500/15 text-rose-400'
+              ? statusToneClass('success')
+              : statusToneClass('failure')
           }
         >
           {detail.status === 'SUCCESS' ? '成功' : '失败'}
@@ -875,8 +886,8 @@ function ReportTab({ retryPollMs }: { retryPollMs: number }) {
                     <Badge
                       className={
                         report.status === 'SUCCESS'
-                          ? 'bg-emerald-500/15 text-emerald-400'
-                          : 'bg-rose-500/15 text-rose-400'
+                          ? statusToneClass('success')
+                          : statusToneClass('failure')
                       }
                       data-testid={`report-status-${report.reportDate}`}
                     >
@@ -948,8 +959,8 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
         <Badge
           className={
             detail.status === 'SUCCESS'
-              ? 'bg-emerald-500/15 text-emerald-400'
-              : 'bg-rose-500/15 text-rose-400'
+              ? statusToneClass('success')
+              : statusToneClass('failure')
           }
         >
           {detail.status === 'SUCCESS' ? '成功' : '失败'}
@@ -988,7 +999,7 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
             </CardHeader>
             <CardContent className="flex flex-col gap-3 sm:flex-row">
               <div className="flex-1">
-                <p className="mb-1 text-xs text-red-500">升温 Top</p>
+                <p className={cn('mb-1 text-xs', directionTextClass('up'))}>升温 Top</p>
                 {content.topRisers.length === 0 ? (
                   <p className="text-xs text-muted-foreground">本周无显著升温行业</p>
                 ) : (
@@ -1011,7 +1022,7 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
                 )}
               </div>
               <div className="flex-1">
-                <p className="mb-1 text-xs text-green-500">降温 Top</p>
+                <p className={cn('mb-1 text-xs', directionTextClass('down'))}>降温 Top</p>
                 {content.topFallers.length === 0 ? (
                   <p className="text-xs text-muted-foreground">本周无显著降温行业</p>
                 ) : (
@@ -1135,10 +1146,10 @@ function WeeklyReportDetail({ detail, onBack }: { detail: IndustryWeeklyReportDe
                     <Badge
                       className={
                         item.signal === 'HEATING'
-                          ? 'bg-red-500/15 text-red-500'
+                          ? directionToneClass('up')
                           : item.signal === 'COOLING'
-                            ? 'bg-green-500/15 text-green-500'
-                            : 'bg-muted text-muted-foreground'
+                            ? directionToneClass('down')
+                            : directionToneClass('flat')
                       }
                     >
                       {item.signalLabel}
@@ -1333,8 +1344,8 @@ function WeeklyTab({ retryPollMs }: { retryPollMs: number }) {
                     <Badge
                       className={
                         report.status === 'SUCCESS'
-                          ? 'bg-emerald-500/15 text-emerald-400'
-                          : 'bg-rose-500/15 text-rose-400'
+                          ? statusToneClass('success')
+                          : statusToneClass('failure')
                       }
                       data-testid={`weekly-status-${report.weekStart}`}
                     >

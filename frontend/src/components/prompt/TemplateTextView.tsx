@@ -3,6 +3,7 @@
 
 import { splitSections } from '@/lib/promptTemplate';
 import { cn } from 'cn';
+import { statusTextClass } from '@/lib/format';
 
 /** 占位符着色切分段（placeholder = 命中 {{key}} 段；registered = 是否在注册表内）。 */
 interface TemplateTextPart {
@@ -83,7 +84,7 @@ export function TemplateTextView({ template, registeredKeys }: TemplateTextViewP
   if (sections === null) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-xs text-rose-400" role="alert">
+        <p className={cn('text-xs', statusTextClass('failure'))} role="alert">
           分段标记缺失或顺序错误，渲染将失败——请编辑修复
         </p>
         <pre className="whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs leading-relaxed">

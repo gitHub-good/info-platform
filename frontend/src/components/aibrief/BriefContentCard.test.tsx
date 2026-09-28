@@ -78,6 +78,8 @@ describe('BriefContentCard 关键事件展示（内容质量：event 兜底 + im
     expect(title.textContent!.length).toBeLessThanOrEqual(20);
     expect(title.textContent).toContain('药品注册证书');
     expect(screen.getByTestId('brief-key-event-impact-0')).toHaveTextContent('利好');
+    // T229 抽查：倾向徽章双轨修正——利好由 rose（状态轨）改 red（方向轨），与事件流方向徽章同轨
+    expect(screen.getByTestId('brief-key-event-impact-0').className).toContain('text-red-500');
     expect(screen.getByTestId('brief-key-event-link-0')).toHaveAttribute(
       'href',
       'https://example.com/a',

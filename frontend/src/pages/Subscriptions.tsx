@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { statusToneClass } from '@/lib/format';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -89,7 +90,7 @@ function SubscriptionRow({ sub, subjects, busy, onRemove, onReactivate }: Subscr
         {sub.status === 1 ? (
           <Badge
             variant="ghost"
-            className="bg-emerald-500/15 text-emerald-400"
+            className={statusToneClass('success')}
             data-testid={`sub-status-${sub.id}`}
           >
             订阅中
@@ -420,7 +421,7 @@ export function Subscriptions() {
       size: number,
       signal: AbortSignal,
     ): Promise<{ landed: number; total: number; items: SubscriptionView[] }> => {
-      const call = (pageNo: number) => listSubscriptionPaged({ page: pageNo, size }, signal);
+      const call = (pageNo: number) => listSubscriptionPaged({ page: pageNo, size, signal });
       let view = await call(target);
       if (view.items.length === 0 && view.total > 0 && target > 1) {
         const last = Math.ceil(view.total / size);

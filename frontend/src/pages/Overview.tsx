@@ -8,11 +8,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { HealthStatusStrip } from '@/components/overview/HealthStatusStrip';
 import { RecommendationCard } from '@/components/overview/RecommendationCard';
 import { StatCard } from '@/components/overview/StatCard';
 import { Top10DigestCard } from '@/components/overview/Top10DigestCard';
-import { formatPct } from '@/lib/format';
+import { changeColorClass, formatPct } from '@/lib/format';
 import { navigate } from '@/lib/navigation';
 import { IMPORTANCE_LABELS, labelOf } from '@/types/industryHeat';
 import type { EventCard } from '@/types/eventStream';
@@ -331,13 +332,12 @@ export function Overview() {
                     <span className="min-w-0 flex-1 truncate">{row.industry}</span>
                     <span className="text-xs text-muted-foreground tabular-nums">{row.heatScore} 分</span>
                     <span
-                      className={
-                        row.deltaPct > 0
-                          ? 'text-xs font-medium text-red-500 tabular-nums'
-                          : row.deltaPct < 0
-                            ? 'text-xs font-medium text-green-500 tabular-nums'
-                            : 'text-xs text-muted-foreground tabular-nums'
-                      }
+                      className={cn(
+                        'text-xs tabular-nums',
+                        row.deltaPct === 0
+                          ? 'text-muted-foreground'
+                          : cn('font-medium', changeColorClass(row.deltaPct)),
+                      )}
                     >
                       {row.deltaPct > 0 ? '+' : ''}
                       {formatPct(row.deltaPct, 1)}

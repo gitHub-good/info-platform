@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { statusTextClass, statusToneClass } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
@@ -141,13 +143,13 @@ function healthBadgeOf(health: DataSourceCardView['health']) {
   const time = health.lastEventAt ? ` ${formatTime(health.lastEventAt)}` : '';
   switch (health.lastEventType) {
     case 'OK':
-      return { text: `成功${time}`, className: 'bg-emerald-500/15 text-emerald-400' };
+      return { text: `成功${time}`, className: statusToneClass('success') };
     case 'TIMEOUT':
-      return { text: `超时${time}`, className: 'bg-amber-500/15 text-amber-400' };
+      return { text: `超时${time}`, className: statusToneClass('warning') };
     case 'ERROR':
-      return { text: `失败${time}`, className: 'bg-rose-500/15 text-rose-400' };
+      return { text: `失败${time}`, className: statusToneClass('failure') };
     case 'LIMITED':
-      return { text: `限频${time}`, className: 'bg-amber-500/15 text-amber-400' };
+      return { text: `限频${time}`, className: statusToneClass('warning') };
     default:
       return { text: `无数据${time}`, className: 'bg-muted text-muted-foreground' };
   }
@@ -491,7 +493,7 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
             {health.text}
           </Badge>
           {source.health.errors24h > 0 ? (
-            <Badge variant="outline" className="text-rose-400">
+            <Badge variant="outline" className={statusTextClass('failure')}>
               24h 异常 {source.health.errors24h}
             </Badge>
           ) : null}
@@ -686,7 +688,10 @@ function SourceCard({ source, onSaved }: SourceCardProps) {
         </div>
         {connectivity !== 'idle' && connectivity !== 'testing' ? (
           <p
-            className={connectivity.ok ? 'text-xs text-emerald-400' : 'text-xs text-rose-400'}
+            className={cn(
+              'text-xs',
+              statusTextClass(connectivity.ok ? 'success' : 'failure'),
+            )}
             role="status"
             data-testid={`datasource-connect-result-${source.sourceCode}`}
           >

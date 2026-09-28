@@ -14,6 +14,8 @@ import { PlaceholderPanel } from '@/components/prompt/PlaceholderPanel';
 import { TemplateTextView } from '@/components/prompt/TemplateTextView';
 import { SaveFeedbackBar, type SaveFeedbackState } from '@/components/config/SaveFeedbackBar';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { statusTextClass } from '@/lib/format';
 import { Dialog } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -205,12 +207,12 @@ function ValidationPanel({
     >
       {hardErrors.length > 0 ? (
         hardErrors.map((error) => (
-          <p key={error} className="text-xs text-rose-400" role="alert">
+          <p key={error} className={cn('text-xs', statusTextClass('failure'))} role="alert">
             {error}
           </p>
         ))
       ) : (
-        <p className="text-xs text-emerald-400">✓ 分段标记与 json 前提均通过</p>
+        <p className={cn('text-xs', statusTextClass('success'))}>✓ 分段标记与 json 前提均通过</p>
       )}
       {sectionsOk ? null : (
         <p className="text-xs text-muted-foreground">（补齐分段标记后继续校验 json 字样）</p>

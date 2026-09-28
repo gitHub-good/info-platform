@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { statusToneClass } from '@/lib/format';
 import type { NorthStarStatus, NorthStarView } from '@/types/northStar';
 
 // 北极星区块（M18 T158，REQ 拍板四）：大盘 2.0 顶置「V2.0 北极星」——六指标卡 + 达标徽章 +
@@ -7,9 +8,9 @@ import type { NorthStarStatus, NorthStarView } from '@/types/northStar';
 
 /** 达标徽章语义（三态：达标 / 未达标 / 样本不足走首跑校准条款）。 */
 const STATUS_META: Record<NorthStarStatus, { label: string; className: string }> = {
-  MET: { label: '达标', className: 'bg-emerald-500/15 text-emerald-400' },
-  NOT_MET: { label: '未达标', className: 'bg-rose-500/15 text-rose-400' },
-  INSUFFICIENT: { label: '样本不足', className: 'bg-amber-500/15 text-amber-400' },
+  MET: { label: '达标', className: statusToneClass('success') },
+  NOT_MET: { label: '未达标', className: statusToneClass('failure') },
+  INSUFFICIENT: { label: '样本不足', className: statusToneClass('warning') },
 };
 
 /** 感知延迟人读格式：<90s 按秒、其余按分钟（与大盘统计卡同式）。 */

@@ -5,7 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, statusToneClass } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { labelOf, DIRECTION_LABELS } from '@/types/industryHeat';
 import type { ValueScoreEntry, ValueScoreFactor, ValueScoreView } from '@/types/valueScore';
 
@@ -245,7 +246,7 @@ export function ValueScoreSection({ subjectId }: ValueScoreSectionProps) {
               </span>
               {view.breakthrough ? (
                 <Badge
-                  className="bg-emerald-500/15 font-medium text-emerald-400"
+                  className={cn('font-medium', statusToneClass('success'))}
                   data-testid="value-score-breakthrough"
                   title={(() => {
                     const [btCatalyst, btConduction, btRisk] = breakthroughThresholds(view.weightBasis);

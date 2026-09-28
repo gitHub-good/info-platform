@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { statusToneClass } from '@/lib/format';
 import type { BriefStatusCode } from '@/types/aibrief';
 
 interface BriefStatusBadgeProps {
@@ -11,10 +12,10 @@ interface BriefStatusBadgeProps {
  * - 0 处理中（amber） / 1 完成（emerald） / 2 失败（rose） / 3 待核实（muted，幻觉校验降级不作已确认结论）
  */
 const STATUS_META: Record<BriefStatusCode, { label: string; className: string }> = {
-  0: { label: '处理中', className: 'bg-amber-500/15 text-amber-400' },
-  1: { label: '已完成', className: 'bg-emerald-500/15 text-emerald-400' },
-  2: { label: '生成失败', className: 'bg-rose-500/15 text-rose-400' },
-  3: { label: '待核实', className: 'bg-muted text-muted-foreground' },
+  0: { label: '处理中', className: statusToneClass('warning') },
+  1: { label: '已完成', className: statusToneClass('success') },
+  2: { label: '生成失败', className: statusToneClass('failure') },
+  3: { label: '待核实', className: statusToneClass('neutral') },
 };
 
 export function BriefStatusBadge({ status }: BriefStatusBadgeProps) {
