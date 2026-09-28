@@ -102,7 +102,7 @@ class NewsItemsQueryServiceIntegrationTest {
         // l0=null = 不过滤（T160 前口径不变——过滤参数缺省语义归控制器裁量，服务层只认显式过滤值）
         NewsItemsPagedView view =
                 service.listPaged(
-                        new LibraryFilter(sourceId, null, null, null, null, null, null, null),
+                        new LibraryFilter(sourceId, null, null, null, null, null, null, null, null),
                         1,
                         2);
 
@@ -120,7 +120,8 @@ class NewsItemsQueryServiceIntegrationTest {
         assertThat(
                         service.listPaged(
                                         new LibraryFilter(
-                                                null, null, null, null, null, null, null, null),
+                                                null, null, null, null, null, null, null, null,
+                                                null),
                                         1,
                                         10)
                                 .total())
@@ -132,7 +133,9 @@ class NewsItemsQueryServiceIntegrationTest {
         // BUG-M23-01 补齐回归：发布时间窗（上海日界含端点——窗口参数口径 = 上海本地日，非 UTC 日）
         NewsItemsPagedView all =
                 service.listPaged(
-                        new LibraryFilter(null, null, null, null, null, null, null, null), 1, 100);
+                        new LibraryFilter(null, null, null, null, null, null, null, null, null),
+                        1,
+                        100);
         org.assertj.core.api.Assertions.assertThat(all.total()).isPositive();
         String shDay =
                 java.time.LocalDate.ofInstant(
@@ -141,7 +144,7 @@ class NewsItemsQueryServiceIntegrationTest {
                         .toString();
         NewsItemsPagedView windowed =
                 service.listPaged(
-                        new LibraryFilter(null, null, null, null, shDay, shDay, null, null),
+                        new LibraryFilter(null, null, null, null, shDay, shDay, null, null, null),
                         1,
                         100);
         org.assertj.core.api.Assertions.assertThat(windowed.total())

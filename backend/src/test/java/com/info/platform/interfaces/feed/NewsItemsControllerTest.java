@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.info.platform.application.feed.MatchedSubjectView;
 import com.info.platform.application.feed.NewsItemView;
 import com.info.platform.application.feed.NewsItemsCursorView;
 import com.info.platform.application.feed.NewsItemsPagedView;
@@ -44,7 +45,7 @@ class NewsItemsControllerTest {
     }
 
     private static NewsItemView view(long id, String title) {
-        return analysisView(id, title, "PASS", null, null, null, false, null, null);
+        return analysisView(id, title, "PASS", null, null, null, false, null, null, List.of());
     }
 
     /** 带 analysis 字段的条目视图（T160 增量字段断言用）。 */
@@ -58,6 +59,31 @@ class NewsItemsControllerTest {
             boolean lowConfidence,
             Long nearDupMasterId,
             String nearDupMasterUrl) {
+        return analysisView(
+                id,
+                title,
+                l0Result,
+                l0Detail,
+                l1Main,
+                l1Confidence,
+                lowConfidence,
+                nearDupMasterId,
+                nearDupMasterUrl,
+                List.of());
+    }
+
+    /** 带回联标的的条目视图（V3.1 matchedSubjects 断言用）。 */
+    private static NewsItemView analysisView(
+            long id,
+            String title,
+            String l0Result,
+            String l0Detail,
+            String l1Main,
+            Double l1Confidence,
+            boolean lowConfidence,
+            Long nearDupMasterId,
+            String nearDupMasterUrl,
+            List<MatchedSubjectView> matchedSubjects) {
         return new NewsItemView(
                 id,
                 7L,
@@ -75,7 +101,8 @@ class NewsItemsControllerTest {
                 l1Confidence,
                 lowConfidence,
                 nearDupMasterId,
-                nearDupMasterUrl);
+                nearDupMasterUrl,
+                matchedSubjects);
     }
 
     @Test
@@ -370,5 +397,97 @@ class NewsItemsControllerTest {
         assertThat(captor.getValue().keyword()).isEqualTo("降息"); // trim 后透传
         assertThat(captor.getValue().l0()).isEqualTo(L0Result.NEAR_DUP);
         assertThat(captor.getValue().mainCategory()).isEqualTo("银行");
+    }
+
+    // —— V3.1 资讯库标的增强：subjectCode 参数（页码模式专属）+ matchedSubjects 响应字段 ——
+
+    @Test
+    void list_pageMode_passesSubjectCodeThrough() throws Exception {
+        when(queryService.listPaged(any(LibraryFilter.class), eq(1), eq(20)))
+                .thenReturn(new NewsItemsPagedView(List.of(view(1, "a")), 1L, 1, 20));
+
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("page", "1")
+                                .param("subjectCode", " SH600519 "))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<LibraryFilter> captor = ArgumentCaptor.forClass(LibraryFilter.class);
+        verify(queryService).listPaged(captor.capture(), eq(1), eq(20));
+        assertThat(captor.getValue().subjectCode()).isEqualTo("SH600519"); // trim 后透传
+    }
+
+    @Test
+    void list_subjectCodeWithoutPage_rejected400() throws Exception {
+        // 页码模式专属参数（M9 契约确定性先例）：出现而 page 缺席 → 400
+        mockMvc.perform(get("/api/v1/news-items").param("subjectCode", "SH600519"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_subjectCodeBlank_treatedAsAbsent() throws Exception {
+        // blank 视为缺席：不触发「缺 page」400，也不参与过滤
+        when(queryService.listCursor(eq(null), eq(null), eq(20)))
+                .thenReturn(new NewsItemsCursorView(List.of(view(1, "a")), null));
+
+        mockMvc.perform(get("/api/v1/news-items").param("subjectCode", "  "))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void list_invalidSubjectCode_rejected400() throws Exception {
+        // 标的代码值域 [A-Za-z0-9]（LIKE 通配面防护：%/ 下划线按字面拒绝）
+        mockMvc.perform(
+                        get("/api/v1/news-items")
+                                .param("page", "1")
+                                .param("subjectCode", "SH_600519"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        mockMvc.perform(get("/api/v1/news-items").param("page", "1").param("subjectCode", "%"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        mockMvc.perform(get("/api/v1/news-items").param("page", "1").param("subjectCode", "A"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_pageMode_responseIncludesMatchedSubjects() throws Exception {
+        when(queryService.listPaged(any(LibraryFilter.class), eq(1), eq(20)))
+                .thenReturn(
+                        new NewsItemsPagedView(
+                                List.of(
+                                        analysisView(
+                                                3,
+                                                "茅台条",
+                                                "PASS",
+                                                null,
+                                                "食品饮料",
+                                                0.9,
+                                                false,
+                                                null,
+                                                null,
+                                                List.of(
+                                                        new MatchedSubjectView(
+                                                                "SH600519", "贵州茅台", "白酒"),
+                                                        new MatchedSubjectView(
+                                                                "SZ300024", "机器人", null))),
+                                        analysisView(
+                                                4, "无标的条", "PASS", null, null, null, false, null,
+                                                null, List.of())),
+                                2L,
+                                1,
+                                20));
+
+        mockMvc.perform(get("/api/v1/news-items").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].matchedSubjects.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].matchedSubjects[0].code").value("SH600519"))
+                .andExpect(jsonPath("$.data.items[0].matchedSubjects[0].name").value("贵州茅台"))
+                .andExpect(jsonPath("$.data.items[0].matchedSubjects[0].industry").value("白酒"))
+                .andExpect(jsonPath("$.data.items[0].matchedSubjects[1].industry").doesNotExist())
+                // 无标的行：空数组（非 null——前端零判空）
+                .andExpect(jsonPath("$.data.items[1].matchedSubjects.length()").value(0));
     }
 }

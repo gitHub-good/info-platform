@@ -70,12 +70,32 @@ class NewsItemsLibraryIntegrationTest {
         n4 = insertItem("贵州茅台发布年报", "食品饮料龙头业绩", "https://example.com/n4", t);
         n5 = insertItem("滞留条目无分析行", null, "https://example.com/n5", t);
         n6 = insertItem("美股 iPhone 供应链_A_B 动态", null, "https://example.com/n6", t);
-        insertAnalysis(n1, "PASS", null, null, "DONE", "银行", 0.92, 0);
+        // 标的回联种子（V3.1）：n1 两标的（industry 有值/无值各一）、n6 长代码（SH6005199——引号定界精确性样本）
+        insertAnalysis(
+                n1,
+                "PASS",
+                null,
+                null,
+                "DONE",
+                "银行",
+                0.92,
+                0,
+                "[{\"code\":\"SH600519\",\"name\":\"贵州茅台\",\"industry\":\"白酒\"},"
+                        + "{\"code\":\"SZ300024\",\"name\":\"机器人\",\"industry\":null}]");
+        insertAnalysis(
+                n6,
+                "PASS",
+                null,
+                null,
+                "DONE",
+                "电子",
+                0.30,
+                1,
+                "[{\"code\":\"SH6005199\",\"name\":\"长代码标的\",\"industry\":null}]");
         insertAnalysis(n2, "NOISE", null, "推广", "PENDING", null, null, 0);
         insertAnalysis(n3, "NEAR_DUP", n1, "hamming=3;edit=0.21", "PENDING", null, null, 0);
         insertAnalysis(n4, "PASS", null, null, "PENDING", null, null, 0);
         // n5：无 analysis 行（兜底语义样本）
-        insertAnalysis(n6, "PASS", null, null, "DONE", "电子", 0.30, 1);
     }
 
     @AfterEach
@@ -138,11 +158,7 @@ class NewsItemsLibraryIntegrationTest {
             String mainCategory,
             Double confidence,
             int lowConfidence) {
-        jdbcTemplate.update(
-                "INSERT INTO news_analysis"
-                        + " (news_id, l0_result, near_dup_of, l0_detail, l1_status, main_category,"
-                        + " confidence, low_confidence, l1_attempts, created_at, updated_at)"
-                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        insertAnalysis(
                 newsId,
                 l0Result,
                 nearDupOf,
@@ -151,12 +167,46 @@ class NewsItemsLibraryIntegrationTest {
                 mainCategory,
                 confidence,
                 lowConfidence,
+                null);
+    }
+
+    /** 带回联标的 JSON 的种子重载（V3.1 标的回联：matched_subjects 库内直读样本）。 */
+    private void insertAnalysis(
+            long newsId,
+            String l0Result,
+            Long nearDupOf,
+            String l0Detail,
+            String l1Status,
+            String mainCategory,
+            Double confidence,
+            int lowConfidence,
+            String matchedSubjects) {
+        jdbcTemplate.update(
+                "INSERT INTO news_analysis"
+                        + " (news_id, l0_result, near_dup_of, l0_detail, l1_status, main_category,"
+                        + " confidence, low_confidence, matched_subjects, l1_attempts, created_at,"
+                        + " updated_at)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                newsId,
+                l0Result,
+                nearDupOf,
+                l0Detail,
+                l1Status,
+                mainCategory,
+                confidence,
+                lowConfidence,
+                matchedSubjects,
                 "2026-09-22T05:01:00Z",
                 "2026-09-22T05:01:00Z");
     }
 
     private LibraryFilter filter(String q, L0Result l0, String l1) {
-        return new LibraryFilter(sourceId, q, l0, l1, null, null, null, null);
+        return new LibraryFilter(sourceId, q, l0, l1, null, null, null, null, null);
+    }
+
+    /** 标的过滤条件（V3.1：subjectCode + 可选关键词组合；l0/l1 不过滤）。 */
+    private LibraryFilter subjectFilter(String subjectCode, String q) {
+        return new LibraryFilter(sourceId, q, null, null, null, null, null, null, subjectCode);
     }
 
     @Test
@@ -294,7 +344,15 @@ class NewsItemsLibraryIntegrationTest {
         NewsItemsPagedView view =
                 service.listPaged(
                         new LibraryFilter(
-                                sourceId, null, null, null, null, null, "2026-09-22", "2026-09-22"),
+                                sourceId,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "2026-09-22",
+                                "2026-09-22",
+                                null),
                         1,
                         10);
 
@@ -326,7 +384,15 @@ class NewsItemsLibraryIntegrationTest {
         NewsItemsPagedView all =
                 service.listPaged(
                         new LibraryFilter(
-                                sourceId, null, null, null, null, null, "2026-09-22", "2026-09-22"),
+                                sourceId,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "2026-09-22",
+                                "2026-09-22",
+                                null),
                         1,
                         10);
         assertThat(all.total()).isEqualTo(today.newCount()).isEqualTo(8);
@@ -342,7 +408,8 @@ class NewsItemsLibraryIntegrationTest {
                                 null,
                                 null,
                                 "2026-09-22",
-                                "2026-09-22"),
+                                "2026-09-22",
+                                null),
                         1,
                         10);
         assertThat(passOnly.total()).isEqualTo(5).isLessThan(all.total());
@@ -363,7 +430,8 @@ class NewsItemsLibraryIntegrationTest {
                                 null,
                                 null,
                                 "2026-09-22",
-                                "2026-09-22"),
+                                "2026-09-22",
+                                null),
                         1,
                         10);
 
@@ -410,7 +478,15 @@ class NewsItemsLibraryIntegrationTest {
         NewsItemsPagedView view =
                 service.listPaged(
                         new LibraryFilter(
-                                sourceId, null, null, null, "2026-09-22", "2026-09-22", null, null),
+                                sourceId,
+                                null,
+                                null,
+                                null,
+                                "2026-09-22",
+                                "2026-09-22",
+                                null,
+                                null,
+                                null),
                         1,
                         20);
 
@@ -442,5 +518,87 @@ class NewsItemsLibraryIntegrationTest {
         assertThat(service.listCursor(sourceId, first.nextBeforeId(), 2).items())
                 .extracting(NewsItemView::id)
                 .containsExactly(n4, n3);
+    }
+
+    // —— 标的回联（V3.1 资讯库增强）：matchedSubjects 库内直读 + subjectCode 筛选 ——
+
+    /** 按 id 取条目视图（种子断言辅助）。 */
+    private NewsItemView itemOf(NewsItemsPagedView view, long id) {
+        return view.items().stream().filter(v -> v.id() == id).findFirst().orElseThrow();
+    }
+
+    @Test
+    void listPaged_matchedSubjects_fromAnalysisJson_emptyListWhenAbsent() {
+        NewsItemsPagedView view = service.listPaged(filter(null, null, null), 1, 10);
+
+        // DONE 行：JSON 元素直读（code/name/industry 三字段；industry null 原样保留）
+        NewsItemView n1View = itemOf(view, n1);
+        assertThat(n1View.matchedSubjects()).hasSize(2);
+        assertThat(n1View.matchedSubjects().get(0).code()).isEqualTo("SH600519");
+        assertThat(n1View.matchedSubjects().get(0).name()).isEqualTo("贵州茅台");
+        assertThat(n1View.matchedSubjects().get(0).industry()).isEqualTo("白酒");
+        assertThat(n1View.matchedSubjects().get(1).code()).isEqualTo("SZ300024");
+        assertThat(n1View.matchedSubjects().get(1).industry()).isNull();
+        // PENDING 行（无 subjects 值）与无 analysis 行（n5）：空列表不 null（前端零判空）
+        assertThat(itemOf(view, n4).matchedSubjects()).isEmpty();
+        assertThat(itemOf(view, n5).matchedSubjects()).isEmpty();
+    }
+
+    @Test
+    void listPaged_matchedSubjects_corruptJson_fallsBackToEmptyList() {
+        // 回联列非权威面：JSON 损坏容错空表 + WARN，不阻断资讯库读路径（PolicyService 同惯例）
+        long corrupt =
+                insertItem(
+                        "损坏JSON条目",
+                        null,
+                        "https://example.com/corrupt",
+                        Instant.parse("2026-09-22T05:00:00Z"));
+        insertAnalysis(corrupt, "PASS", null, null, "DONE", "银行", 0.9, 0, "{not-json");
+
+        NewsItemsPagedView view = service.listPaged(filter(null, null, null), 1, 10);
+
+        assertThat(itemOf(view, corrupt).matchedSubjects()).isEmpty();
+        assertThat(itemOf(view, corrupt).l1Main()).isEqualTo("银行");
+    }
+
+    @Test
+    void listPaged_subjectCodeFilter_matchesOnlyRowsContainingExactCode() {
+        // 命中：n1 的 matched_subjects 含 SH600519（n6 长代码 SH6005199 不得被前缀误伤）
+        NewsItemsPagedView hit = service.listPaged(subjectFilter("SH600519", null), 1, 10);
+        assertThat(hit.items()).extracting(NewsItemView::id).containsExactly(n1);
+        assertThat(hit.total()).isEqualTo(1);
+        // 引号定界双向精确：SH6005199 只命中自身行
+        NewsItemsPagedView longCode = service.listPaged(subjectFilter("SH6005199", null), 1, 10);
+        assertThat(longCode.items()).extracting(NewsItemView::id).containsExactly(n6);
+        // 未命中代码：空结果
+        assertThat(service.listPaged(subjectFilter("SH999999", null), 1, 10).items()).isEmpty();
+        // 无 subjects 值的行（PENDING n4 / 无 analysis n5 / NOISE n2 / NEAR_DUP n3）不进结果
+        assertThat(hit.items()).extracting(NewsItemView::id).doesNotContain(n2, n3, n4, n5);
+    }
+
+    @Test
+    void listPaged_subjectCodeFilter_multiRowCount_andCombinesWithKeyword() {
+        Instant t = Instant.parse("2026-09-22T05:00:00Z");
+        long n7 = insertItem("机器人产业进展", "SZ300024 人形机器人放量", "https://example.com/n7", t);
+        insertAnalysis(
+                n7,
+                "PASS",
+                null,
+                null,
+                "DONE",
+                "机械设备",
+                0.88,
+                0,
+                "[{\"code\":\"SZ300024\",\"name\":\"机器人\",\"industry\":\"机械设备\"}]");
+
+        // 同标的多行计数：n1 + n7
+        NewsItemsPagedView both = service.listPaged(subjectFilter("SZ300024", null), 1, 10);
+        assertThat(both.items()).extracting(NewsItemView::id).containsExactly(n7, n1);
+        assertThat(both.total()).isEqualTo(2);
+
+        // AND 语义：标的 + 关键词（标题/摘要 LIKE）交集
+        NewsItemsPagedView narrowed = service.listPaged(subjectFilter("SZ300024", "人形机器人"), 1, 10);
+        assertThat(narrowed.items()).extracting(NewsItemView::id).containsExactly(n7);
+        assertThat(narrowed.total()).isEqualTo(1);
     }
 }

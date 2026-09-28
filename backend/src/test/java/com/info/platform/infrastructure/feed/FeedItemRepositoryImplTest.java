@@ -264,7 +264,7 @@ class FeedItemRepositoryImplTest {
 
     /** 无过滤（源 + q/l0/l1 全空 = T160 前旧口径）。 */
     private static LibraryFilter unfiltered(Long sourceId) {
-        return new LibraryFilter(sourceId, null, null, null, null, null, null, null);
+        return new LibraryFilter(sourceId, null, null, null, null, null, null, null, null);
     }
 
     @Test

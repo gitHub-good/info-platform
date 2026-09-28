@@ -39,14 +39,15 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
-    /** 资讯库读模型基座：软删源 join + analysis LEFT JOIN（1:1）+ 近重复主条 url 直查。 */
+    /** 资讯库读模型基座：软删源 join + analysis LEFT JOIN（1:1）+ 近重复主条 url 直查（V3.1 增 matched_subjects）。 */
     private static final String LIBRARY_SELECT_SQL =
             """
             SELECT ni.id, ni.source_id, ni.external_id, ni.title, ni.summary, ni.url, ni.author,
                    ni.published_at, ni.fetched_at, ni.fingerprint, ni.status,
                    ni.created_at, ni.updated_at,
                    na.l0_result, na.l0_detail, na.main_category, na.confidence, na.low_confidence,
-                   na.near_dup_of AS near_dup_master_id, master.url AS near_dup_master_url
+                   na.near_dup_of AS near_dup_master_id, master.url AS near_dup_master_url,
+                   na.matched_subjects
               FROM news_item ni
               JOIN info_source s ON s.id = ni.source_id AND s.deleted = 0
               LEFT JOIN news_analysis na ON na.news_id = ni.id
@@ -259,6 +260,18 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
         if (filter.fetchedTo() != null) {
             query.append(" AND ni.fetched_at < ?", shDayEndExclusiveUtc(filter.fetchedTo()));
         }
+        // 标的代码过滤（V3.1）：matched_subjects JSON 值位定界 LIKE（":"code"——SubjectPolicySectionService 同款，
+        // 冒号+引号前缀锚定 JSON 键值分隔的值位，引号后缀防代码前缀互撞）；代码值域 [A-Za-z0-9] 接口层已校验，
+        // 无引号/百分号转义面。性能留档：matched_subjects 无索引，EXISTS 逐行 LIKE 全扫在资讯库量级（万级）毫秒可接受
+        // （q 关键词 LIKE 同裁量）；限定 L1 DONE——matched_subjects 仅 DONE 行回写（APPLY_L1 单写点），
+        // DONE 条件为防御性显式化（DeepDiveNewsStoreImpl 同款）。
+        if (filter.subjectCode() != null) {
+            query.append(
+                    " AND EXISTS (SELECT 1 FROM news_analysis na2"
+                            + " WHERE na2.news_id = ni.id AND na2.l1_status = 'DONE'"
+                            + " AND na2.matched_subjects LIKE '%\":' || '\"' || ? || '\"%')",
+                    filter.subjectCode());
+        }
     }
 
     /** 上海日 D 的 UTC 起点文本（D-1T16:00:00Z；ISO UTC 文本字典序可比，日窗含起点）。 */
@@ -339,7 +352,8 @@ public class FeedItemRepositoryImpl implements FeedItemRepository {
                 rs.getObject("confidence") == null ? null : rs.getDouble("confidence"),
                 rs.getObject("low_confidence") != null && rs.getInt("low_confidence") == 1,
                 masterId,
-                nullable(rs.getString("near_dup_master_url")));
+                nullable(rs.getString("near_dup_master_url")),
+                nullable(rs.getString("matched_subjects")));
     }
 
     private static String nullable(String value) {

@@ -1,5 +1,7 @@
 package com.info.platform.application.feed;
 
+import java.util.List;
+
 /**
  * 资讯流条目视图（GET /api/v1/news-items 每条，T104；T160 增量追加 analysis join 字段—— 追加式扩展，既有字段零变化）。
  * publishedAt/fetchedAt 为 ISO-8601 整秒文本。
@@ -15,6 +17,8 @@ package com.info.platform.application.feed;
  * @param lowConfidence 低置信兜底旗标
  * @param nearDupMasterId 近重复主条 news_id
  * @param nearDupMasterUrl 主条原文 url
+ * @param matchedSubjects 回联标的清单（news_analysis.matched_subjects 库内直读；无值/无 analysis 行 = 空列表不 null，
+ *     V3.1 资讯库标的增强——前端零判空）
  */
 public record NewsItemView(
         Long id,
@@ -33,4 +37,5 @@ public record NewsItemView(
         Double l1Confidence,
         boolean lowConfidence,
         Long nearDupMasterId,
-        String nearDupMasterUrl) {}
+        String nearDupMasterUrl,
+        List<MatchedSubjectView> matchedSubjects) {}

@@ -37,6 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
  *   <li>{@code fetchedFrom}/{@code fetchedTo}：入库时间窗（T210，M24 V2.4，REQ-20260928-20 拍板三）——上海日界
  *       含端点，大盘「今日入库」弹框与 source_daily_stats.newCount 对账的口径前提；校验与 publishedFrom/To 同例（yyyy-MM-dd 非法
  *       400、from&gt;to 400、页码模式专属）。
+ *   <li>{@code subjectCode}：回联标的代码（V3.1 资讯库标的增强）——matched_subjects 含该代码的行（L1 DONE）；trim 后空 =
+ *       不过滤；值域限 {@code [A-Za-z0-9]{2,16}}（标的代码口径，兼 LIKE 通配面防护——%/下划线按字面拒绝）非法 400/2001； 页码模式专属 （出现而
+ *       page 缺席 400）。响应字段增量见 {@code NewsItemView.matchedSubjects}。
  * </ul>
  */
 @RestController
@@ -54,6 +57,9 @@ public class NewsItemsController {
 
     /** l0 显式全量值（REQ 拍板一：l0=PASS/NOISE/NEAR_DUP/ALL）。 */
     static final String L0_ALL = "ALL";
+
+    /** 标的代码值域（V3.1：[A-Za-z0-9]{2,16}——标的代码口径，兼 matched_subjects LIKE 通配面防护）。 */
+    static final String SUBJECT_CODE_PATTERN = "[A-Za-z0-9]{2,16}";
 
     private final NewsItemsQueryService queryService;
 
@@ -79,10 +85,12 @@ public class NewsItemsController {
             @RequestParam(value = "publishedFrom", required = false) String publishedFrom,
             @RequestParam(value = "publishedTo", required = false) String publishedTo,
             @RequestParam(value = "fetchedFrom", required = false) String fetchedFrom,
-            @RequestParam(value = "fetchedTo", required = false) String fetchedTo) {
+            @RequestParam(value = "fetchedTo", required = false) String fetchedTo,
+            @RequestParam(value = "subjectCode", required = false) String subjectCode) {
         String trimmedQ = trimToNull(q);
         String trimmedL1 = trimToNull(l1);
         String trimmedL0 = trimToNull(l0);
+        String validatedSubjectCode = validatedSubjectCode(trimToNull(subjectCode));
         String from = validatedDate(publishedFrom, "publishedFrom");
         String to = validatedDate(publishedTo, "publishedTo");
         if (from != null && to != null && from.compareTo(to) > 0) {
@@ -97,14 +105,15 @@ public class NewsItemsController {
         }
         PageQuery.requirePageParam(
                 page,
-                "q/l0/l1/publishedFrom/publishedTo/fetchedFrom/fetchedTo",
+                "q/l0/l1/publishedFrom/publishedTo/fetchedFrom/fetchedTo/subjectCode",
                 trimmedQ != null
                         || trimmedL0 != null
                         || trimmedL1 != null
                         || from != null
                         || to != null
                         || fetchedFromDay != null
-                        || fetchedToDay != null);
+                        || fetchedToDay != null
+                        || validatedSubjectCode != null);
         PageQuery pageQuery = PageQuery.resolve(page, size, beforeId);
         if (pageQuery != null) {
             rejectLimitInPageMode(limit);
@@ -117,7 +126,8 @@ public class NewsItemsController {
                             from,
                             to,
                             fetchedFromDay,
-                            fetchedToDay);
+                            fetchedToDay,
+                            validatedSubjectCode);
             return Result.ok(queryService.listPaged(filter, pageQuery.page(), pageQuery.size()));
         }
         return Result.ok(queryService.listCursor(sourceId, beforeId, resolvedLimit(limit)));
@@ -195,6 +205,22 @@ public class NewsItemsController {
                     ErrorCode.PARAM_INVALID, "l1 须为 35 个主分类枚举之一，当前值 " + trimmedL1);
         }
         return trimmedL1;
+    }
+
+    /**
+     * subjectCode 校验（V3.1）：null = 不过滤；值域 {@link #SUBJECT_CODE_PATTERN} 外 400/2001（字段级 msg）——
+     * 代码口径排除通配/分隔字符（matched_subjects LIKE 值位定界的前提，无转义面）。
+     */
+    private static String validatedSubjectCode(String trimmedSubjectCode) {
+        if (trimmedSubjectCode == null) {
+            return null;
+        }
+        if (!trimmedSubjectCode.matches(SUBJECT_CODE_PATTERN)) {
+            throw new BusinessException(
+                    ErrorCode.PARAM_INVALID,
+                    "subjectCode 须为 2~16 位字母数字（标的代码），当前值 " + trimmedSubjectCode);
+        }
+        return trimmedSubjectCode;
     }
 
     /** 发布时间窗日期校验（BUG-M23-01）：yyyy-MM-dd 合法格式，非法 400 字段级。 */

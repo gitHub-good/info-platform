@@ -66,8 +66,8 @@ public interface FeedItemRepository {
     record LatencySample(long sourceId, Instant ingestedAt, long latencyMillis) {}
 
     /**
-     * 资讯库组合过滤条件（T160 页码模式，纯 JDK record）：sourceId + q 关键词 + l0 状态 + l1 主分类 + 发布/入库时间窗任意组合、 全 AND
-     * 语义；{@link #findPage}/{@link #countByFilter} 同一 filter 保证页数据与计数同口径。
+     * 资讯库组合过滤条件（T160 页码模式，纯 JDK record）：sourceId + q 关键词 + l0 状态 + l1 主分类 + 发布/入库时间窗 +
+     * 标的代码（V3.1）任意组合、 全 AND 语义；{@link #findPage}/{@link #countByFilter} 同一 filter 保证页数据与计数同口径。
      *
      * @param sourceId 源过滤；null = 全部源
      * @param keyword 标题/摘要关键词；null = 不过滤（接口层已校验长度 2~64 并 trim；LIKE 转义见实现层）
@@ -77,6 +77,8 @@ public interface FeedItemRepository {
      * @param publishedTo 发布时间窗终点（yyyy-MM-dd，上海日界含端点）；null = 不过滤
      * @param fetchedFrom 入库时间窗起点（yyyy-MM-dd，上海日界含端点，T210——大盘「今日入库」弹框对账口径）；null = 不过滤
      * @param fetchedTo 入库时间窗终点（yyyy-MM-dd，上海日界含端点）；null = 不过滤
+     * @param subjectCode 回联标的代码过滤（V3.1：matched_subjects 含该代码的行；接口层已校验值域 [A-Za-z0-9]）； null =
+     *     不过滤；命中限定 L1 DONE 行（matched_subjects 仅 DONE 回写）
      */
     record LibraryFilter(
             Long sourceId,
@@ -86,7 +88,8 @@ public interface FeedItemRepository {
             String publishedFrom,
             String publishedTo,
             String fetchedFrom,
-            String fetchedTo) {}
+            String fetchedTo,
+            String subjectCode) {}
 
     /**
      * 资讯库条目行（T160 读模型投影）：news_item 条目 + news_analysis 归类产物 + 近重复主条引用（na.near_dup_of → 主条
@@ -100,6 +103,8 @@ public interface FeedItemRepository {
      * @param lowConfidence 是否低置信兜底（confidence&lt;floor 或模型输出非法枚举，已兜底「市场·其他」）
      * @param nearDupMasterId 近重复主条 news_id（na.near_dup_of；非 NEAR_DUP 为 null）
      * @param nearDupMasterUrl 主条原文 url（主条已清理为 null）
+     * @param matchedSubjectsJson 回联标的 JSON 原文（na.matched_subjects，V3.1——[{code,name,industry}]， 仅
+     *     L1 DONE 行有值； 应用层解析为视图，损坏容错空表）
      */
     record LibraryRow(
             FeedItem item,
@@ -109,5 +114,6 @@ public interface FeedItemRepository {
             Double confidence,
             boolean lowConfidence,
             Long nearDupMasterId,
-            String nearDupMasterUrl) {}
+            String nearDupMasterUrl,
+            String matchedSubjectsJson) {}
 }
