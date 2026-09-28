@@ -508,6 +508,7 @@ function newsItemOf(id: number): NewsLibraryItem {
     lowConfidence: false,
     nearDupMasterId: null,
     nearDupMasterUrl: null,
+    matchedSubjects: [],
   };
 }
 

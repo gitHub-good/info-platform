@@ -5,11 +5,13 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { SubjectPicker } from '@/components/subject/SubjectPicker';
 import { statusToneClass } from '@/lib/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { ApiError } from '@/api/http';
 import { getInfoSources } from '@/api/infoSource';
+import type { SubjectSummary } from '@/api/subject';
 import { currentRoute, queryOf } from '@/lib/navigation';
 import {
   DEFAULT_NEWS_LIBRARY_L0,
@@ -18,7 +20,13 @@ import {
   type NewsLibraryQuery,
 } from '@/api/newsItem';
 import { formatDateTime } from '@/lib/format';
-import { L1_MAIN_CATEGORIES, type NewsL0Filter, type NewsL0Result, type NewsLibraryItem } from '@/types/newsItem';
+import {
+  L1_MAIN_CATEGORIES,
+  type MatchedSubject,
+  type NewsL0Filter,
+  type NewsL0Result,
+  type NewsLibraryItem,
+} from '@/types/newsItem';
 import type { InfoSourceCardView } from '@/types/infoSource';
 
 /** 关键词最小长度（后端契约 ≥2 ≤64，前端先行拦截；M9 同口径）。 */
@@ -121,14 +129,111 @@ function KeywordSearch({ value, onChange, onSubmit, disabled }: KeywordSearchPro
 
 interface NewsLibraryRowProps {
   item: NewsLibraryItem;
+  /** 标的 chip 点击（V3.1 双向联动）：以该标的为筛选条件重查。 */
+  onSubjectPick: (subject: MatchedSubject) => void;
 }
 
-/** 资讯库列表行：标题外链 / 源徽章 / 双时间 / L0·L1 徽章 / 摘要（REQ 拍板一列表字段）。 */
-function NewsLibraryRow({ item }: NewsLibraryRowProps) {
+/** hover 详情卡（V3.1）：纯 CSS group-hover 浮层（零新依赖）——已有字段全量呈现，不截断任何信息。 */
+function NewsLibraryHoverCard({ item }: { item: NewsLibraryItem }) {
+  const l0 = L0_BADGES[item.l0Result];
+  return (
+    <aside
+      className="absolute inset-x-0 top-full z-20 hidden rounded-xl border border-border bg-popover p-4 text-sm shadow-lg group-hover:block"
+      data-testid={`news-library-hover-${item.id}`}
+      aria-label="条目详情"
+    >
+      <p className="font-medium break-words" data-testid={`news-library-hover-title-${item.id}`}>
+        {item.title}
+      </p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span title={item.sourceCode ?? undefined}>
+          源 {item.sourceName ?? `源 ${item.sourceId}`}
+        </span>
+        {item.author ? <span>作者 {item.author}</span> : null}
+        <span>发布 {formatDateTime(item.publishedAt)}</span>
+        <span>抓取 {formatDateTime(item.fetchedAt)}</span>
+        <Badge className={l0.className} title={item.l0Detail ?? undefined}>
+          {l0.label}
+        </Badge>
+        <Badge
+          variant={item.l1Main ? 'secondary' : 'outline'}
+          title={item.l1Confidence != null ? `置信度 ${item.l1Confidence}` : undefined}
+        >
+          {item.l1Main ?? '未分类'}
+        </Badge>
+        {item.lowConfidence ? (
+          <Badge className="bg-amber-500/15 text-amber-400">低置信</Badge>
+        ) : null}
+      </div>
+      {item.matchedSubjects.length > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">关联标的</span>
+          {item.matchedSubjects.map((subject) => (
+            <span
+              key={subject.code}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-xs"
+              data-testid={`news-library-hover-subject-${item.id}-${subject.code}`}
+            >
+              <span className="font-medium">{subject.code}</span>
+              <span>{subject.name}</span>
+              {subject.industry ? (
+                <span className="text-muted-foreground">· {subject.industry}</span>
+              ) : null}
+              <a
+                href={`#/subjects/${subject.code}`}
+                className="text-primary underline-offset-4 hover:underline"
+                data-testid={`news-library-hover-subject-link-${item.id}-${subject.code}`}
+              >
+                详情
+              </a>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {item.summary ? (
+        <p
+          className="mt-2 whitespace-pre-wrap break-words text-muted-foreground"
+          data-testid={`news-library-hover-summary-${item.id}`}
+        >
+          {item.summary}
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+        {item.url ? (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-primary underline-offset-4 hover:underline"
+            data-testid={`news-library-hover-origin-${item.id}`}
+          >
+            原文
+            <ExternalLink className="size-3" aria-hidden="true" />
+          </a>
+        ) : null}
+        {item.nearDupMasterUrl ? (
+          <a
+            href={item.nearDupMasterUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-primary underline-offset-4 hover:underline"
+            data-testid={`news-library-hover-master-${item.id}`}
+          >
+            主条
+            <ExternalLink className="size-3" aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+/** 资讯库列表行：标题外链 / 源徽章 / 双时间 / L0·L1 徽章 / 标的 chips / 摘要（行内截断，悬浮卡全量）。 */
+function NewsLibraryRow({ item, onSubjectPick }: NewsLibraryRowProps) {
   const l0 = L0_BADGES[item.l0Result];
   return (
     <article
-      className="rounded-xl border border-border bg-card p-4 shadow-sm"
+      className="group relative rounded-xl border border-border bg-card p-4 shadow-sm"
       data-testid={`news-library-item-${item.id}`}
     >
       {item.url ? (
@@ -177,6 +282,19 @@ function NewsLibraryRow({ item }: NewsLibraryRowProps) {
             未分类
           </Badge>
         )}
+        {/* 关联标的 chips（V3.1，L1 徽章旁）：名称可点 → 以该标的筛选（双向联动）；详情入口在悬浮卡 */}
+        {item.matchedSubjects.map((subject) => (
+          <button
+            key={subject.code}
+            type="button"
+            title={subject.code}
+            onClick={() => onSubjectPick(subject)}
+            className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-medium text-primary transition-colors hover:bg-primary/20"
+            data-testid={`news-library-subject-chip-${item.id}-${subject.code}`}
+          >
+            {subject.name}
+          </button>
+        ))}
         {item.lowConfidence ? (
           <Badge
             className="bg-amber-500/15 text-amber-400"
@@ -208,6 +326,7 @@ function NewsLibraryRow({ item }: NewsLibraryRowProps) {
           {item.summary}
         </p>
       ) : null}
+      <NewsLibraryHoverCard item={item} />
     </article>
   );
 }
@@ -246,6 +365,7 @@ function buildQuery(
   size: number,
   publishedFrom = '',
   publishedTo = '',
+  subjectCode: string | null = null,
 ): NewsLibraryQuery {
   return {
     sourceId: sourceSel ? Number(sourceSel) : null,
@@ -254,8 +374,21 @@ function buildQuery(
     l1: l1Sel || null,
     publishedFrom: publishedFrom || null,
     publishedTo: publishedTo || null,
+    subjectCode,
     page,
     size,
+  };
+}
+
+/** 标的 chip → SubjectPicker 选中态适配（V3.1 双向联动）：chip 仅携带 code/name/industry， 合成中性占位（id/market/type 本页不消费——仅 picker 展示 code/name/industry）。 */
+function subjectOfChip(subject: MatchedSubject): SubjectSummary {
+  return {
+    id: 0,
+    subjectCode: subject.code,
+    name: subject.name,
+    market: '',
+    type: 0,
+    industry: subject.industry,
   };
 }
 
@@ -285,11 +418,30 @@ function prefillOf(route: string): UrlPrefill {
   };
 }
 
+/** 标的选中态 → 查询参数（V3.1：null = 不过滤）。 */
+function subjectCodeOf(sel: SubjectSummary | null): string | null {
+  return sel?.subjectCode ?? null;
+}
+
+/** 骨架重查条件（V3.1 收拢为对象——七维筛选位置传参易错；from/to 缺省 '' 沿原默认参数语义）。 */
+interface LibraryReload {
+  source: string;
+  l0: NewsL0Filter;
+  l1: string;
+  keyword: string;
+  subjectCode?: string | null;
+  publishedFrom?: string;
+  publishedTo?: string;
+}
+
 /**
  * 资讯库页（M19 T161 第 19 页，REQ-20260926-16 拍板一）：news_item 原始库全量列表。
  * - 列表：GET /news-items?page&size&l0（页码分页，默认 20/页、仅 PASS——管道消费口径）。
  * - 筛选行：关键词搜索（显式触发）+ L0 状态段（默认有效）+ L1 分类下拉（35 枚举硬编码）+
- *   源下拉（info-sources 活跃源复用；接口失败降级仅「全部源」不阻塞列表）。
+ *   源下拉（info-sources 活跃源复用；接口失败降级仅「全部源」不阻塞列表）+
+ *   标的搜索（V3.1：SubjectPicker 联想选中 → subjectCode 过滤，chips 点击双向联动）。
+ * - 行悬浮详情卡（V3.1 纯 CSS group-hover）：已有字段全量呈现不截断（完整标题/摘要/源/作者/
+ *   双时间/L0·L1/关联标的/主条/原文），标的详情入口 #/subjects/:code。
  * - 联动（M9 §5 语义）：筛选变更 → page=1 骨架重查；翻页/条数切换保留数据；空页漂移静默回退末页；
  *   AbortController 单点防串台。
  * 三态：加载骨架 / 空态（区分库为空与筛选过窄）/ 错误重试；401 由 http 层统一跳 /login。
@@ -314,6 +466,8 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
   const [publishedTo, setPublishedTo] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
+  // 标的筛选（V3.1）：SubjectPicker 受控选中态（chips 点击经 subjectOfChip 适配同一状态——双向联动）
+  const [subjectSel, setSubjectSel] = useState<SubjectSummary | null>(null);
   // 源下拉选项：info-sources 活跃源清单（辅助筛选，失败静默降级）
   const [sources, setSources] = useState<InfoSourceCardView[]>([]);
 
@@ -345,47 +499,47 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
   );
 
   /** 骨架通道（首屏/筛选/搜索变更 → 新结果集查询，M9 §5.1）。 */
-  const loadFirst = useCallback(
-    async (
-      nextSource: string,
-      nextL0: NewsL0Filter,
-      nextL1: string,
-      nextKeyword: string,
-      nextFrom = "",
-      nextTo = "",
-    ) => {
-      listAbort.current?.abort();
-      const ctrl = new AbortController();
-      listAbort.current = ctrl;
-      setListLoading(true);
-      setListError(null);
-      setPageLoading(false);
-      setPageError(null);
-      setPage(1);
-      try {
-        const view = await fetchView(
-          buildQuery(nextSource, nextL0, nextL1, nextKeyword, 1, pageSizeRef.current, nextFrom, nextTo),
-          ctrl.signal,
-        );
-        if (ctrl.signal.aborted) return;
-        setItems(view.items);
-        setTotal(view.total);
-        setPage(view.landed);
-        scrollToListTop(listSectionRef.current);
-      } catch (err) {
-        if (ctrl.signal.aborted) return;
-        setListError(messageOf(err, '资讯库加载失败'));
-      } finally {
-        if (!ctrl.signal.aborted) setListLoading(false);
-      }
-    },
-    [fetchView],
-  );
+  const loadFirst = useCallback(async (next: LibraryReload) => {
+    listAbort.current?.abort();
+    const ctrl = new AbortController();
+    listAbort.current = ctrl;
+    setListLoading(true);
+    setListError(null);
+    setPageLoading(false);
+    setPageError(null);
+    setPage(1);
+    try {
+      const view = await fetchView(
+        buildQuery(
+          next.source,
+          next.l0,
+          next.l1,
+          next.keyword,
+          1,
+          pageSizeRef.current,
+          next.publishedFrom ?? '',
+          next.publishedTo ?? '',
+          next.subjectCode ?? null,
+        ),
+        ctrl.signal,
+      );
+      if (ctrl.signal.aborted) return;
+      setItems(view.items);
+      setTotal(view.total);
+      setPage(view.landed);
+      scrollToListTop(listSectionRef.current);
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      setListError(messageOf(err, '资讯库加载失败'));
+    } finally {
+      if (!ctrl.signal.aborted) setListLoading(false);
+    }
+  }, [fetchView]);
 
   // 首次加载首页 + 源下拉选项（两请求独立：源清单失败不阻塞列表）；
   // 首查按 URL 预填筛选态出数（T213：政策页重定向 L1=监管·政策 即达同口径数据）
   useEffect(() => {
-    void loadFirst(prefill.sourceId, prefill.l0, prefill.l1, '');
+    void loadFirst({ source: prefill.sourceId, l0: prefill.l0, l1: prefill.l1, keyword: '' });
     return () => listAbort.current?.abort();
   }, [loadFirst, prefill]);
 
@@ -411,7 +565,17 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
       setPageError(null);
       try {
         const view = await fetchView(
-          buildQuery(sourceSel, l0, l1, keyword, target, size, publishedFrom, publishedTo),
+          buildQuery(
+            sourceSel,
+            l0,
+            l1,
+            keyword,
+            target,
+            size,
+            publishedFrom,
+            publishedTo,
+            subjectCodeOf(subjectSel),
+          ),
           ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
@@ -426,36 +590,79 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
         if (!ctrl.signal.aborted) setPageLoading(false);
       }
     },
-    [sourceSel, l0, l1, keyword, fetchView],
+    [sourceSel, l0, l1, keyword, subjectSel, fetchView],
   );
 
   const handleSourceChange = (next: string) => {
     if (next === sourceSel) return;
     setSourceSel(next);
-    void loadFirst(next, l0, l1, keyword, publishedFrom, publishedTo);
+    void loadFirst({
+      source: next,
+      l0,
+      l1,
+      keyword,
+      subjectCode: subjectCodeOf(subjectSel),
+      publishedFrom,
+      publishedTo,
+    });
   };
 
   const handleL0Change = (next: NewsL0Filter) => {
     if (next === l0) return;
     setL0(next);
-    void loadFirst(sourceSel, next, l1, keyword);
+    void loadFirst({ source: sourceSel, l0: next, l1, keyword, subjectCode: subjectCodeOf(subjectSel) });
   };
 
   const handleL1Change = (next: string) => {
     if (next === l1) return;
     setL1(next);
-    void loadFirst(sourceSel, l0, next, keyword);
+    void loadFirst({ source: sourceSel, l0, l1: next, keyword, subjectCode: subjectCodeOf(subjectSel) });
   };
 
   const handleSearchSubmit = (next: string) => {
     setKeyword(next);
-    void loadFirst(sourceSel, l0, l1, next, publishedFrom, publishedTo);
+    void loadFirst({
+      source: sourceSel,
+      l0,
+      l1,
+      keyword: next,
+      subjectCode: subjectCodeOf(subjectSel),
+      publishedFrom,
+      publishedTo,
+    });
   };
 
   const handleDateChange = (from: string, to: string) => {
     setPublishedFrom(from);
     setPublishedTo(to);
-    void loadFirst(sourceSel, l0, l1, keyword, from, to);
+    void loadFirst({
+      source: sourceSel,
+      l0,
+      l1,
+      keyword,
+      subjectCode: subjectCodeOf(subjectSel),
+      publishedFrom: from,
+      publishedTo: to,
+    });
+  };
+
+  /** 标的筛选（V3.1）：picker 选中/清除 → 该标的关联资讯聚合重查（其余筛选保持）。 */
+  const handleSubjectChange = (next: SubjectSummary | null) => {
+    setSubjectSel(next);
+    void loadFirst({
+      source: sourceSel,
+      l0,
+      l1,
+      keyword,
+      subjectCode: subjectCodeOf(next),
+      publishedFrom,
+      publishedTo,
+    });
+  };
+
+  /** 标的 chip 点击（V3.1 双向联动）：chip 携带的三字段适配为 picker 选中态后走同一筛选通道。 */
+  const handleSubjectChipPick = (subject: MatchedSubject) => {
+    handleSubjectChange(subjectOfChip(subject));
   };
 
   const handlePageChange = (target: number) => {
@@ -480,11 +687,12 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
     setL1('');
     setSourceSel('');
     setL0(DEFAULT_NEWS_LIBRARY_L0);
-    void loadFirst('', DEFAULT_NEWS_LIBRARY_L0, '', '');
+    setSubjectSel(null);
+    void loadFirst({ source: '', l0: DEFAULT_NEWS_LIBRARY_L0, l1: '', keyword: '' });
   };
 
   const hasFilter =
-    sourceSel !== '' || l1 !== '' || keyword !== '' || l0 !== DEFAULT_NEWS_LIBRARY_L0;
+    sourceSel !== '' || l1 !== '' || keyword !== '' || subjectSel != null || l0 !== DEFAULT_NEWS_LIBRARY_L0;
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="news-library-page">
@@ -492,6 +700,19 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
         title="资讯库"
         subtitle="资讯源原始条目全量 · 默认仅有效（PASS）条目 · 噪音/近重复可筛"
       />
+      {/* 标的聚合（V3.1）：选中标的后按当前口径呈现该标的关联资讯总数 */}
+      {subjectSel ? (
+        <p
+          className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+          data-testid="news-library-subject-aggregate"
+        >
+          <Badge variant="secondary">
+            标的：{subjectSel.subjectCode} {subjectSel.name}
+          </Badge>
+          <span>共 {total} 条</span>
+          <span className="text-xs">（该口径下关联资讯）</span>
+        </p>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -555,6 +776,17 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
             ))}
           </select>
         </label>
+        {/* 标的筛选（V3.1）：复用 SubjectPicker 联想（代码/名称）；选中即按该标的过滤资讯 */}
+        <div className="flex w-full items-center gap-2 sm:w-72" data-testid="news-library-subject-filter">
+          <span className="shrink-0 text-sm text-muted-foreground">标的</span>
+          <SubjectPicker
+            value={subjectSel}
+            onChange={handleSubjectChange}
+            disabled={listLoading}
+            placeholder="输代码或名称筛标的"
+            testId="news-library-subject-picker"
+          />
+        </div>
       </div>
 
       <section
@@ -577,7 +809,15 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void loadFirst(sourceSel, l0, l1, keyword)}
+              onClick={() =>
+                void loadFirst({
+                  source: sourceSel,
+                  l0,
+                  l1,
+                  keyword,
+                  subjectCode: subjectCodeOf(subjectSel),
+                })
+              }
               data-testid="news-library-retry"
             >
               重试
@@ -589,7 +829,7 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
           <>
             <div className="flex flex-col gap-3" data-testid="news-library-list">
               {items.map((item) => (
-                <NewsLibraryRow key={item.id} item={item} />
+                <NewsLibraryRow key={item.id} item={item} onSubjectPick={handleSubjectChipPick} />
               ))}
             </div>
             {pageLoading ? (

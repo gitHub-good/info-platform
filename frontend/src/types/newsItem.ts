@@ -8,6 +8,13 @@ export type NewsL0Result = 'PASS' | 'NOISE' | 'NEAR_DUP';
 /** l0 过滤参数（API 取值；ALL = 不过滤三态混合）。 */
 export type NewsL0Filter = NewsL0Result | 'ALL';
 
+/** 回联标的（news_analysis.matched_subjects 元素，V3.1——后端 MatchedSubjectView 镜像；industry 无值为 null）。 */
+export interface MatchedSubject {
+  code: string;
+  name: string;
+  industry: string | null;
+}
+
 /** 资讯库条目视图（GET /api/v1/news-items 每条；publishedAt/fetchedAt 为 ISO-8601 整秒文本）。 */
 export interface NewsLibraryItem {
   id: number;
@@ -34,6 +41,8 @@ export interface NewsLibraryItem {
   nearDupMasterId: number | null;
   /** 主条原文 url（主条被清理为 null → 「主条」链接降级隐藏）。 */
   nearDupMasterUrl: string | null;
+  /** 回联标的清单（V3.1；无关联标的 = 空数组，后端保证非 null）。 */
+  matchedSubjects: MatchedSubject[];
 }
 
 /** 页码模式视图（M9 PageQuery 模式：items + total + page/size 回显）。 */

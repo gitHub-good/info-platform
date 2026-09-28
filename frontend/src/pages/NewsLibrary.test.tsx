@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NewsLibrary } from '@/pages/NewsLibrary';
 import type { InfoSourcesView } from '@/types/infoSource';
+import type { SubjectSummary } from '@/api/subject';
 import type { NewsLibraryItem, NewsLibraryPagedView } from '@/types/newsItem';
 
 // —— fetch mock：news-items 页码视图（URL 断言驱动）+ info-sources 分组视图（源下拉） ——
@@ -37,6 +38,7 @@ function itemOf(overrides: Partial<NewsLibraryItem> = {}): NewsLibraryItem {
     lowConfidence: false,
     nearDupMasterId: null,
     nearDupMasterUrl: null,
+    matchedSubjects: [],
     ...overrides,
   };
 }
@@ -107,13 +109,23 @@ function sourcesView(): InfoSourcesView {
 function makeFetch(
   newsItems: () => unknown = () => ok(paged([itemOf()])),
   infoSources: () => unknown = () => ok(sourcesView()),
+  subjectSearch: () => unknown = () => ok([]),
 ) {
   return vi.fn(async (url: string) => {
     const path = String(url);
     if (path.includes('/news-items')) return newsItems();
     if (path.includes('/info-sources')) return infoSources();
+    if (path.includes('/subjects/search')) return subjectSearch();
     return ok(null);
   });
+}
+
+/** 标的搜索联想结果（SubjectPicker 数据源 mock；V3.1 标的筛选）。 */
+function subjectOptions(): SubjectSummary[] {
+  return [
+    { id: 7, subjectCode: 'SH600519', name: '贵州茅台', market: 'A_SHARE', type: 1, industry: '白酒' },
+    { id: 8, subjectCode: 'SZ300024', name: '机器人', market: 'A_SHARE', type: 1, industry: null },
+  ];
 }
 
 function newsLibraryCalls(fetchMock: ReturnType<typeof makeFetch>): string[] {
@@ -531,5 +543,251 @@ describe('发布时间窗序列化（BUG-M23-01 遗留：publishedFrom/To 未进
       expect(last).toContain('page=1');
       expect(last).toContain('publishedFrom=2026-09-21');
     });
+  });
+});
+
+describe('资讯库标的增强（V3.1：hover 详情卡 + 关联标的 + 按标的筛选聚合）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  const withSubjects = (id: number) =>
+    itemOf({
+      id,
+      matchedSubjects: [
+        { code: 'SH600519', name: '贵州茅台', industry: '白酒' },
+        { code: 'SZ300024', name: '机器人', industry: null },
+      ],
+    });
+
+  it('hover 详情卡：完整字段全呈现（完整标题/完整摘要不截断/源/作者/双时间/L0·L1/主条/原文链接）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeFetch(() =>
+        ok(
+          paged([
+            itemOf({
+              id: 1,
+              title: '贵州茅台发布2026年中期业绩公告：营收与净利润均创新高',
+              summary: '一条不需要被 line-clamp 截断的完整摘要内容，悬浮卡全量呈现',
+              author: '证券时报',
+              nearDupMasterId: 4,
+              nearDupMasterUrl: 'https://example.com/master',
+            }),
+          ]),
+        ),
+      ),
+    );
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    const hover = screen.getByTestId('news-library-hover-1');
+    expect(hover).toHaveTextContent('贵州茅台发布2026年中期业绩公告：营收与净利润均创新高');
+    expect(hover).toHaveTextContent('一条不需要被 line-clamp 截断的完整摘要内容，悬浮卡全量呈现');
+    expect(hover).toHaveTextContent('金十数据·快讯');
+    expect(hover).toHaveTextContent('证券时报');
+    expect(hover).toHaveTextContent('发布');
+    expect(hover).toHaveTextContent('抓取');
+    expect(hover).toHaveTextContent('通过');
+    expect(hover).toHaveTextContent('银行');
+    // 摘要不截断：悬浮卡摘要无 line-clamp（列表行摘要才有）
+    const hoverSummary = screen.getByTestId('news-library-hover-summary-1');
+    expect(hoverSummary.className).not.toContain('line-clamp');
+    // 主条 / 原文链接直达
+    expect(screen.getByTestId('news-library-hover-master-1')).toHaveAttribute(
+      'href',
+      'https://example.com/master',
+    );
+    expect(screen.getByTestId('news-library-hover-origin-1')).toHaveAttribute(
+      'href',
+      'https://example.com/n1',
+    );
+  });
+
+  it('hover 详情卡悬浮呈现（纯 CSS group-hover：卡片常驻 DOM，由行 group 控制可见性）', async () => {
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    const row = screen.getByTestId('news-library-item-1');
+    const hover = screen.getByTestId('news-library-hover-1');
+    // 行为 group 容器、卡片为 group-hover 控制的浮层（零新依赖，jsdom 不模拟 hover 只验结构挂载）
+    expect(row.className).toContain('group');
+    expect(hover.className).toContain('group-hover:block');
+  });
+
+  it('hover 卡标的区：关联标的代码+名称+行业与详情链接 #/subjects/:code；无标的行不渲染标的区', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeFetch(() => ok(paged([withSubjects(1), itemOf({ id: 2 })]))),
+    );
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-2');
+    const detail = screen.getByTestId('news-library-hover-subject-1-SH600519');
+    expect(detail).toHaveTextContent('SH600519');
+    expect(detail).toHaveTextContent('贵州茅台');
+    expect(detail).toHaveTextContent('白酒');
+    expect(screen.getByTestId('news-library-hover-subject-link-1-SH600519')).toHaveAttribute(
+      'href',
+      '#/subjects/SH600519',
+    );
+    expect(screen.queryByTestId('news-library-hover-subject-2-SH600519')).toBeNull();
+  });
+
+  it('标的 chips：matchedSubjects 行渲染名称 chips（title 带代码）；无关联标的行不渲染 chips', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeFetch(() => ok(paged([withSubjects(1), itemOf({ id: 2 })]))),
+    );
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-2');
+    const chip1 = screen.getByTestId('news-library-subject-chip-1-SH600519');
+    expect(chip1).toHaveTextContent('贵州茅台');
+    expect(chip1).toHaveAttribute('title', 'SH600519');
+    expect(screen.getByTestId('news-library-subject-chip-1-SZ300024')).toHaveTextContent('机器人');
+    expect(screen.queryByTestId(/news-library-subject-chip-2-/)).toBeNull();
+  });
+
+  it('chips 双向联动：点击 chip → 请求带 subjectCode=SH600519 回第 1 页，页头聚合「标的：SH600519 贵州茅台 · 共 N 条」', async () => {
+    const fetchMock = makeFetch(() => ok(paged([withSubjects(1)], 12)));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.click(screen.getByTestId('news-library-subject-chip-1-SH600519'));
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('subjectCode=SH600519');
+      expect(last).toContain('page=1');
+    });
+    const aggregate = screen.getByTestId('news-library-subject-aggregate');
+    expect(aggregate).toHaveTextContent('SH600519');
+    expect(aggregate).toHaveTextContent('贵州茅台');
+    expect(aggregate).toHaveTextContent('共 12 条');
+    // 双向联动：筛选器同步呈现选中态（SubjectPicker 已选视图）
+    expect(screen.getByTestId('news-library-subject-picker-selected')).toHaveTextContent(
+      'SH600519',
+    );
+  });
+
+  it('chips 触发筛选后翻页：分页通道保留 subjectCode 条件', async () => {
+    const fetchMock = makeFetch(() => ok(paged([withSubjects(1)], 45)));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.click(screen.getByTestId('news-library-subject-chip-1-SH600519'));
+    await waitFor(() =>
+      expect(newsLibraryCalls(fetchMock).at(-1) ?? '').toContain('subjectCode=SH600519'),
+    );
+    await userEvent.click(screen.getByTestId('news-library-pagination-page-2'));
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('subjectCode=SH600519');
+      expect(last).toContain('page=2');
+    });
+  });
+
+  it('SubjectPicker 联动：输入联想 → 选中 → 请求带 subjectCode 且聚合页头按该标的出数', async () => {
+    const fetchMock = makeFetch(
+      () => ok(paged([withSubjects(1)], 7)),
+      () => ok(sourcesView()),
+      () => ok(subjectOptions()),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.type(screen.getByTestId('news-library-subject-picker-input'), '茅台');
+    await userEvent.click(await screen.findByTestId('news-library-subject-picker-option-7'));
+
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('subjectCode=SH600519');
+      expect(last).toContain('page=1');
+    });
+    expect(screen.getByTestId('news-library-subject-aggregate')).toHaveTextContent('共 7 条');
+    expect(screen.getByTestId('news-library-subject-aggregate')).toHaveTextContent('贵州茅台');
+  });
+
+  it('清除标的：picker × 一键清除 → 请求恢复无 subjectCode，聚合行消失', async () => {
+    const fetchMock = makeFetch(() => ok(paged([withSubjects(1)], 7)));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.click(screen.getByTestId('news-library-subject-chip-1-SH600519'));
+    await waitFor(() =>
+      expect(newsLibraryCalls(fetchMock).at(-1) ?? '').toContain('subjectCode=SH600519'),
+    );
+    expect(screen.getByTestId('news-library-subject-aggregate')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('news-library-subject-picker-clear'));
+    await waitFor(() => {
+      expect(newsLibraryCalls(fetchMock).at(-1) ?? '').not.toContain('subjectCode=');
+    });
+    expect(screen.queryByTestId('news-library-subject-aggregate')).toBeNull();
+    expect(screen.getByTestId('news-library-subject-picker-input')).toBeInTheDocument();
+  });
+
+  it('组合筛选：subjectCode 与源/状态 AND 组合透传', async () => {
+    const fetchMock = makeFetch(() => ok(paged([withSubjects(1)])));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.selectOptions(screen.getByTestId('news-library-source-filter'), '7');
+    await waitFor(() => expect(newsLibraryCalls(fetchMock).length).toBeGreaterThanOrEqual(2));
+    await userEvent.click(screen.getByTestId('news-library-subject-chip-1-SH600519'));
+
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).toContain('sourceId=7');
+      expect(last).toContain('subjectCode=SH600519');
+      expect(last).toContain('page=1');
+    });
+  });
+
+  it('清除全部筛选 CTA：标的筛选一并恢复默认（无 subjectCode）', async () => {
+    // 带 subjectCode 的请求回空（筛选过窄空态），不带的全量返回（chips 可点）
+    const fetchMock = vi.fn(async (url: string) => {
+      const path = String(url);
+      if (path.includes('/news-items')) {
+        return path.includes('subjectCode=') ? ok(paged([], 0)) : ok(paged([withSubjects(1)]));
+      }
+      if (path.includes('/info-sources')) return ok(sourcesView());
+      return ok(null);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    await userEvent.click(screen.getByTestId('news-library-subject-chip-1-SH600519'));
+    // 标的筛选下的空态 = 有附加筛选（过窄文案 + 清除 CTA，非「库为空」）
+    await screen.findByTestId('news-library-empty');
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('未找到匹配条目');
+    expect(screen.getByTestId('news-library-clear-filters')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('news-library-clear-filters'));
+    await waitFor(() => {
+      const last = newsLibraryCalls(fetchMock).at(-1) ?? '';
+      expect(last).not.toContain('subjectCode=');
+      expect(last).toContain('l0=PASS');
+    });
+    expect(screen.queryByTestId('news-library-subject-aggregate')).toBeNull();
+  });
+
+  it('默认加载与未选标的时：请求不带 subjectCode，聚合行不渲染', async () => {
+    const fetchMock = makeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<NewsLibrary />);
+
+    await screen.findByTestId('news-library-item-1');
+    expect(newsLibraryCalls(fetchMock)[0]).not.toContain('subjectCode=');
+    expect(screen.queryByTestId('news-library-subject-aggregate')).toBeNull();
   });
 });

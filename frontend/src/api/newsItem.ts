@@ -28,6 +28,8 @@ export interface NewsLibraryQuery {
   /** 入库时间窗（yyyy-MM-dd，上海日界含端点；V2.4 T210——大盘「今日入库」弹框对账口径）。 */
   fetchedFrom?: string | null;
   fetchedTo?: string | null;
+  /** 回联标的代码（V3.1：matched_subjects 含该代码的行）；null/空串不过滤。 */
+  subjectCode?: string | null;
   page: number;
   size: number;
 }
@@ -66,6 +68,9 @@ export async function listNewsLibraryPaged(
   }
   if (query.fetchedTo) {
     params.set('fetchedTo', query.fetchedTo);
+  }
+  if (query.subjectCode && query.subjectCode.trim()) {
+    params.set('subjectCode', query.subjectCode.trim());
   }
   params.set('page', String(query.page));
   params.set('size', String(query.size));
