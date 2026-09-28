@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RecommendationCardItem, RecommendationListView } from '@/types/recommendation';
+import type { RecommendationCardItem, RecommendationCardPageView } from '@/types/recommendation';
 import { resetReadingTrackerForTest } from '@/api/readingEvent';
 
 // —— fetch mock：对齐后端 RecommendationCardController 契约（M16 方案 §4.8：
@@ -52,9 +52,21 @@ function cardOf(overrides: Partial<RecommendationCardItem> = {}): Recommendation
 function viewOf(
   items: RecommendationCardItem[],
   total = items.length,
-  nextBeforeId: number | null = null,
-): RecommendationListView {
-  return { total, items, nextBeforeId };
+  page = 1,
+  size = 20,
+): RecommendationCardPageView {
+  return { total, items, page, size };
+}
+
+/** 相对路径 URL → page/size 参数读取（http 层走相对路径，不能 new URL）。 */
+function paramOf(url: string, key: string): string | null {
+  const qs = url.split('?')[1] ?? '';
+  return new URLSearchParams(qs).get(key);
+}
+
+/** 列表端点请求线（曝光埋点 POST 混入 calls 时只看卡片流请求）。 */
+function listCallsOf(fetchMock: ReturnType<typeof stubFetch>): string[] {
+  return fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes('/recommendations?'));
 }
 
 interface RouteStub {
@@ -324,30 +336,138 @@ describe('Recommendations 推荐中心页（T135，#/recommendations 第 18 页�
     });
   });
 
-  it('游标分页：满页展示加载更多（beforeId 续拉），尾页收起', async () => {
+  it('游标分页退役 → M9 页码分页：首查 page=1&size=20，「共 N 条」与分页 total 一致，无「加载更多」', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()], 30)) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    expect(await screen.findByTestId('rec-card-9')).toBeInTheDocument();
+    expect(screen.getByTestId('rec-total')).toHaveTextContent('30');
+    expect(screen.getByTestId('rec-pagination-total')).toHaveTextContent('30');
+    expect(screen.getByTestId('rec-pagination-page-indicator')).toHaveTextContent('1 / 2');
+    // 请求线：页码模式（page/size），游标退役
+    const firstCall = String(fetchMock.mock.calls[0][0]);
+    expect(firstCall).toContain('/recommendations');
+    expect(paramOf(firstCall, 'page')).toBe('1');
+    expect(paramOf(firstCall, 'size')).toBe('20');
+    expect(firstCall).not.toContain('beforeId=');
+    expect(screen.queryByTestId('rec-load-more')).toBeNull();
+    expect(firstCall).not.toContain('level=');
+  });
+
+  it('翻页：点击第 2 页 → page=2 请求，卡片数据替换（非追加），页码指示联动', async () => {
     const fetchMock = stubFetch([
       {
         path: '/api/v1/recommendations',
-        respond: (url) =>
-          ok(
-            url.includes('beforeId=9')
-              ? viewOf([cardOf({ id: 8, logicChain: '尾部卡片' })])
-              : viewOf([cardOf()], 2, 9),
-          ),
+        respond: (url) => {
+          const page = paramOf(url, 'page') ?? '1';
+          return page === '2'
+            ? ok(viewOf([cardOf({ id: 8, summary: '第二页推荐卡' })], 30, 2))
+            : ok(viewOf([cardOf()], 30, 1));
+        },
       },
     ]);
 
     const { Recommendations } = await import('@/pages/Recommendations');
     render(<Recommendations />);
 
+    await screen.findByTestId('rec-card-9');
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('rec-load-more'));
+    await user.click(screen.getByTestId('rec-pagination-page-2'));
+
     expect(await screen.findByTestId('rec-card-8')).toBeInTheDocument();
-    const paged = fetchMock.mock.calls
-      .map((call) => String(call[0]))
-      .filter((url) => url.includes('/recommendations?'));
-    expect(paged.at(-1)).toContain('beforeId=9');
-    await waitFor(() => expect(screen.queryByTestId('rec-load-more')).toBeNull());
+    // 数据替换：第 1 页卡片不再渲染（非游标追加）
+    expect(screen.queryByTestId('rec-card-9')).toBeNull();
+    expect(screen.getByTestId('rec-pagination-page-indicator')).toHaveTextContent('2 / 2');
+    const lastCall = listCallsOf(fetchMock).at(-1) ?? '';
+    expect(paramOf(lastCall, 'page')).toBe('2');
+    expect(lastCall).not.toContain('beforeId=');
+  });
+
+  it('翻页失败：列表保留 + 错误可见可重试，重试成功落到目标页（在途不吞错）', async () => {
+    let page2Fails = true;
+    stubFetch([
+      {
+        path: '/api/v1/recommendations',
+        respond: (url) => {
+          if ((paramOf(url, 'page') ?? '1') === '2') {
+            if (page2Fails) return fail(500, 50000, '翻页服务异常');
+            return ok(viewOf([cardOf({ id: 8 })], 30, 2));
+          }
+          return ok(viewOf([cardOf()], 30, 1));
+        },
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    await screen.findByTestId('rec-card-9');
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('rec-pagination-page-2'));
+
+    expect(await screen.findByTestId('rec-pagination-error')).toHaveTextContent('加载第 2 页失败');
+    // 在途失败不清列表（第 1 页卡片保留）
+    expect(screen.getByTestId('rec-card-9')).toBeInTheDocument();
+
+    page2Fails = false;
+    await user.click(screen.getByTestId('rec-pagination-retry'));
+    expect(await screen.findByTestId('rec-card-8')).toBeInTheDocument();
+  });
+
+  it('空页防御回退：末页收缩（items 空 + total>0）→ 静默重发末页落地（M9 §5.3）', async () => {
+    let firstPageLoads = 0;
+    const fetchMock = stubFetch([
+      {
+        path: '/api/v1/recommendations',
+        respond: (url) => {
+          const page = paramOf(url, 'page') ?? '1';
+          if (page === '2') {
+            // 请求第 2 页时数据已收缩：空列表 + total=15（只剩 1 页）→ 触发回退
+            return ok(viewOf([], 15, 2));
+          }
+          firstPageLoads += 1;
+          return ok(viewOf([cardOf()], firstPageLoads === 1 ? 30 : 15, 1));
+        },
+      },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    await screen.findByTestId('rec-card-9');
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('rec-pagination-page-2'));
+
+    expect(await screen.findByTestId('rec-card-9')).toBeInTheDocument();
+    await waitFor(() => expect(paramOf(listCallsOf(fetchMock).at(-1) ?? '', 'page')).toBe('1'));
+    expect(screen.getByTestId('rec-pagination-page-indicator')).toHaveTextContent('1 / 1');
+    expect(screen.queryByTestId('rec-pagination-error')).toBeNull();
+    expect(screen.queryByTestId('rec-empty')).toBeNull();
+  });
+
+  it('条数切换：size 切 50 → 回第 1 页带新 size 重查', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/recommendations', respond: () => ok(viewOf([cardOf()], 120)) },
+    ]);
+
+    const { Recommendations } = await import('@/pages/Recommendations');
+    render(<Recommendations />);
+
+    await screen.findByTestId('rec-card-9');
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('rec-pagination-page-3'));
+    await waitFor(() => expect(paramOf(listCallsOf(fetchMock).at(-1) ?? '', 'page')).toBe('3'));
+
+    await user.selectOptions(screen.getByTestId('rec-pagination-size'), '50');
+    await waitFor(() => {
+      const last = listCallsOf(fetchMock).at(-1) ?? '';
+      expect(paramOf(last, 'page')).toBe('1'); // 条数切换回第 1 页
+      expect(paramOf(last, 'size')).toBe('50');
+    });
   });
 
   it('focus 参数定位：SSE 跳转落地 #/recommendations?focus=9 → 高亮目标卡 + 自动已读', async () => {

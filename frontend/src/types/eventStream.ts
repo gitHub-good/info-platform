@@ -12,6 +12,20 @@ export interface EventStreamQuery {
   limit?: number;
 }
 
+// —— 页码模式（M25 T224 消费 T220 契约：GET /api/v1/events?page=&size=） ——
+
+/** 页码模式查询（page 出现即页码模式 offset 语义；与 beforeId 互斥 400——两模式不同用）。 */
+export interface EventStreamPageQuery {
+  type?: string;
+  industry?: string;
+  importance?: string;
+  direction?: string;
+  /** 页码（1 起；上限 100 万防 offset 溢出）。 */
+  page: number;
+  /** 页大小（缺省 20 上限 50，越界后端拒绝不截断）。 */
+  size: number;
+}
+
 /** 关键数字（来自原文，label + value + unit，禁编造）。 */
 export interface EventFigure {
   label: string | null;
@@ -49,6 +63,14 @@ export interface EventStreamView {
   total: number;
   items: EventCard[];
   nextBeforeId: number | null;
+}
+
+/** 事件流页码视图（M25 T220：{total, items, page, size}，无 nextBeforeId——两模式契约各自闭合；items 与游标模式同构）。 */
+export interface EventStreamPageView {
+  total: number;
+  items: EventCard[];
+  page: number;
+  size: number;
 }
 
 // —— 行业影响链（M17 T144，对齐后端 ImpactChainView——GET /api/v1/events/{id}/impact-chains 契约） ——

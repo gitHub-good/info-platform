@@ -9,6 +9,7 @@
 import { request } from './http';
 import type {
   DailyRecommendationView,
+  RecommendationCardPageView,
   RecommendationFeedbackAction,
   RecommendationFeedbackResult,
   RecommendationListView,
@@ -23,7 +24,16 @@ export interface RecommendationCenterQuery {
   limit?: number;
 }
 
-/** 推荐中心卡片流（GET /api/v1/recommendations）。 */
+/** 页码模式查询（M25 T224 消费 T220 契约：page 出现即页码模式 offset 语义；与 beforeId 互斥 400）。 */
+export interface RecommendationCenterPageQuery {
+  level?: string;
+  eventType?: string;
+  direction?: string;
+  page: number;
+  size: number;
+}
+
+/** 推荐中心卡片流（GET /api/v1/recommendations，游标模式——T224 页面分页化后由页码函数承接列表消费）。 */
 export function getRecommendationCards(
   query: RecommendationCenterQuery,
   signal?: AbortSignal,
@@ -36,6 +46,20 @@ export function getRecommendationCards(
   if (query.limit != null) params.set('limit', String(query.limit));
   const qs = params.size > 0 ? `?${params}` : '';
   return request<RecommendationListView>(`/recommendations${qs}`, { signal });
+}
+
+/** 推荐中心卡片流·页码模式（M25 T224：page/size offset 分页，M9 分页语义消费入口）。 */
+export function getRecommendationCardsPaged(
+  query: RecommendationCenterPageQuery,
+  signal?: AbortSignal,
+): Promise<RecommendationCardPageView> {
+  const params = new URLSearchParams();
+  if (query.level) params.set('level', query.level);
+  if (query.eventType) params.set('eventType', query.eventType);
+  if (query.direction) params.set('direction', query.direction);
+  params.set('page', String(query.page));
+  params.set('size', String(query.size));
+  return request<RecommendationCardPageView>(`/recommendations?${params}`, { signal });
 }
 
 /**

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
-import { getEventImpactChains, getEvents } from '@/api/eventStream';
+import { getEventImpactChains, getEventsPaged } from '@/api/eventStream';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -18,8 +19,14 @@ import { SW_INDUSTRIES, type EventCard, type ImpactChainView } from '@/types/eve
 // 事件流页（M15 T127，#/events 全站第 17 页——方案 §4.8 + REQ 故事 3）。
 // L2 结构化事件全字段卡片流：类型/方向（沿 A 股惯例利好红利空绿）/重要度（高>中>低）徽章、
 // 影响行业 chips、关键数字 chips（原文可回溯）、subjects 可点跳标的详情、quote 原文引用 + 原文外链；
-// 四维筛选（类型 9 枚举/行业 31 申万/重要度/方向）变更回第 1 页，beforeId 游标加载更多。
+// 四维筛选（类型 9 枚举/行业 31 申万/重要度/方向）变更回第 1 页骨架重查。
+// M25 T224 分页化：beforeId 游标「加载更多」退役，接入 M9 Pagination（page/size 页码模式，
+// 消费 T220 契约）——翻页在途保留数据、失败可重试、末页收缩空页回退（M9 §5 语义）。
+// 落点聚焦（M20 T173）从简裁量留档：页码模式下聚焦「当前页命中行」高亮滚入，不做定向跨页回溯。
 // 三态齐备：加载骨架 / 空态引导 / 错误重试；受保护接口 401 由 http 层统一跳登录。
+
+/** 缺省每页条数（后端 size 缺省 20，上限 50）。 */
+const DEFAULT_PAGE_SIZE = 20;
 
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.msg : fallback;
@@ -384,58 +391,124 @@ function FilterRow({
   );
 }
 
-/** 事件流页（第 17 页，「分析」组）。 */
+/** 事件流页（第 17 页，「分析」组；M25 T224 分页化）。 */
 export function Events() {
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
   const [items, setItems] = useState<EventCard[]>([]);
   const [total, setTotal] = useState(0);
-  const [nextBeforeId, setNextBeforeId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // pageSize 的稳定读取点：翻页回调不随渲染闭包漂移
+  const pageSizeRef = useRef(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState<{ page: number; message: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // 落点聚焦（M20 T173 依据事件下钻）：#/events?focus=<eventId> 定位高亮该事件卡——命中已加载页即滚入视口，
-  // 更早事件经「加载更多」逐页带出后同样生效（首屏语义足够，不做定向游标回溯）
+  // 落点聚焦（M20 T173 依据事件下钻）：#/events?focus=<eventId> 定位高亮该事件卡——
+  // T224 从简裁量：聚焦当前页命中行即滚入视口高亮（不定向跨页回溯）
   const [focusId] = useState<number | null>(() => {
     const raw = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('focus');
     const parsed = raw == null ? null : Number(raw);
     return parsed != null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   });
 
-  const fetchPage = useCallback(
-    async (beforeId?: number) => {
+  /** 空页防御回退（M9 §5.3）：响应 items 空且 total>0 且 page>1 → 页界漂移，静默重发末页。 */
+  const fetchView = useCallback(
+    async (
+      query: { type: string; industry: string; importance: string; direction: string },
+      target: number,
+      size: number,
+      signal: AbortSignal,
+    ): Promise<{ landed: number; total: number; items: EventCard[] }> => {
+      const call = (pageNo: number) => getEventsPaged({ ...query, page: pageNo, size }, signal);
+      let view = await call(target);
+      if (view.items.length === 0 && view.total > 0 && target > 1) {
+        const last = Math.ceil(view.total / size);
+        if (last >= 1 && last < target) {
+          view = await call(last);
+          return { landed: last, total: view.total, items: view.items };
+        }
+      }
+      return { landed: target, total: view.total, items: view.items };
+    },
+    [],
+  );
+
+  /** 骨架通道（首屏/筛选变更 → page=1 新结果集查询，M9 §5.1）。 */
+  const loadFirst = useCallback(
+    async (nextFilters: FilterState) => {
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      // 加载态由调用方置位（首屏 useState 初值 / 筛选与重试事件处理器）——本函数同步段零 setState
-      if (beforeId != null) setLoadingMore(true);
+      setLoading(true);
+      setError(null);
+      setPageLoading(false);
+      setPageError(null);
+      setPage(1);
       try {
-        const view = await getEvents({ ...filters, beforeId }, ctrl.signal);
+        const view = await fetchView(nextFilters, 1, pageSizeRef.current, ctrl.signal);
         if (ctrl.signal.aborted) return;
+        setItems(view.items);
         setTotal(view.total);
-        setNextBeforeId(view.nextBeforeId);
-        setItems((prev) => (beforeId == null ? view.items : [...prev, ...view.items]));
-        setError(null);
+        setPage(view.landed);
       } catch (err) {
         if (ctrl.signal.aborted) return;
         setError(messageOf(err, '事件流加载失败'));
       } finally {
-        if (!ctrl.signal.aborted) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
+        if (!ctrl.signal.aborted) setLoading(false);
       }
     },
-    [filters],
+    [fetchView],
   );
 
-  // fetchPage 随 filters 变化：筛选变更即回第 1 页重拉（前请求 abort 守卫竞态）
+  // filters 变化（含挂载首查）：回第 1 页骨架重查（前请求 abort 守卫竞态）
   useEffect(() => {
-    void fetchPage();
+    void loadFirst(filters);
     return () => abortRef.current?.abort();
-  }, [fetchPage]);
+  }, [filters, loadFirst]);
 
-  // 聚焦卡命中已加载页 → 滚入视口（jsdom 无 scrollIntoView 实现时静默跳过，高亮仍生效）
+  /** 在途保留通道（同筛选条件下的翻页/条数切换，M9 §5.1）：列表数据保留，仅列表区在途态。 */
+  const fetchPage = useCallback(
+    async (target: number, size: number) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      setPageLoading(true);
+      setPageError(null);
+      try {
+        const view = await fetchView(filters, target, size, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setItems(view.items);
+        setTotal(view.total);
+        setPage(view.landed);
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setPageError({ page: target, message: messageOf(err, '加载失败') });
+      } finally {
+        if (!ctrl.signal.aborted) setPageLoading(false);
+      }
+    },
+    [filters, fetchView],
+  );
+
+  const handlePageChange = (target: number) => {
+    if (target === page) return;
+    void fetchPage(target, pageSizeRef.current);
+  };
+
+  const handlePageSizeChange = (next: number) => {
+    if (next === pageSizeRef.current) return;
+    pageSizeRef.current = next;
+    setPageSize(next);
+    void fetchPage(1, next);
+  };
+
+  const handleRetryPage = () => {
+    if (pageError) void fetchPage(pageError.page, pageSizeRef.current);
+  };
+
+  // 聚焦卡命中当前页 → 滚入视口（jsdom 无 scrollIntoView 实现时静默跳过，高亮仍生效）
   useEffect(() => {
     if (focusId == null) return;
     const el = document.querySelector(`[data-testid="event-focus-${focusId}"]`);
@@ -443,16 +516,6 @@ export function Events() {
       el.scrollIntoView({ block: 'center' });
     }
   }, [focusId, items]);
-
-  const updateFilter = (key: keyof FilterState, value: string) => {
-    // 事件驱动重置清单（不依赖 effect 内 setState）：切筛选立即清旧列表回骨架态
-    setFilters((prev) => ({ ...prev, [key]: value }));
-    setItems([]);
-    setTotal(0);
-    setNextBeforeId(null);
-    setError(null);
-    setLoading(true);
-  };
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="events-page">
@@ -464,7 +527,10 @@ export function Events() {
       </header>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <FilterRow filters={filters} onChange={updateFilter} />
+        <FilterRow
+          filters={filters}
+          onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+        />
         <span
           className="ml-auto text-xs text-muted-foreground"
           data-testid="events-total"
@@ -479,7 +545,7 @@ export function Events() {
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
         </div>
-      ) : error && items.length === 0 ? (
+      ) : error ? (
         <div className="flex flex-col items-start gap-2" data-testid="events-error">
           <p className="text-sm text-destructive" role="alert">
             {error}
@@ -487,11 +553,7 @@ export function Events() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              setError(null);
-              setLoading(true);
-              void fetchPage();
-            }}
+            onClick={() => void loadFirst(filters)}
             data-testid="events-retry"
           >
             重试
@@ -505,38 +567,57 @@ export function Events() {
           暂无事件：AI 管道按配额提取高价值结构化事件（L2 产出），可稍后刷新或放宽筛选。
         </p>
       ) : (
-        <div className="flex flex-col gap-3" data-testid="events-list">
-          {items.map((event) =>
-            event.id === focusId ? (
-              <div
-                key={event.id}
-                className="rounded-lg ring-2 ring-primary/60"
-                data-testid={`event-focus-${event.id}`}
-              >
-                <EventCardView event={event} />
-              </div>
-            ) : (
-              <EventCardView key={event.id} event={event} />
-            ),
-          )}
-          {nextBeforeId != null ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="self-center"
-              disabled={loadingMore}
-              onClick={() => void fetchPage(nextBeforeId)}
-              data-testid="events-load-more"
+        <>
+          <div className="flex flex-col gap-3" data-testid="events-list" aria-busy={pageLoading || undefined}>
+            {items.map((event) =>
+              event.id === focusId ? (
+                <div
+                  key={event.id}
+                  className="rounded-lg ring-2 ring-primary/60"
+                  data-testid={`event-focus-${event.id}`}
+                >
+                  <EventCardView event={event} />
+                </div>
+              ) : (
+                <EventCardView key={event.id} event={event} />
+              ),
+            )}
+          </div>
+          {pageLoading ? (
+            <p
+              className="mt-3 text-sm text-muted-foreground"
+              aria-live="polite"
+              data-testid="events-page-loading"
             >
-              {loadingMore ? '加载中…' : '加载更多'}
-            </Button>
-          ) : null}
-          {error ? (
-            <p className="text-xs text-destructive" role="alert" data-testid="events-more-error">
-              {error}
+              加载中…
             </p>
           ) : null}
-        </div>
+          {pageError ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="events-pagination-error">
+              <p className="text-sm text-destructive" role="alert">
+                加载第 {pageError.page} 页失败：{pageError.message}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRetryPage}
+                data-testid="events-pagination-retry"
+              >
+                重试
+              </Button>
+            </div>
+          ) : null}
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            disabled={pageLoading}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+            label="事件流分页"
+            testIdPrefix="events-pagination"
+          />
+        </>
       )}
     </main>
   );

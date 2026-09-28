@@ -95,6 +95,14 @@ export interface RecommendationListView {
   nextBeforeId: number | null;
 }
 
+/** 卡片流页码视图（M25 T224 消费 T220 契约：{total, items, page, size}，无 nextBeforeId——两模式契约各自闭合；items 与游标模式同构）。 */
+export interface RecommendationCardPageView {
+  total: number;
+  items: RecommendationCardItem[];
+  page: number;
+  size: number;
+}
+
 /** 反馈响应（{muteUntil?, escalated?}：DISLIKE 返回降频到期与是否升级）。 */
 export interface RecommendationFeedbackResult {
   muteUntil: string | null;
