@@ -4,10 +4,10 @@ import { getEventImpactChains, getEventsPaged } from '@/api/eventStream';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime } from '@/lib/format';
-import { cn } from '@/lib/utils';
 import {
   DIRECTION_LABELS,
   EVENT_TYPE_LABELS,
@@ -560,12 +560,11 @@ export function Events() {
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <p
-          className={cn('py-10 text-center text-sm text-muted-foreground')}
-          data-testid="events-empty"
-        >
-          暂无事件：AI 管道按配额提取高价值结构化事件（L2 产出），可稍后刷新或放宽筛选。
-        </p>
+        <EmptyState
+          title="暂无事件"
+          description="AI 管道按配额提取高价值结构化事件（L2 产出），可稍后刷新或放宽筛选。"
+          testId="events-empty"
+        />
       ) : (
         <>
           <div className="flex flex-col gap-3" data-testid="events-list" aria-busy={pageLoading || undefined}>

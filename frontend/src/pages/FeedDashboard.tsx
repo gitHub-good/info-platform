@@ -7,6 +7,7 @@ import { NewsItemsDialog, type NewsItemsDialogSpec } from '@/components/feed/New
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { navigate } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
@@ -380,20 +381,20 @@ export function FeedDashboard() {
             <NorthStarBlock view={nsView} />
           ) : null}
           {sources.length === 0 ? (
-            <p
-              className="py-10 text-center text-sm text-muted-foreground"
-              data-testid="dashboard-empty"
-            >
-              暂无运行中的源，
-              <button
-                type="button"
-                className="text-primary underline underline-offset-4"
-                onClick={() => navigate('/sources')}
-                data-testid="dashboard-empty-link"
-              >
-                去源管理页启用
-              </button>
-            </p>
+            <EmptyState
+              title="暂无运行中的源"
+              action={
+                <button
+                  type="button"
+                  className="text-primary underline underline-offset-4"
+                  onClick={() => navigate('/sources')}
+                  data-testid="dashboard-empty-link"
+                >
+                  去源管理页启用
+                </button>
+              }
+              testId="dashboard-empty"
+            />
           ) : (
             <>
               <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -7,6 +7,7 @@ import { KeywordHighlight } from '@/components/feed/KeywordHighlight';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SW_INDUSTRIES } from '@/types/eventStream';
 import type { FeedItemView, FeedItemType } from '@/types/feed';
@@ -280,31 +281,27 @@ export function Feed() {
         </div>
       ) : items.length === 0 ? (
         hasActiveSubs === false ? (
-          <div
-            className="flex flex-col items-center gap-3 py-10 text-center"
-            data-testid="feed-empty-no-subs"
-          >
-            <span className="flex size-10 items-center justify-center rounded-full bg-muted">
-              <Rss className="size-5 text-muted-foreground" aria-hidden="true" />
-            </span>
-            <p className="text-sm text-muted-foreground">
-              还没有订阅内容会出现在这里。订阅你的主题 / 标的 / 事件类型后，命中的公告、新闻与政策会汇总到本页。
-            </p>
-            <a
-              href="#/subscriptions"
-              data-testid="feed-empty-cta"
-              className={cn('mt-1', buttonVariants({ size: 'sm' }))}
-            >
-              去订阅管理
-            </a>
-          </div>
+          <EmptyState
+            icon={<Rss className="size-5 text-muted-foreground" />}
+            title="还没有订阅内容会出现在这里"
+            description="订阅你的主题 / 标的 / 事件类型后，命中的公告、新闻与政策会汇总到本页。"
+            action={
+              <a
+                href="#/subscriptions"
+                data-testid="feed-empty-cta"
+                className={buttonVariants({ size: 'sm' })}
+              >
+                去订阅管理
+              </a>
+            }
+            testId="feed-empty-no-subs"
+          />
         ) : (
-          <div
-            className="py-10 text-center text-sm text-muted-foreground"
-            data-testid="feed-empty-no-hits"
-          >
-            {industry ? `「${industry}」行业暂无命中内容，可稍后再来看看` : '暂无命中内容，可稍后再来看看'}
-          </div>
+          <EmptyState
+            title={industry ? `「${industry}」行业暂无命中内容` : '暂无命中内容'}
+            description="可稍后再来看看"
+            testId="feed-empty-no-hits"
+          />
         )
       ) : (
         <>

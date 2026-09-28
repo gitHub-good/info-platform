@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { currentRoute, queryOf } from '@/lib/navigation';
@@ -1105,19 +1106,17 @@ export const InfoSourcesPanel = forwardRef<InfoSourcesPanelHandle, { filter?: st
         <div className="flex flex-col gap-4">
           {visibleGroups.length === 0 && cards.length === 0 &&
           view.groups.some((g) => g.sources.length > 0) ? (
-            <p
-              className="py-10 text-center text-sm text-muted-foreground"
-              data-testid="info-sources-filtered-empty"
-            >
-              没有匹配「{filter.trim()}」的资讯源
-            </p>
+            <EmptyState
+              title={<>没有匹配「{filter.trim()}」的资讯源</>}
+              description="可调整搜索关键词后重试"
+              testId="info-sources-filtered-empty"
+            />
           ) : visibleGroups.length === 0 && view.archived.length === 0 ? (
-            <p
-              className="py-10 text-center text-sm text-muted-foreground"
-              data-testid="info-sources-empty"
-            >
-              暂无资讯源（异常场景，请检查后端种子）
-            </p>
+            <EmptyState
+              title="暂无资讯源"
+              description="异常场景，请检查后端种子"
+              testId="info-sources-empty"
+            />
           ) : (
             visibleGroups.map((group) => (
               <section key={group.category} className="flex flex-col gap-3">

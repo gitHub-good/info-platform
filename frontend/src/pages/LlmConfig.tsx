@@ -13,6 +13,7 @@ import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -806,12 +807,11 @@ export function LlmConfig() {
         <div className="flex flex-col gap-4">
           <GlobalCard global={view.global} onSaved={applyGlobal} />
           {view.providers.length === 0 ? (
-            <p
-              className="py-10 text-center text-sm text-muted-foreground"
-              data-testid="llm-config-empty"
-            >
-              暂无 provider 配置（新增条目不在本期范围）
-            </p>
+            <EmptyState
+              title="暂无 provider 配置"
+              description="新增条目不在本期范围"
+              testId="llm-config-empty"
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {view.providers.map((provider) => (

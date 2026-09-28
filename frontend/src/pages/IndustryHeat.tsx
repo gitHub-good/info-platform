@@ -14,6 +14,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatDateTime, formatNumber, formatPct } from '@/lib/format';
@@ -433,9 +434,11 @@ function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
           </Button>
         </div>
       ) : rows.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="heat-empty">
-          暂无行业热度数据（AI 管道快照生成中，可稍后刷新）
-        </p>
+        <EmptyState
+          title="暂无行业热度数据"
+          description="AI 管道快照生成中，可稍后刷新"
+          testId="heat-empty"
+        />
       ) : (
         <div className="overflow-hidden rounded-lg border" data-testid="heat-board">
           {rows.map((row, index) => {
@@ -850,9 +853,11 @@ function ReportTab({ retryPollMs }: { retryPollMs: number }) {
           </Button>
         </div>
       ) : (list?.reports.length ?? 0) === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="report-empty">
-          暂无行业日报：日报每日 08:00 自动生成前一交易日报告，首个完整数据日的次日出报。
-        </p>
+        <EmptyState
+          title="暂无行业日报"
+          description="日报每日 08:00 自动生成前一交易日报告，首个完整数据日的次日出报。"
+          testId="report-empty"
+        />
       ) : (
         <div className="flex flex-col gap-3" data-testid="report-list">
           {list?.reports.map((report) => {
@@ -1306,9 +1311,11 @@ function WeeklyTab({ retryPollMs }: { retryPollMs: number }) {
           </Button>
         </div>
       ) : (list?.reports.length ?? 0) === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="weekly-empty">
-          暂无行业周报：周报每周日晚 20:00 自动生成本周报告（热度总览/事件回顾/政策动向/下周关注点/走向判断）。
-        </p>
+        <EmptyState
+          title="暂无行业周报"
+          description="周报每周日晚 20:00 自动生成本周报告（热度总览/事件回顾/政策动向/下周关注点/走向判断）。"
+          testId="weekly-empty"
+        />
       ) : (
         <div className="flex flex-col gap-3" data-testid="weekly-list">
           {list?.reports.map((report) => {

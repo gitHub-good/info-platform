@@ -3,6 +3,7 @@ import { ExternalLink, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { ApiError } from '@/api/http';
@@ -217,26 +218,19 @@ interface NewsLibraryEmptyProps {
 /** 空态（REQ 拍板一）：无附加筛选 →「库为空」；有筛选 →「筛选条件过窄」+ 清除筛选 CTA。 */
 function NewsLibraryEmpty({ hasFilter, onClear }: NewsLibraryEmptyProps) {
   if (!hasFilter) {
-    return (
-      <div
-        className="py-10 text-center text-sm text-muted-foreground"
-        data-testid="news-library-empty"
-      >
-        资讯库暂无条目
-      </div>
-    );
+    return <EmptyState title="资讯库暂无条目" testId="news-library-empty" />;
   }
   return (
-    <div
-      className="flex flex-col items-center gap-2 py-10 text-center"
-      data-testid="news-library-empty"
-    >
-      <p className="text-sm text-foreground">未找到匹配条目</p>
-      <p className="text-xs text-muted-foreground">可调整源、状态、分类或关键词后重试</p>
-      <Button variant="outline" size="sm" onClick={onClear} data-testid="news-library-clear-filters">
-        清除筛选
-      </Button>
-    </div>
+    <EmptyState
+      title="未找到匹配条目"
+      description="可调整源、状态、分类或关键词后重试"
+      action={
+        <Button variant="outline" size="sm" onClick={onClear} data-testid="news-library-clear-filters">
+          清除筛选
+        </Button>
+      }
+      testId="news-library-empty"
+    />
   );
 }
 

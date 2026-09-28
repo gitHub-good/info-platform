@@ -382,11 +382,16 @@ describe('资讯库页（M19 T161，REQ-20260926-16 拍板一）', () => {
     render(<NewsLibrary />);
 
     await screen.findByTestId('news-library-empty');
+    // T228 抽查：统一空态组件结构（标题槽）
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('资讯库暂无条目');
     expect(screen.getByTestId('news-library-empty')).toHaveTextContent('资讯库暂无条目');
     expect(screen.queryByTestId('news-library-clear-filters')).toBeNull();
 
     await userEvent.click(screen.getByTestId('news-library-l0-noise'));
     await screen.findByTestId('news-library-empty');
+    // T228 抽查：筛选过窄分支（标题 + 描述 + 清除筛选 CTA 动作槽）
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('未找到匹配条目');
+    expect(screen.getByTestId('empty-state-description')).toHaveTextContent('可调整源、状态、分类或关键词后重试');
     expect(screen.getByTestId('news-library-empty')).toHaveTextContent('未找到匹配条目');
 
     await userEvent.click(screen.getByTestId('news-library-clear-filters'));

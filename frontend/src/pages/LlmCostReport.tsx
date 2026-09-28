@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -210,12 +211,10 @@ export function LlmCostReport() {
             </Button>
           </div>
         ) : empty ? (
-          <div
-            className="py-10 text-center text-sm text-muted-foreground"
-            data-testid="cost-report-empty"
-          >
-            所选时间窗内暂无 LLM 调用记录
-          </div>
+          <EmptyState
+            title="所选时间窗内暂无 LLM 调用记录"
+            testId="cost-report-empty"
+          />
         ) : report ? (
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BriefContentCard } from '@/components/aibrief/BriefContentCard';
 import { BriefStatusBadge } from '@/components/aibrief/BriefStatusBadge';
@@ -233,12 +234,11 @@ function ResultArea({
   // 初始：未触发
   if (taskId == null && !view) {
     return (
-      <div
-        className="py-10 text-center text-sm text-muted-foreground"
-        data-testid="brief-empty"
-      >
-        选择标的与简报类型，点击「生成 AI 简报」。
-      </div>
+      <EmptyState
+        title="暂无简报"
+        description="选择标的与简报类型，点击「生成 AI 简报」。"
+        testId="brief-empty"
+      />
     );
   }
 

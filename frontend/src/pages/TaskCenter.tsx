@@ -8,6 +8,7 @@ import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -1129,9 +1130,7 @@ export function TaskCenter() {
           </Button>
         </div>
       ) : jobs == null || jobs.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="task-center-empty">
-          暂无注册任务
-        </p>
+        <EmptyState title="暂无注册任务" testId="task-center-empty" />
       ) : (
         <Table data-testid="task-center-table">
           <TableHeader>

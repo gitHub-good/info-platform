@@ -372,6 +372,9 @@ describe('Events 事件流页（T127 + T224 分页化，#/events）', () => {
     render(<Events />);
 
     expect(await screen.findByTestId('events-empty')).toBeInTheDocument();
+    // T228 抽查：统一空态组件结构（标题 + 引导描述）
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('暂无事件');
+    expect(screen.getByTestId('empty-state-description')).toHaveTextContent('可稍后刷新或放宽筛选');
     expect(screen.getByTestId('events-total')).toHaveTextContent('0');
     expect(screen.queryByTestId('events-pagination-root')).toBeNull();
   });

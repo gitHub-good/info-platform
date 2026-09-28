@@ -252,9 +252,10 @@ describe('Feed 个人信息流页（T43）', () => {
     vi.stubGlobal('fetch', store.fetchMock);
     render(<Feed />);
 
-    expect(await screen.findByTestId('feed-empty-no-hits')).toHaveTextContent(
-      '暂无命中内容，可稍后再来看看',
-    );
+    // T228 统一空态组件：标题 + 描述两槽（原整句按「，」拆分，语义不变）
+    expect(await screen.findByTestId('feed-empty-no-hits')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('暂无命中内容');
+    expect(screen.getByTestId('empty-state-description')).toHaveTextContent('可稍后再来看看');
     expect(screen.queryByTestId('feed-empty-cta')).toBeNull();
   });
 

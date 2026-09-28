@@ -9,6 +9,7 @@ import { trackReadingOnce } from '@/api/readingEvent';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import { currentRoute, queryOf } from '@/lib/navigation';
@@ -581,9 +582,11 @@ export function Recommendations() {
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="rec-empty">
-          暂无动态推荐：暂无重要性达标且与自选/订阅相关的事件，可稍后刷新或调整关注配置。
-        </p>
+        <EmptyState
+          title="暂无动态推荐"
+          description="暂无重要性达标且与自选/订阅相关的事件，可稍后刷新或调整关注配置。"
+          testId="rec-empty"
+        />
       ) : (
         <>
           <div className="flex flex-col gap-3" data-testid="rec-list" aria-busy={pageLoading || undefined}>

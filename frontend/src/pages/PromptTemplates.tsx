@@ -16,6 +16,7 @@ import { SaveFeedbackBar, type SaveFeedbackState } from '@/components/config/Sav
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Dialog } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { compareVersions } from '@/lib/promptTemplate';
@@ -131,9 +132,10 @@ function SceneSection({
           </p>
         ) : null}
         {group.versions.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            该场景暂无模板版本（播种数据应保证至少 1 版，此态属数据异常）
-          </p>
+          <EmptyState
+            size="compact"
+            title="该场景暂无模板版本（播种数据应保证至少 1 版，此态属数据异常）"
+          />
         ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {orderVersions(group.versions).map((version) => (

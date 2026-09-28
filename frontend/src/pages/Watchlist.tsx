@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddItemDialog } from '@/components/watchlist/AddItemDialog';
 import { CreateWatchlistForm } from '@/components/watchlist/CreateWatchlistForm';
@@ -252,9 +253,11 @@ export function Watchlist() {
           </Button>
         </div>
       ) : watchlists.length === 0 ? (
-        <div className="py-10 text-center text-sm text-muted-foreground" data-testid="watchlist-list-empty">
-          暂无清单，点上方“创建清单”开始
-        </div>
+        <EmptyState
+          title="暂无清单"
+          description="点上方「创建清单」开始"
+          testId="watchlist-list-empty"
+        />
       ) : (
         <section
           className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"

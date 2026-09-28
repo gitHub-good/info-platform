@@ -26,6 +26,8 @@ interface StoreOpts {
   deleteItemCode?: number;
   /** 强制 GET /subjects/quotes 返回 500（行情加载失败，表格应显示「—」回退）。 */
   quotesFail?: boolean;
+  /** 清单列表响应；缺省 [wl1, wl2]，传 [] 构造页面级空态。 */
+  emptyList?: boolean;
 }
 
 function cloneWl(w: WatchlistView): WatchlistView {
@@ -167,7 +169,7 @@ function makeStore(opts: StoreOpts = {}) {
       return found ? ok(subjectDetailOf(found.id)) : fail(30001);
     }
     if (method === 'GET' && /\/watchlists$/.test(path)) {
-      return ok(watchlists.map(cloneWl));
+      return ok(opts.emptyList ? [] : watchlists.map(cloneWl));
     }
     let m = path.match(/\/watchlists\/(\d+)$/);
     if (method === 'GET' && m) {
@@ -246,6 +248,15 @@ async function pickSubject(
 }
 
 describe('Watchlist 管理页', () => {
+  it('空态：无清单时统一空态组件（标题 + 引导描述，T228 抽查）', async () => {
+    vi.stubGlobal('fetch', makeStore({ emptyList: true }).fetch);
+    render(<Watchlist />);
+
+    expect(await screen.findByTestId('watchlist-list-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('暂无清单');
+    expect(screen.getByTestId('empty-state-description')).toHaveTextContent('创建清单');
+  });
+
   it('渲染清单列表（名称 / 标的数）与默认选中清单的标的明细（代码/名称/行业/行情）', async () => {
     const store = makeStore();
     const fetchMock = await renderReady(store);

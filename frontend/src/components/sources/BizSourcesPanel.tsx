@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
@@ -919,19 +920,17 @@ export function BizSourcesPanel({ filter = '' }: { filter?: string }) {
         <div className="flex flex-col gap-4">
           <AggregationCard aggregation={view.aggregation} onSaved={applyAggregation} />
           {visibleSources.length === 0 && view.sources.length > 0 ? (
-            <p
-              className="py-10 text-center text-sm text-muted-foreground"
-              data-testid="datasource-config-filtered-empty"
-            >
-              没有匹配「{filter.trim()}」的业务数据源
-            </p>
+            <EmptyState
+              title={<>没有匹配「{filter.trim()}」的业务数据源</>}
+              description="可调整搜索关键词后重试"
+              testId="datasource-config-filtered-empty"
+            />
           ) : view.sources.length === 0 ? (
-            <p
-              className="py-10 text-center text-sm text-muted-foreground"
-              data-testid="datasource-config-empty"
-            >
-              暂无数据源配置（异常场景，请检查后端种子）
-            </p>
+            <EmptyState
+              title="暂无数据源配置"
+              description="异常场景，请检查后端种子"
+              testId="datasource-config-empty"
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
               {visibleSources.map((source) => (

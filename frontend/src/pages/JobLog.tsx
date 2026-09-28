@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import {
@@ -178,31 +179,24 @@ interface JobLogEmptyProps {
 /** 空态（UI 设计 §4.3）：有筛选区分性文案 + 清除筛选 CTA；无筛选维持现状文案。 */
 function JobLogEmpty({ hasFilter, onClear }: JobLogEmptyProps) {
   if (!hasFilter) {
-    return (
-      <div
-        className="py-10 text-center text-sm text-muted-foreground"
-        data-testid="job-log-empty"
-      >
-        暂无 Job 执行记录
-      </div>
-    );
+    return <EmptyState title="暂无 Job 执行记录" testId="job-log-empty" />;
   }
   return (
-    <div
-      className="flex flex-col items-center gap-2 py-10 text-center"
-      data-testid="job-log-empty"
-    >
-      <p className="text-sm text-foreground">未找到匹配的 Job 执行记录</p>
-      <p className="text-xs text-muted-foreground">可调整 Job 或状态筛选后重试</p>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onClear}
-        data-testid="job-log-clear-filters"
-      >
-        清除筛选
-      </Button>
-    </div>
+    <EmptyState
+      title="未找到匹配的 Job 执行记录"
+      description="可调整 Job 或状态筛选后重试"
+      action={
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onClear}
+          data-testid="job-log-clear-filters"
+        >
+          清除筛选
+        </Button>
+      }
+      testId="job-log-empty"
+    />
   );
 }
 

@@ -13,6 +13,7 @@ import { addWatchlistItem, createWatchlist, listWatchlists } from '@/api/watchli
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -47,9 +48,6 @@ const CODE_ALREADY_IN_WATCHLIST = 30011;
 
 /** 无清单用户自动创建的默认清单名（沿 RecommendationFeedbackService ADD_WATCHLIST 先例）。 */
 const DEFAULT_WATCHLIST_NAME = '默认清单';
-
-/** 空态引导口径（MARKET_TOP_JOB CRON 18:00 盘后日频）。 */
-const EMPTY_HINT = '榜单每日 18:00 生成，生成后此处展示全市场 Top10 榜单。';
 
 /** 降级横幅文案（batch.degradedReason 值域——需求锁定语义的呈现面）。 */
 const DEGRADED_BANNERS: Record<string, { text: string; className: string }> = {
@@ -703,9 +701,11 @@ function MarketTopRankPage() {
           <Skeleton className="h-44 w-full" />
         </div>
       ) : empty ? (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="market-top-empty">
-          {EMPTY_HINT}
-        </p>
+        <EmptyState
+          title="榜单生成中"
+          description="榜单每日 18:00 生成，生成后此处展示全市场 Top10 榜单。"
+          testId="market-top-empty"
+        />
       ) : error && !state.view ? (
         <div className="flex flex-col items-start gap-2" data-testid="market-top-error">
           <p className="text-sm text-destructive" role="alert">
@@ -738,9 +738,11 @@ function MarketTopRankPage() {
           <HitStatsPanel />
         </div>
       ) : (
-        <p className="py-10 text-center text-sm text-muted-foreground" data-testid="market-top-empty-items">
-          本期榜单为空。
-        </p>
+        <EmptyState
+          title="本期榜单为空"
+          description="可稍后刷新，或查看方法论了解入榜条件。"
+          testId="market-top-empty-items"
+        />
       )}
     </main>
   );

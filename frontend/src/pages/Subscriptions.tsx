@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -596,20 +597,17 @@ export function Subscriptions() {
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <div
-          className="flex flex-col items-center gap-3 py-10 text-center"
-          data-testid="subs-empty"
-        >
-          <span className="flex size-10 items-center justify-center rounded-full bg-muted">
-            <Bookmark className="size-5 text-muted-foreground" aria-hidden="true" />
-          </span>
-          <p className="text-sm text-muted-foreground">
-            还没有订阅。创建订阅后，相关的公告、新闻与政策将进入你的信息流。
-          </p>
-          <Button size="sm" className="mt-1" onClick={() => setCreateOpen(true)} data-testid="subs-empty-cta">
-            新建订阅
-          </Button>
-        </div>
+        <EmptyState
+          icon={<Bookmark className="size-5 text-muted-foreground" />}
+          title="还没有订阅"
+          description="创建订阅后，相关的公告、新闻与政策将进入你的信息流。"
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="subs-empty-cta">
+              新建订阅
+            </Button>
+          }
+          testId="subs-empty"
+        />
       ) : (
         <>
           <div className="flex flex-col gap-3" data-testid="subs-list" aria-busy={pageLoading || undefined}>

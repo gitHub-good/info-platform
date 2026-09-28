@@ -442,6 +442,9 @@ describe('Subscriptions 订阅管理页（体检 P1-3）', () => {
 
     expect(screen.getByTestId('subs-loading')).toBeInTheDocument();
     expect(await screen.findByTestId('subs-empty')).toHaveTextContent('还没有订阅');
+    // T228 抽查：统一空态组件结构（标题 + 引导描述 + CTA 动作槽）
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('还没有订阅');
+    expect(screen.getByTestId('empty-state-description')).toHaveTextContent('进入你的信息流');
     expect(screen.getByTestId('subs-empty-cta')).toHaveTextContent('新建订阅');
     // total=0 分页条整体不渲染；「共 0 条」如实展示
     expect(screen.queryByTestId('subs-pagination-root')).toBeNull();

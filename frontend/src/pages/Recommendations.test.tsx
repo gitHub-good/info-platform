@@ -516,6 +516,9 @@ describe('Recommendations 推荐中心页（T135，#/recommendations 第 18 页�
     render(<Recommendations />);
 
     expect(await screen.findByTestId('rec-empty')).toHaveTextContent('暂无动态推荐');
+    // T228 抽查：统一空态组件结构（标题 + 引导描述）
+    expect(screen.getByTestId('empty-state-title')).toHaveTextContent('暂无动态推荐');
+    expect(screen.getByTestId('empty-state-description')).toHaveTextContent('可稍后刷新或调整关注配置');
   });
 
   it('反馈失败（30081）：错误就地提示，不打断卡片流', async () => {
