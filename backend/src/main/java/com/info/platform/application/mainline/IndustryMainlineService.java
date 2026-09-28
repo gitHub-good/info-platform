@@ -3,12 +3,17 @@ package com.info.platform.application.mainline;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.info.platform.application.mainline.IndustryMainlineSettings.LeaderParams;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.HeatWindow;
+import com.info.platform.domain.analysis.IndustryCategory;
 import com.info.platform.domain.analysis.IndustryHeatSnapshot;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository.HistoryPctDay;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository.MarketSnapshotRow;
+import com.info.platform.domain.mainline.LeaderCalculator;
+import com.info.platform.domain.mainline.LeaderCalculator.Candidate;
+import com.info.platform.domain.mainline.LeaderCalculator.LeaderRow;
 import com.info.platform.domain.mainline.MainlineCalculator;
 import com.info.platform.domain.mainline.MainlineCalculator.CalculationInput;
 import com.info.platform.domain.mainline.MainlineCalculator.DimDetail;
@@ -18,14 +23,22 @@ import com.info.platform.domain.mainline.MainlineCalculator.Params;
 import com.info.platform.domain.mainline.MainlineCalculator.Result;
 import com.info.platform.domain.mainline.MainlineRepository;
 import com.info.platform.domain.mainline.MainlineRepository.EventWeightRow;
+import com.info.platform.domain.mainline.MainlineRepository.FactorScoreRow;
 import com.info.platform.domain.mainline.MainlineRepository.HeatTopDay;
 import com.info.platform.domain.mainline.MainlineRepository.MainlineBatchRow;
 import com.info.platform.domain.mainline.MainlineRepository.MainlineRankRow;
+import com.info.platform.domain.mainline.MainlineRepository.MarketQuoteRow;
+import com.info.platform.domain.mainline.MainlineRepository.MemberRow;
+import com.info.platform.domain.mainline.MainlineRepository.MentionCountRow;
+import com.info.platform.domain.mainline.MainlineRepository.SubjectEventLinkRow;
+import com.info.platform.domain.recommendation.IndustryDirectory;
+import com.info.platform.domain.valuation.RiskFactor;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -45,11 +58,14 @@ public class IndustryMainlineService {
 
     private static final Logger log = LoggerFactory.getLogger(IndustryMainlineService.class);
 
-    /** 榜单口径日时区（幂等锚）。 */
-    static final ZoneId RANK_ZONE = ZoneId.of("Asia/Shanghai");
+    /** 榜单口径日时区（幂等锚——Job/端点共用）。 */
+    public static final ZoneId RANK_ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 热度历史回看自然日窗（≥ 5 个交易日的日报留存裕量）。 */
     private static final int HEAT_HISTORY_LOOKBACK_DAYS = 14;
+
+    /** 个股价格动量两窗（近 5 个行情快照日——market_daily_snapshot 口径，方案 §3.5）。 */
+    private static final int PCT_WINDOW_QUOTES = 5;
 
     private final IndustryMarketSnapshotRepository marketSnapshotRepository;
 
@@ -63,19 +79,23 @@ public class IndustryMainlineService {
 
     private final ObjectMapper objectMapper;
 
+    private final AttentionProxyService attentionProxyService;
+
     public IndustryMainlineService(
             IndustryMarketSnapshotRepository marketSnapshotRepository,
             MainlineRepository mainlineRepository,
             HeatSnapshotRepository heatSnapshotRepository,
             IndustryMainlineSettings settings,
             Clock clock,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            AttentionProxyService attentionProxyService) {
         this.marketSnapshotRepository = marketSnapshotRepository;
         this.mainlineRepository = mainlineRepository;
         this.heatSnapshotRepository = heatSnapshotRepository;
         this.settings = settings;
         this.clock = clock;
         this.objectMapper = objectMapper;
+        this.attentionProxyService = attentionProxyService;
     }
 
     /**
@@ -133,6 +153,8 @@ public class IndustryMainlineService {
                 MainlineCalculator.calculate(
                         params, new CalculationInput(List.copyOf(current), dailyPctDay, dailyHeat));
 
+        // 龙头识别 + 主力徽章（T244）：每个 Top 行业成员内三维综合分 → 龙一/二/三（纯规则零 LLM）
+        LeaderOutcomes leaders = leadersFor(result.topRows(), rankDate);
         String computedAt = clock.instant().toString();
         String basis = basis(params, snapshotDate, windowDates);
         int version = mainlineRepository.maxVersion(date) + 1;
@@ -150,7 +172,7 @@ public class IndustryMainlineService {
                             row.persistentDays(),
                             row.heatRank(),
                             row.divergence(),
-                            "[]",
+                            leaders.jsonByIndustry().getOrDefault(row.industry(), "[]"),
                             basis,
                             computedAt));
         }
@@ -160,7 +182,7 @@ public class IndustryMainlineService {
                         version,
                         manual ? "MANUAL" : "DAILY",
                         snapshotDate,
-                        funnelStats(result, industryRows.size()),
+                        funnelStats(result, industryRows.size(), leaders),
                         degraded,
                         degraded ? "SNAPSHOT_STALE" : null,
                         basis,
@@ -285,15 +307,317 @@ public class IndustryMainlineService {
         return node;
     }
 
-    /** funnel_stats JSON（§4.1 契约：industries/persistPass/topN/dimensionMissing）。 */
-    private String funnelStats(Result result, int industries) {
+    /** funnel_stats JSON（§4.1 契约：industries/persistPass/topN/dimensionMissing/excluded）。 */
+    private String funnelStats(Result result, int industries, LeaderOutcomes leaders) {
         ObjectNode doc = objectMapper.createObjectNode();
         doc.put("industries", industries);
         doc.put("persistPass", result.gatePassed());
         doc.put("topN", result.topRows().size());
         ObjectNode missing = doc.putObject("dimensionMissing");
         result.dimensionMissing().forEach(missing::put);
+        ObjectNode excluded = doc.putObject("excluded");
+        excluded.put("st", leaders.excludedSt());
+        ObjectNode memberCoverage = doc.putObject("memberCoverage");
+        leaders.memberCoverage().forEach(memberCoverage::put);
         return doc.toString();
+    }
+
+    /** 龙头产出（行业 → leaders JSON + 排除/覆盖率留痕）。 */
+    private record LeaderOutcomes(
+            Map<String, String> jsonByIndustry,
+            int excludedSt,
+            Map<String, Integer> memberCoverage) {
+
+        static final LeaderOutcomes EMPTY = new LeaderOutcomes(Map.of(), 0, Map.of());
+    }
+
+    /** 逐 Top 行业识别龙头（成员装载 → ST 排除留痕 → 三维计算 → 徽章内嵌 → JSON 组装）。 */
+    private LeaderOutcomes leadersFor(List<MainlineRow> topRows, LocalDate rankDate) {
+        if (topRows.isEmpty()) {
+            return LeaderOutcomes.EMPTY;
+        }
+        LeaderParams leaderParams = settings.leaderParams();
+        List<MemberRow> members = mainlineRepository.findActiveMembers();
+        Map<String, List<MemberRow>> membersByIndustry = new HashMap<>();
+        int unmapped = 0;
+        for (MemberRow member : members) {
+            String sw =
+                    IndustryCategory.isSwIndustry(member.industry())
+                            ? member.industry()
+                            : IndustryDirectory.swPrimaryOf(member.industry());
+            if (sw == null) {
+                unmapped++;
+                continue;
+            }
+            membersByIndustry.computeIfAbsent(sw, key -> new ArrayList<>()).add(member);
+        }
+        if (unmapped > 0) {
+            log.debug("龙头成员装载：行业原文未收录跳过 {} 行（swPrimaryOf 安全侧）", unmapped);
+        }
+        // V 维原料（最新因子快照，一次性装载）
+        String factorDate = mainlineRepository.latestFactorSnapshotDate().orElse(null);
+        Map<Long, FactorScoreRow> factorScores = new HashMap<>();
+        if (factorDate != null) {
+            for (FactorScoreRow row : mainlineRepository.findFactorScores(factorDate)) {
+                factorScores.put(row.subjectId(), row);
+            }
+        }
+        // Q 维两窗原料（近 5 个行情快照日，一次性装载）
+        List<String> quoteDates =
+                new ArrayList<>(mainlineRepository.recentMarketQuoteDates(PCT_WINDOW_QUOTES));
+        java.util.Collections.reverse(quoteDates);
+        Map<String, Map<String, Double>> quotesByDate = new HashMap<>();
+        for (MarketQuoteRow row : mainlineRepository.findMarketPctChangeForDates(quoteDates)) {
+            quotesByDate
+                    .computeIfAbsent(row.code(), key -> new HashMap<>())
+                    .put(row.snapshotDate(), row.pctChange());
+        }
+
+        Map<String, String> jsonByIndustry = new LinkedHashMap<>();
+        Map<String, Integer> coverage = new LinkedHashMap<>();
+        int excludedSt = 0;
+        List<String> leaderCodes = new ArrayList<>();
+        Map<String, List<LeaderRow>> rowsByIndustry = new LinkedHashMap<>();
+        for (MainlineRow top : topRows) {
+            List<MemberRow> industryMembers =
+                    membersByIndustry.getOrDefault(top.industry(), List.of());
+            List<Candidate> candidates = new ArrayList<>(industryMembers.size());
+            Map<String, Integer> mentions = mentionsOf(top.industry(), rankDate, leaderParams);
+            Map<String, List<SubjectEventLinkRow>> eventLinks =
+                    eventLinksOf(top.industry(), rankDate);
+            for (MemberRow member : industryMembers) {
+                if (RiskFactor.isStName(member.name())) {
+                    excludedSt++; // excluded.st 留痕（funnel_stats——REQ 故事 3 场景）
+                    continue;
+                }
+                List<SubjectEventLinkRow> links = eventLinks.getOrDefault(member.code(), List.of());
+                double eventWeighted = 0d;
+                int riskEvents = 0;
+                for (SubjectEventLinkRow link : links) {
+                    eventWeighted +=
+                            "HIGH".equals(link.importance())
+                                    ? 2d
+                                    : "MEDIUM".equals(link.importance()) ? 1d : 0d;
+                    if ("BEARISH".equals(link.direction())) {
+                        riskEvents++;
+                    }
+                }
+                FactorScoreRow score = factorScores.get(member.subjectId());
+                Map<String, Double> quotes = quotesByDate.getOrDefault(member.code(), Map.of());
+                Double pctDay =
+                        quoteDates.isEmpty()
+                                ? null
+                                : quotes.get(quoteDates.get(quoteDates.size() - 1));
+                candidates.add(
+                        new Candidate(
+                                member.subjectId(),
+                                member.code(),
+                                member.name(),
+                                mentions.getOrDefault(member.code(), 0),
+                                eventWeighted,
+                                links.size(),
+                                riskEvents,
+                                score == null ? null : score.totalScore(),
+                                score == null ? null : score.dataFlagsJson(),
+                                pctDay,
+                                compoundPct(quotes, quoteDates)));
+            }
+            coverage.put(top.industry(), industryMembers.size());
+            LeaderCalculator.Result leaderResult =
+                    LeaderCalculator.calculate(leaderParamsToCalc(leaderParams), candidates);
+            rowsByIndustry.put(top.industry(), leaderResult.leaders());
+            leaderResult.leaders().forEach(leader -> leaderCodes.add(leader.subjectCode()));
+        }
+        // 主力徽章统一补齐（≤15 只 × 2 报表——集中一轮，页间礼貌间隔在 Proxy 内）
+        List<com.fasterxml.jackson.databind.node.ObjectNode> badges =
+                attentionProxyService.badgesFor(leaderCodes);
+        Map<String, com.fasterxml.jackson.databind.node.ObjectNode> badgeByCode = new HashMap<>();
+        for (int i = 0; i < leaderCodes.size() && i < badges.size(); i++) {
+            badgeByCode.put(leaderCodes.get(i), badges.get(i));
+        }
+        rowsByIndustry.forEach(
+                (industry, rows) ->
+                        jsonByIndustry.put(
+                                industry,
+                                leadersJson(
+                                        rows,
+                                        eventLinksOf(industry, rankDate),
+                                        badgeByCode,
+                                        factorDate)));
+        return new LeaderOutcomes(jsonByIndustry, excludedSt, coverage);
+    }
+
+    /** 龙头参数 → 计算器参数（同键直映射）。 */
+    private static LeaderCalculator.Params leaderParamsToCalc(LeaderParams params) {
+        return new LeaderCalculator.Params(
+                params.wa(),
+                params.wv(),
+                params.wq(),
+                params.mentionDays(),
+                params.topN(),
+                params.qDay(),
+                params.qD5());
+    }
+
+    /** 提及计数（mentionDays 自然日窗，Asia/Shanghai——created_at ISO 文本下界）。 */
+    private Map<String, Integer> mentionsOf(
+            String industry, LocalDate rankDate, LeaderParams params) {
+        String fromIso = rankDate.minusDays(params.mentionDays()).toString() + "T00:00:00";
+        String toIso = rankDate.plusDays(1).toString() + "T00:00:00";
+        Map<String, Integer> mentions = new HashMap<>();
+        for (MentionCountRow row :
+                mainlineRepository.countMentionsByIndustry(industry, fromIso, toIso)) {
+            mentions.put(row.code(), row.mentions());
+        }
+        return mentions;
+    }
+
+    /** 标的事件关联（mentionDays 窗，event_date 口径）。 */
+    private Map<String, List<SubjectEventLinkRow>> eventLinksOf(
+            String industry, LocalDate rankDate) {
+        LeaderParams params = settings.leaderParams();
+        Map<String, List<SubjectEventLinkRow>> byCode = new HashMap<>();
+        for (SubjectEventLinkRow link :
+                mainlineRepository.findSubjectEventLinks(
+                        industry,
+                        rankDate.minusDays(params.mentionDays()).toString(),
+                        rankDate.toString())) {
+            byCode.computeIfAbsent(link.code(), key -> new ArrayList<>()).add(link);
+        }
+        return byCode;
+    }
+
+    /** 个股 pct_d5 复利（近 5 行情日 pct_change——market_daily_snapshot 库内自算，任一日缺值返 null）。 */
+    private static Double compoundPct(Map<String, Double> quotesByDate, List<String> quoteDates) {
+        if (quoteDates.isEmpty()) {
+            return null;
+        }
+        double factor = 1d;
+        for (String date : quoteDates) {
+            Double pct = quotesByDate.get(date);
+            if (pct == null) {
+                return null;
+            }
+            factor *= 1d + pct / 100d;
+        }
+        return (factor - 1d) * 100d;
+    }
+
+    /** leaders JSON（§4.4.3 契约：rank/rankLabel/三维分解/basis 回溯/attention 徽章/disclaimer）。 */
+    private String leadersJson(
+            List<LeaderRow> rows,
+            Map<String, List<SubjectEventLinkRow>> eventLinks,
+            Map<String, com.fasterxml.jackson.databind.node.ObjectNode> badgeByCode,
+            String factorDate) {
+        com.fasterxml.jackson.databind.node.ArrayNode array = objectMapper.createArrayNode();
+        for (LeaderRow row : rows) {
+            ObjectNode node = objectMapper.createObjectNode();
+            node.put("rank", row.rank());
+            node.put("rankLabel", rankLabel(row.rank()));
+            node.put("subjectId", row.subjectId());
+            node.put("subjectCode", row.subjectCode());
+            node.put("subjectName", row.subjectName());
+            node.put("score", row.score());
+            ObjectNode dim = node.putObject("dim");
+            dim.set("attention", attentionNode(row));
+            dim.set("value", valueNode(row, factorDate));
+            dim.set("price", priceNode(row));
+            ObjectNode basis = node.putObject("basis");
+            List<SubjectEventLinkRow> links = eventLinks.getOrDefault(row.subjectCode(), List.of());
+            List<Long> eventIds =
+                    links.stream()
+                            .filter(
+                                    link ->
+                                            "HIGH".equals(link.importance())
+                                                    || "MEDIUM".equals(link.importance()))
+                            .map(SubjectEventLinkRow::eventId)
+                            .limit(2)
+                            .toList();
+            com.fasterxml.jackson.databind.node.ArrayNode eventIdArray = basis.putArray("eventIds");
+            eventIds.forEach(eventIdArray::add);
+            basis.put("factorSnapshotDate", factorDate == null ? "" : factorDate);
+            basis.put("riskEvents", row.attention() == null ? 0 : riskEventsOf(links));
+            basis.putNull("divergenceNote");
+            com.fasterxml.jackson.databind.node.ObjectNode badge =
+                    badgeByCode.get(row.subjectCode());
+            node.set("attention", badge == null ? objectMapper.createObjectNode() : badge);
+            node.put("disclaimer", "关注度排名，非投资建议，不构成买卖依据");
+            array.add(node);
+        }
+        return array.toString();
+    }
+
+    private static int riskEventsOf(List<SubjectEventLinkRow> links) {
+        return (int) links.stream().filter(link -> "BEARISH".equals(link.direction())).count();
+    }
+
+    /** 龙次名（1/2/3 → 龙一/二/三；4+ 序数兜底——topN 可配至 5）。 */
+    private static String rankLabel(int rank) {
+        return switch (rank) {
+            case 1 -> "龙一";
+            case 2 -> "龙二";
+            case 3 -> "龙三";
+            default -> "第" + rank;
+        };
+    }
+
+    /** dim.attention（§4.4.3：score/mentions/eventCount/eventWeighted）。 */
+    private ObjectNode attentionNode(LeaderRow row) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("score", row.attention().score());
+        node.put("mentions", row.mentions());
+        node.put("eventCount", row.eventCount());
+        node.put("eventWeighted", row.eventWeighted());
+        return node;
+    }
+
+    /** dim.value（§4.4.3：score/totalScore/snapshotDate/dataFlags）。 */
+    private ObjectNode valueNode(LeaderRow row, String factorDate) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("score", row.value().score());
+        if (row.value().raw() == null) {
+            node.putNull("totalScore");
+        } else {
+            node.put("totalScore", row.value().raw());
+        }
+        node.put("snapshotDate", factorDate == null ? "" : factorDate);
+        node.set(
+                "dataFlags",
+                row.dataFlagsJson() == null
+                        ? objectMapper.createArrayNode()
+                        : parseJsonArray(row.dataFlagsJson()));
+        return node;
+    }
+
+    /** dim.price（§4.4.3：score/pctDay/pctD5/flag）。 */
+    private ObjectNode priceNode(LeaderRow row) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("score", row.price().score());
+        if (row.pctDay() == null) {
+            node.putNull("pctDay");
+        } else {
+            node.put("pctDay", row.pctDay());
+        }
+        if (row.pctD5() == null) {
+            node.putNull("pctD5");
+        } else {
+            node.put("pctD5", row.pctD5());
+        }
+        node.put("flag", row.price().flag() == null ? "" : row.price().flag());
+        return node;
+    }
+
+    /** data_flags JSON 数组透传（解析失败落空数组——展示面不阻塞）。 */
+    private com.fasterxml.jackson.databind.node.ArrayNode parseJsonArray(String json) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode parsed = objectMapper.readTree(json);
+            if (parsed.isArray()) {
+                return (com.fasterxml.jackson.databind.node.ArrayNode) parsed;
+            }
+        } catch (Exception e) {
+            log.warn("data_flags 解析失败（落空数组）: {}", e.getMessage());
+        }
+        return objectMapper.createArrayNode();
     }
 
     /** basis 口径串（§3.4 契约：权重/阈值/输入指纹全量拼入——复算对账锚）。 */

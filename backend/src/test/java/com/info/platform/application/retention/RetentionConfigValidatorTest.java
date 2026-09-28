@@ -46,7 +46,7 @@ class RetentionConfigValidatorTest {
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
                                                 + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":180,"
-                                                + "\"marketDailySnapshotDays\":365,\"marketTopRankDays\":180,\"marketTopBatchDays\":180,\"incrementalReevalLogDays\":180}"))
+                                                + "\"marketDailySnapshotDays\":365,\"marketTopRankDays\":180,\"marketTopBatchDays\":180,\"incrementalReevalLogDays\":180,\"industryMarketSnapshotDays\":365,\"industryMainlineDays\":180,\"industryMainlineBatchDays\":180}"))
                 .doesNotThrowAnyException();
     }
 
@@ -59,7 +59,7 @@ class RetentionConfigValidatorTest {
                                         "{\"jobExecutionLogDays\":7,\"dataSourceEventDays\":2,"
                                                 + "\"llmCallLogDays\":35,\"readingEventDays\":35,\"newsItemDays\":30,"
                                                 + "\"recommendationCardDays\":30,\"subjectFactorSnapshotDays\":30,"
-                                                + "\"marketDailySnapshotDays\":90,\"marketTopRankDays\":30,\"marketTopBatchDays\":30,\"incrementalReevalLogDays\":30}"))
+                                                + "\"marketDailySnapshotDays\":90,\"marketTopRankDays\":30,\"marketTopBatchDays\":30,\"incrementalReevalLogDays\":30,\"industryMarketSnapshotDays\":90,\"industryMainlineDays\":30,\"industryMainlineBatchDays\":30}"))
                 .doesNotThrowAnyException();
         // T170：两快照表独立下限（因子 30 / 行情 90——序列资产窗更长）
         assertThatThrownBy(
@@ -68,7 +68,7 @@ class RetentionConfigValidatorTest {
                                         "{\"jobExecutionLogDays\":30,\"dataSourceEventDays\":14,"
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
                                                 + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":29,"
-                                                + "\"marketDailySnapshotDays\":365,\"marketTopRankDays\":180,\"marketTopBatchDays\":180,\"incrementalReevalLogDays\":180}"))
+                                                + "\"marketDailySnapshotDays\":365,\"marketTopRankDays\":180,\"marketTopBatchDays\":180,\"incrementalReevalLogDays\":180,\"industryMarketSnapshotDays\":365,\"industryMainlineDays\":180,\"industryMainlineBatchDays\":180}"))
                 .hasMessageContaining("subjectFactorSnapshotDays")
                 .hasMessageContaining("30");
         assertThatThrownBy(
@@ -194,7 +194,7 @@ class RetentionConfigValidatorTest {
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
                                                 + "\"recommendationCardDays\":180,\"subjectFactorSnapshotDays\":180,"
                                                 + "\"marketDailySnapshotDays\":365,\"marketTopRankDays\":180,\"marketTopBatchDays\":180,"
-                                                + "\"incrementalReevalLogDays\":180,\"futureField\":\"x\"}"))
+                                                + "\"incrementalReevalLogDays\":180,\"industryMarketSnapshotDays\":365,\"industryMainlineDays\":180,\"industryMainlineBatchDays\":180,\"futureField\":\"x\"}"))
                 .doesNotThrowAnyException();
     }
 
@@ -207,7 +207,7 @@ class RetentionConfigValidatorTest {
                                         "{\"jobExecutionLogDays\":3650,\"dataSourceEventDays\":14,"
                                                 + "\"llmCallLogDays\":90,\"readingEventDays\":90,\"newsItemDays\":180,"
                                                 + "\"recommendationCardDays\":365,\"subjectFactorSnapshotDays\":180,"
-                                                + "\"marketDailySnapshotDays\":730,\"marketTopRankDays\":730,\"marketTopBatchDays\":730,\"incrementalReevalLogDays\":180}"))
+                                                + "\"marketDailySnapshotDays\":730,\"marketTopRankDays\":730,\"marketTopBatchDays\":730,\"incrementalReevalLogDays\":180,\"industryMarketSnapshotDays\":730,\"industryMainlineDays\":180,\"industryMainlineBatchDays\":180}"))
                 .doesNotThrowAnyException();
     }
 }

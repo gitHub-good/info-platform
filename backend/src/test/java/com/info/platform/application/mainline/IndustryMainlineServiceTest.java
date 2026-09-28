@@ -54,6 +54,8 @@ class IndustryMainlineServiceTest {
 
     private IndustryMainlineSettings settings;
 
+    private AttentionProxyService attentionProxyService;
+
     private IndustryMainlineService service;
 
     @BeforeEach
@@ -65,6 +67,7 @@ class IndustryMainlineServiceTest {
                 mock(com.info.platform.application.common.RuntimeConfigService.class);
         ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
         settings = new IndustryMainlineSettings(configService);
+        attentionProxyService = mock(AttentionProxyService.class);
         service =
                 new IndustryMainlineService(
                         marketSnapshotRepository,
@@ -72,7 +75,8 @@ class IndustryMainlineServiceTest {
                         heatSnapshotRepository,
                         settings,
                         FIXED_CLOCK,
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        attentionProxyService);
     }
 
     private static MarketSnapshotRow industryRow(
@@ -293,5 +297,71 @@ class IndustryMainlineServiceTest {
                 ArgumentCaptor.forClass(MainlineBatchRow.class);
         verify(mainlineRepository, atLeastOnce()).insertVersion(batchCaptor.capture(), anyList());
         assertThat(batchCaptor.getValue().funnelStatsJson()).contains("dimensionMissing");
+    }
+
+    @Test
+    void compute_withMembers_writesLeadersWithStExcludedAndBadges() {
+        stubHappyPath(TODAY);
+        when(mainlineRepository.findActiveMembers())
+                .thenReturn(
+                        List.of(
+                                new MainlineRepository.MemberRow(88, "600519", "贵州茅台", "半导体"),
+                                new MainlineRepository.MemberRow(89, "600518", "ST某某酒", "半导体"),
+                                new MainlineRepository.MemberRow(90, "601579", "会稽山", "消费电子")));
+        when(mainlineRepository.latestFactorSnapshotDate()).thenReturn(Optional.of(TODAY));
+        when(mainlineRepository.findFactorScores(TODAY))
+                .thenReturn(
+                        List.of(
+                                new MainlineRepository.FactorScoreRow(88L, 76.5, "[]"),
+                                new MainlineRepository.FactorScoreRow(90L, 60.0, "[]")));
+        when(mainlineRepository.recentMarketQuoteDates(anyInt()))
+                .thenReturn(List.of(TODAY, "2026-09-25"));
+        when(mainlineRepository.findMarketPctChangeForDates(anyList()))
+                .thenReturn(
+                        List.of(
+                                new MainlineRepository.MarketQuoteRow("600519", TODAY, 0.56),
+                                new MainlineRepository.MarketQuoteRow("600519", "2026-09-25", 1.0),
+                                new MainlineRepository.MarketQuoteRow("601579", TODAY, 9.99),
+                                new MainlineRepository.MarketQuoteRow(
+                                        "601579", "2026-09-25", 2.0)));
+        when(mainlineRepository.countMentionsByIndustry(anyString(), anyString(), anyString()))
+                .thenReturn(List.of(new MainlineRepository.MentionCountRow("600519", 12)));
+        when(mainlineRepository.findSubjectEventLinks(anyString(), anyString(), anyString()))
+                .thenReturn(
+                        List.of(
+                                new MainlineRepository.SubjectEventLinkRow(
+                                        "600519", 10231L, "HIGH", "BULLISH"),
+                                new MainlineRepository.SubjectEventLinkRow(
+                                        "600519", 10344L, "MEDIUM", "BEARISH")));
+        com.fasterxml.jackson.databind.node.ObjectNode badge =
+                new ObjectMapper().createObjectNode();
+        badge.put("state", "OK");
+        badge.put("lhb30d", 3);
+        when(attentionProxyService.badgesFor(anyList())).thenReturn(List.of(badge));
+
+        service.compute(LocalDate.parse(TODAY), false);
+
+        // 电子 Top1（三维全顶）→ leaders 数组：龙一 600519（ST 排除 + 依据回溯 + 免责 + 徽章内嵌）
+        ArgumentCaptor<List<MainlineRepository.MainlineRankRow>> rowsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<MainlineRepository.MainlineBatchRow> batchCaptor =
+                ArgumentCaptor.forClass(MainlineRepository.MainlineBatchRow.class);
+        verify(mainlineRepository).insertVersion(batchCaptor.capture(), rowsCaptor.capture());
+        MainlineRepository.MainlineRankRow electronics =
+                rowsCaptor.getValue().stream()
+                        .filter(row -> row.industry().equals("电子"))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(electronics.leadersJson())
+                .contains("\"rankLabel\":\"龙一\"")
+                .contains("\"subjectCode\":\"600519\"")
+                .contains("\"eventIds\":[10231,10344]")
+                .contains("\"riskEvents\":1")
+                .contains("\"disclaimer\":\"关注度排名，非投资建议，不构成买卖依据\"")
+                .contains("\"lhb30d\":3")
+                .doesNotContain("ST某某酒");
+        assertThat(batchCaptor.getValue().funnelStatsJson())
+                .contains("\"st\":1")
+                .contains("\"电子\":3");
     }
 }

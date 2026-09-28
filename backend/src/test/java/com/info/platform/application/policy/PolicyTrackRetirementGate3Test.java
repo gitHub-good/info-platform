@@ -60,12 +60,15 @@ class PolicyTrackRetirementGate3Test {
     void jobRegistry_exactlySixteenJobs_policyTrackKeysAbsent() {
         List<String> jobKeys = jobRegistry.jobs().stream().map(ManagedJob::jobKey).toList();
 
-        assertThat(jobRegistry.jobs())
-                .as("Job 面 18→16（POLICY_FETCH/POLICY_TENDENCY 整链删除）")
-                .hasSize(16);
+        // M23 退役 18→16 后，M27 T242/T243 增 INDUSTRY_MARKET_SNAPSHOT/INDUSTRY_MAINLINE 两键
+        // 16→18（ADR-0063 裁决 6）
+        assertThat(jobRegistry.jobs()).as("Job 面 16→18（M27 行情快照 + 主线计算）").hasSize(18);
         assertThat(jobKeys)
                 .as("POLICY 双 Job 键不得残留")
                 .doesNotContain("POLICY_FETCH", "POLICY_TENDENCY");
+        assertThat(jobKeys)
+                .as("M27 两新键在册")
+                .contains("INDUSTRY_MARKET_SNAPSHOT", "INDUSTRY_MAINLINE");
     }
 
     /** ② policy_item 零新增（静态：无写入调用方）——写链类整包不存在 = 停写构造性成立。 */

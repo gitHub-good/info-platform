@@ -47,6 +47,55 @@ public interface MainlineRepository {
      */
     List<EventWeightRow> sumEventWeightByIndustry(String fromDate, String toDate);
 
+    // ---- 龙头识别输入投影（M27 T244，方案 §4.4——成员集/提及/事件关联/价值评分/行情两窗） ----
+
+    /** 活跃 A 股成员投影（industry 为板块原文，SW 映射在读侧 swPrimaryOf——M(I) 成员集原料）。 */
+    List<MemberRow> findActiveMembers();
+
+    /**
+     * 资讯提及计数（近窗，L1 归类到本行业且回联该标的——§4.4.2 对账 SQL 的批量化形态：json_each 展开计数，与 EXISTS 单标的口径等值）。
+     *
+     * @param industry 申万行业（main_category）
+     * @param fromIso news_item.created_at 下界（含，ISO-8601）
+     * @param toIso 上界（不含）
+     */
+    List<MentionCountRow> countMentionsByIndustry(String industry, String fromIso, String toIso);
+
+    /**
+     * 标的事件关联行（该行业事件 ∩ subjects 回联，近窗——A 维事件加权 + riskEvents + 依据 eventIds 原料）。
+     *
+     * @param fromDate event_date 下界（含，yyyy-MM-dd）
+     */
+    List<SubjectEventLinkRow> findSubjectEventLinks(
+            String industry, String fromDate, String toDate);
+
+    /** 最新因子快照日（subject_factor_snapshot——V 维原料锚；无任何快照返回 empty）。 */
+    Optional<String> latestFactorSnapshotDate();
+
+    /** 指定快照日的因子评分行（V 维原料——total_score + data_flags JSON 透传）。 */
+    List<FactorScoreRow> findFactorScores(String snapshotDate);
+
+    /** 指定日期集的行情涨跌幅行（Q 维两窗原料——market_daily_snapshot.pct_change）。 */
+    List<MarketQuoteRow> findMarketPctChangeForDates(List<String> snapshotDates);
+
+    /** 近 N 个 distinct 行情快照日（降序——Q 维两窗交易日集，market_daily_snapshot 口径）。 */
+    List<String> recentMarketQuoteDates(int limit);
+
+    /** 活跃成员行（subject_master：code/name + industry 板块原文）。 */
+    record MemberRow(long subjectId, String code, String name, String industry) {}
+
+    /** 单标的提及计数行。 */
+    record MentionCountRow(String code, int mentions) {}
+
+    /** 标的事件关联行（direction/importance 为枚举原文；eventId 供依据回溯）。 */
+    record SubjectEventLinkRow(String code, long eventId, String importance, String direction) {}
+
+    /** 因子评分行（dataFlagsJson 透传）。 */
+    record FactorScoreRow(long subjectId, double totalScore, String dataFlagsJson) {}
+
+    /** 行情涨跌幅行（snapshot_date yyyy-MM-dd + pct_change %）。 */
+    record MarketQuoteRow(String code, String snapshotDate, Double pctChange) {}
+
     /** 日报 heat_top 单日行（report_date + JSON 透传——解析归应用层）。 */
     record HeatTopDay(String reportDate, String heatTopJson) {}
 

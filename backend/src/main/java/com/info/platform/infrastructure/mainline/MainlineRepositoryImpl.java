@@ -206,6 +206,115 @@ public class MainlineRepositoryImpl implements MainlineRepository {
                 toDate);
     }
 
+    @Override
+    public List<MemberRow> findActiveMembers() {
+        return jdbcTemplate.query(
+                "SELECT id, subject_code, name, industry FROM subject_master"
+                        + " WHERE market = 'A_SHARE' AND status = 1 AND industry IS NOT NULL"
+                        + " ORDER BY subject_code",
+                (rs, rowNum) ->
+                        new MemberRow(
+                                rs.getLong("id"),
+                                rs.getString("subject_code"),
+                                rs.getString("name"),
+                                rs.getString("industry")));
+    }
+
+    @Override
+    public List<MentionCountRow> countMentionsByIndustry(
+            String industry, String fromIso, String toIso) {
+        // §4.4.2 对账 SQL 的批量化形态：json_each(matched_subjects) 展开按 code 计数（与单标的 EXISTS 口径等值）
+        return jdbcTemplate.query(
+                """
+                SELECT json_extract(m.value, '$.code') AS code, COUNT(*) AS mentions
+                FROM news_analysis na
+                JOIN news_item ni ON ni.id = na.news_id, json_each(na.matched_subjects) m
+                WHERE na.l1_status = 'DONE' AND na.main_category = ?
+                  AND ni.created_at >= ? AND ni.created_at < ?
+                  AND json_extract(m.value, '$.code') IS NOT NULL
+                GROUP BY json_extract(m.value, '$.code')
+                ORDER BY code
+                """,
+                (rs, rowNum) -> new MentionCountRow(rs.getString("code"), rs.getInt("mentions")),
+                industry,
+                fromIso,
+                toIso);
+    }
+
+    @Override
+    public List<SubjectEventLinkRow> findSubjectEventLinks(
+            String industry, String fromDate, String toDate) {
+        return jdbcTemplate.query(
+                """
+                SELECT json_extract(s.value, '$.code') AS code, e.id AS event_id,
+                       e.importance, e.direction
+                FROM event_item e, json_each(e.subjects) s, json_each(e.affected_industries) i
+                WHERE i.value = ? AND e.event_date >= ? AND e.event_date <= ?
+                  AND json_extract(s.value, '$.code') IS NOT NULL
+                ORDER BY e.id
+                """,
+                (rs, rowNum) ->
+                        new SubjectEventLinkRow(
+                                rs.getString("code"),
+                                rs.getLong("event_id"),
+                                rs.getString("importance"),
+                                rs.getString("direction")),
+                industry,
+                fromDate,
+                toDate);
+    }
+
+    @Override
+    public Optional<String> latestFactorSnapshotDate() {
+        return Optional.ofNullable(
+                jdbcTemplate.queryForObject(
+                        "SELECT MAX(snapshot_date) FROM subject_factor_snapshot", String.class));
+    }
+
+    @Override
+    public List<FactorScoreRow> findFactorScores(String snapshotDate) {
+        return jdbcTemplate.query(
+                "SELECT subject_id, total_score, data_flags FROM subject_factor_snapshot"
+                        + " WHERE snapshot_date = ? ORDER BY subject_id",
+                (rs, rowNum) ->
+                        new FactorScoreRow(
+                                rs.getLong("subject_id"),
+                                rs.getDouble("total_score"),
+                                rs.getString("data_flags")),
+                snapshotDate);
+    }
+
+    @Override
+    public List<MarketQuoteRow> findMarketPctChangeForDates(List<String> snapshotDates) {
+        if (snapshotDates == null || snapshotDates.isEmpty()) {
+            return List.of();
+        }
+        String placeholders =
+                String.join(",", java.util.Collections.nCopies(snapshotDates.size(), "?"));
+        Object[] args = snapshotDates.toArray();
+        return jdbcTemplate.query(
+                "SELECT sm.subject_code, mds.snapshot_date, mds.pct_change"
+                        + " FROM market_daily_snapshot mds JOIN subject_master sm ON sm.id = mds.subject_id"
+                        + " WHERE mds.snapshot_date IN ("
+                        + placeholders
+                        + ") ORDER BY sm.subject_code, mds.snapshot_date",
+                (rs, rowNum) ->
+                        new MarketQuoteRow(
+                                rs.getString("subject_code"),
+                                rs.getString("snapshot_date"),
+                                (Double) rs.getObject("pct_change")),
+                args);
+    }
+
+    @Override
+    public List<String> recentMarketQuoteDates(int limit) {
+        return jdbcTemplate.queryForList(
+                "SELECT DISTINCT snapshot_date FROM market_daily_snapshot"
+                        + " ORDER BY snapshot_date DESC LIMIT ?",
+                String.class,
+                limit);
+    }
+
     private List<MainlineRankRow> rankRows(String rankDate, int version) {
         return jdbcTemplate.query(
                 "SELECT "
