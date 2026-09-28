@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SubjectDetailDialog } from '@/components/subject/SubjectDetailDialog';
 import {
   Table,
   TableBody,
@@ -96,6 +97,8 @@ export function WatchlistDetail({
 }: WatchlistDetailProps) {
   // 移除二次确认目标（destructive 操作防误触，全站危险操作确认规范）
   const [removeTarget, setRemoveTarget] = useState<WatchlistItemView | null>(null);
+  // 查看详情弹框标的代码（交互优化：弹框预览替代跳独立页；null = 关闭）
+  const [detailCode, setDetailCode] = useState<string | null>(null);
 
   if (loading) return <DetailSkeleton />;
   if (!watchlist) {
@@ -197,13 +200,14 @@ export function WatchlistDetail({
                             移除
                           </Button>
                           {row ? (
-                            <a
-                              href={`#/subjects/${encodeURIComponent(row.subjectCode)}`}
-                              className={buttonVariants({ variant: 'outline', size: 'xs' })}
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={() => setDetailCode(row.subjectCode)}
                               data-testid={`watchlist-item-detail-${item.id}`}
                             >
                               查看详情
-                            </a>
+                            </Button>
                           ) : null}
                           <Button
                             variant="outline"
@@ -255,6 +259,13 @@ export function WatchlistDetail({
             </Button>
           </>
         }
+      />
+
+      {/* 查看详情弹框（交互优化）：核心分区预览 + 「查看完整详情」保独立页可达 */}
+      <SubjectDetailDialog
+        open={detailCode != null}
+        subjectCode={detailCode}
+        onClose={() => setDetailCode(null)}
       />
     </>
   );

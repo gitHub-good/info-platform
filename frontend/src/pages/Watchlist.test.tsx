@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Watchlist } from '@/pages/Watchlist';
@@ -43,6 +43,66 @@ const QUOTE_BY_ID: Record<number, { price: number; changePct: number }> = {
   100: { price: 128.5, changePct: -1.25 },
   200: { price: 38.2, changePct: 0.86 },
 };
+
+/** 标的详情弹框（交互优化）：by-code 解析 + 聚合 detail 的最小视图（全分区 ok）。 */
+function subjectDetailOf(id: number) {
+  const base = SUBJECT_POOL.find((s) => s.id === id)!;
+  const range = [1, 2, 3, 4];
+  return {
+    subject: { ...base },
+    quote: {
+      price: QUOTE_BY_ID[id]?.price ?? 10,
+      changePct: QUOTE_BY_ID[id]?.changePct ?? 0,
+      high: 130,
+      low: 127,
+      volume: 21000000,
+      source: '行情源(eastmoney)',
+      updatedAt: '2026-09-22 10:30:00',
+    },
+    finance: null,
+    valuation: null,
+    announcements: range.map((i) => ({
+      title: `${base.name}公告${i}`,
+      publishedAt: '2026-09-20',
+      category: '其他',
+      url: `https://example.com/a${i}`,
+    })),
+    news: range.map((i) => ({
+      id: `n${i}`,
+      title: `${base.name}新闻${i}`,
+      publishedAt: '2026-09-21',
+      url: `https://example.com/n${i}`,
+      source: '新浪财经',
+    })),
+    policies: {
+      items: range.map((i) => ({
+        id: i,
+        title: `${base.name}关联政策${i}`,
+        url: `https://example.com/p${i}`,
+        publishedAt: '2026-09-19',
+        sourceName: '中国政府网',
+        matchType: 'SUBJECT',
+      })),
+      fallback: null,
+      basis: 'policy-scope-v1',
+    },
+    events: range.map((i) => ({
+      anomalyType: 'PRICE_CHANGE',
+      changePct: 3.25,
+      triggerTime: `2026-09-21T02:0${i}:00Z`,
+      detail: `${base.name}异动${i}`,
+    })),
+    sourceStatus: {
+      quote: 'ok',
+      finance: 'missing',
+      valuation: 'missing',
+      announce: 'ok',
+      news: 'ok',
+      policy: 'ok',
+      event: 'ok',
+    },
+  };
+}
 
 /** 构造一个状态化 fetch mock：GET 列表/单查/search/quotes、POST 创建/加标的、DELETE/PATCH 清单项。 */
 function makeStore(opts: StoreOpts = {}) {
@@ -94,6 +154,17 @@ function makeStore(opts: StoreOpts = {}) {
             return { ...base, quote: QUOTE_BY_ID[id] ?? null };
           }),
       );
+    }
+    // 标的详情弹框两跳：by-code 解析数字主键 → 聚合 detail（交互优化）
+    if (method === 'GET' && /\/subjects\/by-code\//.test(path)) {
+      const code = path.split('/by-code/')[1];
+      const found = SUBJECT_POOL.find((s) => s.subjectCode === code);
+      return found ? ok(found) : fail(30001);
+    }
+    let dm = path.match(/\/subjects\/(\d+)\/detail$/);
+    if (method === 'GET' && dm) {
+      const found = SUBJECT_POOL.find((s) => s.id === Number(dm[1]));
+      return found ? ok(subjectDetailOf(found.id)) : fail(30001);
     }
     if (method === 'GET' && /\/watchlists$/.test(path)) {
       return ok(watchlists.map(cloneWl));
@@ -201,14 +272,30 @@ describe('Watchlist 管理页', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/watchlists');
   });
 
-  it('标的行操作：查看详情链接跳 /subjects/:code，AI 简报带参跳转', async () => {
+  it('标的行操作：查看详情打开弹框（预览分区+完整详情链接），AI 简报带参跳转', async () => {
     const store = makeStore();
     const user = userEvent.setup();
     await renderReady(store);
 
-    // 查看详情：锚链接直指标的详情路由（行情/摘要到达后渲染）
-    const detailLink = await screen.findByTestId('watchlist-item-detail-10');
-    expect(detailLink).toHaveAttribute('href', '#/subjects/SZ000858');
+    // 查看详情：按钮打开弹框（不再是锚链接跳独立页；行情/摘要到达后渲染）
+    await user.click(await screen.findByTestId('watchlist-item-detail-10'));
+    const dialog = await screen.findByTestId('subject-dialog-content');
+    // 标题栏：标的名 / 代码 / 行业徽章
+    expect(within(dialog).getByText('五粮液')).toBeInTheDocument();
+    expect(within(dialog).getByText(/SZ000858/)).toBeInTheDocument();
+    expect(within(dialog).getByText('白酒')).toBeInTheDocument();
+    // 弹框内预览不离开清单页（hash 未跳走）
+    expect(window.location.hash).toBe('');
+    // 完整详情链接保留独立页可达（链接在弹框 footer，位于内容区外）
+    expect(screen.getByTestId('subject-dialog-full-detail')).toHaveAttribute(
+      'href',
+      '#/subjects/SZ000858',
+    );
+
+    // 关闭：弹框消失、清单明细仍在
+    await user.click(screen.getByTestId('dialog-close'));
+    await waitFor(() => expect(screen.queryByTestId('subject-dialog-content')).toBeNull());
+    expect(screen.getByTestId('watchlist-item-row-10')).toBeInTheDocument();
 
     // AI 简报：带 subjectId 跳生成页
     await user.click(screen.getByTestId('watchlist-item-brief-10'));

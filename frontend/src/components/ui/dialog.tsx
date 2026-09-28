@@ -12,9 +12,19 @@ interface DialogProps {
   children?: ReactNode;
   /** 底部操作区（取消/确认按钮等）。 */
   footer?: ReactNode;
+  /** 内容宽度等样式覆盖（默认 max-w-md；宽内容如详情弹框沿此覆盖，经 tailwind 合并去冲突）。 */
+  contentClassName?: string;
 }
 
-export function Dialog({ open, title, description, onClose, children, footer }: DialogProps) {
+export function Dialog({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+  contentClassName,
+}: DialogProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -40,6 +50,7 @@ export function Dialog({ open, title, description, onClose, children, footer }: 
         aria-label={title}
         className={cn(
           'relative z-10 w-full max-w-md rounded-xl bg-card p-5 text-card-foreground shadow-xl ring-1 ring-foreground/10',
+          contentClassName,
         )}
       >
         <div className="mb-3 flex items-center justify-between">

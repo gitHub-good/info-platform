@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { changeColorClass, formatPct, formatPrice } from '@/lib/format';
 import { SectionCard } from './SectionCard';
+import { formatTriggerTime, typeLabel } from './eventFormat';
 import { EVENT_PAGE_SIZE, useEventSectionPage } from '@/hooks/useSectionPage';
 import type { EventItem, SourceStatus } from '@/types/subject-detail';
 
@@ -17,24 +18,6 @@ interface EventSectionProps {
   subjectId: number | null;
   /** 首屏 7 天窗内精确总数（聚合 sectionPagination.event.total；缺省 0 不渲染分页条） */
   total?: number;
-}
-
-/** 异动类型展示标签（anomaly_event.anomaly_type 枚举名 → 中文） */
-const ANOMALY_TYPE_LABEL: Record<string, string> = {
-  PRICE_CHANGE: '涨跌幅异动',
-  VOLUME: '量异动',
-  EVENT: '事件',
-};
-
-function typeLabel(anomalyType: string): string {
-  return ANOMALY_TYPE_LABEL[anomalyType] ?? anomalyType;
-}
-
-/** 触发时刻（ISO-8601 UTC）→ 本地时间串展示 */
-function formatTriggerTime(triggerTime: string): string {
-  const date = new Date(triggerTime);
-  if (Number.isNaN(date.getTime())) return triggerTime;
-  return date.toLocaleString('zh-CN', { hour12: false });
 }
 
 /**
