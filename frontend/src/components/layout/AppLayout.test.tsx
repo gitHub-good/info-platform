@@ -12,16 +12,16 @@ afterEach(() => {
 });
 
 describe('AppLayout 统一导航骨架（T38）', () => {
-  it('渲染 4 分组 18 项导航（V2.4-M24 T213 政策时事页裁撤后 19→18），当前项高亮', () => {
+  it('渲染 4 分组 17 项导航（标的详情侧栏入口裁撤后 18→17），当前项高亮', () => {
     render(<AppLayout currentRoute="/watchlists">内容</AppLayout>);
 
     // 分组标题
     for (const group of NAV_GROUPS) {
       expect(screen.getByText(group.label)).toBeInTheDocument();
     }
-    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：18 页 + 底部登出共 19 项
+    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：17 页 + 底部登出共 18 项
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(18);
+    expect(allItems).toHaveLength(17);
     for (const item of allItems) {
       expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
     }
@@ -34,6 +34,9 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     // 资讯库（M19 T161）：数据组第 3 项；政策时事页已裁撤（V2.4 T213）导航项不存在
     expect(screen.getByTestId('nav-item-news-library')).toHaveTextContent('资讯库');
     expect(screen.queryByTestId('nav-item-policies')).toBeNull();
+    // 标的详情侧栏入口已裁撤（交互优化）：#/subjects/:code 路由保留但导航不显示
+    expect(screen.queryByTestId('nav-item-subjects')).toBeNull();
+    expect(screen.queryByText('标的详情')).toBeNull();
     // 源管理（V2.3 T204 合一）：单入口「源管理」，旧两页文案不再出现
     expect(screen.getByTestId('nav-item-sources')).toHaveTextContent('源管理');
     expect(screen.queryByTestId('nav-item-datasource-config')).toBeNull();
@@ -59,10 +62,16 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     expect(screen.getByText('内容区')).toBeInTheDocument();
   });
 
-  it('标的详情入口为无参路由：最近浏览标的由路由解析回退承载（href 恒为 #/subjects）', () => {
-    render(<AppLayout currentRoute="/overview">内容</AppLayout>);
+  it('标的详情侧栏入口已裁撤：#/subjects/:code 路由不再有导航承载（直接 URL 进入仍可用）', () => {
+    render(<AppLayout currentRoute="/subjects/SH600519">内容</AppLayout>);
 
-    expect(screen.getByTestId('nav-item-subjects')).toHaveAttribute('href', '#/subjects');
+    // 入口裁撤后：无导航项高亮（active 仅由导航项判定）
+    expect(screen.queryByTestId('nav-item-subjects')).toBeNull();
+    for (const item of NAV_GROUPS.flatMap((g) => g.items)) {
+      expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).not.toHaveAttribute(
+        'aria-current',
+      );
+    }
   });
 
   it('登出：清 token 并跳 /login（既有交互平移）', async () => {
@@ -117,7 +126,7 @@ describe('AppLayout 统一导航骨架（T38）', () => {
   it('titleForRoute：已知路由回组内标题，未知路由回空串', () => {
     expect(titleForRoute('/overview')).toBe('概览');
     expect(titleForRoute('/job-logs?jobName=x')).toBe('Job 日志');
-    expect(titleForRoute('/subjects/SH600519')).toBe('标的详情');
+    expect(titleForRoute('/subjects/SH600519')).toBe(''); // 侧栏入口裁撤：路由保留但导航不再承载标题
     expect(titleForRoute('/prompt-templates')).toBe('提示词模板');
     // V2.3 T204：源管理单页（带 Tab/定位参数仍命中）
     expect(titleForRoute('/sources')).toBe('源管理');

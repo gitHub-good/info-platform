@@ -36,7 +36,7 @@ describe('navigation 路由工具', () => {
     expect(parseSubjectCode('/subjects/SH600519?tab=quote')).toBe('SH600519');
     // query 形态：#/subjects?code=xxx
     expect(parseSubjectCode('/subjects?code=HK00700')).toBe('HK00700');
-    // 无参：无历史回默认标的；有历史回最近浏览（侧栏「标的详情」入口口径）
+    // 无参：无历史回默认标的；有历史回最近浏览（侧栏入口裁撤后由直接 URL 无参进入承载）
     expect(parseSubjectCode('/subjects')).toBe(DEFAULT_SUBJECT_CODE);
     rememberSubject('SZ000001');
     expect(parseSubjectCode('/subjects')).toBe('SZ000001');
@@ -47,7 +47,7 @@ describe('navigation 路由工具', () => {
     expect(lastViewedSubject()).toBe(DEFAULT_SUBJECT_CODE);
     rememberSubject('SZ000001');
     expect(lastViewedSubject()).toBe('SZ000001');
-    // 侧栏入口形态：href 指向最近浏览标的
+    // 深链形态：#/subjects/:code 指向最近浏览标的
     expect(`#/subjects/${lastViewedSubject()}`).toBe('#/subjects/SZ000001');
   });
 

@@ -348,7 +348,7 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(jobLogCall).toContain('jobName=PolicyFetchJob');
   });
 
-  it('#/subjects/:code 路由参数化：记录最近浏览标的，无参入口回退最近浏览', async () => {
+  it('#/subjects/:code 路由参数化：记录最近浏览标的；侧栏入口裁撤后直接 URL 进入仍工作', async () => {
     const fetchMock = renderLoggedIn('#/subjects/SZ000001');
 
     // P0-1：详情页经真实接口路径渲染（by-code 解析 + 数字主键聚合详情）
@@ -360,20 +360,10 @@ describe('App 路由与登录守卫（T38）', () => {
       true,
     );
 
-    // SubjectDetail 挂载即记录路由参数标的（最近浏览，供侧栏无参入口回退）
+    // SubjectDetail 挂载即记录路由参数标的（最近浏览回退逻辑随路由保留）
     await waitFor(() => expect(localStorage.getItem('last_viewed_subject')).toBe('SZ000001'));
-    // 侧栏「标的详情」项 active，入口为无参路由
-    const subjectNav = screen.getByTestId('nav-item-subjects');
-    expect(subjectNav).toHaveAttribute('aria-current', 'page');
-    expect(subjectNav).toHaveAttribute('href', '#/subjects');
-
-    // 无参入口（侧栏点击）→ 回退最近浏览标的 SZ000001
-    const user = userEvent.setup();
-    await user.click(subjectNav);
-    await waitFor(() =>
-      expect(localStorage.getItem('last_viewed_subject')).toBe('SZ000001'),
-    );
-    expect(window.location.hash).toBe('#/subjects');
+    // 侧栏「标的详情」入口已裁撤（交互优化）：#/subjects/:code 直接 URL 进入仍工作，但导航不显示该项
+    expect(screen.queryByTestId('nav-item-subjects')).toBeNull();
   });
 
   it('五个新页均为实现页（T39~T43）：#/feed 挂载真实信息流页并请求接口', async () => {

@@ -101,7 +101,7 @@ function LoadingSkeleton() {
 export function SubjectDetail({ subjectId = 'SH600519' }: SubjectDetailProps) {
   const { data, subjectId: resolvedId, loading, error, retry } = useSubjectDetail(subjectId);
 
-  // T38 路由参数化：记录最近浏览标的（侧栏「标的详情」入口指向，无历史落默认标的）
+  // T38 路由参数化：记录最近浏览标的（无参路由回退指向，无历史落默认标的；侧栏入口已裁撤逻辑保留）
   useEffect(() => {
     rememberSubject(subjectId);
   }, [subjectId]);

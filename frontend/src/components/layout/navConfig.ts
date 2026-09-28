@@ -7,7 +7,6 @@ import {
   Flame,
   LayoutDashboard,
   Library,
-  LineChart,
   MessageSquareText,
   PlayCircle,
   Rss,
@@ -34,7 +33,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** 4 分组 18 页导航总表 + 底部登出（UI 方案 §2.1；V2.3-M23 T204 源两页合一 20→19；V2.4-M24 T213 政策时事页裁撤并入资讯库 19→18）。 */
+/** 4 分组 17 页导航总表 + 底部登出（UI 方案 §2.1；V2.4-M24 T213 政策时事页裁撤并入资讯库 19→18；交互优化裁撤「标的详情」侧栏入口 18→17——#/subjects/:code 路由保留，自选清单经弹框/完整链接进入）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -44,8 +43,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '数据',
     items: [
       { to: '/watchlists', label: '自选清单', icon: Star },
-      // 标的详情入口不带参：无参路由回退最近浏览标的，无历史落默认标的（UI 方案 §6.3）
-      { to: '/subjects', label: '标的详情', icon: LineChart },
+      // 标的详情侧栏入口已裁撤（交互优化）：路由与最近浏览回退逻辑保留，
+      // 入口收敛为自选清单「查看详情」弹框 + 弹框内「查看完整详情」独立页链接
       // 政策时事页已裁撤（V2.4 T213，REQ-20260928-20 拍板二）：数据统一在 news_item，
       // 资讯库 L1=监管·政策 一键即达（旧 #/policies 重定向预填）
       // 资讯库（M19 T161，数据组第 3 项）：news_item 原始库全量列表——

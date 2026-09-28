@@ -5,7 +5,7 @@
 /** 默认标的（标的详情路由无参时的回退，UI 方案 §6.3 默认值先行）。 */
 export const DEFAULT_SUBJECT_CODE = 'SH600519';
 
-/** 最近浏览标的的 localStorage 键（侧栏「标的详情」入口指向）。 */
+/** 最近浏览标的的 localStorage 键（标的详情无参路由回退指向；侧栏入口已裁撤，逻辑保留）。 */
 const LAST_SUBJECT_KEY = 'last_viewed_subject';
 
 /**
@@ -91,7 +91,7 @@ function normalizeSourcesTab(query: URLSearchParams): boolean {
 /**
  * 标的详情路由的标的代码（T38 参数化）：
  * '/subjects/:code' 或 '/subjects?code=xxx' 优先；无参回退最近浏览标的，
- * 无历史再回默认标的 SH600519（UI 方案 §6.3 默认值先行——侧栏「标的详情」入口指向最近浏览）。
+ * 无历史再回默认标的 SH600519（UI 方案 §6.3 默认值先行——侧栏入口裁撤后由直接 URL 无参进入承载）。
  */
 export function parseSubjectCode(route: string): string {
   const path = route.split('?')[0] ?? route;
@@ -103,7 +103,7 @@ export function parseSubjectCode(route: string): string {
   return lastViewedSubject();
 }
 
-/** 最近浏览标的（侧栏「标的详情」入口用）；无历史或 localStorage 不可用回退默认标的。 */
+/** 最近浏览标的（标的详情无参路由回退用）；无历史或 localStorage 不可用回退默认标的。 */
 export function lastViewedSubject(): string {
   try {
     return localStorage.getItem(LAST_SUBJECT_KEY) || DEFAULT_SUBJECT_CODE;
@@ -118,6 +118,6 @@ export function rememberSubject(code: string): void {
   try {
     localStorage.setItem(LAST_SUBJECT_KEY, code);
   } catch {
-    // 隐私模式 / SSR：静默忽略，仅退化侧栏入口回默认标的
+    // 隐私模式 / SSR：静默忽略，仅退化无参路由回默认标的
   }
 }
