@@ -5,8 +5,8 @@ import com.info.platform.domain.retention.RetentionLogTable;
 
 /**
  * 留痕保留窗口的类型化视图（T71，方案 §4.2 执行侧防御；T113 扩 newsItemDays、T134 扩 recommendationCardDays、 T170 扩 M20
- * 两快照表）：八字段覆盖九表（news_analysis 随 newsItemDays、recommendation_feedback 随 recommendationCardDays
- * 共窗；两快照表独立窗）。
+ * 两快照表、T183 扩榜单两表、M27 T242 扩行业行情快照/主线两表三键）：十四字段覆盖十五表（news_analysis 随 newsItemDays、
+ * recommendation_feedback 随 recommendationCardDays 共窗；其余各表独立窗）。
  *
  * <p><b>每轮现读</b>：{@link RetentionCleanupService} 在每轮 run() 内读取当前快照解析（用时读取即热生效，改窗口下一轮按新界）。
  * 解析规则（字段级回退，{@link #resolve}）：字段存在且为整型且 ≥ 表下限 → 采信；否则回退该表 {@code defaultDays}
@@ -25,7 +25,10 @@ public record RetentionWindows(
         int marketDailySnapshotDays,
         int marketTopRankDays,
         int marketTopBatchDays,
-        int incrementalReevalLogDays) {
+        int incrementalReevalLogDays,
+        int industryMarketSnapshotDays,
+        int industryMainlineDays,
+        int industryMainlineBatchDays) {
 
     /** 全默认窗口（键缺失/文档损坏时的兜底，值取枚举 defaultDays 单一事实源）。 */
     public static RetentionWindows defaults() {
@@ -49,7 +52,10 @@ public record RetentionWindows(
                 dayOf(doc, RetentionLogTable.MARKET_DAILY_SNAPSHOT),
                 dayOf(doc, RetentionLogTable.MARKET_TOP_RANK),
                 dayOf(doc, RetentionLogTable.MARKET_TOP_BATCH),
-                dayOf(doc, RetentionLogTable.INCREMENTAL_REEVAL_LOG));
+                dayOf(doc, RetentionLogTable.INCREMENTAL_REEVAL_LOG),
+                dayOf(doc, RetentionLogTable.INDUSTRY_MARKET_SNAPSHOT),
+                dayOf(doc, RetentionLogTable.INDUSTRY_MAINLINE),
+                dayOf(doc, RetentionLogTable.INDUSTRY_MAINLINE_BATCH));
     }
 
     /**
@@ -68,6 +74,9 @@ public record RetentionWindows(
             case MARKET_TOP_RANK -> marketTopRankDays;
             case MARKET_TOP_BATCH -> marketTopBatchDays;
             case INCREMENTAL_REEVAL_LOG -> incrementalReevalLogDays;
+            case INDUSTRY_MARKET_SNAPSHOT -> industryMarketSnapshotDays;
+            case INDUSTRY_MAINLINE -> industryMainlineDays;
+            case INDUSTRY_MAINLINE_BATCH -> industryMainlineBatchDays;
         };
     }
 

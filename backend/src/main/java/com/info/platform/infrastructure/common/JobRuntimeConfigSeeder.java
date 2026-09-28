@@ -142,6 +142,23 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${incremental.reeval.interval-millis:60000}")
     private long incrementalReevalIntervalMillis;
 
+    /** 行业行情快照开关/tick 间隔（M27 T242：INDUSTRY_MARKET_SNAPSHOT，默认 30min 可配 15~60min，ADR-0063 裁决 3/6）。 */
+    @Value("${industry.market-snapshot.enabled:true}")
+    private boolean industryMarketSnapshotEnabled;
+
+    @Value("${industry.market-snapshot.interval-millis:1800000}")
+    private long industryMarketSnapshotIntervalMillis;
+
+    /**
+     * 行业主线开关/CRON（M27 T243：INDUSTRY_MAINLINE，盘后 18:30 日频——MARKET_TOP 18:00 后 30min 错峰，ADR-0063 裁决
+     * 6）。
+     */
+    @Value("${industry.mainline-job.enabled:true}")
+    private boolean industryMainlineEnabled;
+
+    @Value("${industry.mainline-job.cron:0 30 18 * * ?}")
+    private String industryMainlineCron;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -282,6 +299,28 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 + "重 Job 运行让路/联动间隔防抖，阈值热改见 incremental.reeval 键，M22 ADR-0061）",
                         incrementalReevalEnabled,
                         incrementalReevalIntervalMillis));
+        seeds.add(
+                fixedDelay(
+                        "INDUSTRY_MARKET_SNAPSHOT",
+                        "行业行情快照调度（IndustryMarketSnapshotJob，盘中每 30min 双通道采集：主东财 push2 板块 → "
+                                + "swPrimaryOf 聚合申万 31，失败当轮切腾讯板块排行直出 → industry_market_snapshot 当日行"
+                                + "幂等 UPSERT ~117 行/日；双通道全败沿用旧快照（页面 stale 标注），连续 5 轮失败通知中心"
+                                + "告警，M27 方案 §4.2）",
+                        industryMarketSnapshotEnabled,
+                        industryMarketSnapshotIntervalMillis));
+        Map<String, Object> industryMainline = new LinkedHashMap<>();
+        industryMainline.put("enabled", industryMainlineEnabled);
+        industryMainline.put("scheduleType", CRON);
+        industryMainline.put("cron", industryMainlineCron);
+        seeds.add(
+                new RuntimeConfigSeed(
+                        "job.INDUSTRY_MAINLINE",
+                        write(industryMainline),
+                        "行业主线调度（IndustryMainlineJob，盘后 18:30 主线+龙头+主力徽章一体计算：行情快照×热度×事件"
+                                + "三维百分位加权（0.40/0.35/0.25 可配）+ 持续性硬门槛 → Top3~5 主线榜单；主线行业内龙头"
+                                + "三维识别（资讯关注度 0.50+价值 0.35+价格动量 0.15）+ datacenter 龙虎榜/增减持主力徽章"
+                                + "（≤30 请求/日），纯规则零 LLM 版本化落库；任务中心手动触发=重算 version+1；参数热改见"
+                                + " industry.mainline/industry.leader 键，M27 方案 §3.6）"));
         return seeds;
     }
 

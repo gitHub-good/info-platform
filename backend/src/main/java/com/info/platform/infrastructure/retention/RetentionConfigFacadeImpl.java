@@ -56,7 +56,10 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
                         windows.marketDailySnapshotDays(),
                         windows.marketTopRankDays(),
                         windows.marketTopBatchDays(),
-                        windows.incrementalReevalLogDays()),
+                        windows.incrementalReevalLogDays(),
+                        windows.industryMarketSnapshotDays(),
+                        windows.industryMainlineDays(),
+                        windows.industryMainlineBatchDays()),
                 limits,
                 entry == null ? null : entry.updatedAt().toString());
     }
@@ -101,6 +104,22 @@ public class RetentionConfigFacadeImpl implements RetentionConfigFacade {
                 orCurrent(
                         update.incrementalReevalLogDays(),
                         currentWindows.incrementalReevalLogDays()));
+        putIfPresent(
+                doc,
+                RetentionLogTable.INDUSTRY_MARKET_SNAPSHOT,
+                orCurrent(
+                        update.industryMarketSnapshotDays(),
+                        currentWindows.industryMarketSnapshotDays()));
+        putIfPresent(
+                doc,
+                RetentionLogTable.INDUSTRY_MAINLINE,
+                orCurrent(update.industryMainlineDays(), currentWindows.industryMainlineDays()));
+        putIfPresent(
+                doc,
+                RetentionLogTable.INDUSTRY_MAINLINE_BATCH,
+                orCurrent(
+                        update.industryMainlineBatchDays(),
+                        currentWindows.industryMainlineBatchDays()));
         configService.write(
                 RetentionConfigValidator.CONFIG_KEY,
                 doc.toString(),

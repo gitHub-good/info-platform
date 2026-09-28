@@ -96,8 +96,8 @@ class RetentionConfigFacadeImplTest {
         assertThat(view.windows().readingEventDays()).isEqualTo(90);
         assertThat(view.windows().newsItemDays()).isEqualTo(180);
         assertThat(view.updatedAt()).isNull();
-        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段 → T170 八字段 → T180 十字段）
-        assertThat(view.limits()).hasSize(11);
+        // limits 恒全量（页面文案与前端校验兜底数据源；T113 五字段 → T134 六字段 → T170 八字段 → T180 十字段 → M27 十四字段）
+        assertThat(view.limits()).hasSize(14);
         assertThat(view.limits())
                 .containsEntry(
                         "recommendationCardDays", new RetentionConfigFacade.FieldLimits(30, 180));
@@ -122,6 +122,19 @@ class RetentionConfigFacadeImplTest {
                 .containsEntry(
                         "incrementalReevalLogDays", new RetentionConfigFacade.FieldLimits(30, 180));
         assertThat(view.windows().incrementalReevalLogDays()).isEqualTo(180);
+        // T242（M27 方案 §4.1 ④）：行业行情快照/主线两表三键扩位（快照 365/min90、主线两表 180/min30）
+        assertThat(view.limits())
+                .containsEntry(
+                        "industryMarketSnapshotDays",
+                        new RetentionConfigFacade.FieldLimits(90, 365))
+                .containsEntry(
+                        "industryMainlineDays", new RetentionConfigFacade.FieldLimits(30, 180))
+                .containsEntry(
+                        "industryMainlineBatchDays",
+                        new RetentionConfigFacade.FieldLimits(30, 180));
+        assertThat(view.windows().industryMarketSnapshotDays()).isEqualTo(365);
+        assertThat(view.windows().industryMainlineDays()).isEqualTo(180);
+        assertThat(view.windows().industryMainlineBatchDays()).isEqualTo(180);
     }
 
     @Test
@@ -178,6 +191,9 @@ class RetentionConfigFacadeImplTest {
                                 null,
                                 null,
                                 null,
+                                null,
+                                null,
+                                null,
                                 "2026-09-22T01:00:00Z"));
 
         // Assert：写入文档六字段齐整；返回写后视图（新值 + 新 updatedAt）
@@ -221,6 +237,9 @@ class RetentionConfigFacadeImplTest {
                                                 null,
                                                 null,
                                                 null,
+                                                null,
+                                                null,
+                                                null,
                                                 null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必填");
@@ -241,6 +260,9 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
+                                                null,
                                                 null,
                                                 null,
                                                 null,
@@ -272,6 +294,9 @@ class RetentionConfigFacadeImplTest {
                                                 IntNode.valueOf(35),
                                                 IntNode.valueOf(30),
                                                 IntNode.valueOf(30),
+                                                null,
+                                                null,
+                                                null,
                                                 null,
                                                 null,
                                                 null,

@@ -55,9 +55,12 @@ class RetentionWindowsTest {
         // Arrange + Act：键缺失（种子前/被删）→ 全默认，绝不按 0 全删（执行侧防御）
         RetentionWindows windows = RetentionWindows.resolve(null);
 
-        // Assert：默认窗口 30/14/90/90/180/180（枚举单一事实源，T113 扩 newsItem、T134 扩推荐两表）
+        // Assert：默认窗口 30/14/90/90/180/180（枚举单一事实源，T113 扩 newsItem、T134 扩推荐两表；
+        // M27 T242 追加行业行情快照 365 / 主线两表 180 三键）
         assertThat(windows)
-                .isEqualTo(new RetentionWindows(30, 14, 90, 90, 180, 180, 180, 365, 180, 180, 180));
+                .isEqualTo(
+                        new RetentionWindows(
+                                30, 14, 90, 90, 180, 180, 180, 365, 180, 180, 180, 365, 180, 180));
     }
 
     @Test
@@ -100,7 +103,7 @@ class RetentionWindowsTest {
 
     @Test
     void resolve_valueAtMin_adopted() {
-        // Arrange：八字段恰取各自下限 7/2/35/35/30/30/30/90（合法边界）
+        // Arrange：八字段恰取各自下限 7/2/35/35/30/30/30/90（合法边界）；M27 三字段未携带 → 各自回退默认 365/180/180
         RetentionWindows windows =
                 RetentionWindows.resolve(
                         doc(
@@ -112,13 +115,15 @@ class RetentionWindowsTest {
 
         // Assert
         assertThat(windows)
-                .isEqualTo(new RetentionWindows(7, 2, 35, 35, 30, 30, 30, 90, 180, 180, 180));
+                .isEqualTo(
+                        new RetentionWindows(
+                                7, 2, 35, 35, 30, 30, 30, 90, 180, 180, 180, 365, 180, 180));
     }
 
     @Test
     void of_mapsEachTableToItsWindow() {
         RetentionWindows windows =
-                new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300, 120, 60, 180);
+                new RetentionWindows(10, 5, 40, 50, 200, 90, 150, 300, 120, 60, 180, 400, 100, 80);
 
         assertThat(windows.of(RetentionLogTable.JOB_EXECUTION_LOG)).isEqualTo(10);
         assertThat(windows.of(RetentionLogTable.DATA_SOURCE_EVENT)).isEqualTo(5);
@@ -136,6 +141,10 @@ class RetentionWindowsTest {
         // T180（M21）：榜单两表独立窗（rank 120、batch 60——M22 统计回算原料）
         assertThat(windows.of(RetentionLogTable.MARKET_TOP_RANK)).isEqualTo(120);
         assertThat(windows.of(RetentionLogTable.MARKET_TOP_BATCH)).isEqualTo(60);
+        // T242（M27）：行业行情快照/主线两表三键独立窗（快照 400 对账裕量、主线两表 100/80）
+        assertThat(windows.of(RetentionLogTable.INDUSTRY_MARKET_SNAPSHOT)).isEqualTo(400);
+        assertThat(windows.of(RetentionLogTable.INDUSTRY_MAINLINE)).isEqualTo(100);
+        assertThat(windows.of(RetentionLogTable.INDUSTRY_MAINLINE_BATCH)).isEqualTo(80);
     }
 
     @Test

@@ -51,9 +51,11 @@ public class JobScheduler {
      * 调度线程数：每任务一线程上限（M15 增 4 个管道 Job 8→12；M16 增 PIPELINE_EXPRESS/RECOMMENDATION_FEED 两 FIXED_DELAY
      * tick Job，12→14——长驻占用线程防与既有 12 Job 抢占，ADR-0046 裁决 4 与 ADR-0051 裁决 1/2 同款论证；M21 增
      * MARKET_TOP_JOB 全程 4~12min 长任务，14→15——18:00 与快照/清理错峰仍留并发余量；M22 增 INCREMENTAL_REEVAL 常驻 60s
-     * tick 短轮询（每轮 <25s，ADR-0061 裁决 1），15→16——与 17:30/18:00 重窗互斥走让路查询非线程 starvation）。
+     * tick 短轮询（每轮 <25s，ADR-0061 裁决 1），15→16——与 17:30/18:00 重窗互斥走让路查询非线程 starvation；M27 增
+     * INDUSTRY_MARKET_SNAPSHOT 常驻 30min tick（每轮 1 请求秒级）+ INDUSTRY_MAINLINE 盘后 18:30 长任务（全轮 &lt;10s，
+     * ADR-0063 裁决 6），16→18——任务键 16→18 每任务一线程全额覆盖）。
      */
-    private static final int POOL_SIZE = 16;
+    private static final int POOL_SIZE = 18;
 
     private final ThreadPoolTaskScheduler taskScheduler;
     private final JobRegistry registry;

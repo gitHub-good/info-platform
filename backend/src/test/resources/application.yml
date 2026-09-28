@@ -80,6 +80,18 @@ incremental:
     enabled: false
     interval-millis: 60000
 
+# 行业行情快照 job 在测试环境关闭（M27 T242）：种子 job.INDUSTRY_MARKET_SNAPSHOT enabled=false → 调度零注册
+# （沿各 Job 测试隔离惯例）；采集/聚合/降级逻辑改由单测直接调 IndustryMarketSnapshotService.run 验证（双通道 Mock 零外呼）。
+industry:
+  market-snapshot:
+    enabled: false
+    interval-millis: 1800000
+  # 行业主线 job 在测试环境关闭（M27 T243）：种子 job.INDUSTRY_MAINLINE enabled=false → 调度零注册；
+  # 主线/龙头计算改由单测直接调 IndustryMainlineService.compute 验证（纯规则零 LLM 零外呼）。
+  mainline-job:
+    enabled: false
+    cron: 0 30 18 * * ?
+
 logging:
   level:
     org.springframework: WARN

@@ -47,12 +47,13 @@ class JobRuntimeConfigSeederTest {
     }
 
     @Test
-    void seeds_carriesAllSixteenJobKeys() {
+    void seeds_carriesAllEighteenJobKeys() {
         JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
         List<String> keys = seeder.seeds().stream().map(RuntimeConfigSeed::configKey).toList();
 
         // V2.3-M23 T203：POLICY_FETCH/POLICY_TENDENCY 两键随轨 B 双 Job 整链删除（Job 18→16，ADR-0062 裁决二）；
-        // 纯增量守卫：既有 15 键不被增补挤占（INCREMENTAL_REEVAL 尾键不动，M22 T190 方案 §3.5-2）
+        // M27 T242/T243 增 INDUSTRY_MARKET_SNAPSHOT/INDUSTRY_MAINLINE 两键（16→18，ADR-0063 裁决 6）；
+        // 纯增量守卫：既有 16 键不被增补挤占（INCREMENTAL_REEVAL 及之前键序不动）
         assertThat(keys)
                 .containsExactly(
                         "job.ANOMALY_DETECT",
@@ -70,7 +71,9 @@ class JobRuntimeConfigSeederTest {
                         "job.INDUSTRY_WEEKLY_REPORT",
                         "job.FACTOR_SNAPSHOT",
                         "job.MARKET_TOP_JOB",
-                        "job.INCREMENTAL_REEVAL");
+                        "job.INCREMENTAL_REEVAL",
+                        "job.INDUSTRY_MARKET_SNAPSHOT",
+                        "job.INDUSTRY_MAINLINE");
     }
 
     // ---- INCREMENTAL_REEVAL 种子（T190，M22 方案 §3.5-2：第 18 键，FIXED_DELAY 60s 短轮询）----
@@ -444,5 +447,76 @@ class JobRuntimeConfigSeederTest {
         RuntimeConfigSeed seed = retentionSeed(false, "0 30 3 * * ?");
 
         assertThat(seed.json()).contains("\"enabled\":false").contains("\"cron\":\"0 30 3 * * ?\"");
+    }
+
+    // ---- INDUSTRY_MARKET_SNAPSHOT 种子（T242，M27 方案 §4.2.4：FIXED_DELAY 30min 盘中采集）----
+
+    private RuntimeConfigSeed marketSnapshotSeed(boolean enabled, long intervalMillis) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "industryMarketSnapshotEnabled", enabled);
+        ReflectionTestUtils.setField(
+                seeder, "industryMarketSnapshotIntervalMillis", intervalMillis);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.INDUSTRY_MARKET_SNAPSHOT"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.INDUSTRY_MARKET_SNAPSHOT 种子"));
+    }
+
+    @Test
+    void seeds_industryMarketSnapshot_productionDefaults_enabledFixedDelay30min() {
+        // 生产默认：enabled=true FIXED_DELAY 30min（可配 15~60min 页面热切换，ADR-0063 裁决 3）
+        RuntimeConfigSeed seed = marketSnapshotSeed(true, 1_800_000L);
+
+        assertThat(seed.configKey()).isEqualTo("job.INDUSTRY_MARKET_SNAPSHOT");
+        assertThat(seed.description()).contains("IndustryMarketSnapshotJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":1800000");
+    }
+
+    @Test
+    void seeds_industryMarketSnapshot_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：industry.market-snapshot.enabled=false → 种子停用 → 调度零注册
+        RuntimeConfigSeed seed = marketSnapshotSeed(false, 1_800_000L);
+
+        assertThat(seed.json())
+                .contains("\"enabled\":false")
+                .contains("\"intervalMillis\":1800000");
+    }
+
+    // ---- INDUSTRY_MAINLINE 种子（T243，M27 方案 §3.6：盘后 18:30 CRON）----
+
+    private RuntimeConfigSeed mainlineSeed(boolean enabled, String cron) {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "industryMainlineEnabled", enabled);
+        ReflectionTestUtils.setField(seeder, "industryMainlineCron", cron);
+        return seeder.seeds().stream()
+                .filter(seed -> seed.configKey().equals("job.INDUSTRY_MAINLINE"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("缺 job.INDUSTRY_MAINLINE 种子"));
+    }
+
+    @Test
+    void seeds_industryMainline_productionDefaults_enabledCron1830Daily() {
+        // 生产默认：盘后 18:30（MARKET_TOP 18:00 后 30min 错峰——独立 CRON 不依赖触发，ADR-0063 裁决 6）
+        RuntimeConfigSeed seed = mainlineSeed(true, "0 30 18 * * ?");
+
+        assertThat(seed.configKey()).isEqualTo("job.INDUSTRY_MAINLINE");
+        assertThat(seed.description()).contains("IndustryMainlineJob");
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"CRON\"")
+                .contains("\"cron\":\"0 30 18 * * ?\"");
+    }
+
+    @Test
+    void seeds_industryMainline_testProfileDisabled_isolatedFromScheduling() {
+        // 测试 profile：industry.mainline-job.enabled=false → 种子停用 → 调度零注册
+        RuntimeConfigSeed seed = mainlineSeed(false, "0 30 18 * * ?");
+
+        assertThat(seed.json())
+                .contains("\"enabled\":false")
+                .contains("\"cron\":\"0 30 18 * * ?\"");
     }
 }

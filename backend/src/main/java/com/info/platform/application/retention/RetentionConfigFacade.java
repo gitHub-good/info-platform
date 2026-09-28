@@ -30,7 +30,7 @@ public interface RetentionConfigFacade {
 
     /**
      * 窗口值（键名与 retention.global 文档字段一致；newsItemDays 为 T113 扩键、recommendationCardDays 为 T134 扩键、
-     * 两快照表字段为 M20 T170 扩键、榜单两表字段为 M21 T180 扩键、增量重评留痕字段为 M22 T190 扩键）。
+     * 两快照表字段为 M20 T170 扩键、榜单两表字段为 M21 T180 扩键、增量重评留痕字段为 M22 T190 扩键、行业行情快照与主线两表 三字段为 M27 T242 扩键）。
      */
     record Windows(
             int jobExecutionLogDays,
@@ -43,7 +43,10 @@ public interface RetentionConfigFacade {
             int marketDailySnapshotDays,
             int marketTopRankDays,
             int marketTopBatchDays,
-            int incrementalReevalLogDays) {}
+            int incrementalReevalLogDays,
+            int industryMarketSnapshotDays,
+            int industryMainlineDays,
+            int industryMainlineBatchDays) {}
 
     /**
      * 单字段护栏：下限与默认（取枚举常量）。
@@ -72,5 +75,8 @@ public interface RetentionConfigFacade {
             JsonNode marketTopRankDays,
             JsonNode marketTopBatchDays,
             JsonNode incrementalReevalLogDays,
+            JsonNode industryMarketSnapshotDays,
+            JsonNode industryMainlineDays,
+            JsonNode industryMainlineBatchDays,
             String expectedUpdatedAt) {}
 }

@@ -79,7 +79,19 @@ public enum RetentionLogTable {
      * 增量重评留痕表（M22 V33 T190；北极星时效 SQL 数据源与审计真相源——默认 180 天下限 30 对齐榜单口径，方案 §5 容量）。 {@code
      * retention.global} 旧 JSON 行由解析器字段级回退补默认（M20 两枚举同款，无数据迁移）。
      */
-    INCREMENTAL_REEVAL_LOG("incremental_reeval_log", "incrementalReevalLogDays", 180, 30);
+    INCREMENTAL_REEVAL_LOG("incremental_reeval_log", "incrementalReevalLogDays", 180, 30),
+
+    /**
+     * 行业行情快照表（M27 V35 T242；~117 行/交易日 ≈30k 行/年——pct_d5 复利自算与价格侧持续性只需 ≥5 交易日，365 天窗为 对账裕量，下限 90 对齐
+     * MARKET_DAILY_SNAPSHOT 时序资产口径，方案 §4.1 ④）。
+     */
+    INDUSTRY_MARKET_SNAPSHOT("industry_market_snapshot", "industryMarketSnapshotDays", 365, 90),
+
+    /** 主线榜单行表（M27 V35 T243；5 行/日——180 天对齐榜单口径，方案 §4.1 ④）。 */
+    INDUSTRY_MAINLINE("industry_mainline", "industryMainlineDays", 180, 30),
+
+    /** 主线批次表（M27 V35 T243；1 行/日——与 industry_mainline 同窗惯例、独立键）。 */
+    INDUSTRY_MAINLINE_BATCH("industry_mainline_batch", "industryMainlineBatchDays", 180, 30);
 
     private final String physicalName;
     private final String jsonField;

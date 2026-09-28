@@ -196,6 +196,20 @@ incremental:
     enabled: true
     interval-millis: 60000
 
+# 行业行情快照 Job（M27 T242，方案 §4.2.4）：job.INDUSTRY_MARKET_SNAPSHOT 种子来源（ManagedJob 第 17 键）。
+# FIXED_DELAY 默认 30min（可配 15~60min=900000~3600000）：盘中一轮 1 请求 ×48 轮/交易日；收盘后首轮即终值、
+# 非交易轮 UPSERT 同值幂等（不设独立定格 CRON，ADR-0063 裁决 3）；测试 profile 置 false → 调度零注册隔离。
+industry:
+  market-snapshot:
+    enabled: true
+    interval-millis: 1800000
+  # 行业主线 Job（M27 T243，方案 §3.6）：job.INDUSTRY_MAINLINE 种子来源（ManagedJob 第 18 键）。
+  # 盘后 18:30（FACTOR_SNAPSHOT 17:30 / MARKET_TOP 18:00 之后 30min 错峰，独立 CRON 不依赖触发，ADR-0063 裁决 6）；
+  # 主线 + 龙头 + 主力徽章一体计算（纯规则零 LLM）；任务中心手动触发 = 手动重算入口（version+1）。
+  mainline-job:
+    enabled: true
+    cron: "0 30 18 * * ?"
+
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED
 # （Should，recovered-enabled 可关）。退避窗阈值语义：低频源（30~60min）连续失败数攒得慢，退避指数扩张先触达
