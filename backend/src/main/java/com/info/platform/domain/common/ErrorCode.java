@@ -127,6 +127,14 @@ public enum ErrorCode {
      * §3.5-1）
      */
     INCREMENTAL_REEVAL_CONFIG_INVALID(30092, "增量重评配置校验失败", 400),
+    /** 行业行情快照无任何数据（Job 未跑过/表全空——仅全空才 30093，空态由前端 EmptyState 呈现，404，M27 T242/T244 方案 §4.5） */
+    INDUSTRY_MARKET_SNAPSHOT_EMPTY(30093, "行业行情快照无数据", 404),
+    /** 无主线榜单（请求日无任何榜单版本且全库无榜可回退，404，M27 T243 方案 §4.5） */
+    INDUSTRY_MAINLINE_NOT_FOUND(30094, "该日无主线榜单", 404),
+    /** 主线查询参数非法（行业名非申万 31 枚举 / 该行业无快照行 / date 非法，400，M27 方案 §4.5） */
+    INDUSTRY_MAINLINE_QUERY_INVALID(30095, "主线查询参数非法", 400),
+    /** 主线/龙头配置校验失败（industry.mainline/leader 字段级：权重和/子权重和/topN 窗口边界，400，M27 T243 方案 §4.3.3） */
+    INDUSTRY_MAINLINE_CONFIG_INVALID(30096, "主线配置校验失败", 400),
 
     /** 服务端异常（500） */
     SERVER_ERROR(50000, "服务异常", 500);
