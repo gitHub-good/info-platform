@@ -11,6 +11,7 @@ import { EffectBadge } from '@/components/config/EffectBadge';
 import { SaveFeedbackBar, type SaveFeedbackState } from '@/components/config/SaveFeedbackBar';
 import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -778,12 +779,10 @@ export function LlmConfig() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="llm-config-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">模型配置</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          单价 / 预算 / 告警 / 缓存 / 超时前端可改；API Key 只写不回显
-        </p>
-      </header>
+      <PageHeader
+        title="模型配置"
+        subtitle="单价 / 预算 / 告警 / 缓存 / 超时前端可改；API Key 只写不回显"
+      />
 
       {loading ? (
         <div className="flex flex-col gap-4" data-testid="llm-config-loading">

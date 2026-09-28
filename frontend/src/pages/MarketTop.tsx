@@ -11,6 +11,7 @@ import { trackReadingOnce } from '@/api/readingEvent';
 import { getScoreWeights } from '@/api/valueScore';
 import { addWatchlistItem, createWatchlist, listWatchlists } from '@/api/watchlist';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -636,12 +637,10 @@ function MarketTopRankPage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="market-top-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">全市场推荐</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          全市场快照经四层漏斗（粗筛 → LLM 深析 → 合成）产出的每日 Top10；{DUAL_LAYER_LATENCY_COPY}
-        </p>
-      </header>
+      <PageHeader
+        title="全市场推荐"
+        subtitle={`全市场快照经四层漏斗（粗筛 → LLM 深析 → 合成）产出的每日 Top10；${DUAL_LAYER_LATENCY_COPY}`}
+      />
 
       {state.view ? (
         <div className="mb-3 flex flex-col gap-2" data-testid="market-top-header">
@@ -1069,19 +1068,21 @@ function MarketTopMethodology() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="market-top-methodology-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">全市场推荐 · 方法论</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          榜单口径全解：四层漏斗 / 五维因子定义与当前权重（实时读引擎配置）/ 合成公式 / 降级语义。
-          <a
-            href="#/market-top"
-            data-testid="market-top-methodology-back"
-            className="ml-1 text-primary underline underline-offset-2"
-          >
-            返回榜单
-          </a>
-        </p>
-      </header>
+      <PageHeader
+        title="全市场推荐 · 方法论"
+        subtitle={
+          <>
+            榜单口径全解：四层漏斗 / 五维因子定义与当前权重（实时读引擎配置）/ 合成公式 / 降级语义。
+            <a
+              href="#/market-top"
+              data-testid="market-top-methodology-back"
+              className="ml-1 text-primary underline underline-offset-2"
+            >
+              返回榜单
+            </a>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="flex flex-col gap-2" data-testid="market-top-methodology-loading">

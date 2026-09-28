@@ -161,6 +161,11 @@ describe('FeedDashboard 抓取大盘页（T116）', () => {
 
     render(<FeedDashboard />);
 
+    // T230 抽查：统一页头（操作区含更新时间与刷新按钮）
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('抓取大盘');
+    const headerActions = screen.getByTestId('page-header-actions');
+    expect(headerActions).toContainElement(screen.getByTestId('dashboard-last-refresh'));
+    expect(headerActions).toContainElement(screen.getByTestId('dashboard-refresh'));
     expect(await screen.findByTestId('dashboard-stat-today-new')).toHaveTextContent('48');
     expect(screen.getByTestId('dashboard-stat-today-dup')).toHaveTextContent('9');
     expect(screen.getByTestId('dashboard-stat-active')).toHaveTextContent('12');

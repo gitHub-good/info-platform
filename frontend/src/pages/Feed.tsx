@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SW_INDUSTRIES } from '@/types/eventStream';
 import type { FeedItemView, FeedItemType } from '@/types/feed';
@@ -228,23 +229,23 @@ export function Feed() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="feed-page">
-      <header className="mb-4">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-medium">个人信息流</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              按时间倒序 · 命中你的主题 / 标的 / 事件类型订阅
-              {/* 资讯库互链（M19 T161，REQ 故事 1 Should）：库 → 流 两级心智引导 */}
-              <a
-                href="#/news-library"
-                data-testid="feed-library-link"
-                className="ml-2 text-primary underline-offset-4 hover:underline"
-              >
-                查看原始库 →
-              </a>
-            </p>
-          </div>
-          {/* 行业筛选（M18 T156）：31 行业下拉，切换即重拉首页；推荐条目不入筛选视图 */}
+      <PageHeader
+        title="个人信息流"
+        subtitle={
+          <>
+            按时间倒序 · 命中你的主题 / 标的 / 事件类型订阅
+            {/* 资讯库互链（M19 T161，REQ 故事 1 Should）：库 → 流 两级心智引导 */}
+            <a
+              href="#/news-library"
+              data-testid="feed-library-link"
+              className="ml-2 text-primary underline-offset-4 hover:underline"
+            >
+              查看原始库 →
+            </a>
+          </>
+        }
+        actions={
+          /* 行业筛选（M18 T156）：31 行业下拉，切换即重拉首页；推荐条目不入筛选视图 */
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             行业
             <select
@@ -261,8 +262,8 @@ export function Feed() {
               ))}
             </select>
           </label>
-        </div>
-      </header>
+        }
+      />
 
       {loading ? (
         <div className="flex flex-col gap-3" data-testid="feed-loading">

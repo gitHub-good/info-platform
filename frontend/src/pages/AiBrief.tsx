@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -175,9 +176,10 @@ export function AiBrief({ pollIntervalMs = AI_BRIEF_POLL_INTERVAL_MS }: AiBriefP
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="ai-brief-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">AI 简报</h1>
-      </header>
+      <PageHeader
+        title="AI 简报"
+        subtitle="选标的与简报类型即时生成：结论、关键事件与事实回链一屏可溯"
+      />
 
       <Card className="mb-4">
         <CardHeader>

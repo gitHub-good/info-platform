@@ -136,6 +136,11 @@ function renderSources(route = '/sources') {
   vi.stubGlobal('fetch', fetchMock);
   // 直挂不带 route prop：走组件内 hash 订阅
   render(<Sources />);
+  // T230 抽查：统一页头（操作区沿既有搜索 + 新增源入口）
+  expect(screen.getByTestId('page-header-subtitle')).toHaveTextContent('全站源体系一页管理');
+  const headerActions = screen.getByTestId('page-header-actions');
+  expect(headerActions).toContainElement(screen.getByTestId('sources-search'));
+  expect(headerActions).toContainElement(screen.getByTestId('sources-add'));
   return fetchMock;
 }
 

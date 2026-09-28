@@ -7,6 +7,7 @@ import {
 } from '@/api/recommendation';
 import { trackReadingOnce } from '@/api/readingEvent';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -537,19 +538,21 @@ export function Recommendations() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="recommendations-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">推荐中心</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          事件驱动的动态推荐：逻辑链取自结构化事实（AI 分析仅供参考），可反馈有用/不感兴趣调整后续推送。
-          <a
-            href="#/market-top"
-            data-testid="rec-link-market-top"
-            className="ml-1 text-primary underline underline-offset-2"
-          >
-            全市场视角 → 全市场推荐
-          </a>
-        </p>
-      </header>
+      <PageHeader
+        title="推荐中心"
+        subtitle={
+          <>
+            事件驱动的动态推荐：逻辑链取自结构化事实（AI 分析仅供参考），可反馈有用/不感兴趣调整后续推送。
+            <a
+              href="#/market-top"
+              data-testid="rec-link-market-top"
+              className="ml-1 text-primary underline underline-offset-2"
+            >
+              全市场视角 → 全市场推荐
+            </a>
+          </>
+        }
+      />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <FilterRow

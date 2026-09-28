@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/api/http';
 import { getEventImpactChains, getEventsPaged } from '@/api/eventStream';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -519,12 +520,10 @@ export function Events() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="events-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">事件流</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          AI 管道提取的结构化事件：按类型/行业/重要度/方向筛选，关键数字与引用取自原文可回溯。
-        </p>
-      </header>
+      <PageHeader
+        title="事件流"
+        subtitle="AI 管道提取的结构化事件：按类型/行业/重要度/方向筛选，关键数字与引用取自原文可回溯。"
+      />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <FilterRow

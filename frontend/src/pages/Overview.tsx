@@ -5,6 +5,7 @@ import { getIndustryHeatBoard } from '@/api/industryHeat';
 import { getOverview } from '@/api/overview';
 import { ApiError } from '@/api/http';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -236,10 +237,7 @@ export function Overview() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="overview-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">概览</h1>
-        <p className="mt-1 text-sm text-muted-foreground">今日值得看的动态，与平台健康度</p>
-      </header>
+      <PageHeader title="概览" subtitle="今日值得看的动态，与平台健康度" />
 
       {error && data == null ? (
         <div className="flex flex-col items-start gap-2" data-testid="overview-error">

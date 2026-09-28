@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ExternalLink, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -487,12 +488,10 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="news-library-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">资讯库</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          资讯源原始条目全量 · 默认仅有效（PASS）条目 · 噪音/近重复可筛
-        </p>
-      </header>
+      <PageHeader
+        title="资讯库"
+        subtitle="资讯源原始条目全量 · 默认仅有效（PASS）条目 · 噪音/近重复可筛"
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1 text-sm text-muted-foreground">

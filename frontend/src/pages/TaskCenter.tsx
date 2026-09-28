@@ -6,6 +6,7 @@ import { getMarketTopConfig, patchMarketTopConfig } from '@/api/marketTop';
 import { getJobs, patchJob, runJob } from '@/api/taskCenter';
 import { Switch } from '@/components/config/Switch';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -1104,12 +1105,10 @@ export function TaskCenter() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="task-center-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">任务执行中心</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          定时任务可手动触发、实时看状态；执行明细见 Job 日志
-        </p>
-      </header>
+      <PageHeader
+        title="任务执行中心"
+        subtitle="定时任务可手动触发、实时看状态；执行明细见 Job 日志"
+      />
 
       {loading ? (
         <div className="flex flex-col gap-2" data-testid="task-center-loading">

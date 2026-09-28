@@ -5,6 +5,7 @@ import { createSubscription, listSubscriptionPaged, unsubscribeSubscription } fr
 import { fetchSubjectQuotes, type SubjectSummary } from '@/api/subject';
 import { SubjectPicker } from '@/components/subject/SubjectPicker';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
@@ -565,22 +566,20 @@ export function Subscriptions() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="subscriptions-page">
-      <header className="mb-4 flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-medium">订阅管理</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            订阅主题 / 标的 / 事件类型 / 政策主题，命中内容将进入你的信息流
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs text-muted-foreground" data-testid="subs-total">
-            共 {total} 条
-          </span>
-          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="subs-create-open">
-            新建订阅
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        title="订阅管理"
+        subtitle="订阅主题 / 标的 / 事件类型 / 政策主题，命中内容将进入你的信息流"
+        actions={
+          <>
+            <span className="text-xs text-muted-foreground" data-testid="subs-total">
+              共 {total} 条
+            </span>
+            <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="subs-create-open">
+              新建订阅
+            </Button>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="flex flex-col gap-3" data-testid="subs-loading">

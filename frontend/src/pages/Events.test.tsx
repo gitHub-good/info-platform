@@ -87,6 +87,9 @@ describe('Events 事件流页（T127 + T224 分页化，#/events）', () => {
     render(<Events />);
 
     expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
+    // T230 抽查：统一页头（h1 + 副标题）
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('事件流');
+    expect(screen.getByTestId('page-header-subtitle')).toHaveTextContent('按类型/行业/重要度/方向筛选');
     expect(screen.getByTestId('event-type-9')).toHaveTextContent('政策发布');
     expect(screen.getByTestId('event-direction-9')).toHaveTextContent('利好');
     expect(screen.getByTestId('event-importance-9')).toHaveTextContent('高');

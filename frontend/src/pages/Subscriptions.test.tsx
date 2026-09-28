@@ -123,6 +123,12 @@ describe('Subscriptions 订阅管理页（体检 P1-3）', () => {
     render(<Subscriptions />);
 
     expect(await screen.findByTestId('sub-item-11')).toBeInTheDocument();
+    // T230 抽查：统一页头（h1 + 副标题 + 操作区含「共 N 条」与新建入口）
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('订阅管理');
+    expect(screen.getByTestId('page-header-subtitle')).toHaveTextContent('订阅主题 / 标的');
+    expect(screen.getByTestId('page-header-actions')).toContainElement(
+      screen.getByTestId('subs-create-open'),
+    );
     expect(screen.getByTestId('sub-type-11')).toHaveTextContent('主题');
     expect(screen.getByTestId('sub-content-11')).toHaveTextContent('半导体国产替代');
     // 标的订阅：subKey=7 → SH600519 贵州茅台（quotes 批量解析）

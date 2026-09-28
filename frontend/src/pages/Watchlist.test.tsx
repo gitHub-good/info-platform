@@ -253,6 +253,9 @@ describe('Watchlist 管理页', () => {
     render(<Watchlist />);
 
     expect(await screen.findByTestId('watchlist-list-empty')).toBeInTheDocument();
+    // T230 抽查：统一页头 + 副标题补齐（原缺副标题页）
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('自选清单');
+    expect(screen.getByTestId('page-header-subtitle')).toHaveTextContent('分组管理关注标的');
     expect(screen.getByTestId('empty-state-title')).toHaveTextContent('暂无清单');
     expect(screen.getByTestId('empty-state-description')).toHaveTextContent('创建清单');
   });

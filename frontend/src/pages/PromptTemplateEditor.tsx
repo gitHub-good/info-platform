@@ -14,6 +14,7 @@ import { PlaceholderPanel } from '@/components/prompt/PlaceholderPanel';
 import { TemplateTextView } from '@/components/prompt/TemplateTextView';
 import { SaveFeedbackBar, type SaveFeedbackState } from '@/components/config/SaveFeedbackBar';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { cn } from '@/lib/utils';
 import { statusTextClass } from '@/lib/format';
 import { Dialog } from '@/components/ui/dialog';
@@ -453,18 +454,14 @@ export function PromptTemplateEditor({
   if (baseError) {
     return (
       <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="prompt-editor">
-        <header className="mb-4 flex items-center gap-3">
-          <h1 className="text-xl font-medium">编辑 · {sceneName}</h1>
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            onClick={onBack}
-            data-testid="prompt-editor-back"
-          >
-            返回列表
-          </Button>
-        </header>
+        <PageHeader
+          title={`编辑 · ${sceneName}`}
+          actions={
+            <Button variant="outline" size="sm" onClick={onBack} data-testid="prompt-editor-back">
+              返回列表
+            </Button>
+          }
+        />
         <div className="flex flex-col items-start gap-2" data-testid="prompt-editor-error">
           <p className="text-sm text-destructive" role="alert">
             {baseError}
@@ -489,25 +486,18 @@ export function PromptTemplateEditor({
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="prompt-editor">
-      <header className="mb-2 flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-medium" data-testid="prompt-editor-title">
-          编辑 · {sceneName}
-          {baseVersionLabel ? `（基于 ${baseVersionLabel}）` : ''}
-        </h1>
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          onClick={handleBack}
-          data-testid="prompt-editor-back"
-        >
-          返回列表
-        </Button>
-      </header>
-      <p className="mb-4 text-sm text-muted-foreground">
-        保存将落为新版本并激活
-        {baseVersionLabel ? `；${baseVersionLabel} 自动置废留痕（可随时切回）` : ''}
-      </p>
+      <PageHeader
+        titleTestId="prompt-editor-title"
+        title={`编辑 · ${sceneName}${baseVersionLabel ? `（基于 ${baseVersionLabel}）` : ''}`}
+        subtitle={`保存将落为新版本并激活${
+          baseVersionLabel ? `；${baseVersionLabel} 自动置废留痕（可随时切回）` : ''
+        }`}
+        actions={
+          <Button variant="outline" size="sm" onClick={handleBack} data-testid="prompt-editor-back">
+            返回列表
+          </Button>
+        }
+      />
 
       {draftNotice ? (
         <div

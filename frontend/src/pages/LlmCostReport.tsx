@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -173,9 +174,10 @@ export function LlmCostReport() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="cost-report-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">LLM 成本报表</h1>
-      </header>
+      <PageHeader
+        title="LLM 成本报表"
+        subtitle="LLM 调用与成本按今日 / 近 7 天 / 近 30 天窗口聚合，预算口径对齐北极星"
+      />
 
       <div className="mb-4 flex items-center justify-between gap-2">
         <WindowSwitcher value={window} onChange={handleWindowChange} disabled={loading} />

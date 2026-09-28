@@ -14,6 +14,7 @@ import {
 import { VersionCard } from '@/components/prompt/VersionCard';
 import { SaveFeedbackBar, type SaveFeedbackState } from '@/components/config/SaveFeedbackBar';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -383,12 +384,10 @@ export function PromptTemplates() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="prompt-templates-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">提示词模板</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          4 个 AI 场景的提示词一页治理：版本全量可见、编辑即时生效、可回滚
-        </p>
-      </header>
+      <PageHeader
+        title="提示词模板"
+        subtitle="4 个 AI 场景的提示词一页治理：版本全量可见、编辑即时生效、可回滚"
+      />
 
       {loading ? (
         <div className="flex flex-col gap-4" data-testid="prompt-templates-loading">

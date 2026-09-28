@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { statusTextClass, statusToneClass } from '@/lib/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { navigate } from '@/lib/navigation';
@@ -313,30 +314,20 @@ export function FeedDashboard() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="feed-dashboard-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">抓取大盘</h1>
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            V2.0 北极星六指标、全部资讯源今日入库、运行状态与近期失败的一屏近实时视图（只读）；处置动作跳「资讯源」页完成。
-          </p>
-          <span className="ml-auto flex items-center gap-3">
-            <span
-              className="text-xs text-muted-foreground"
-              data-testid="dashboard-last-refresh"
-            >
+      <PageHeader
+        title="抓取大盘"
+        subtitle="V2.0 北极星六指标、全部资讯源今日入库、运行状态与近期失败的一屏近实时视图（只读）；处置动作跳「资讯源」页完成。"
+        actions={
+          <>
+            <span className="text-xs text-muted-foreground" data-testid="dashboard-last-refresh">
               {secondsAgo == null ? '尚未刷新' : `更新于 ${secondsAgo} 秒前`}
             </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={refreshAll}
-              data-testid="dashboard-refresh"
-            >
+            <Button size="sm" variant="outline" onClick={refreshAll} data-testid="dashboard-refresh">
               刷新
             </Button>
-          </span>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="flex flex-col gap-4" data-testid="dashboard-loading">

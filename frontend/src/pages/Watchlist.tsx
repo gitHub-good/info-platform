@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -212,9 +213,10 @@ export function Watchlist() {
   // T38 导航收编：原头部「政策时事 / Job 日志 / 成本报表 / 登出」4 个跨页按钮移除，职责移交侧栏
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="watchlist-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">自选清单</h1>
-      </header>
+      <PageHeader
+        title="自选清单"
+        subtitle="分组管理关注标的：行情速览、异动与详情一屏直达"
+      />
 
       <Card className="mb-4">
         <CardHeader>

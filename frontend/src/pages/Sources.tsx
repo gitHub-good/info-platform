@@ -5,6 +5,7 @@ import { getInfoSources } from '@/api/infoSource';
 import { BizSourcesPanel } from '@/components/sources/BizSourcesPanel';
 import { InfoSourcesPanel, type InfoSourcesPanelHandle } from '@/components/sources/InfoSourcesPanel';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Input } from '@/components/ui/input';
 import { currentRoute, queryOf } from '@/lib/navigation';
 import type { DataSourceConfigView } from '@/types/datasourceConfig';
@@ -136,40 +137,39 @@ export function Sources({ route: routeProp }: SourcesPageProps) {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="sources-page">
-      <header className="mb-4 flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-medium">源管理</h1>
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索源名称 / 源代码（过滤全部分段）"
-              aria-label="搜索源名称或源代码"
-              className="w-full sm:w-64"
-              data-testid="sources-search"
-            />
-            <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-          </div>
-          {/* V2.4 T212：新增源入口页头全局唯一——弹出既有资讯源 SourceFormDialog（业务源代码注册域不可自增） */}
-          <Button
-            size="sm"
-            className="ml-auto"
-            onClick={() => infoPanelRef.current?.openAdd()}
-            data-testid="sources-add"
-          >
-            ＋新增源
-          </Button>
+      <PageHeader
+        title="源管理"
+        subtitle="全站源体系一页管理：资讯源按分组（快讯 / 媒体 / 政策 / 宏观 / 国际 / 自建）7×24 分钟级轮询采集在前 · 业务数据源按需拉取一段收尾——启停 / 参数 / 健康 / 归档统一入口"
+        actions={
+          <>
+            {/* 搜索沿既有位置语义（页头操作区，过滤全部分段） */}
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索源名称 / 源代码（过滤全部分段）"
+                aria-label="搜索源名称或源代码"
+                className="w-full sm:w-64"
+                data-testid="sources-search"
+              />
+              <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+            </div>
+            {/* V2.4 T212：新增源入口页头全局唯一——弹出既有资讯源 SourceFormDialog（业务源代码注册域不可自增） */}
+            <Button
+              size="sm"
+              onClick={() => infoPanelRef.current?.openAdd()}
+              data-testid="sources-add"
+            >
+              ＋新增源
+            </Button>
+          </>
+        }
+      />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <OverviewBar info={infoStat} biz={bizStat} />
         </div>
-        <p className="text-sm text-muted-foreground">
-          全站源体系一页管理：资讯源按分组（快讯 / 媒体 / 政策 / 宏观 / 国际 / 自建）7×24
-          分钟级轮询采集在前 · 业务数据源按需拉取一段收尾——启停 / 参数 / 健康 / 归档统一入口
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <OverviewBar info={infoStat} biz={bizStat} />
-          </div>
-        </div>
-      </header>
+      </div>
 
       <div className="flex flex-col gap-8">
         <InfoSourcesPanel ref={infoPanelRef} filter={search} />

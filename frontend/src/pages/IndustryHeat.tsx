@@ -12,6 +12,7 @@ import {
   retryIndustryWeeklyReport,
 } from '@/api/industryHeat';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -1423,12 +1424,10 @@ export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHe
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="industry-heat-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">行业热度与日报</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          按行业看信息、按事件抓重点：热度榜 31 行业分钟级快照，行业日报每日 08:00 晨读，行业周报周日晚 20:00 纵深复盘。
-        </p>
-      </header>
+      <PageHeader
+        title="行业热度与日报"
+        subtitle="按行业看信息、按事件抓重点：热度榜 31 行业分钟级快照，行业日报每日 08:00 晨读，行业周报周日晚 20:00 纵深复盘。"
+      />
 
       <Tabs
         value={tab}

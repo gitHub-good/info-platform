@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -359,9 +360,10 @@ export function JobLog({ initialJobName = '' }: JobLogProps) {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="job-log-page">
-      <header className="mb-4">
-        <h1 className="text-xl font-medium">Job 执行日志</h1>
-      </header>
+      <PageHeader
+        title="Job 执行日志"
+        subtitle="定时任务的执行历史：按任务与状态检索，页码翻页回看"
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <JobNameFilter
