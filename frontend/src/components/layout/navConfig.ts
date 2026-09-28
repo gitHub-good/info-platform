@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bot,
   Bookmark,
   Coins,
@@ -38,7 +39,7 @@ export interface NavGroup {
   single?: boolean;
 }
 
-/** 4 分组 17 页导航总表 + 底部登出（UI 方案 §2.1；V2.4-M24 T213 政策时事页裁撤并入资讯库 19→18；交互优化裁撤「标的详情」侧栏入口 18→17——#/subjects/:code 路由保留，自选清单经弹框/完整链接进入）。 */
+/** 4 分组 18 页导航总表 + 底部登出（UI 方案 §2.1；V2.4-M24 T213 政策时事页裁撤并入资讯库 19→18；交互优化裁撤「标的详情」侧栏入口 18→17；M27 T245 行业主线入分析组 17→18——#/subjects/:code 路由保留，自选清单经弹框/完整链接进入）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
@@ -64,6 +65,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/ai-brief', label: 'AI 简报', icon: FileText },
       // 行业热度与日报（M15 T126，分析组第 4 项 / 全站第 16 页）：AI 分析产出，紧邻 AI 简报
       { to: '/industry-heat', label: '行业热度', icon: Flame },
+      // 行业主线（M27 T245，分析组第 8 项 / 全站第 18 页）：热力图 + 主线榜单 + 龙头——行业心智紧邻「行业热度」
+      { to: '/industry-mainline', label: '行业主线', icon: Activity },
       // 事件流（M15 T127，分析组第 5 项 / 全站第 17 页）：L2 结构化事件卡片流，插「行业热度」后
       { to: '/events', label: '事件流', icon: Zap },
       // 推荐中心（M16 T135，分析组第 6 项 / 全站第 18 页）：动态推荐卡片流 + 反馈闭环，紧邻事件流

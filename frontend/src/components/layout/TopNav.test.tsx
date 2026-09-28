@@ -113,8 +113,8 @@ describe('TopNav 双行顶栏（T221）', () => {
     expect(screen.getByTestId('nav-group-分析').className).toContain('text-foreground');
   });
 
-  it('17 页逐页可达：每页顶栏命中自身页签并带 aria-current（总览经组 Tab 直达）', () => {
-    expect(ALL_ITEMS).toHaveLength(17); // 分组 Tab 数据源沿 navConfig 4 分组不变
+  it('18 页逐页可达：每页顶栏命中自身页签并带 aria-current（总览经组 Tab 直达）', () => {
+    expect(ALL_ITEMS).toHaveLength(18); // 分组 Tab 数据源沿 navConfig 4 分组不变（M27 T245 行业主线入分析组）
 
     for (const item of ALL_ITEMS) {
       const testid =

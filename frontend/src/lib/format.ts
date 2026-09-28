@@ -99,6 +99,65 @@ export function statusTextClass(status: SemanticStatus): string {
   }
 }
 
+// —— 行业热力图色阶（M27 T245，方案 §4.6 ①：色深 = |pctDay| 线性映射 ±5% 封顶，方向轨单点导出） ——
+
+/** 色阶封顶幅度（|pctDay| ≥ 5% 即最深档，图例两端）。 */
+export const HEAT_SCALE_MAX_PCT = 5;
+
+/** 方向轨基色（与 directionTextClass 的 red-500 / green-500 同源——#ef4444 / #22c55e）。 */
+const HEAT_UP_RGB: readonly [number, number, number] = [239, 68, 68];
+const HEAT_DOWN_RGB: readonly [number, number, number] = [34, 197, 94];
+/** 暗色页背景合成基色（index.css .dark --background oklch(0.13) ≈ #0d0d0d）。 */
+const HEAT_PAGE_BASE_RGB: readonly [number, number, number] = [13, 13, 13];
+/** 色深线性区间：|pct| ∈ (0,5] → alpha ∈ (0.12,0.9]（零轴透明 = 无方向）。 */
+const HEAT_ALPHA_MIN = 0.12;
+const HEAT_ALPHA_MAX = 0.9;
+/** 文字深浅切换阈值：合成底色相对亮度高于此值用深字，否则白字。 */
+const HEAT_TEXT_LUMA_THRESHOLD = 0.45;
+
+/** 热力图格色阶（背景色 + 文字色）。 */
+export interface HeatCellShade {
+  /** 格子背景色（CSS color 串；零轴 transparent）。 */
+  backgroundColor: string;
+  /** 格子文字色（深底白字 / 浅底深字自动切换）。 */
+  color: string;
+}
+
+/** 相对亮度（W3C sRGB 公式，分量 0~255）。 */
+function relativeLuma(rgb: readonly [number, number, number]): number {
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+}
+
+/** 热力图格色阶：红涨绿跌（方向轨同源基色）+ 色深随 |pctDay| 线性（±HEAT_SCALE_MAX_PCT 封顶）+ 文字深浅切换。 */
+export function heatCellShade(pctDay: number | null | undefined): HeatCellShade {
+  if (pctDay == null || Number.isNaN(pctDay) || pctDay === 0) {
+    return { backgroundColor: 'transparent', color: 'inherit' };
+  }
+  const clamped = Math.max(-HEAT_SCALE_MAX_PCT, Math.min(HEAT_SCALE_MAX_PCT, pctDay));
+  const intensity = Math.abs(clamped) / HEAT_SCALE_MAX_PCT;
+  const alpha = HEAT_ALPHA_MIN + (HEAT_ALPHA_MAX - HEAT_ALPHA_MIN) * intensity;
+  const tint = clamped > 0 ? HEAT_UP_RGB : HEAT_DOWN_RGB;
+  // 文字色按「基色叠加暗底」的合成亮度切换（jsdom 无计算样式，纯函数可测）
+  const blended = tint.map((c, i) => c * alpha + HEAT_PAGE_BASE_RGB[i] * (1 - alpha)) as [
+    number,
+    number,
+    number,
+  ];
+  const color = relativeLuma(blended) > HEAT_TEXT_LUMA_THRESHOLD ? '#0a0a0a' : '#ffffff';
+  return { backgroundColor: `rgba(${tint.join(', ')}, ${alpha})`, color };
+}
+
+/** 色阶图例渐变条（-5% 绿 → 0 透明 → +5% 红；纯 CSS linear-gradient，零图表库依赖）。 */
+export function heatScaleGradientCss(): string {
+  const down = HEAT_DOWN_RGB.join(', ');
+  const up = HEAT_UP_RGB.join(', ');
+  return `linear-gradient(to right, rgba(${down}, ${HEAT_ALPHA_MAX}), rgba(${down}, 0) 50%, rgba(${up}, 0) 50%, rgba(${up}, ${HEAT_ALPHA_MAX}))`;
+}
+
 /** ISO 时间 → 'YYYY-MM-DD HH:mm'（本地时区，通知时间等轻量展示）；空/非法回 '--' */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '--';
