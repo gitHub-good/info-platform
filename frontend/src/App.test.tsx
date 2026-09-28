@@ -239,6 +239,31 @@ function makeFetch() {
         traceId: 't',
       });
     }
+    if (path.includes('/market-top')) {
+      // 概览 Top10 精华卡首查（T223）：空榜单 → 空态（导航测试不消费行数据）
+      return mockResponse(200, {
+        code: 0,
+        msg: 'ok',
+        data: {
+          rankDate: '2026-09-22',
+          version: 1,
+          triggerSource: 'DAILY',
+          batch: {
+            snapshotDate: '2026-09-21',
+            computedAt: '2026-09-21T10:00:00Z',
+            degraded: false,
+            degradedReason: null,
+            funnelStats: {},
+            dropped: [],
+            lastEvent: null,
+          },
+          items: [],
+          disclaimer: 'AI 分析仅供参考，非投资建议',
+          recentIncrement: null,
+        },
+        traceId: 't',
+      });
+    }
     if (path.includes('/feed/personal')) {
       return mockResponse(200, { code: 0, msg: 'ok', data: { items: [], nextCursor: null }, traceId: 't' });
     }
@@ -281,7 +306,7 @@ describe('App 路由与登录守卫（T38）', () => {
   it('已登录空 hash → 默认落地 /overview 概览页（T42 真实页），hash 同步为 #/overview', async () => {
     renderLoggedIn('');
 
-    expect(await screen.findByTestId('stat-card-llm-today')).toBeInTheDocument();
+    expect(await screen.findByTestId('health-strip')).toBeInTheDocument();
     expect(screen.getByTestId('overview-page')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#/overview'));
   });

@@ -1,67 +1,53 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ArrowRight } from 'lucide-react';
+import { getEvents } from '@/api/eventStream';
+import { getIndustryHeatBoard } from '@/api/industryHeat';
+import { getOverview } from '@/api/overview';
+import { ApiError } from '@/api/http';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { HealthStatusStrip } from '@/components/overview/HealthStatusStrip';
 import { RecommendationCard } from '@/components/overview/RecommendationCard';
 import { StatCard } from '@/components/overview/StatCard';
-import { WorkbenchPanel } from '@/components/overview/WorkbenchPanel';
-import { ApiError } from '@/api/http';
-import { getOverview } from '@/api/overview';
-import type { OverviewLlmStatus, OverviewSourceHealth, OverviewView } from '@/types/overview';
+import { Top10DigestCard } from '@/components/overview/Top10DigestCard';
+import { formatPct } from '@/lib/format';
+import { navigate } from '@/lib/navigation';
+import { IMPORTANCE_LABELS, labelOf } from '@/types/industryHeat';
+import type { EventCard } from '@/types/eventStream';
+import type { IndustryHeatBoardView } from '@/types/industryHeat';
+import type { OverviewSourceHealth, OverviewView } from '@/types/overview';
 
-/** 非 ApiError 兜底文案。 */
+// 概览页（M25 T223 V3.0 概览重组 11→6，UI 方案 §2）：打开即见结论。
+// - 第一屏：今日推荐主位（lg 2/3 宽，RecommendationCard 保留不动）+ 全市场 Top10 精华（1/3，新建自管三态）；
+// - 第二排：最新事件 3 条 / 行业热度 Top5（沿 WorkbenchPanel 原样迁移，行级下钻保留）+ 今日异动（StatCard，
+//   含行情源异常警示体检 E2 联动）；
+// - 底部：平台健康状态条（五段单行，替换平台健康三卡与工作台大盘健康块）。
+// - 移除（拍板三）：最新推荐摘要（与主位重复）与最新政策卡（承接三路：资讯库 L1 预填/信息流 POLICY/详情政策分区）；
+//   WorkbenchPanel 拆解删除，30s 自动刷新 + document.hidden 暂停 + 单块降级语义由迁移块与新区块继承。
+// - 政策取数仍在 /overview 聚合返回（契约不动），前端不再消费展示。
+
+/** 自动刷新间隔（沿大盘 30 秒机制）。 */
+const AUTO_REFRESH_MILLIS = 30_000;
+
+/** 热度摘要取 Top N。 */
+const HEAT_TOP_N = 5;
+
+/** 事件摘要取最新 N 条。 */
+const EVENT_LIMIT = 3;
+
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.msg : fallback;
 }
 
-/** 微元 → 元字符串（4 位小数，对齐成本报表页口径）。 */
-function formatYuan(costMicros: number): string {
-  return (costMicros / 1_000_000).toFixed(4);
-}
-
-/** token 数千分位可读化。 */
-function formatTokens(tokens: number): string {
-  return tokens.toLocaleString('zh-CN');
-}
-
-/** 用量占比（0~100 整数；预算为 0 防除零给 0）。 */
-function percentOf(used: number, budget: number): number {
-  if (budget <= 0) return 0;
-  return Math.min(100, Math.round((used / budget) * 100));
-}
-
-/** 预算状态徽章：OK 灰 / WARNING 黄 / EXHAUSTED 红（三态带文字，对齐成本报表惯例）。 */
-const LLM_STATUS_META: Record<OverviewLlmStatus, { label: string; className: string }> = {
-  OK: { label: '正常', className: 'bg-muted text-muted-foreground' },
-  WARNING: { label: '余量告急', className: 'bg-amber-500/15 text-amber-400' },
-  EXHAUSTED: { label: '已耗尽', className: 'bg-rose-500/15 text-rose-400' },
-};
-
-/** 源编码 → 中文名（对齐后端 SOURCE_LABELS；未知名原样展示）。 */
-const SOURCE_LABELS: Record<string, string> = {
-  QUOTE: '行情源',
-  FINANCE: '财务源',
-  VALUATION: '估值源',
-  ANNOUNCE: '公告源',
-  NEWS: '新闻源',
-  POLICY: '政策源',
-  EVENT: '事件源',
-};
-
-function sourceLabel(code: string): string {
-  return SOURCE_LABELS[code] ?? code;
-}
-
-/** 最近事件时间 → 本地可读短格式（无记录返回空串）。 */
+/** ISO → MM-dd HH:mm 短格式（空/非法回 '—'）。 */
 function formatTime(iso: string | null): string {
-  if (!iso) return '';
-  return new Date(iso).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /** 行情源（QUOTE）是否异常：最近事件存在且非 OK（体检 E2——异动检测依赖行情源，异常时警示监控受限）。 */
@@ -84,64 +70,168 @@ function AnomalySourceWarning() {
   );
 }
 
+/** 块级三态外壳（标题 + 直达链接 + 骨架/错误重试/内容；沿 WorkbenchPanel Block 原样迁移）。 */
+function Block({
+  testId,
+  title,
+  link,
+  linkTestId,
+  loading,
+  error,
+  onRetry,
+  retryTestId,
+  empty,
+  children,
+}: {
+  testId: string;
+  title: string;
+  link: string;
+  linkTestId: string;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  retryTestId: string;
+  empty: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card size="sm" data-testid={testId}>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between text-sm font-medium">
+          {title}
+          <a
+            href={link}
+            className="inline-flex items-center gap-0.5 text-xs font-normal text-muted-foreground transition-colors hover:text-foreground"
+            data-testid={linkTestId}
+          >
+            直达
+            <ArrowRight className="size-3" aria-hidden="true" />
+          </a>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex min-h-24 flex-col gap-1.5">
+        {loading ? (
+          <Skeleton className="h-20 w-full" data-testid={`${testId}-loading`} />
+        ) : error && empty ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" role="status">
+            <span data-testid={`${testId}-error`}>{error}</span>
+            <button
+              type="button"
+              className="text-primary underline underline-offset-4"
+              onClick={onRetry}
+              data-testid={retryTestId}
+            >
+              重试
+            </button>
+          </div>
+        ) : empty ? (
+          <p className="py-4 text-center text-sm text-muted-foreground" data-testid={`${testId}-empty`}>
+            暂无数据
+          </p>
+        ) : (
+          children
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** 块状态速记（热度/事件迁移块各自持有）。 */
+interface BlockState<T> {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+}
+
+const initialBlock = <T,>(): BlockState<T> => ({ data: null, loading: true, error: null });
+
 /**
- * 概览仪表盘页（体检 P1-4 用户视角化改造，登录后默认落地页；M18 T156 升级 V2.0 工作台）。
- * - 布局：上半部「今日」用户视角区（今日推荐主位 lg 占 2 列 + 今日异动/最新政策右列堆叠），
- *   中部「V2.0 工作台」区块（热度 Top5 / 最新推荐 / 最新事件 / 大盘健康四块摘要，复用既有 API），
- *   下半部「平台健康」区（成本水位/任务健康/数据源健康三卡网格收纳，既有五卡中异动与政策上移）。
- * - 今日推荐卡自管三态与生成触发（见 RecommendationCard）；其余卡片沿用卡级 error 字段 + 整页错误重试。
- * - 今日异动卡：行情源健康异常时叠加警示条（体检 E2 联动，数据源健康同源数据）。
- * - 窗口口径标注在卡片副标题（异动/成本「今日」日界，政策/任务/数据源「近 24h」滚动，方案 §4.6 有意裁定）。
+ * 概览仪表盘页（登录后默认落地页）。V3.0 重组为 6 个信息块（5 张内容卡 + 1 条状态条），
+ * 1080p 第一屏容纳 P0/P1 全部内容；运维信息降为底部单行状态条。
  */
 export function Overview() {
   const [data, setData] = useState<OverviewView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [heat, setHeat] = useState<BlockState<IndustryHeatBoardView>>(initialBlock);
+  const [events, setEvents] = useState<BlockState<EventCard[]>>(initialBlock);
 
   // 卸载/重挂载时中止在途请求，避免旧响应覆盖新结果
   const abortRef = useRef<AbortController | null>(null);
+  const blockAbortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent: boolean) => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const view = await getOverview(ctrl.signal);
       if (ctrl.signal.aborted) return;
       setData(view);
     } catch (err) {
       if (ctrl.signal.aborted) return;
-      setError(messageOf(err, '概览数据加载失败'));
+      // 静默轮询失败：已有数据保留，不闪整页错误
+      if (!silent) setError(messageOf(err, '概览数据加载失败'));
     } finally {
-      if (!ctrl.signal.aborted) setLoading(false);
+      if (!ctrl.signal.aborted && !silent) setLoading(false);
     }
   }, []);
 
+  // 迁移块加载（热度 + 事件；单块失败独立降级，不拖累其余块）
+  const loadBlocks = useCallback(async (silent: boolean) => {
+    blockAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    blockAbortRef.current = ctrl;
+    if (!silent) {
+      setHeat((prev) => ({ ...prev, loading: true, error: null }));
+      setEvents((prev) => ({ ...prev, loading: true, error: null }));
+    }
+    void (async () => {
+      try {
+        const board = await getIndustryHeatBoard('D7', ctrl.signal);
+        if (!ctrl.signal.aborted) setHeat({ data: board, loading: false, error: null });
+      } catch (err) {
+        if (!ctrl.signal.aborted && !silent)
+          setHeat({ data: null, loading: false, error: messageOf(err, '热度摘要加载失败') });
+      }
+    })();
+    void (async () => {
+      try {
+        const view = await getEvents({ limit: EVENT_LIMIT }, ctrl.signal);
+        if (!ctrl.signal.aborted) setEvents({ data: view.items, loading: false, error: null });
+      } catch (err) {
+        if (!ctrl.signal.aborted && !silent)
+          setEvents({ data: null, loading: false, error: messageOf(err, '事件摘要加载失败') });
+      }
+    })();
+  }, []);
+
   useEffect(() => {
-    void load();
-    return () => abortRef.current?.abort();
-  }, [load]);
+    void load(false);
+    void loadBlocks(false);
+    return () => {
+      abortRef.current?.abort();
+      blockAbortRef.current?.abort();
+    };
+  }, [load, loadBlocks]);
 
-  // 数据源健康摘要：成功 n/总数 + 最差源提示行（仅异常源；全绿「全部正常」；无任何记录「暂无抓取记录」）
+  // 30s 刷新：document.hidden 暂停（沿大盘机制；Top10 精华卡与健康状态条组件内自管同节奏）
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      void load(true);
+      void loadBlocks(true);
+    }, AUTO_REFRESH_MILLIS);
+    return () => window.clearInterval(timer);
+  }, [load, loadBlocks]);
+
   const sources = data?.sourceHealth ?? [];
-  const okCount = sources.filter((s) => s.lastEventType === 'OK').length;
-  const worst = sources.find((s) => s.lastEventType !== 'OK' && s.lastEventType !== null);
-  const noRecords = sources.length > 0 && sources.every((s) => s.lastEventType === null);
-  const sourceHint = noRecords
-    ? '暂无抓取记录'
-    : worst
-      ? `${sourceLabel(worst.sourceCode)} ${formatTime(worst.lastEventAt)} ${worst.lastEventType}${worst.errors24h > 0 ? ` · 24h 异常 ${worst.errors24h} 次` : ''}`
-      : '全部正常';
-
-  const llm = data?.llmToday;
-  const llmStatus = llm?.status ?? 'OK';
-  const llmMeta = LLM_STATUS_META[llmStatus] ?? {
-    label: llmStatus,
-    className: 'bg-muted text-muted-foreground',
-  };
   const quoteUnhealthy = isQuoteSourceUnhealthy(sources);
+  const heatRows = heat.data?.industries.slice(0, HEAT_TOP_N) ?? [];
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6" data-testid="overview-page">
@@ -150,135 +240,142 @@ export function Overview() {
         <p className="mt-1 text-sm text-muted-foreground">今日值得看的动态，与平台健康度</p>
       </header>
 
-      {error ? (
+      {error && data == null ? (
         <div className="flex flex-col items-start gap-2" data-testid="overview-error">
           <p className="text-sm text-destructive" role="alert">
             {error}
           </p>
-          <Button variant="outline" size="sm" onClick={() => void load()} data-testid="overview-retry">
+          <Button variant="outline" size="sm" onClick={() => void load(false)} data-testid="overview-retry">
             重试
           </Button>
         </div>
       ) : (
         <div className="flex flex-col gap-6">
-          {/* —— 上半部：用户视角「今日」区 —— */}
+          {/* —— 第一屏：今日推荐主位（2/3）+ 全市场 Top10 精华（1/3） —— */}
           <section aria-label="今日" data-testid="overview-today">
-            <h2 className="mb-2 text-sm font-medium text-muted-foreground">今日</h2>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
                 <RecommendationCard />
               </div>
-              <div className="flex flex-col gap-4">
-                {loading ? (
-                  <>
-                    <Skeleton className="h-28 w-full" />
-                    <Skeleton className="h-28 w-full" />
-                  </>
-                ) : data ? (
-                  <>
-                    <StatCard
-                      title="今日异动"
-                      subtitle="今日"
-                      value={`${data.anomalyToday.count} 条`}
-                      extra={quoteUnhealthy ? <AnomalySourceWarning /> : undefined}
-                      href="#/watchlists"
-                      error={data.anomalyToday.error}
-                      onRetry={() => void load()}
-                      testId="anomaly"
-                    />
-                    <StatCard
-                      title="最新政策"
-                      subtitle="近 24h"
-                      value={`${data.policy24h.count} 条`}
-                      hint={
-                        data.policy24h.latest.length > 0
-                          ? `最新：${data.policy24h.latest[0].title}`
-                          : '近 24h 无新入库政策'
-                      }
-                      href="#/news-library?l1=监管·政策"
-                      error={data.policy24h.error}
-                      onRetry={() => void load()}
-                      testId="policy"
-                    />
-                  </>
-                ) : null}
-              </div>
+              <Top10DigestCard />
             </div>
           </section>
 
-          {/* —— V2.0 工作台（M18 T156）：热度 Top5 / 最新推荐 / 最新事件 / 大盘健康四块摘要，
-                 复用既有 API、30 秒刷新、单块失败独立降级 —— */}
-          <WorkbenchPanel />
-
-          {/* —— 下半部：平台健康区（运维视角三卡收纳） —— */}
-          <section aria-label="平台健康" data-testid="overview-platform">
-            <h2 className="mb-2 text-sm font-medium text-muted-foreground">平台健康</h2>
-            <div
-              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-              data-testid={loading ? 'overview-loading' : undefined}
-            >
+          {/* —— 第二排：最新事件 3 条 / 热度 Top5 / 今日异动 —— */}
+          <section aria-label="最新动态" data-testid="overview-dynamics">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <Block
+                testId="overview-events"
+                title="最新事件"
+                link="#/events"
+                linkTestId="overview-events-link"
+                loading={events.loading}
+                error={events.error}
+                onRetry={() => void loadBlocks(false)}
+                retryTestId="overview-events-retry"
+                empty={(events.data?.length ?? 0) === 0}
+              >
+                {(events.data ?? []).map((event) => (
+                  <button
+                    key={event.id}
+                    type="button"
+                    className="flex w-full cursor-pointer items-start gap-2 rounded-sm text-left text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    data-testid={`overview-event-${event.id}`}
+                    title="跳转事件流查看详情"
+                    onClick={() => navigate('/events')}
+                  >
+                    <Badge
+                      variant="ghost"
+                      className={
+                        event.importance === 'HIGH'
+                          ? 'bg-rose-500/15 text-rose-400'
+                          : 'bg-sky-500/15 text-sky-400'
+                      }
+                    >
+                      {labelOf(IMPORTANCE_LABELS, event.importance)}
+                    </Badge>
+                    <span className="min-w-0 flex-1 truncate" title={event.summary}>
+                      {event.summary}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatTime(event.eventTime)}
+                    </span>
+                  </button>
+                ))}
+              </Block>
+              <Block
+                testId="overview-heat"
+                title="行业热度 Top5（7 天）"
+                link="#/industry-heat"
+                linkTestId="overview-heat-link"
+                loading={heat.loading}
+                error={heat.error}
+                onRetry={() => void loadBlocks(false)}
+                retryTestId="overview-heat-retry"
+                empty={heatRows.length === 0}
+              >
+                {heatRows.map((row, index) => (
+                  <button
+                    key={row.industry}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center gap-2 rounded-sm text-left text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    data-testid={`overview-heat-row-${row.industry}`}
+                    title={`跳转行业热度并展开「${row.industry}」下钻`}
+                    onClick={() =>
+                      navigate(`/industry-heat?industry=${encodeURIComponent(row.industry)}`)
+                    }
+                  >
+                    <span className="w-4 text-right text-xs text-muted-foreground tabular-nums">
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{row.industry}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{row.heatScore} 分</span>
+                    <span
+                      className={
+                        row.deltaPct > 0
+                          ? 'text-xs font-medium text-red-500 tabular-nums'
+                          : row.deltaPct < 0
+                            ? 'text-xs font-medium text-green-500 tabular-nums'
+                            : 'text-xs text-muted-foreground tabular-nums'
+                      }
+                    >
+                      {row.deltaPct > 0 ? '+' : ''}
+                      {formatPct(row.deltaPct, 1)}
+                    </span>
+                  </button>
+                ))}
+              </Block>
               {loading ? (
-                <>
-                  <Skeleton className="h-28 w-full" />
-                  <Skeleton className="h-28 w-full" />
-                  <Skeleton className="h-28 w-full" />
-                </>
+                <Skeleton className="h-28 w-full" data-testid="overview-loading" />
               ) : data ? (
-                <>
-                  <StatCard
-                    title="今日成本水位"
-                    subtitle="今日"
-                    value={`¥${formatYuan(llm?.costMicros ?? 0)}`}
-                    hint={`已用 ${formatTokens(llm?.tokenUsed ?? 0)} / 预算 ${formatTokens(llm?.budgetTokens ?? 0)} token`}
-                    badge={
-                      <Badge variant="ghost" className={llmMeta.className} data-testid={`llm-status-${llmStatus}`}>
-                        {llmMeta.label}
-                      </Badge>
-                    }
-                    progressPercent={percentOf(llm?.tokenUsed ?? 0, llm?.budgetTokens ?? 0)}
-                    href="#/cost-report"
-                    error={llm?.error ?? null}
-                    onRetry={() => void load()}
-                    testId="llm-today"
-                  />
-                  <StatCard
-                    title="任务健康"
-                    subtitle="近 24h"
-                    value={`失败 ${data.jobHealth.windowFailed} 次`}
-                    hint={
-                      data.jobHealth.unhealthyJobs.length > 0
-                        ? `涉及 ${data.jobHealth.unhealthyJobs.join('、')}`
-                        : `执行 ${formatTokens(data.jobHealth.windowRuns)} 次，无失败任务`
-                    }
-                    badge={
-                      data.jobHealth.windowFailed > 0 ? (
-                        <Badge variant="ghost" className="bg-rose-500/15 text-rose-400" data-testid="job-health-failed">
-                          {data.jobHealth.unhealthyJobs.length} 任务异常
-                        </Badge>
-                      ) : (
-                        <Badge variant="ghost" className="bg-emerald-500/15 text-emerald-400" data-testid="job-health-ok">
-                          健康
-                        </Badge>
-                      )
-                    }
-                    href="#/task-center"
-                    error={data.jobHealth.error}
-                    onRetry={() => void load()}
-                    testId="job-health"
-                  />
-                  <StatCard
-                    title="数据源健康"
-                    subtitle="近 24h"
-                    value={`抓取成功 ${okCount}/${sources.length || '—'}`}
-                    hint={sourceHint}
-                    href="#/sources?section=biz"
-                    error={data.sourceHealthError}
-                    onRetry={() => void load()}
-                    testId="source-health"
-                  />
-                </>
+                <StatCard
+                  title="今日异动"
+                  subtitle="今日"
+                  value={`${data.anomalyToday.count} 条`}
+                  extra={quoteUnhealthy ? <AnomalySourceWarning /> : undefined}
+                  href="#/watchlists"
+                  error={data.anomalyToday.error}
+                  onRetry={() => void load(false)}
+                  testId="anomaly"
+                />
               ) : null}
             </div>
+          </section>
+
+          {/* —— 底部：平台健康状态条（单行，替换平台健康三卡） —— */}
+          <section aria-label="平台健康" data-testid="overview-health">
+            <HealthStatusStrip
+              llmToday={
+                data?.llmToday
+                  ? { status: data.llmToday.status, error: data.llmToday.error }
+                  : null
+              }
+              jobHealth={
+                data?.jobHealth
+                  ? { failed: data.jobHealth.windowFailed, error: data.jobHealth.error }
+                  : null
+              }
+            />
           </section>
         </div>
       )}

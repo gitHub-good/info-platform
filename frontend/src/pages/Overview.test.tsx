@@ -7,14 +7,14 @@ import type { FeedItemView, FeedPage } from '@/types/feed';
 import type {
   DailyRecommendationView,
   TopRecommendation,
-  RecommendationListView,
 } from '@/types/recommendation';
 import type { IndustryHeatBoardView } from '@/types/industryHeat';
 import type { EventStreamView } from '@/types/eventStream';
 import type { FeedDashboardView } from '@/types/feedDashboard';
 import type { PipelineStatusView } from '@/types/pipelineStatus';
+import type { MarketTopItem, MarketTopRankView } from '@/types/marketTop';
 
-// —— fetch mock：GET /api/v1/overview（五卡片聚合，可变异供重试路径复用） ——
+// —— fetch mock：GET /api/v1/overview（聚合，可变异供重试路径复用） ——
 
 const ok = (data: unknown) => ({
   ok: true,
@@ -46,7 +46,7 @@ function viewOf(overrides: Partial<OverviewView> = {}): OverviewView {
   };
 }
 
-// —— 概览页按 URL 路由的 fetch stub（体检 P1-4 起页面并发请求 /overview 与 /feed/personal，
+// —— 概览页按 URL 路由的 fetch stub（页面并发请求 /overview 与 /feed/personal，
 //    推荐卡另有 /recommendations/daily；子组件 effect 先于父组件，不能按调用序计数） ——
 
 /** 推荐条目（feed 只读路径的 type=recommendation 条目：title=名称、summary=理由）。 */
@@ -93,7 +93,7 @@ type StubResponse = ReturnType<typeof ok> | ReturnType<typeof fail>;
 /** 响应器：同步返回或挂起 Promise（生成中占位测试用延迟放行）。 */
 type StubResponder = () => StubResponse | Promise<StubResponse>;
 
-// —— M18 T156 工作台四块数据工厂（复用既有 API 契约面） ——
+// —— T223 概览重组数据工厂（热度/事件迁移块 + Top10 精华 + 健康状态条，复用既有 API 契约面） ——
 
 function heatBoardOf(): IndustryHeatBoardView {
   return {
@@ -106,39 +106,6 @@ function heatBoardOf(): IndustryHeatBoardView {
     basis: 'heat-v1:d7-window',
     snapshotAt: '2026-09-22T07:00:00Z',
     pipeline: { level: 'NORMAL' },
-  };
-}
-
-function recCardsOf(): RecommendationListView {
-  return {
-    total: 2,
-    items: [
-      {
-        id: 501,
-        eventId: 91,
-        eventType: 'EARNINGS_FORECAST',
-        importance: 'HIGH',
-        direction: 'BULLISH',
-        level: 'A',
-        industries: ['电子'],
-        subjects: [],
-        logicChain: '…',
-        summary: '某公司发布业绩预告，净利润同比增长',
-        figures: [],
-        quote: null,
-        newsId: 1,
-        newsTitle: null,
-        newsUrl: null,
-        eventTime: '2026-09-22T05:00:00Z',
-        pushStatus: 'DELIVERED',
-        pushedAt: '2026-09-22T05:10:00Z',
-        createdAt: '2026-09-22T05:00:00Z',
-        read: false,
-        muted: false,
-        feedbackAction: null,
-      },
-    ],
-    nextBeforeId: null,
   };
 }
 
@@ -166,13 +133,64 @@ function eventsOf(): EventStreamView {
   };
 }
 
+function marketItemOf(overrides: Partial<MarketTopItem> = {}): MarketTopItem {
+  return {
+    rankNo: 1,
+    subjectId: 11,
+    subjectCode: 'SH600519',
+    subjectName: '贵州茅台',
+    totalScore: 88.6,
+    finalScore: 87.2,
+    percentile: 92,
+    breakthrough: false,
+    factors: [],
+    generation: 'FULL',
+    diveMethod: null,
+    diveSummary: null,
+    diveDetail: null,
+    evidenceCount: 5,
+    lastEventDate: '2026-09-21',
+    prevRank: 3,
+    changeType: 'UP',
+    computedAt: '2026-09-21T10:00:00Z',
+    ...overrides,
+  };
+}
+
+function rankViewOf(items: MarketTopItem[]): MarketTopRankView {
+  return {
+    rankDate: '2026-09-22',
+    version: 1,
+    triggerSource: 'DAILY',
+    batch: {
+      snapshotDate: '2026-09-21',
+      computedAt: '2026-09-21T10:00:00Z',
+      degraded: false,
+      degradedReason: null,
+      funnelStats: {},
+      dropped: [],
+      lastEvent: null,
+    },
+    items,
+    disclaimer: 'AI 分析仅供参考，非投资建议',
+    recentIncrement: null,
+  };
+}
+
+function top5Of(): MarketTopItem[] {
+  return [
+    marketItemOf(),
+    marketItemOf({ rankNo: 2, subjectId: 12, subjectCode: 'SZ002594', subjectName: '比亚迪', finalScore: 85.9, percentile: 90, prevRank: 1, changeType: 'DOWN' }),
+  ];
+}
+
 function dashboardOf(): FeedDashboardView {
   return {
     global: {
       todayNewCount: 1732,
       todayDupCount: 40,
       activeSourceCount: 28,
-      failedSourceCount: 1,
+      failedSourceCount: 0,
       latency: {
         p50Millis: 180000,
         p90Millis: 540000,
@@ -208,32 +226,6 @@ function dashboardOf(): FeedDashboardView {
         runState: 'ok',
         abnormal: false,
       },
-      {
-        sourceId: 2,
-        sourceCode: 's2',
-        name: '源二',
-        category: '分类',
-        adapterType: 'preset',
-        intervalMinutes: 15,
-        enabled: false,
-        preset: true,
-        deleted: true,
-        staleSince: null,
-        todayPollCount: 0,
-        todayNewCount: 0,
-        todayFailCount: 0,
-        todayDupCount: 0,
-        totalCount: 10,
-        lastAttemptAt: null,
-        lastSuccessAt: null,
-        nextDueAt: null,
-        backoffUntil: null,
-        consecutiveFailures: 0,
-        lastError: null,
-        lastRoundDetail: null,
-        runState: 'disabled',
-        abnormal: false,
-      },
     ],
     failures: [],
   };
@@ -251,7 +243,7 @@ function pipelineOf(): PipelineStatusView {
 
 /**
  * 默认：overview 正常 / feed 只读空页 / daily status=1 /
- * 工作台四块（industry-heat / recommendations / events / feed-dashboard / pipeline/status）正常。
+ * 迁移块（industry-heat / events）与新区块（market-top / feed-dashboard / pipeline/status）正常。
  */
 function routeFetch(
   opts: {
@@ -259,7 +251,7 @@ function routeFetch(
     feed?: StubResponder;
     daily?: StubResponder;
     heat?: StubResponder;
-    workbenchFail?: boolean;
+    marketTop?: StubResponder;
   } = {},
 ) {
   return vi.fn(async (url: unknown) => {
@@ -267,120 +259,174 @@ function routeFetch(
     if (path.includes('/recommendations/daily')) return (await opts.daily?.()) ?? ok(dailyViewOf());
     if (path.includes('/feed/personal')) return (await opts.feed?.()) ?? ok(feedPageOf());
     if (path.includes('/overview')) return (await opts.overview?.()) ?? ok(viewOf());
-    // —— 工作台四块（M18 T156）——
+    if (path.includes('/market-top')) return (await opts.marketTop?.()) ?? ok(rankViewOf(top5Of()));
     if (path.includes('/pipeline/status')) return ok(pipelineOf());
     if (path.includes('/feed-dashboard')) return ok(dashboardOf());
-    if (path.includes('/industry-heat')) {
-      if (opts.workbenchFail) return fail(500, 50000, '热度服务异常');
-      return (await opts.heat?.()) ?? ok(heatBoardOf());
-    }
+    if (path.includes('/industry-heat')) return (await opts.heat?.()) ?? ok(heatBoardOf());
     if (path.includes('/events')) return ok(eventsOf());
-    if (path.includes('/recommendations')) return ok(recCardsOf());
     return fail(500, 50000, '未知端点');
   });
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
   cleanup();
   localStorage.clear();
   window.location.hash = '';
 });
 
-describe('Overview 概览仪表盘（T42）', () => {
-  it('主路径：渲染五卡片数据（成本水位含进度与徽章 / 政策最新条 / 数据源成功计数）', async () => {
+describe('Overview 概览重组 11→6（T223，V3.0）', () => {
+  it('区块计数：6 块 = 今日推荐主位 + Top10 精华 + 最新事件 + 热度 Top5 + 今日异动 + 健康状态条', async () => {
     vi.stubGlobal('fetch', routeFetch());
 
     render(<Overview />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('stat-card-llm-today')).toBeInTheDocument(),
-    );
-    // 成本水位：¥ + 已用/预算 + 进度条 + 状态徽章（带文字不裸色）
-    expect(screen.getByTestId('stat-card-llm-today')).toHaveTextContent('¥0.0342');
-    expect(screen.getByTestId('stat-card-llm-today')).toHaveTextContent('8,400 / 预算 20,000');
-    expect(screen.getByTestId('stat-card-llm-today-progress')).toHaveAttribute(
-      'aria-valuenow',
-      '42',
-    );
-    expect(screen.getByTestId('llm-status-OK')).toHaveTextContent('正常');
-    // 异动 / 政策 / 任务 / 数据源
-    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
-    expect(screen.getByTestId('stat-card-policy')).toHaveTextContent('12 条');
-    expect(screen.getByTestId('stat-card-policy')).toHaveTextContent('关于人工智能的行动方案');
-    expect(screen.getByTestId('stat-card-job-health')).toHaveTextContent('失败 0 次');
-    expect(screen.getByTestId('job-health-ok')).toHaveTextContent('健康');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('抓取成功 1/2');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('全部正常');
-  });
+    // 六块齐备（今日推荐卡自管三态，root testid rec-card）
+    expect(await screen.findByTestId('rec-card')).toBeInTheDocument();
+    expect(screen.getByTestId('top10-digest')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-events')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-heat')).toBeInTheDocument();
+    expect(screen.getByTestId('stat-card-anomaly')).toBeInTheDocument();
+    expect(screen.getByTestId('health-strip')).toBeInTheDocument();
 
-  it('主路径：预算告警态显示 WARNING 徽章与任务失败明细', async () => {
-    vi.stubGlobal(
-      'fetch',
-      routeFetch({
-        overview: () =>
-          ok(
-            viewOf({
-              llmToday: { tokenUsed: 18_000, costMicros: 90_000, budgetTokens: 20_000, status: 'WARNING', error: null },
-              jobHealth: { windowRuns: 50, windowFailed: 2, unhealthyJobs: ['PUSH_RETRY', 'ANOMALY_DETECT'], error: null },
-            }),
-          ),
-      }),
-    );
-
-    render(<Overview />);
-
-    await waitFor(() => expect(screen.getByTestId('llm-status-WARNING')).toBeInTheDocument());
-    expect(screen.getByTestId('llm-status-WARNING')).toHaveTextContent('余量告急');
-    expect(screen.getByTestId('stat-card-job-health')).toHaveTextContent('失败 2 次');
-    expect(screen.getByTestId('stat-card-job-health')).toHaveTextContent(
-      '涉及 PUSH_RETRY、ANOMALY_DETECT',
-    );
-    expect(screen.getByTestId('job-health-failed')).toHaveTextContent('2 任务异常');
-  });
-
-  it('三态·loading：两段骨架占位（推荐卡自带 loading，指标卡骨架）', async () => {
-    vi.stubGlobal('fetch', routeFetch());
-
-    render(<Overview />);
-
-    expect(screen.getByTestId('overview-loading')).toBeInTheDocument();
-    // 首帧不出现卡片数据
+    // 移除项不再渲染：WorkbenchPanel 四块（推荐摘要/大盘健康）+ 最新政策卡 + 平台健康三卡 + 旧区块容器
+    expect(screen.queryByTestId('overview-workbench')).toBeNull();
+    expect(screen.queryByTestId('workbench-recommendations')).toBeNull();
+    expect(screen.queryByTestId('workbench-health')).toBeNull();
+    expect(screen.queryByTestId('stat-card-policy')).toBeNull();
     expect(screen.queryByTestId('stat-card-llm-today')).toBeNull();
-    await waitFor(() =>
-      expect(screen.getByTestId('stat-card-llm-today')).toBeInTheDocument(),
-    );
+    expect(screen.queryByTestId('stat-card-job-health')).toBeNull();
+    expect(screen.queryByTestId('stat-card-source-health')).toBeNull();
+    expect(screen.queryByTestId('overview-platform')).toBeNull();
   });
 
-  it('三态·empty：当日无数据各卡显示 0 / 暂无抓取记录，不报错', async () => {
+  it('Top10 精华与榜单页同源对账：前 5 名名次/名称/终分/变动与首查数据一致（拍板五）', async () => {
+    vi.stubGlobal('fetch', routeFetch());
+
+    render(<Overview />);
+
+    const first = await screen.findByTestId('top10-digest-row-SH600519');
+    expect(first).toHaveTextContent('贵州茅台');
+    expect(first).toHaveTextContent('87.2'); // finalScore 与榜单页 market-top-final 同源
+    expect(first).toHaveTextContent('↑2'); // prevRank 3 → rankNo 1
+    expect(screen.getByTestId('top10-digest-row-SZ002594')).toHaveTextContent('比亚迪');
+    expect(screen.getByTestId('top10-digest-link')).toHaveAttribute('href', '#/market-top');
+  });
+
+  it('迁移块：最新事件（重要度徽章 + 摘要 + 时间）与热度 Top5（涨红跌绿）沿既有语义渲染', async () => {
+    vi.stubGlobal('fetch', routeFetch());
+
+    render(<Overview />);
+
+    const events = await screen.findByTestId('overview-events');
+    expect(events).toHaveTextContent('工信部发布行业规范条件');
+    expect(screen.getByTestId('overview-event-71')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-events-link')).toHaveAttribute('href', '#/events');
+
+    const heat = screen.getByTestId('overview-heat');
+    expect(heat).toHaveTextContent('电子');
+    expect(heat).toHaveTextContent('92 分');
+    expect(screen.getByTestId('overview-heat-link')).toHaveAttribute('href', '#/industry-heat');
+  });
+
+  it('迁移块行级跳转保留：热度行带 industry 参数下钻、事件行跳事件流；今日异动整卡跳自选清单', async () => {
+    vi.stubGlobal('fetch', routeFetch());
+
+    render(<Overview />);
+
+    await screen.findByTestId('overview-heat-row-电子');
+    await userEvent.click(screen.getByTestId('overview-heat-row-电子'));
+    expect(window.location.hash).toBe(`#/industry-heat?industry=${encodeURIComponent('电子')}`);
+
+    window.location.hash = '';
+    await userEvent.click(screen.getByTestId('overview-event-71'));
+    expect(window.location.hash).toBe('#/events');
+
+    expect(screen.getByTestId('stat-card-anomaly-link')).toHaveAttribute('href', '#/watchlists');
+  });
+
+  it('单块降级继承：热度块失败显示错误 + 重试且恢复，其余块与今日异动不受拖累', async () => {
+    let heatFails = true;
     vi.stubGlobal(
       'fetch',
-      routeFetch({
-        overview: () =>
-          ok(
-            viewOf({
-              llmToday: { tokenUsed: 0, costMicros: 0, budgetTokens: 20_000, status: 'OK', error: null },
-              anomalyToday: { count: 0, error: null },
-              policy24h: { count: 0, latest: [], error: null },
-              jobHealth: { windowRuns: 0, windowFailed: 0, unhealthyJobs: [], error: null },
-              sourceHealth: [
-                { sourceCode: 'QUOTE', mode: 'MOCK', lastEventType: null, lastEventAt: null, errors24h: 0 },
-              ],
-              sourceHealthError: null,
-            }),
-          ),
+      vi.fn(async (url: unknown) => {
+        const path = String(url);
+        if (path.includes('/recommendations/daily')) return ok(dailyViewOf());
+        if (path.includes('/feed/personal')) return ok(feedPageOf());
+        if (path.includes('/overview')) return ok(viewOf());
+        if (path.includes('/market-top')) return ok(rankViewOf(top5Of()));
+        if (path.includes('/pipeline/status')) return ok(pipelineOf());
+        if (path.includes('/feed-dashboard')) return ok(dashboardOf());
+        if (path.includes('/industry-heat')) {
+          return heatFails ? fail(500, 50000, '热度服务异常') : ok(heatBoardOf());
+        }
+        if (path.includes('/events')) return ok(eventsOf());
+        return fail(500, 50000, '未知端点');
       }),
     );
 
     render(<Overview />);
 
-    await waitFor(() => expect(screen.getByTestId('stat-card-anomaly')).toBeInTheDocument());
-    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('0 条');
-    expect(screen.getByTestId('stat-card-policy')).toHaveTextContent('0 条');
-    expect(screen.getByTestId('stat-card-job-health')).toHaveTextContent('失败 0 次');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('抓取成功 0/1');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('暂无抓取记录');
-    expect(screen.queryByRole('alert')).toBeNull();
+    expect(await screen.findByTestId('overview-heat-error')).toHaveTextContent('热度服务异常');
+    expect(screen.getByTestId('overview-heat-retry')).toBeInTheDocument();
+    // 其余块与卡片不受拖累
+    expect(await screen.findByTestId('overview-event-71')).toBeInTheDocument();
+    expect(screen.getByTestId('top10-digest-row-SH600519')).toBeInTheDocument();
+    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
+    expect(await screen.findByTestId('health-strip')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull(); // 单块降级非阻断性错误
+
+    heatFails = false;
+    await userEvent.click(screen.getByTestId('overview-heat-retry'));
+    await waitFor(() => expect(screen.getByTestId('overview-heat')).toHaveTextContent('电子'));
+  });
+
+  it('30 秒自动刷新 + document.hidden 暂停继承（迁移块与 Top10/状态条同节奏续拉）', async () => {
+    vi.useFakeTimers();
+    const fetchMock = routeFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const hiddenSpy = vi.spyOn(document, 'hidden', 'get');
+
+    render(<Overview />);
+    // fake timers 下 waitFor 挂起：小步推进冲刷微任务直至首份数据落地（沿 FeedDashboard 先例）
+    for (let i = 0; i < 30 && screen.queryByTestId('overview-heat') == null; i++) {
+      await vi.advanceTimersByTimeAsync(50);
+    }
+    expect(screen.getByTestId('overview-heat')).toBeInTheDocument();
+    const heatCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/industry-heat')).length;
+    const overviewCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/overview')).length;
+    expect(heatCalls()).toBe(1);
+    expect(overviewCalls()).toBe(1);
+
+    // 可见时到期即拉取（迁移块 + 概览聚合同节奏）
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(heatCalls()).toBe(2);
+    expect(overviewCalls()).toBe(2);
+
+    // 页面隐藏：跳过本轮
+    hiddenSpy.mockReturnValue(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(heatCalls()).toBe(2);
+    expect(overviewCalls()).toBe(2);
+  });
+
+  it('三态·loading：迁移块与 Top10 骨架占位（首帧不出现数据卡）', async () => {
+    vi.stubGlobal('fetch', routeFetch());
+
+    render(<Overview />);
+
+    expect(screen.getByTestId('overview-heat-loading')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-events-loading')).toBeInTheDocument();
+    expect(screen.getByTestId('top10-digest-loading')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('overview-heat')).toHaveTextContent('电子'));
   });
 
   it('三态·error：整页失败显示错误与重试，重试后恢复', async () => {
@@ -397,81 +443,23 @@ describe('Overview 概览仪表盘（T42）', () => {
 
     render(<Overview />);
 
-    await waitFor(() => expect(screen.getByTestId('overview-error')).toBeInTheDocument());
+    expect(await screen.findByTestId('overview-error')).toBeInTheDocument();
     expect(screen.getByTestId('overview-error')).toHaveTextContent('服务异常');
 
     await userEvent.click(screen.getByTestId('overview-retry'));
 
-    await waitFor(() => expect(screen.getByTestId('stat-card-llm-today')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('stat-card-anomaly')).toBeInTheDocument());
     expect(screen.queryByTestId('overview-error')).toBeNull();
   });
 
-  it('三态·单卡错误：仅该卡显示错误与独立重试，其余卡正常渲染', async () => {
-    let overviewCalls = 0;
-    vi.stubGlobal(
-      'fetch',
-      routeFetch({
-        overview: () => {
-          overviewCalls += 1;
-          return ok(
-            overviewCalls === 1
-              ? viewOf({ policy24h: { count: 0, latest: [], error: '取数失败：database is locked' } })
-              : viewOf(),
-          );
-        },
-      }),
-    );
-
-    render(<Overview />);
-
-    await waitFor(() => expect(screen.getByTestId('stat-card-policy')).toBeInTheDocument());
-    expect(screen.getByTestId('stat-card-policy')).toHaveTextContent('database is locked');
-    expect(screen.getByTestId('stat-card-policy-retry')).toBeInTheDocument();
-    // 其余卡不受拖累
-    expect(screen.getByTestId('stat-card-llm-today')).toHaveTextContent('¥0.0342');
-    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
-
-    await userEvent.click(screen.getByTestId('stat-card-policy-retry'));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('stat-card-policy')).toHaveTextContent('12 条'),
-    );
-  });
-
-  it('交互：整卡可点跳转（成本→#/cost-report、数据源→#/sources?tab=biz）', async () => {
-    vi.stubGlobal('fetch', routeFetch());
-
-    render(<Overview />);
-
-    await waitFor(() => expect(screen.getByTestId('stat-card-llm-today-link')).toBeInTheDocument());
-    expect(screen.getByTestId('stat-card-llm-today-link')).toHaveAttribute('href', '#/cost-report');
-    expect(screen.getByTestId('stat-card-anomaly-link')).toHaveAttribute('href', '#/watchlists');
-    expect(screen.getByTestId('stat-card-policy-link')).toHaveAttribute(
-      'href',
-      '#/news-library?l1=监管·政策',
-    );
-    expect(screen.getByTestId('stat-card-job-health-link')).toHaveAttribute('href', '#/task-center');
-    expect(screen.getByTestId('stat-card-source-health-link')).toHaveAttribute(
-      'href',
-      '#/sources?section=biz',
-    );
-
-    // 键盘可达路径同锚点：点击后 hash 真实跳变
-    await userEvent.click(screen.getByTestId('stat-card-llm-today-link'));
-    expect(window.location.hash).toBe('#/cost-report');
-  });
-
-  it('数据源健康：最差源提示行（源名 + 最近失败时间 + 异常计数）', async () => {
+  it('三态·empty：当日无数据显示 0，不报错', async () => {
     vi.stubGlobal(
       'fetch',
       routeFetch({
         overview: () =>
           ok(
             viewOf({
-              sourceHealth: [
-                { sourceCode: 'QUOTE', mode: 'REAL', lastEventType: 'OK', lastEventAt: '2026-09-22T02:00:00Z', errors24h: 0 },
-                { sourceCode: 'POLICY', mode: 'REAL', lastEventType: 'ERROR', lastEventAt: '2026-09-22T06:30:00Z', errors24h: 4 },
-              ],
+              anomalyToday: { count: 0, error: null },
             }),
           ),
       }),
@@ -479,31 +467,13 @@ describe('Overview 概览仪表盘（T42）', () => {
 
     render(<Overview />);
 
-    await waitFor(() => expect(screen.getByTestId('stat-card-source-health')).toBeInTheDocument());
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('抓取成功 1/2');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('政策源');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('ERROR');
-    expect(screen.getByTestId('stat-card-source-health')).toHaveTextContent('24h 异常 4 次');
+    await waitFor(() => expect(screen.getByTestId('stat-card-anomaly')).toBeInTheDocument());
+    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('0 条');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 
-describe('Overview 用户视角化（体检 P1-4）', () => {
-  it('两段式布局：上「今日」区（推荐卡/异动/政策），下「平台健康」区（成本/任务/数据源三卡）', async () => {
-    vi.stubGlobal('fetch', routeFetch());
-
-    render(<Overview />);
-
-    const today = await screen.findByTestId('overview-today');
-    expect(today).toContainElement(screen.getByTestId('rec-card'));
-    expect(today).toContainElement(screen.getByTestId('stat-card-anomaly'));
-    expect(today).toContainElement(screen.getByTestId('stat-card-policy'));
-    const platform = screen.getByTestId('overview-platform');
-    expect(platform).toContainElement(screen.getByTestId('stat-card-llm-today'));
-    expect(platform).toContainElement(screen.getByTestId('stat-card-job-health'));
-    expect(platform).toContainElement(screen.getByTestId('stat-card-source-health'));
-    expect(platform).not.toContainElement(screen.getByTestId('stat-card-anomaly'));
-  });
-
+describe('Overview 今日推荐主位（保留零回归）', () => {
   it('推荐卡·就绪（feed 只读路径）：渲染 Top5（排名/代码+名称/理由首行/免责声明），不触发生成端点', async () => {
     const fetchMock = routeFetch({
       feed: () =>
@@ -595,7 +565,7 @@ describe('Overview 用户视角化（体检 P1-4）', () => {
     await userEvent.click(screen.getByTestId('rec-generate'));
 
     expect(await screen.findByTestId('rec-fallback-badge')).toHaveTextContent('规则排序');
-    expect(screen.getByTestId('rec-item-1')).toHaveTextContent('SH600519');
+    expect(screen.getByTestId('rec-item-1')).toHaveTextContent('贵州茅台');
   });
 
   it('推荐卡·空池两路：生成返回 status=3 与只读无推荐条目，均显示「去自选清单」CTA', async () => {
@@ -634,7 +604,7 @@ describe('Overview 用户视角化（体检 P1-4）', () => {
     render(<Overview />);
 
     expect(await screen.findByTestId('rec-error')).toHaveTextContent('推荐加载失败');
-    // 卡级错误不拖累其余卡片
+    // 卡级错误不拖累其余区块
     expect(await screen.findByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
 
     await userEvent.click(screen.getByTestId('rec-retry'));
@@ -670,87 +640,5 @@ describe('Overview 用户视角化（体检 P1-4）', () => {
 
     await screen.findByTestId('stat-card-anomaly');
     expect(screen.queryByTestId('anomaly-source-warning')).toBeNull();
-  });
-
-  // —— M18 T156 V2.0 工作台（四块摘要 + 单块降级） ——
-
-  it('工作台：热度 Top5 / 最新推荐 / 最新事件 / 大盘健康四块渲染，直达链接齐备', async () => {
-    vi.stubGlobal('fetch', routeFetch());
-
-    render(<Overview />);
-
-    // 热度 Top5（取前三行工厂数据；环比涨红跌绿）
-    const heat = await screen.findByTestId('workbench-heat');
-    expect(heat).toHaveTextContent('电子');
-    expect(heat).toHaveTextContent('计算机');
-    expect(heat).toHaveTextContent('92 分');
-    expect(screen.getByTestId('workbench-heat-link')).toHaveAttribute('href', '#/industry-heat');
-    // 最新推荐（重要度徽章 + 摘要 + 事件类型）
-    const rec = screen.getByTestId('workbench-recommendations');
-    expect(rec).toHaveTextContent('业绩预告');
-    expect(rec).toHaveTextContent('净利润同比增长');
-    expect(screen.getByTestId('workbench-rec-501')).toBeInTheDocument();
-    expect(screen.getByTestId('workbench-recommendations-link')).toHaveAttribute(
-      'href',
-      '#/recommendations',
-    );
-    // 最新事件（重要度徽章 + 摘要 + 时间）
-    const events = screen.getByTestId('workbench-events');
-    expect(events).toHaveTextContent('工信部发布行业规范条件');
-    expect(screen.getByTestId('workbench-event-71')).toBeInTheDocument();
-    expect(screen.getByTestId('workbench-events-link')).toHaveAttribute('href', '#/events');
-    // 大盘健康（源在线 28/1 现役、今日入库、成本水位 19% + 正常徽章）
-    expect(await screen.findByTestId('workbench-health-body')).toBeInTheDocument();
-    expect(screen.getByTestId('workbench-health-sources')).toHaveTextContent('28/1');
-    expect(screen.getByTestId('workbench-health-intake')).toHaveTextContent('1732 条');
-    expect(screen.getByTestId('workbench-health-cost')).toHaveTextContent('19%');
-    expect(screen.getByTestId('workbench-health-level')).toHaveTextContent('正常');
-    expect(screen.getByTestId('workbench-health-link')).toHaveAttribute(
-      'href',
-      '#/feed-dashboard',
-    );
-  });
-
-  it('工作台：单块加载失败独立降级（可重试），既有五卡与其余块不受拖累', async () => {
-    vi.stubGlobal('fetch', routeFetch({ workbenchFail: true }));
-
-    render(<Overview />);
-
-    // 热度块降级（错误 + 重试入口），其余三块照常
-    expect(await screen.findByTestId('workbench-heat-error')).toHaveTextContent('热度服务异常');
-    expect(screen.getByTestId('workbench-heat-retry')).toBeInTheDocument();
-    expect(await screen.findByTestId('workbench-health-body')).toBeInTheDocument();
-    expect(screen.getByTestId('workbench-event-71')).toBeInTheDocument();
-    expect(screen.getByTestId('workbench-rec-501')).toBeInTheDocument();
-    // 既有五卡不受影响（零回归）
-    expect(await screen.findByTestId('stat-card-llm-today')).toHaveTextContent('¥0.0342');
-    expect(screen.getByTestId('stat-card-anomaly')).toHaveTextContent('3 条');
-    expect(screen.queryByRole('alert')).toBeNull(); // 单块降级非阻断性错误，不占整页 alert 语义
-  });
-
-  // —— M19 T164 行级跳转（C 级溯源链：摘要行 → 承载页；块级直达零回归） ——
-
-  it('工作台行级跳转：热度 Top5 行带 industry 参数跳热度榜 / 推荐行跳推荐中心 focus / 事件行跳事件流；大盘健康保持块级', async () => {
-    vi.stubGlobal('fetch', routeFetch());
-
-    render(<Overview />);
-
-    // 热度 Top5 行 → 热度榜并展开该行业下钻（与报告行业名同一 ?industry= 直达参数）
-    await screen.findByTestId('workbench-heat-row-电子');
-    await userEvent.click(screen.getByTestId('workbench-heat-row-电子'));
-    expect(window.location.hash).toBe(`#/industry-heat?industry=${encodeURIComponent('电子')}`);
-
-    window.location.hash = '';
-    await userEvent.click(screen.getByTestId('workbench-rec-501'));
-    expect(window.location.hash).toBe('#/recommendations?focus=501');
-
-    window.location.hash = '';
-    await userEvent.click(screen.getByTestId('workbench-event-71'));
-    expect(window.location.hash).toBe('#/events');
-
-    // 大盘健康：行级不强制，块级「直达」链接保留（REQ 故事 5 场景 5）
-    expect(screen.getByTestId('workbench-health-link')).toHaveAttribute('href', '#/feed-dashboard');
-    // 块级直达链接零回归（与行级并存）
-    expect(screen.getByTestId('workbench-heat-link')).toHaveAttribute('href', '#/industry-heat');
   });
 });
