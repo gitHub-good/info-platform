@@ -302,6 +302,46 @@ class SubscriptionServiceTest {
         assertThat(result.nextCursor()).isEqualTo((long) SubscriptionService.LIST_PAGE_SIZE);
     }
 
+    // ---- listSubscriptionsPaged：T227（M26 V3.0）页码模式 ----
+
+    @Test
+    void listSubscriptionsPaged_passesOwnerTypeAndWindow_echoesPageAndSize() {
+        // Arrange：第 2 页每页 10 条，total=11（countByOwnerId 同筛选口径）
+        when(repository.findByOwnerIdPage(ME, SubscriptionType.SUBJECT.code(), 2, 10))
+                .thenReturn(
+                        List.of(
+                                subscription(
+                                        10L,
+                                        ME,
+                                        SubscriptionType.SUBJECT,
+                                        "600519",
+                                        SubscriptionStatus.SUBSCRIBED)));
+        when(repository.countByOwnerId(ME, SubscriptionType.SUBJECT.code())).thenReturn(11L);
+
+        // Act
+        SubscriptionPageView result = service.listSubscriptionsPaged(SubscriptionType.SUBJECT, 2, 10);
+
+        // Assert：视图透传仓储页内容 + total 同源 + page/size 如实回显
+        assertThat(result.total()).isEqualTo(11L);
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).subKey()).isEqualTo("600519");
+        assertThat(result.page()).isEqualTo(2);
+        assertThat(result.size()).isEqualTo(10);
+    }
+
+    @Test
+    void listSubscriptionsPaged_nullType_passesNullFilterAndCountsAll() {
+        when(repository.findByOwnerIdPage(ME, null, 1, 20)).thenReturn(List.of());
+        when(repository.countByOwnerId(ME, null)).thenReturn(0L);
+
+        SubscriptionPageView result = service.listSubscriptionsPaged(null, 1, 20);
+
+        assertThat(result.total()).isZero();
+        assertThat(result.items()).isEmpty();
+        assertThat(result.page()).isEqualTo(1);
+        assertThat(result.size()).isEqualTo(20);
+    }
+
     @Test
     void currentUserId_nullContext_throwsTokenInvalid() {
         UserContext.clear(); // 模拟未认证上下文（不应发生，防御性 fail-fast）

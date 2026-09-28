@@ -1,6 +1,7 @@
 package com.info.platform.interfaces.subscription;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -13,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.info.platform.application.subscription.SubscriptionListView;
+import com.info.platform.application.subscription.SubscriptionPageView;
 import com.info.platform.application.subscription.SubscriptionService;
 import com.info.platform.application.subscription.SubscriptionView;
 import com.info.platform.domain.common.BusinessException;
@@ -94,6 +96,74 @@ class SubscriptionControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
         verify(subscriptionService, org.mockito.Mockito.never()).listSubscriptions(any(), any());
+    }
+
+    // ---- list：T227（M26 V3.0）page/size 页码模式（M9 PageQuery 双模式同端点分派）----
+
+    @Test
+    void list_pageMode_returnsTotalItemsPageAndSize() throws Exception {
+        // page 出现即页码模式：{total, items, page, size}（size 缺省 20），无 nextCursor 字段
+        when(subscriptionService.listSubscriptionsPaged(isNull(), eq(1), eq(20)))
+                .thenReturn(new SubscriptionPageView(21L, List.of(SUBSCRIPTION_VIEW), 1, 20));
+
+        mockMvc.perform(get("/api/v1/subscriptions").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(21))
+                .andExpect(jsonPath("$.data.items[0].id").value(10))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void list_pageModeWithTypeAndSize_passesToService_cursorPathUntouched() throws Exception {
+        // type 筛选两模式共用；显式 size 透传；游标路径不被调用
+        when(subscriptionService.listSubscriptionsPaged(eq(SubscriptionType.SUBJECT), eq(2), eq(10)))
+                .thenReturn(new SubscriptionPageView(5L, List.of(), 2, 10));
+
+        mockMvc.perform(get("/api/v1/subscriptions")
+                        .param("type", "2")
+                        .param("page", "2")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(5))
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.page").value(2));
+        verify(subscriptionService, org.mockito.Mockito.never()).listSubscriptions(any(), any());
+    }
+
+    @Test
+    void list_pageWithCursor_returns400AndCode2001() throws Exception {
+        // page 与 cursor 互斥（M9 PageQuery）：同时出现 400
+        mockMvc.perform(get("/api/v1/subscriptions").param("page", "1").param("cursor", "20"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        verify(subscriptionService, org.mockito.Mockito.never()).listSubscriptions(any(), any());
+        verify(subscriptionService, org.mockito.Mockito.never()).listSubscriptionsPaged(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void list_sizeWithoutPage_returns400AndCode2001() throws Exception {
+        // size 仅页码模式可用：缺 page → 400
+        mockMvc.perform(get("/api/v1/subscriptions").param("size", "10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_pageBelowOne_returns400AndCode2001() throws Exception {
+        mockMvc.perform(get("/api/v1/subscriptions").param("page", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_sizeOverLimit_returns400AndCode2001() throws Exception {
+        // size 上限 50，越界拒绝不截断（M9 口径）
+        mockMvc.perform(get("/api/v1/subscriptions").param("page", "1").param("size", "51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
     }
 
     // ---- create ----

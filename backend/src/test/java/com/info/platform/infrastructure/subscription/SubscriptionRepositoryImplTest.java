@@ -246,4 +246,97 @@ class SubscriptionRepositoryImplTest {
         assertThat(reloaded).isPresent();
         assertThat(reloaded.get().getVersion()).isEqualTo(2L); // 两次 UPDATE
     }
+
+    // ---- T227（M26 V3.0）：page/size 页码模式（LIMIT/OFFSET，id ASC 与游标模式同序）----
+
+    @Test
+    void findByOwnerIdPage_offsetWindows_idAsc_disjointAndBeyondLastEmpty() {
+        // Arrange：A 5 条 + B 1 条（行级隔离对照）→ size=2 三页 + 越界第 4 页空列表
+        for (int i = 1; i <= 5; i++) {
+            repository.save(
+                    Subscription.create(
+                            USER_A, SubscriptionType.TOPIC, "页码" + i, SubscriptionChannel.IN_APP));
+        }
+        repository.save(
+                Subscription.create(USER_B, SubscriptionType.TOPIC, "他人的", SubscriptionChannel.IN_APP));
+
+        // Act/Assert：id ASC 窗口切页，页间不重叠不遗漏
+        assertThat(repository.findByOwnerIdPage(USER_A, null, 1, 2))
+                .extracting(Subscription::getSubKey)
+                .containsExactly("页码1", "页码2");
+        assertThat(repository.findByOwnerIdPage(USER_A, null, 2, 2))
+                .extracting(Subscription::getSubKey)
+                .containsExactly("页码3", "页码4");
+        assertThat(repository.findByOwnerIdPage(USER_A, null, 3, 2))
+                .extracting(Subscription::getSubKey)
+                .containsExactly("页码5");
+        assertThat(repository.findByOwnerIdPage(USER_A, null, 4, 2)).isEmpty(); // 越界页
+        // count 同筛选同口径（total 与分页一致）
+        assertThat(repository.countByOwnerId(USER_A, null)).isEqualTo(5L);
+        assertThat(repository.countByOwnerId(USER_B, null)).isEqualTo(1L);
+    }
+
+    @Test
+    void findByOwnerIdPage_consistentWithCursorFirstPage() {
+        // 页码+游标模式并存回归：同 WHERE 同序（ORDER BY id ASC 单一全序），第 1 页 = 游标首页
+        for (int i = 1; i <= 3; i++) {
+            repository.save(
+                    Subscription.create(
+                            USER_A, SubscriptionType.TOPIC, "对照" + i, SubscriptionChannel.IN_APP));
+        }
+
+        assertThat(
+                        repository.findByOwnerIdPage(USER_A, null, 1, 2).stream()
+                                .map(Subscription::getId)
+                                .toList())
+                .containsExactlyElementsOf(
+                        repository.findByOwnerIdCursor(USER_A, null, null, 2).stream()
+                                .map(Subscription::getId)
+                                .toList());
+        assertThat(repository.findByOwnerIdPage(USER_A, null, 2, 2))
+                .extracting(Subscription::getSubKey)
+                .containsExactly("对照3");
+    }
+
+    @Test
+    void findByOwnerIdPage_typeFilter_appliesToWindowAndCount() {
+        repository.save(
+                Subscription.create(USER_A, SubscriptionType.TOPIC, "主题甲", SubscriptionChannel.IN_APP));
+        repository.save(
+                Subscription.create(USER_A, SubscriptionType.TOPIC, "主题乙", SubscriptionChannel.IN_APP));
+        repository.save(
+                Subscription.create(
+                        USER_A, SubscriptionType.SUBJECT, "600519", SubscriptionChannel.IN_APP));
+
+        assertThat(repository.findByOwnerIdPage(USER_A, SubscriptionType.SUBJECT.code(), 1, 20))
+                .extracting(Subscription::getSubKey)
+                .containsExactly("600519");
+        assertThat(repository.countByOwnerId(USER_A, SubscriptionType.SUBJECT.code())).isEqualTo(1L);
+        assertThat(repository.countByOwnerId(USER_A, SubscriptionType.TOPIC.code())).isEqualTo(2L);
+    }
+
+    @Test
+    void findByOwnerIdPage_deepOffset_measuredPerformance() {
+        // offset 实测留档（沿 T220/M9 §3.2 深分页实测先例）：600 行量级最深页窗口查询毫秒级
+        for (int i = 0; i < 600; i++) {
+            repository.save(
+                    Subscription.create(
+                            USER_A, SubscriptionType.TOPIC, "深页-" + i, SubscriptionChannel.IN_APP));
+        }
+        int size = 20;
+        long total = repository.countByOwnerId(USER_A, null);
+        int deepestPage = (int) (total / size); // 最深有数据页（offset ≈ total-size）
+
+        long startedAt = System.nanoTime();
+        List<Subscription> deepest = repository.findByOwnerIdPage(USER_A, null, deepestPage, size);
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+
+        assertThat(deepest).isNotEmpty();
+        assertThat(deepest).hasSizeLessThanOrEqualTo(size);
+        // 护栏断言（宽松上界防 CI 抖动；实测数值由 stdout 留档，M9 护栏阈值 100ms P95 对照）
+        assertThat(elapsedMs).isLessThan(500L);
+        System.out.printf(
+                "[T227 offset 实测] subscription_config %d 行最深页(page=%d, size=%d) 返回 %d 行，耗时 %dms%n",
+                total, deepestPage, size, deepest.size(), elapsedMs);
+    }
 }

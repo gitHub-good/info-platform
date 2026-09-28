@@ -38,6 +38,26 @@ public interface SubscriptionRepository {
     List<Subscription> findByOwnerIdCursor(
             long ownerUserId, Integer subType, Long cursor, int limit);
 
+    /**
+     * 按归属用户页码分页查订阅（M26 T227 页码模式）：同 WHERE 同序（id ASC，与 {@link
+     * #findByOwnerIdCursor} 单一全序一致）的 {@code LIMIT ? OFFSET ?} 窗口——页码第 1 页 = 游标首页。
+     *
+     * @param ownerUserId 归属用户
+     * @param subType 订阅类型 code，null 表示不过滤（全部类型）
+     * @param page 页码（1 起；上界由 PageQuery.MAX_PAGE 保证 offset 不溢出 int）
+     * @param size 页大小（1~50，由 PageQuery 校验）
+     */
+    List<Subscription> findByOwnerIdPage(long ownerUserId, Integer subType, int page, int size);
+
+    /**
+     * 按归属用户统计订阅条数（M26 T227 页码模式 total）：与 {@link #findByOwnerIdPage} 同 WHERE
+     * 同口径（total 与分页行集一致），行级 {@code WHERE user_id=?}。
+     *
+     * @param ownerUserId 归属用户
+     * @param subType 订阅类型 code，null 表示不过滤（全部类型）
+     */
+    long countByOwnerId(long ownerUserId, Integer subType);
+
     /** 按归属用户 + 订阅 id 加载订阅（行级校验用，退订时定位本人订阅）。 */
     Optional<Subscription> findByOwnerIdAndId(long ownerUserId, Long id);
 

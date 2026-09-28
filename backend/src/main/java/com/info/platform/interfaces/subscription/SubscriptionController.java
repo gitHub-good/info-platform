@@ -7,6 +7,7 @@ import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.subscription.SubscriptionChannel;
 import com.info.platform.domain.subscription.SubscriptionType;
+import com.info.platform.interfaces.common.PageQuery;
 import com.info.platform.interfaces.common.Result;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -48,16 +49,31 @@ public class SubscriptionController {
     }
 
     /**
-     * 列出当前用户订阅（游标分页，可选按类型过滤）。
+     * 列出当前用户订阅（双模式分页，可选按类型过滤）。
      *
-     * @param type 订阅类型（1~4），可选；非法值→2001/400
-     * @param cursor 上一页末条 id，可选；缺省首页
+     * <p>{@code page} 参数出现即<b>页码模式</b>（M26 T227，V3.0 REQ-20260928-21 #9，M9 PageQuery 双模式同端点分派）：
+     * 返回 {@code {total, items, page, size}}（offset 语义，越界页 200 + 空列表）；参数校验经 {@link PageQuery} 共用件
+     * （{@code page≥1} 上限 100 万、{@code size} 缺省 20 上限 50 越界 400 拒绝不截断、{@code page} 与 {@code cursor}
+     * 互斥 400）。缺席走既有游标路径（字节级不动）。
+     *
+     * @param type 订阅类型（1~4），可选；非法值→2001/400；两模式共用
+     * @param cursor 上一页末条 id，可选；缺省首页（仅游标模式，与 page 互斥）
+     * @param page 页码（1 起），可选；出现即页码模式
+     * @param size 页大小（1~50），可选；仅页码模式可用
      */
     @GetMapping
-    public Result<SubscriptionListView> list(
+    public Result<?> list(
             @RequestParam(name = "type", required = false) Integer type,
-            @RequestParam(name = "cursor", required = false) Long cursor) {
+            @RequestParam(name = "cursor", required = false) Long cursor,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
         SubscriptionType subType = type == null ? null : toSubType(type);
+        PageQuery pageQuery = PageQuery.resolve(page, size, cursor);
+        if (pageQuery != null) {
+            return Result.ok(
+                    subscriptionService.listSubscriptionsPaged(
+                            subType, pageQuery.page(), pageQuery.size()));
+        }
         return Result.ok(subscriptionService.listSubscriptions(subType, cursor));
     }
 

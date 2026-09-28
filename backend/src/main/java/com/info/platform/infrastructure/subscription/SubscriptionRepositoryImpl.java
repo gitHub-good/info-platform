@@ -77,6 +77,32 @@ public class SubscriptionRepositoryImpl implements SubscriptionRepository {
     }
 
     @Override
+    public List<Subscription> findByOwnerIdPage(long ownerUserId, Integer subType, int page, int size) {
+        // M26 T227：同 WHERE 同序（id ASC）的 offset 窗口；page/size 均经 PageQuery 校验的 int 拼接（无注入面），
+        // offset 上界由 PageQuery.MAX_PAGE 保证不溢出 int
+        LambdaQueryWrapper<SubscriptionPO> wrapper =
+                new LambdaQueryWrapper<SubscriptionPO>()
+                        .eq(SubscriptionPO::getUserId, ownerUserId)
+                        .eq(subType != null, SubscriptionPO::getSubType, subType)
+                        .orderByAsc(SubscriptionPO::getId)
+                        .last("LIMIT " + size + " OFFSET " + (page - 1) * size);
+        return subscriptionMapper.selectList(wrapper).stream()
+                .map(SubscriptionRepositoryImpl::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countByOwnerId(long ownerUserId, Integer subType) {
+        // M26 T227：与 findByOwnerIdPage 同 WHERE 同口径（total 与分页行集一致）
+        Long count =
+                subscriptionMapper.selectCount(
+                        new LambdaQueryWrapper<SubscriptionPO>()
+                                .eq(SubscriptionPO::getUserId, ownerUserId)
+                                .eq(subType != null, SubscriptionPO::getSubType, subType));
+        return count == null ? 0 : count;
+    }
+
+    @Override
     public Optional<Subscription> findByOwnerIdAndId(long ownerUserId, Long id) {
         SubscriptionPO po =
                 subscriptionMapper.selectOne(
