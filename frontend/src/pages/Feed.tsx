@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Rss } from 'lucide-react';
+import { ArrowUp, ExternalLink, Rss } from 'lucide-react';
 import { ApiError } from '@/api/http';
 import { getPersonalFeedWith, listSubscriptions } from '@/api/feed';
 import { trackReadingOnce } from '@/api/readingEvent';
@@ -124,6 +124,9 @@ function FeedItemCard({ item }: FeedItemCardProps) {
  * - 分页（D7）：触底哨兵 IntersectionObserver 自动加载 + 「加载更多」按钮兜底
  *   （IO 不可用或翻页失败时显示，键盘可达）；翻页失败不清已有条目、可重试；
  *   nextCursor 为空停止哨兵并显示「已加载全部」。
+ * - 配套（M25 T225，拍板一补偿）：无限滚动豁免分页，列表尾常驻「已加载 N 条」计数
+ *   （全部加载完让位「已加载全部」既有语义）；滚动超一屏浮现「回到顶部」浮动按钮
+ *   （150ms 淡入、触控 ≥44px、平滑回顶——沿 M9 滚回语义）。
  * - 空态：无活跃订阅→引导空态（CTA 去订阅管理，体检 P1-3 修正指向）；有订阅无命中→muted 文案（无 CTA）。
  * - 三态：首屏 4 卡骨架 / 空态 / 首屏错误重试；401 由 http 层统一跳登录。
  */
@@ -138,6 +141,8 @@ export function Feed() {
   const [hasActiveSubs, setHasActiveSubs] = useState<boolean | null>(null);
   // 行业筛选（空串 = 全部行业）；切换即重拉首页（M18 T156）
   const [industry, setIndustry] = useState('');
+  // 回到顶部（T225）：滚动超一屏才浮现
+  const [showBackTop, setShowBackTop] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -206,6 +211,19 @@ export function Feed() {
   }, [ioAvailable, hasMore, loadingMore, loadMoreError, loadMore]);
 
   const showFallbackButton = !ioAvailable || (!!loadMoreError && hasMore);
+
+  // 回到顶部显隐（T225）：滚动超一屏（scrollY > innerHeight）浮现，回一屏内隐藏
+  useEffect(() => {
+    const onScroll = () => setShowBackTop(window.scrollY > window.innerHeight);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  /** 平滑回顶（沿 M9 滚回语义；jsdom 无实现时静默）。 */
+  const handleBackToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="feed-page">
@@ -296,32 +314,41 @@ export function Feed() {
             ))}
           </div>
           {hasMore ? (
-            <div className="mt-3" data-testid="feed-more-area">
-              {showFallbackButton ? (
-                <div className="flex flex-col items-center gap-2">
-                  {loadMoreError ? (
-                    <p className="text-sm text-destructive" role="alert" data-testid="feed-more-error">
-                      {loadMoreError}
-                    </p>
-                  ) : null}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => void loadMore()}
-                    disabled={loadingMore}
-                    data-testid="feed-load-more"
-                  >
-                    {loadingMore ? '加载中…' : '加载更多'}
-                  </Button>
-                </div>
-              ) : (
-                // 触底哨兵：占位骨架进入视口即自动加载（IO 正常时按钮不出现）
-                <div ref={sentinelRef} aria-hidden="true" data-testid="feed-sentinel">
-                  <Skeleton className="h-16 w-full" />
-                </div>
-              )}
-            </div>
+            <>
+              {/* 已加载计数常驻（T225）：有更多时给出总量感知，全部加载完让位「已加载全部」 */}
+              <p
+                className="pt-4 text-center text-xs text-muted-foreground tabular-nums"
+                data-testid="feed-loaded-count"
+              >
+                已加载 {items.length} 条
+              </p>
+              <div className="mt-1" data-testid="feed-more-area">
+                {showFallbackButton ? (
+                  <div className="flex flex-col items-center gap-2">
+                    {loadMoreError ? (
+                      <p className="text-sm text-destructive" role="alert" data-testid="feed-more-error">
+                        {loadMoreError}
+                      </p>
+                    ) : null}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => void loadMore()}
+                      disabled={loadingMore}
+                      data-testid="feed-load-more"
+                    >
+                      {loadingMore ? '加载中…' : '加载更多'}
+                    </Button>
+                  </div>
+                ) : (
+                  // 触底哨兵：占位骨架进入视口即自动加载（IO 正常时按钮不出现）
+                  <div ref={sentinelRef} aria-hidden="true" data-testid="feed-sentinel">
+                    <Skeleton className="h-16 w-full" />
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <p
               className="py-6 text-center text-sm text-muted-foreground"
@@ -330,6 +357,23 @@ export function Feed() {
               已加载全部
             </p>
           )}
+          {/* 回到顶部浮动按钮（T225）：超一屏浮现，150ms 淡入 + 触控 ≥44px + --shadow-soft 投影 */}
+          {showBackTop ? (
+            <button
+              type="button"
+              aria-label="回到顶部"
+              data-testid="feed-back-to-top"
+              onClick={handleBackToTop}
+              className={cn(
+                'fixed right-6 bottom-6 z-40 flex size-11 items-center justify-center',
+                'rounded-full border border-border bg-background text-muted-foreground',
+                'shadow-(--shadow-soft) transition-all duration-150',
+                'hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+              )}
+            >
+              <ArrowUp className="size-5" aria-hidden="true" />
+            </button>
+          ) : null}
         </>
       )}
     </main>

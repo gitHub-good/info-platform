@@ -550,3 +550,107 @@ describe('Feed 个人信息流页（T43）', () => {
     expect(await screen.findByTestId('feed-item-1')).toBeInTheDocument();
   });
 });
+
+// —— T225（M25 V3.0）：已加载 N 条计数 + 回到顶部浮动按钮（PM 拍板一补偿：信息流豁免分页的失控感配套） ——
+
+describe('Feed 配套：已加载计数 + 回到顶部（T225）', () => {
+  it('计数常驻：有更多时显示「已加载 N 条」，随翻页增长', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeStore({
+        pages: [
+          { items: fourTypeItems(), nextCursor: 101, recommendationPending: false },
+          { items: fourTypeItems().map((item, i) => ({ ...item, id: i + 10 })), nextCursor: 202, recommendationPending: false },
+          { items: fourTypeItems().map((item, i) => ({ ...item, id: i + 20 })), nextCursor: null, recommendationPending: false },
+        ],
+        subscriptions: [SUB_ACTIVE],
+      }).fetchMock,
+    );
+
+    render(<Feed />);
+
+    expect(await screen.findByTestId('feed-item-1')).toBeInTheDocument();
+    expect(screen.getByTestId('feed-loaded-count')).toHaveTextContent('已加载 4 条');
+
+    // IO 不可用（jsdom）→ 按钮兜底翻页，计数增长
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('feed-load-more'));
+    expect(await screen.findByTestId('feed-item-10')).toBeInTheDocument();
+    expect(screen.getByTestId('feed-loaded-count')).toHaveTextContent('已加载 8 条');
+
+    // 末页加载完（nextCursor null）：计数让位「已加载全部」既有语义
+    await user.click(screen.getByTestId('feed-load-more'));
+    expect(await screen.findByTestId('feed-item-20')).toBeInTheDocument();
+    expect(screen.getByTestId('feed-end')).toHaveTextContent('已加载全部');
+    expect(screen.queryByTestId('feed-loaded-count')).toBeNull();
+  });
+
+  it('全部加载完沿既有语义：计数让位「已加载全部」，计数条不残留', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeStore({
+        pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
+        subscriptions: [SUB_ACTIVE],
+      }).fetchMock,
+    );
+
+    render(<Feed />);
+
+    expect(await screen.findByTestId('feed-end')).toHaveTextContent('已加载全部');
+    expect(screen.queryByTestId('feed-loaded-count')).toBeNull();
+  });
+
+  it('回到顶部显隐：未滚动不显示，滚动超一屏浮现（触控 ≥44px + --shadow-soft 投影）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeStore({
+        pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
+        subscriptions: [SUB_ACTIVE],
+      }).fetchMock,
+    );
+
+    render(<Feed />);
+    await screen.findByTestId('feed-item-1');
+    expect(screen.queryByTestId('feed-back-to-top')).toBeNull(); // 未超一屏不显示
+
+    const scrollY = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(900);
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+    });
+    const button = screen.getByTestId('feed-back-to-top');
+    expect(button).toHaveAttribute('aria-label', '回到顶部');
+    // 触控目标 ≥44px（size-11 = 2.75rem）+ v3 增量 token --shadow-soft 投影
+    expect(button.className).toContain('size-11');
+    expect(button.className).toContain('shadow-(--shadow-soft)');
+
+    scrollY.mockRestore();
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+    });
+    expect(screen.queryByTestId('feed-back-to-top')).toBeNull(); // 回到一屏内隐藏
+  });
+
+  it('点击回到顶部：平滑回顶（scrollTo top:0 behavior:smooth）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      makeStore({
+        pages: [{ items: fourTypeItems(), nextCursor: null, recommendationPending: false }],
+        subscriptions: [SUB_ACTIVE],
+      }).fetchMock,
+    );
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+
+    render(<Feed />);
+    await screen.findByTestId('feed-item-1');
+
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(1200);
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('feed-back-to-top'));
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+    scrollTo.mockRestore();
+  });
+});

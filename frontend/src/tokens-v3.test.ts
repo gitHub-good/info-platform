@@ -5,7 +5,7 @@
 /// 三斜线引用按文件引入 node 类型，不改全局 tsconfig）。
 
 /// <reference types="node" />
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +14,22 @@ const cssSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), 'index.css'),
   'utf8',
 );
+
+/** 递归收集组件源码（.tsx，排除测试文件）——v3 增量 token 消费面核查用。 */
+function collectComponentSources(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...collectComponentSources(full));
+    else if (entry.name.endsWith('.tsx') && !entry.name.endsWith('.test.tsx')) {
+      files.push(readFileSync(full, 'utf8'));
+    }
+  }
+  return files;
+}
+
+const srcDir = join(dirname(fileURLToPath(import.meta.url)));
+const componentSources = collectComponentSources(srcDir).join('\n');
 
 describe('ui-tokens-v3 只增不改（T221）', () => {
   it('v3 增量变量就位：--header-bg 双主题 / --header-height / --header-tabs-height / --shadow-soft', () => {
@@ -59,5 +75,17 @@ describe('ui-tokens-v3 只增不改（T221）', () => {
       // 每个增量变量在源中至少声明一次
       expect(cssSource.match(new RegExp(`${name}:`, 'g'))?.length ?? 0).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  it('v3 收尾核查（T225）：四个增量 token 全站均有消费引用，无声明未用的悬空变量', () => {
+    // 顶栏毛玻璃底（TopNav 主行/页签行）
+    expect(componentSources).toContain('bg-header-bg');
+    // 主行高度与页签行高度（TopNav：行高 + 页签行 sticky 偏移）
+    expect(componentSources).toContain('h-(--header-height)');
+    expect(componentSources).toContain('h-(--header-tabs-height)');
+    // 浮层软投影（通知面板 + 信息流回到顶部按钮）
+    expect(
+      componentSources.match(/shadow-\(--shadow-soft\)/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
   });
 });
