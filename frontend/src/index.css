@@ -52,6 +52,9 @@
     --spacing-section: 1.5rem;
     --spacing-card-grid: 1rem;
     --spacing-card-inner: 0.5rem;
+    /* —— ui-tokens-v3 增量（M25 T221/T225，V3.0 改版）：只增不改，v2 数值零改动 ——
+       顶栏毛玻璃底 / 主行 56px / 页签行 44px（触控达标）/ 浮层软投影（通知面板、回顶按钮）。 */
+    --color-header-bg: var(--header-bg);
 }
 
 :root {
@@ -87,6 +90,11 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.556 0.12 250);
+    /* ui-tokens-v3 增量（:root）：顶栏毛玻璃亮色底 + 高度阶 + 软投影（只增不改） */
+    --header-bg: oklch(1 0 0 / 85%);
+    --header-height: 3.5rem;
+    --header-tabs-height: 2.75rem;
+    --shadow-soft: 0 8px 24px oklch(0 0 0 / 35%);
 }
 
 /*
@@ -129,6 +137,8 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 12%);
     --sidebar-ring: oklch(0.68 0.11 250);
+    /* ui-tokens-v3 增量（.dark）：顶栏毛玻璃暗色底（0.13 背景同源 85% 透明度） */
+    --header-bg: oklch(0.13 0 0 / 85%);
 }
 
 @layer base {

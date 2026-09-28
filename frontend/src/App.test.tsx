@@ -325,12 +325,13 @@ describe('App 路由与登录守卫（T38）', () => {
     expect(screen.getByTestId('nav-item-watchlists')).toHaveAttribute('aria-current', 'page');
     expect(String(fetchMock.mock.calls[0][0])).toContain('/watchlists');
 
-    // job-logs（经侧栏 <a> 导航）
+    // job-logs（V3.0 顶栏：跨组先点分组 Tab → 组内页签，≤2 次点击可达）
     const user = userEvent.setup();
-    await user.click(screen.getByTestId('nav-item-job-logs'));
+    await user.click(screen.getByTestId('nav-group-运维'));
+    await user.click(await screen.findByTestId('nav-item-job-logs'));
     expect(await screen.findByTestId('job-log-page')).toBeInTheDocument();
 
-    // cost-report
+    // cost-report（同运维组页签直点）
     await user.click(screen.getByTestId('nav-item-cost-report'));
     await waitFor(() => {
       expect(screen.queryByTestId('job-log-page')).toBeNull();
@@ -379,8 +380,10 @@ describe('App 路由与登录守卫（T38）', () => {
       ).toBe(true),
     );
 
-    // #/feed（T43）：真实页挂载并请求信息流接口（不再渲染占位），侧栏项 active
-    await user.click(screen.getByTestId('nav-item-feed'));
+    // #/feed（T43）：真实页挂载并请求信息流接口（不再渲染占位），页签项 active
+    // V3.0 顶栏：/overview（单页组）→ 分析组 Tab → 信息流页签（≤2 次点击）
+    await user.click(screen.getByTestId('nav-group-分析'));
+    await user.click(await screen.findByTestId('nav-item-feed'));
     expect(await screen.findByTestId('feed-page')).toBeInTheDocument();
     expect(screen.queryByTestId('feed-placeholder')).toBeNull();
     expect(screen.getByTestId('nav-item-feed')).toHaveAttribute('aria-current', 'page');
@@ -390,8 +393,9 @@ describe('App 路由与登录守卫（T38）', () => {
       ).toBe(true),
     );
 
-    // #/task-center（T41）：真实页挂载并请求任务列表接口（不再渲染占位）
-    await user.click(screen.getByTestId('nav-item-task-center'));
+    // #/task-center（T41）：真实页挂载并请求任务列表接口（跨组：分析 → 运维组 Tab）
+    await user.click(screen.getByTestId('nav-group-运维'));
+    await user.click(await screen.findByTestId('nav-item-task-center'));
     expect(await screen.findByTestId('task-center-page')).toBeInTheDocument();
     expect(screen.queryByTestId('task-center-placeholder')).toBeNull();
     await waitFor(() =>
@@ -474,7 +478,8 @@ describe('App 路由与登录守卫（T38）', () => {
       ).toBe(true),
     );
     // 信息流页顶互链（REQ 故事 1 Should）：库 → 流 引导可达
-    expect(screen.getByTestId('nav-item-feed')).toBeInTheDocument();
+    // V3.0 顶栏：跨组页签不同屏渲染，信息流经「分析」分组 Tab ≤2 次点击可达
+    expect(screen.getByTestId('nav-group-分析')).toBeInTheDocument();
   });
 
   // —— V2.4 T213：政策时事页裁撤——旧 hash 重定向资讯库 L1=监管·政策 预填（REQ-20260928-20 拍板二） ——
@@ -558,8 +563,9 @@ describe('App 路由与登录守卫（T38）', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/sources'));
   });
 
-  it('未知路由已登录时无内容区崩坏（侧栏仍在，内容区空）', () => {
+  it('未知路由已登录时无内容区崩坏（顶栏仍在，内容区空）', () => {
     renderLoggedIn('#/nonexistent');
-    expect(screen.getByTestId('nav-item-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('app-topbar')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-group-总览')).toBeInTheDocument();
   });
 });

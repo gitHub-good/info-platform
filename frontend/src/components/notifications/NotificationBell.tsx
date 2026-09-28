@@ -1,7 +1,9 @@
-// 通知铃铛 + 面板（P1-1 通知中心 UI）：侧栏底部登出上方挂载，登录后全站可见。
+// 通知铃铛 + 面板（P1-1 通知中心 UI）：V3.0 T222 起挂载顶栏主行右侧（侧栏底部退役）。
 // 交互：未读徽章（收到推送 +1，水位推进已读）；点击开轻量 popover 面板——
 // 未读/全部列表（类型徽章 + 异动标的代码 + 时间）、全部已读、清空、条目点击跳标的详情；
 // 面板内 SSE 三态指示（连接中/在线/离线）、空态文案、history 兜底失败重试。
+// 面板锚定 top-full right-0（顶栏形态下展，原 bottom-0 left-full 为侧栏布局产物已清除，
+// UI 方案 §1.4.3 红线），宽度 w-96，投影走 --shadow-soft。
 
 import { useEffect, useRef, useState } from 'react';
 import { Bell, CheckCheck, Trash2 } from 'lucide-react';
@@ -76,7 +78,8 @@ function NotificationRow({
 
 /**
  * 通知铃铛（消费 NotificationProvider 状态；无 Provider 时渲染离线空态按钮）。
- * 面板为锚定铃铛的轻量 popover（Escape / 点击面板外关闭），不引入新 UI 依赖。
+ * 顶栏图标形态（V3.0 T222）：size-9 触控目标 + aria-label；面板为锚定铃铛的轻量 popover
+ * （Escape / 点击面板外关闭），不引入新 UI 依赖。
  */
 export function NotificationBell() {
   const {
@@ -135,8 +138,10 @@ export function NotificationBell() {
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label="通知"
+        title="通知"
         data-testid="notification-bell"
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-sidebar-foreground/80 outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        className="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
         <span className="relative shrink-0">
           <Bell className="size-4" aria-hidden="true" />
@@ -149,7 +154,6 @@ export function NotificationBell() {
             </span>
           ) : null}
         </span>
-        <span className="truncate">通知</span>
       </button>
 
       {open ? (
@@ -157,7 +161,7 @@ export function NotificationBell() {
           role="dialog"
           aria-label="通知面板"
           data-testid="notification-panel"
-          className="absolute bottom-0 left-full z-50 ml-2 flex w-80 flex-col gap-2 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+          className="absolute top-full right-0 z-50 mt-2 flex w-96 flex-col gap-2 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-(--shadow-soft)"
         >
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">通知</span>

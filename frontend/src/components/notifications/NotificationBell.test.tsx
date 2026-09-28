@@ -473,3 +473,41 @@ describe('通知铃铛与面板交互', () => {
   });
 });
 
+// —— T222（M25 V3.0）：通知面板重锚定 + 顶栏形态适配（UI 方案 §1.4.3/§4 项 1 红线） ——
+
+describe('通知面板重锚定（T222）', () => {
+  it('面板锚定 top-full right-0：顶栏形态下面板下展右对齐（原 bottom-0 left-full 侧栏产物清除）', async () => {
+    const user = userEvent.setup();
+    const { renderBell } = setupEnvironment();
+    renderBell();
+    await user.click(screen.getByTestId('notification-bell'));
+
+    const panel = screen.getByTestId('notification-panel');
+    expect(panel.className).toContain('top-full');
+    expect(panel.className).toContain('right-0');
+    // 侧栏布局产物锚定清除（不改会飞到屏幕外的确定性缺陷）
+    expect(panel.className).not.toContain('bottom-0');
+    expect(panel.className).not.toContain('left-full');
+  });
+
+  it('面板宽度升 w-96（侧栏时代 w-80 偏窄修正）', async () => {
+    const user = userEvent.setup();
+    const { renderBell } = setupEnvironment();
+    renderBell();
+    await user.click(screen.getByTestId('notification-bell'));
+
+    const panel = screen.getByTestId('notification-panel');
+    expect(panel.className).toContain('w-96');
+    expect(panel.className).not.toContain('w-80');
+  });
+
+  it('铃铛按钮为顶栏图标形态：可聚焦触控目标带 aria-label（无 Provider 独立渲染同形态）', () => {
+    render(<NotificationBell />); // 无 Provider：离线空态按钮（AppLayout 独立渲染同路径）
+
+    const bell = screen.getByTestId('notification-bell');
+    expect(bell).toHaveAttribute('aria-label', '通知');
+    expect(bell.className).toContain('rounded-lg'); // 图标位形态（非侧栏 w-full 文本行）
+    expect(bell.className).not.toContain('w-full');
+  });
+});
+

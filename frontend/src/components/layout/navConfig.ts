@@ -31,12 +31,18 @@ export interface NavItem {
 export interface NavGroup {
   label: string;
   items: NavItem[];
+  /**
+   * 单页组标记（V3.0 T221 双行顶栏）：组内仅 1 页时分组 Tab 即页面直跳（如「总览」→ #/overview），
+   * 不渲染页签行（UI 方案 §1.2）；分组与路由结构零变化。
+   */
+  single?: boolean;
 }
 
 /** 4 分组 17 页导航总表 + 底部登出（UI 方案 §2.1；V2.4-M24 T213 政策时事页裁撤并入资讯库 19→18；交互优化裁撤「标的详情」侧栏入口 18→17——#/subjects/:code 路由保留，自选清单经弹框/完整链接进入）。 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '总览',
+    single: true,
     items: [{ to: '/overview', label: '概览', icon: LayoutDashboard }],
   },
   {
@@ -90,6 +96,13 @@ export const NAV_GROUPS: NavGroup[] = [
 /** 当前路由是否命中导航项（精确 / 子路径 / 查询串三种形态）。 */
 export function routeMatches(route: string, to: string): boolean {
   return route === to || route.startsWith(`${to}/`) || route.startsWith(`${to}?`);
+}
+
+/** 当前路由归属的导航分组（V3.0 T221 页签行数据源；无导航承载路由返回 null）。 */
+export function groupForRoute(route: string): NavGroup | null {
+  return (
+    NAV_GROUPS.find((group) => group.items.some((item) => routeMatches(route, item.to))) ?? null
+  );
 }
 
 /** 当前页标题（窄屏顶栏展示；未匹配返回空串）。 */

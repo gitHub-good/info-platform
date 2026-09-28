@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { LogOut, Menu, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { NotificationBell } from '@/components/notifications/NotificationBell';
-import { logout } from '@/api/auth';
-import { navigate } from '@/lib/navigation';
 import {
   NAV_GROUPS,
   routeMatches,
-  titleForRoute,
   type NavItem,
 } from '@/components/layout/navConfig';
+import { TopNav } from '@/components/layout/TopNav';
 import { cn } from '@/lib/utils';
 
 function isActive(item: NavItem, currentRoute: string): boolean {
@@ -31,7 +28,7 @@ function NavItemLink({ item, active, onNavigate }: NavItemLinkProps) {
       onClick={onNavigate}
       data-testid={`nav-item-${item.to.slice(1)}`}
       className={cn(
-        'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+        'flex items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring',
         active
           ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
           : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground',
@@ -49,67 +46,43 @@ interface SidebarContentProps {
 }
 
 /**
- * 侧栏主体（分组导航 + 底部通知铃铛与登出），桌面侧栏与窄屏抽屉共用。
- * 铃铛消费 NotificationProvider（App 登录态挂载）；独立渲染（无 Provider）时为离线空态。
+ * 抽屉导航主体（分组 + 全部 17 项完整导航）。V3.0 T221 顶栏化后仅窄屏抽屉消费：
+ * 底部铃铛与登出已上移顶栏主行（UI 方案 §1.3「去掉底部铃铛——顶栏已有」），此处不再渲染。
  */
 function SidebarContent({ currentRoute, onNavigate }: SidebarContentProps) {
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="px-5 pb-2 pt-4">
-        <span className="block truncate text-sm font-medium text-sidebar-foreground">
-          信息整合与 AI 分析平台
-        </span>
-      </div>
-      <nav aria-label="主导航" className="flex-1 overflow-y-auto px-3 pb-4">
-        {NAV_GROUPS.map((group, index) => (
-          <div key={group.label} className={index === 0 ? 'mt-2' : 'mt-4'}>
-            <div className="px-3 pb-1 text-xs text-muted-foreground">{group.label}</div>
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <NavItemLink
-                  key={item.to}
-                  item={item}
-                  active={isActive(item, currentRoute)}
-                  onNavigate={onNavigate}
-                />
-              ))}
-            </div>
+    <nav aria-label="主导航" className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+      {NAV_GROUPS.map((group, index) => (
+        <div key={group.label} className={index === 0 ? 'mt-2' : 'mt-4'}>
+          <div className="px-3 pb-1 text-xs text-muted-foreground">{group.label}</div>
+          <div className="flex flex-col gap-0.5">
+            {group.items.map((item) => (
+              <NavItemLink
+                key={item.to}
+                item={item}
+                active={isActive(item, currentRoute)}
+                onNavigate={onNavigate}
+              />
+            ))}
           </div>
-        ))}
-      </nav>
-      <div className="border-t border-sidebar-border px-3 py-1">
-        <NotificationBell />
-      </div>
-      <div className="border-t border-sidebar-border px-3 py-2">
-        <button
-          type="button"
-          onClick={handleLogout}
-          data-testid="nav-logout"
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-sidebar-foreground/80 outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-        >
-          <LogOut className="size-4 shrink-0" aria-hidden="true" />
-          登出
-        </button>
-      </div>
-    </div>
+        </div>
+      ))}
+    </nav>
   );
 }
 
 interface AppLayoutProps {
-  /** 当前路由（active 高亮与顶栏标题）。 */
+  /** 当前路由（顶栏分组/页签高亮与窄屏标题）。 */
   currentRoute: string;
   children: ReactNode;
 }
 
 /**
- * 统一导航骨架（T38，UI 方案 §2.2）：
- * 桌面（lg+）固定左侧栏 w-56（不随内容滚动）；窄屏顶栏（h-12）+ 左滑抽屉（w-64 + 半透明遮罩，
- * 遮罩点击 / Escape / 选中任一项后收起，焦点圈定抽屉内）。内容区独立滚动，各页面保留自带 main+max-w。
+ * 统一导航骨架（T38 → V3.0 T221 顶栏化改版）：
+ * 桌面（lg+）双行顶栏（TopNav：主行 + 页签行）替换原左侧栏，内容区全宽（lg:pl-56 退役）；
+ * 窄屏顶栏单行（汉堡 + 当前页标题 + 铃铛 + 登出）+ 左滑抽屉（w-64 + 半透明遮罩，
+ * 遮罩点击 / Escape / 选中任一项后收起，焦点圈定抽屉内——零改动保留）。
+ * 内容区独立滚动，各页面保留自带 main+max-w（页面零改动红线）。
  * 纯静态渲染：不请求任何业务接口（PRD 场景 1.3 导航健壮性）。
  */
 export function AppLayout({ currentRoute, children }: AppLayoutProps) {
@@ -147,27 +120,7 @@ export function AppLayout({ currentRoute, children }: AppLayoutProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
-        <SidebarContent currentRoute={currentRoute} />
-      </aside>
-
-      <header
-        className="sticky top-0 z-40 flex h-12 items-center gap-1 border-b border-sidebar-border bg-sidebar px-2 text-sidebar-foreground lg:hidden"
-        data-testid="app-topbar"
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="打开导航"
-          onClick={() => setDrawerOpen(true)}
-          data-testid="nav-toggle"
-        >
-          <Menu className="size-5" aria-hidden="true" />
-        </Button>
-        <span className="truncate text-sm font-medium" data-testid="nav-current-page">
-          {titleForRoute(currentRoute)}
-        </span>
-      </header>
+      <TopNav currentRoute={currentRoute} onOpenDrawer={() => setDrawerOpen(true)} />
 
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="导航抽屉">
@@ -200,7 +153,7 @@ export function AppLayout({ currentRoute, children }: AppLayoutProps) {
         </div>
       ) : null}
 
-      <div className="min-w-0 lg:pl-56">{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }

@@ -11,41 +11,46 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-describe('AppLayout 统一导航骨架（T38）', () => {
-  it('渲染 4 分组 17 项导航（标的详情侧栏入口裁撤后 18→17），当前项高亮', () => {
-    render(<AppLayout currentRoute="/watchlists">内容</AppLayout>);
+describe('AppLayout 统一导航骨架（T38 → V3.0 T221 顶栏化）', () => {
+  it('顶栏导航：4 分组 Tab + 当前分组页签渲染，桌面侧栏退役（aside 删除、lg:pl-56 移除）', () => {
+    const { container } = render(<AppLayout currentRoute="/watchlists">内容</AppLayout>);
 
-    // 分组标题
+    // 分组 Tab（nav-group-{label} 新增命名，数据源沿 navConfig 4 分组）
     for (const group of NAV_GROUPS) {
-      expect(screen.getByText(group.label)).toBeInTheDocument();
+      expect(screen.getByTestId(`nav-group-${group.label}`)).toBeInTheDocument();
     }
-    // 全部导航项按 data-testid 定位（约定 nav-item-<路由名>）：17 页 + 底部登出共 18 项
-    const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(17);
-    for (const item of allItems) {
-      expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
-    }
-    // 全市场推荐（M21 T184）：分析组「推荐中心」之后
-    expect(screen.getByTestId('nav-item-market-top')).toHaveTextContent('全市场推荐');
-    const recItem = screen.getByTestId('nav-item-recommendations');
-    const marketTopItem = screen.getByTestId('nav-item-market-top');
-    expect(recItem.compareDocumentPosition(marketTopItem) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // 资讯库（M19 T161）：数据组第 3 项；政策时事页已裁撤（V2.4 T213）导航项不存在
-    expect(screen.getByTestId('nav-item-news-library')).toHaveTextContent('资讯库');
-    expect(screen.queryByTestId('nav-item-policies')).toBeNull();
-    // 标的详情侧栏入口已裁撤（交互优化）：#/subjects/:code 路由保留但导航不显示
-    expect(screen.queryByTestId('nav-item-subjects')).toBeNull();
-    expect(screen.queryByText('标的详情')).toBeNull();
-    // 源管理（V2.3 T204 合一）：单入口「源管理」，旧两页文案不再出现
-    expect(screen.getByTestId('nav-item-sources')).toHaveTextContent('源管理');
-    expect(screen.queryByTestId('nav-item-datasource-config')).toBeNull();
-    expect(screen.queryByTestId('nav-item-info-sources')).toBeNull();
-    // 当前页高亮：aria-current="page"
+    // 当前分组（数据）页签：两项页签渲染 + 当前项 aria-current
     expect(screen.getByTestId('nav-item-watchlists')).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByTestId('nav-item-overview')).not.toHaveAttribute('aria-current');
-    // 底部登出固定存在
+    expect(screen.getByTestId('nav-item-news-library')).toBeInTheDocument();
+    // 其他分组页签不渲染（页签行随分组整体替换）
+    expect(screen.queryByTestId('nav-item-events')).toBeNull();
+    expect(screen.queryByTestId('nav-item-task-center')).toBeNull();
+    // 桌面侧栏退役：<aside> 不复存在（抽屉为 div 实现，不误伤）
+    expect(container.querySelector('aside')).toBeNull();
+    // 顶栏承载铃铛与登出（原侧栏底部两槽位上移主行）
+    expect(screen.getByTestId('notification-bell')).toBeInTheDocument();
     expect(screen.getByTestId('nav-logout')).toBeInTheDocument();
+  });
+
+  it('17 页 navConfig 总表不变；完整导航经窄屏抽屉承载（nav-item-{route} 全量保留）', async () => {
+    const user = userEvent.setup();
+    render(<AppLayout currentRoute="/overview">内容</AppLayout>);
+
+    const allItems = NAV_GROUPS.flatMap((g) => g.items);
+    expect(allItems).toHaveLength(17); // 4 分组 17 页结构零变化
+    await user.click(screen.getByTestId('nav-toggle'));
+    const drawer = screen.getByTestId('nav-drawer');
+    for (const item of allItems) {
+      expect(within(drawer).getByTestId(`nav-item-${item.to.slice(1)}`)).toBeInTheDocument();
+    }
+    // 已裁撤入口不再出现
+    expect(within(drawer).queryByTestId('nav-item-policies')).toBeNull();
+    expect(within(drawer).queryByTestId('nav-item-subjects')).toBeNull();
+    expect(within(drawer).queryByTestId('nav-item-datasource-config')).toBeNull();
+    expect(within(drawer).queryByTestId('nav-item-info-sources')).toBeNull();
+    // 抽屉不再渲染铃铛与登出（顶栏主行已有，UI 方案 §1.3）
+    expect(within(drawer).queryByTestId('notification-bell')).toBeNull();
+    expect(within(drawer).queryByTestId('nav-logout')).toBeNull();
   });
 
   it('纯静态渲染：不发起任何业务请求（PRD 场景 1.3 导航健壮性）', () => {
@@ -65,16 +70,14 @@ describe('AppLayout 统一导航骨架（T38）', () => {
   it('标的详情侧栏入口已裁撤：#/subjects/:code 路由不再有导航承载（直接 URL 进入仍可用）', () => {
     render(<AppLayout currentRoute="/subjects/SH600519">内容</AppLayout>);
 
-    // 入口裁撤后：无导航项高亮（active 仅由导航项判定）
-    expect(screen.queryByTestId('nav-item-subjects')).toBeNull();
-    for (const item of NAV_GROUPS.flatMap((g) => g.items)) {
-      expect(screen.getByTestId(`nav-item-${item.to.slice(1)}`)).not.toHaveAttribute(
-        'aria-current',
-      );
+    // 入口裁撤后：无导航项高亮（无分组命中 → 无页签行，组 Tab 全部非活跃）
+    expect(screen.queryByTestId('nav-tabs-row')).toBeNull();
+    for (const group of NAV_GROUPS) {
+      expect(screen.getByTestId(`nav-group-${group.label}`)).not.toHaveAttribute('aria-current');
     }
   });
 
-  it('登出：清 token 并跳 /login（既有交互平移）', async () => {
+  it('登出：清 token 并跳 /login（顶栏主行登出按钮，既有交互平移）', async () => {
     localStorage.setItem('access_token', 'jwt-x');
     const user = userEvent.setup();
 
@@ -98,7 +101,7 @@ describe('AppLayout 统一导航骨架（T38）', () => {
     await user.click(screen.getByTestId('nav-toggle'));
     const drawer = screen.getByTestId('nav-drawer');
     expect(drawer).toBeInTheDocument();
-    // 抽屉内导航完整（within 限定，避免与桌面侧栏同名 testid 冲突）
+    // 抽屉内导航完整（within 限定，避免与桌面页签同名 testid 冲突）
     expect(within(drawer).getByTestId('nav-item-news-library')).toBeInTheDocument();
 
     // 遮罩点击收起
