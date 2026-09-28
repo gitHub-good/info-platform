@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bookmark } from 'lucide-react';
 import { ApiError } from '@/api/http';
-import { createSubscription, listSubscriptionPage, unsubscribeSubscription } from '@/api/subscriptions';
+import { createSubscription, listSubscriptionPaged, unsubscribeSubscription } from '@/api/subscriptions';
 import { fetchSubjectQuotes, type SubjectSummary } from '@/api/subject';
 import { SubjectPicker } from '@/components/subject/SubjectPicker';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   CHANNEL_LABELS,
@@ -345,21 +346,32 @@ function CreateSubscriptionDialog({
 
 // —— 页面 ——
 
+/** 缺省每页条数（后端 size 缺省 20，上限 50）。 */
+const DEFAULT_PAGE_SIZE = 20;
+
 /**
  * 订阅管理页（体检 P1-3，#/subscriptions）。
- * - 列表：GET /subscriptions 游标分页（「加载更多」），条目卡展示类型徽章 / 订阅内容
- *   （标的订阅经 /subjects/quotes 批量解析为代码+名称，失败回退「标的 #id」不阻断）/ 渠道 / 状态。
+ * - 列表：GET /subscriptions 页码分页（M26 T227 分页化：beforeId/nextCursor 游标「加载更多」退役，
+ *   接入 M9 Pagination——page/size 页码模式，翻页在途保留数据、失败可重试、末页收缩空页回退 M9 §5 语义），
+ *   条目卡展示类型徽章 / 订阅内容（标的订阅经 /subjects/quotes 批量解析为代码+名称，失败回退「标的 #id」不阻断）/
+ *   渠道 / 状态。
  * - 新建：Dialog 类型四选一（主题关键词 / SubjectPicker 标的 / 事件类型 / 政策主题词），
- *   本地判重给友好文案，后端幂等（重复订阅直返不报错）为最终防线。
- * - 退订：二次确认 Dialog（全站危险操作规范）→ DELETE 软退订；已退订条目可一键重新订阅（POST 复用同键激活）。
+ *   本地判重给友好文案，后端幂等（重复订阅直返不报错）为最终防线；成功后回第 1 页骨架重查。
+ * - 退订：二次确认 Dialog（全站危险操作规范）→ DELETE 软退订，当前页刷新（页码保持）；已退订条目可一键重新订阅
+ *   （POST 复用同键激活）。
  * - 三态：骨架 / 空态（CTA 新建订阅）/ 错误重试；401 由 http 层统一跳登录。
  */
 export function Subscriptions() {
   const [items, setItems] = useState<SubscriptionView[]>([]);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // pageSize 的稳定读取点：翻页/行操作回调不随渲染闭包漂移
+  const pageSizeRef = useRef(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState<{ page: number; message: string } | null>(null);
   const [subjects, setSubjects] = useState<Record<number, SubjectSummary>>({});
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -371,6 +383,9 @@ export function Subscriptions() {
 
   const abortRef = useRef<AbortController | null>(null);
   const subjectsAbortRef = useRef<AbortController | null>(null);
+  // page 的稳定读取点：confirmRemove/reactivate 回调读当前页不随闭包漂移
+  const pageRef = useRef(1);
+  pageRef.current = page;
 
   // 标的订阅 subKey（数字主键）→ 摘要（代码+名称）：批量解析，失败静默回退占位不阻断列表
   const resolveSubjects = useCallback(async (subs: SubscriptionView[]) => {
@@ -397,25 +412,51 @@ export function Subscriptions() {
     }
   }, []);
 
+  /** 空页防御回退（M9 §5.3）：响应 items 空且 total>0 且 page>1 → 页界漂移，静默重发末页。 */
+  const fetchView = useCallback(
+    async (
+      target: number,
+      size: number,
+      signal: AbortSignal,
+    ): Promise<{ landed: number; total: number; items: SubscriptionView[] }> => {
+      const call = (pageNo: number) => listSubscriptionPaged({ page: pageNo, size }, signal);
+      let view = await call(target);
+      if (view.items.length === 0 && view.total > 0 && target > 1) {
+        const last = Math.ceil(view.total / size);
+        if (last >= 1 && last < target) {
+          view = await call(last);
+          return { landed: last, total: view.total, items: view.items };
+        }
+      }
+      return { landed: target, total: view.total, items: view.items };
+    },
+    [],
+  );
+
+  /** 骨架通道（首屏/新建成功 → page=1 新结果集查询，M9 §5.1）。 */
   const loadFirst = useCallback(async () => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
     setError(null);
+    setPageLoading(false);
+    setPageError(null);
+    setPage(1);
     try {
-      const page = await listSubscriptionPage({ signal: ctrl.signal });
+      const view = await fetchView(1, pageSizeRef.current, ctrl.signal);
       if (ctrl.signal.aborted) return;
-      setItems(page.items);
-      setNextCursor(page.nextCursor);
-      void resolveSubjects(page.items);
+      setItems(view.items);
+      setTotal(view.total);
+      setPage(view.landed);
+      void resolveSubjects(view.items);
     } catch (err) {
       if (ctrl.signal.aborted) return;
       setError(messageOf(err, '订阅列表加载失败'));
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, [resolveSubjects]);
+  }, [fetchView, resolveSubjects]);
 
   useEffect(() => {
     void loadFirst();
@@ -425,21 +466,46 @@ export function Subscriptions() {
     };
   }, [loadFirst]);
 
-  // 翻页：追加不清已有条目；失败保留条目可重试
-  const loadMore = useCallback(async () => {
-    if (nextCursor == null || loadingMore || loading) return;
-    setLoadingMore(true);
-    try {
-      const page = await listSubscriptionPage({ cursor: nextCursor });
-      setItems((prev) => [...prev, ...page.items]);
-      setNextCursor(page.nextCursor);
-      void resolveSubjects(page.items);
-    } catch (err) {
-      setError(messageOf(err, '加载更多失败'));
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [nextCursor, loadingMore, loading, resolveSubjects]);
+  /** 在途保留通道（同结果集下的翻页/条数切换/行操作后刷新，M9 §5.1）：列表数据保留，仅列表区在途态。 */
+  const fetchPage = useCallback(
+    async (target: number, size: number) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      setPageLoading(true);
+      setPageError(null);
+      try {
+        const view = await fetchView(target, size, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setItems(view.items);
+        setTotal(view.total);
+        setPage(view.landed);
+        void resolveSubjects(view.items);
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        setPageError({ page: target, message: messageOf(err, '加载失败') });
+      } finally {
+        if (!ctrl.signal.aborted) setPageLoading(false);
+      }
+    },
+    [fetchView, resolveSubjects],
+  );
+
+  const handlePageChange = (target: number) => {
+    if (target === page) return;
+    void fetchPage(target, pageSizeRef.current);
+  };
+
+  const handlePageSizeChange = (next: number) => {
+    if (next === pageSizeRef.current) return;
+    pageSizeRef.current = next;
+    setPageSize(next);
+    void fetchPage(1, next);
+  };
+
+  const handleRetryPage = () => {
+    if (pageError) void fetchPage(pageError.page, pageSizeRef.current);
+  };
 
   const submitCreate = useCallback(
     async (subType: number, subKey: string) => {
@@ -466,28 +532,29 @@ export function Subscriptions() {
     try {
       await unsubscribeSubscription(target.id);
       setRemoveTarget(null);
-      await loadFirst();
+      // 退订后当前页刷新（页码保持；末页收缩由 fetchView 空页回退兜底）
+      await fetchPage(pageRef.current, pageSizeRef.current);
     } catch (err) {
       setRemoveError(messageOf(err, '退订失败，请稍后重试'));
     } finally {
       setRemoving(false);
     }
-  }, [removeTarget, loadFirst]);
+  }, [removeTarget, fetchPage]);
 
-  // 已退订条目重新订阅：POST 同键幂等激活（后端复用同一行，不新增）
+  // 已退订条目重新订阅：POST 同键幂等激活（后端复用同一行，不新增），当前页刷新
   const reactivate = useCallback(
     async (sub: SubscriptionView) => {
       setRowBusyId(sub.id);
       try {
         await createSubscription({ subType: sub.subType, subKey: sub.subKey });
-        await loadFirst();
+        await fetchPage(pageRef.current, pageSizeRef.current);
       } catch (err) {
-        setError(messageOf(err, '重新订阅失败'));
+        setPageError({ page: pageRef.current, message: messageOf(err, '重新订阅失败') });
       } finally {
         setRowBusyId(null);
       }
     },
-    [loadFirst],
+    [fetchPage],
   );
 
   const activeKeys = new Set(
@@ -503,9 +570,14 @@ export function Subscriptions() {
             订阅主题 / 标的 / 事件类型 / 政策主题，命中内容将进入你的信息流
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="subs-create-open">
-          新建订阅
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs text-muted-foreground" data-testid="subs-total">
+            共 {total} 条
+          </span>
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="subs-create-open">
+            新建订阅
+          </Button>
+        </div>
       </header>
 
       {loading ? (
@@ -540,12 +612,7 @@ export function Subscriptions() {
         </div>
       ) : (
         <>
-          {error ? (
-            <p className="mb-3 text-sm text-destructive" role="alert" data-testid="subs-more-error">
-              {error}
-            </p>
-          ) : null}
-          <div className="flex flex-col gap-3" data-testid="subs-list">
+          <div className="flex flex-col gap-3" data-testid="subs-list" aria-busy={pageLoading || undefined}>
             {items.map((sub) => (
               <SubscriptionRow
                 key={sub.id}
@@ -560,19 +627,35 @@ export function Subscriptions() {
               />
             ))}
           </div>
-          {nextCursor != null ? (
-            <div className="mt-3 flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-                data-testid="subs-load-more"
-              >
-                {loadingMore ? '加载中…' : '加载更多'}
+          {pageLoading ? (
+            <p
+              className="mt-3 text-sm text-muted-foreground"
+              aria-live="polite"
+              data-testid="subs-page-loading"
+            >
+              加载中…
+            </p>
+          ) : null}
+          {pageError ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="subs-pagination-error">
+              <p className="text-sm text-destructive" role="alert">
+                加载第 {pageError.page} 页失败：{pageError.message}
+              </p>
+              <Button variant="outline" size="sm" onClick={handleRetryPage} data-testid="subs-pagination-retry">
+                重试
               </Button>
             </div>
           ) : null}
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            disabled={pageLoading}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+            label="订阅管理分页"
+            testIdPrefix="subs-pagination"
+          />
         </>
       )}
 

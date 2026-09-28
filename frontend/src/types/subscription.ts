@@ -14,10 +14,15 @@ export interface SubscriptionView {
   status: number;
 }
 
-/** 订阅列表一页（游标分页；nextCursor 为 null 表示无下一页）。 */
-export interface SubscriptionPage {
+/**
+ * 订阅列表一页（页码模式，M26 T227；page 出现即页码模式 {total, items, page, size}，
+ * total 与分页行集同口径，page/size 如实回显；游标形态本页已退役，后端保留兼容）。
+ */
+export interface SubscriptionPagedView {
+  total: number;
   items: SubscriptionView[];
-  nextCursor: number | null;
+  page: number;
+  size: number;
 }
 
 /** 订阅类型 code（对齐后端 SubscriptionType）。 */

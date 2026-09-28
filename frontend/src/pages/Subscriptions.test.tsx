@@ -1,5 +1,6 @@
 // 订阅管理页测试（体检 P1-3）：列表渲染（类型徽章/标的解析/状态）/ 新建（类型表单+校验+判重）/ 退订确认 /
-// 重新订阅 / 游标分页 / 三态（骨架、空态 CTA、错误重试）。
+// 重新订阅 / M26 T227 页码分页（M9 语义：翻页在途保留/失败重试/空页回退/游标形态退役反向断言）/
+// 三态（骨架、空态 CTA、错误重试）。
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -44,10 +45,12 @@ const QUOTE_ROW = {
 };
 
 interface StoreOpts {
-  /** 首屏订阅列表；'FAIL' 强制失败。 */
+  /** 首屏订阅列表（单页形态：total = subs.length）；'FAIL' 强制失败。 */
   subs?: SubscriptionView[] | 'FAIL';
-  /** 翻页序列（cursor 请求按次序返回，末页重复）。 */
-  morePages?: Array<{ items: SubscriptionView[]; nextCursor: number | null }>;
+  /** 页码模式分页数据（按请求 page 索引；未列出的页返回空 items + 首页 total）。 */
+  pages?: Record<number, { items: SubscriptionView[]; total: number }>;
+  /** 指定页码首次请求失败（重试/回退路径用；后续请求恢复）。 */
+  failFirstOnPage?: number;
   /** POST /subscriptions 响应工厂；'FAIL' 强制失败。 */
   onCreate?: (() => ReturnType<typeof ok>) | 'FAIL';
   /** DELETE 响应工厂；'FAIL' 强制失败。 */
@@ -57,7 +60,8 @@ interface StoreOpts {
 }
 
 function makeStore(opts: StoreOpts = {}) {
-  let listCalls = 0;
+  const listUrls: string[] = [];
+  const failedPages = new Set<number>();
   const created: Array<{ subType: number; subKey: string }> = [];
   const deleted: number[] = [];
   const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
@@ -80,21 +84,29 @@ function makeStore(opts: StoreOpts = {}) {
       if (opts.onCreate === 'FAIL') return fail(2001, 'subType 取值 1~4');
       return ok(subOf({ id: 99 }));
     }
-    if (/\/subscriptions(\?.*)?$/.test(path) && method === 'GET') {
+    if (/\/subscriptions\?/.test(path) && method === 'GET') {
+      // 页码模式：按请求 page 返回（total 与 items 分离以构造空页/收缩场景）
+      const query = new URLSearchParams(path.split('?')[1]);
+      const page = Number(query.get('page') ?? '1');
+      const size = Number(query.get('size') ?? '20');
+      listUrls.push(path);
       if (opts.subs === 'FAIL') return fail();
-      // 首页固定返回 subs；提供 morePages 时首页带 nextCursor 触发「加载更多」
-      if (listCalls === 0) {
-        listCalls += 1;
-        return ok({ items: opts.subs ?? [], nextCursor: opts.morePages ? 99 : null });
+      if (opts.failFirstOnPage === page && !failedPages.has(page)) {
+        failedPages.add(page);
+        return fail();
       }
-      const pages = opts.morePages ?? [];
-      const idx = Math.min(listCalls - 1, pages.length - 1);
-      listCalls += 1;
-      return ok(pages[idx]);
+      const preset = opts.pages?.[page];
+      if (preset) return ok({ ...preset, page, size });
+      if (opts.pages) {
+        const firstTotal = opts.pages[1]?.total ?? 0;
+        return ok({ total: firstTotal, items: [], page, size });
+      }
+      const subs = opts.subs ?? [];
+      return ok({ total: subs.length, items: subs, page, size });
     }
     return fail();
   });
-  return { fetchMock, created, deleted };
+  return { fetchMock, created, deleted, listUrls };
 }
 
 afterEach(() => {
@@ -271,26 +283,159 @@ describe('Subscriptions 订阅管理页（体检 P1-3）', () => {
     expect(store.created[0]).toEqual({ subType: 4, subKey: '货币政策' });
   });
 
-  it('游标分页：「加载更多」带 cursor 追加；末页无按钮', async () => {
-    vi.stubGlobal(
-      'fetch',
-      makeStore({
-        subs: [subOf({ id: 1, subKey: '第一页' })],
-        morePages: [{ items: [subOf({ id: 2, subKey: '第二页' })], nextCursor: null }],
-      }).fetchMock,
-    );
+  // ---- M26 T227：M9 页码分页语义（游标「加载更多」退役）----
+
+  it('分页·主路径：默认请求 page=1&size=20，「共 N 条」与分页 total 一致；游标形态退役（反向断言）', async () => {
+    const store = makeStore({
+      pages: { 1: { items: [subOf({ id: 1, subKey: '第一页' })], total: 30 }, 2: { items: [subOf({ id: 21, subKey: '第二页' })], total: 30 } },
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+
+    render(<Subscriptions />);
+    expect(await screen.findByTestId('sub-item-1')).toBeInTheDocument();
+
+    // 页码模式契约：请求带 page=1&size=20
+    expect(store.listUrls[0]).toContain('page=1');
+    expect(store.listUrls[0]).toContain('size=20');
+    // 页头「共 N 条」与分页条 total 同源一致
+    expect(screen.getByTestId('subs-total')).toHaveTextContent('共 30 条');
+    expect(screen.getByTestId('subs-pagination-total')).toHaveTextContent('30');
+    expect(screen.getByTestId('subs-pagination-page-indicator')).toHaveTextContent('1 / 2');
+    // 游标形态清零：无「加载更多」按钮/文案、无 cursor 参数
+    expect(screen.queryByTestId('subs-load-more')).toBeNull();
+    expect(screen.queryByText('加载更多')).toBeNull();
+    expect(store.listUrls.join(' ')).not.toContain('cursor=');
+  });
+
+  it('分页·翻页：第 2 页请求 page=2，条目整页替换不追加', async () => {
+    const store = makeStore({
+      pages: {
+        1: { items: [subOf({ id: 1, subKey: '第一页' })], total: 30 },
+        2: { items: [subOf({ id: 21, subKey: '第二页' })], total: 30 },
+      },
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
 
     render(<Subscriptions />);
     await screen.findByTestId('sub-item-1');
 
-    await userEvent.click(screen.getByTestId('subs-load-more'));
-    await waitFor(() => expect(screen.getByTestId('sub-item-2')).toBeInTheDocument());
-    expect(screen.getByTestId('sub-item-1')).toBeInTheDocument();
-    // 末页（nextCursor=null）不再渲染加载更多
-    await waitFor(() => expect(screen.queryByTestId('subs-load-more')).toBeNull());
+    await userEvent.click(screen.getByTestId('subs-pagination-page-2'));
+    expect(await screen.findByTestId('sub-item-21')).toBeInTheDocument();
+    expect(screen.queryByTestId('sub-item-1')).toBeNull(); // 替换不追加
+    expect(screen.getByTestId('subs-pagination-page-indicator')).toHaveTextContent('2 / 2');
+    expect(store.listUrls.at(-1)).toContain('page=2');
   });
 
-  it('三态：首屏骨架 → 空态（文案 + CTA 新建订阅）', async () => {
+  it('分页·条数切换：选每页 10 条 → 回第 1 页以 size=10 重查', async () => {
+    const store = makeStore({
+      pages: {
+        1: { items: [subOf({ id: 1 })], total: 30 },
+        2: { items: [subOf({ id: 21 })], total: 30 },
+      },
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+
+    render(<Subscriptions />);
+    await screen.findByTestId('sub-item-1');
+    await userEvent.click(screen.getByTestId('subs-pagination-page-2'));
+    await screen.findByTestId('sub-item-21');
+
+    await userEvent.selectOptions(screen.getByTestId('subs-pagination-size'), '10');
+    expect(store.listUrls.at(-1)).toContain('page=1');
+    expect(store.listUrls.at(-1)).toContain('size=10');
+    expect(screen.getByTestId('subs-pagination-page-indicator')).toHaveTextContent('1 /');
+  });
+
+  it('分页·失败与重试：第 2 页失败保留第 1 页数据，重试恢复到第 2 页', async () => {
+    const store = makeStore({
+      pages: {
+        1: { items: [subOf({ id: 1, subKey: '第一页' })], total: 30 },
+        2: { items: [subOf({ id: 21, subKey: '第二页' })], total: 30 },
+      },
+      failFirstOnPage: 2,
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+
+    render(<Subscriptions />);
+    await screen.findByTestId('sub-item-1');
+
+    await userEvent.click(screen.getByTestId('subs-pagination-page-2'));
+    expect(await screen.findByTestId('subs-pagination-error')).toHaveTextContent('加载第 2 页失败');
+    // 失败保留列表数据（第 1 页条目仍在）
+    expect(screen.getByTestId('sub-item-1')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('subs-pagination-retry'));
+    expect(await screen.findByTestId('sub-item-21')).toBeInTheDocument();
+    expect(screen.getByTestId('subs-pagination-page-indicator')).toHaveTextContent('2 / 2');
+    expect(screen.queryByTestId('subs-pagination-error')).toBeNull();
+  });
+
+  it('分页·空页回退：末页收缩后越界页静默落回新末页（M9 §5.3）', async () => {
+    // total 45 条 size=20 → 3 页；点击第 3 页时服务端 total 收缩为 40（第 3 页已不存在）
+    const store = makeStore({
+      pages: {
+        1: { items: [subOf({ id: 1 }), subOf({ id: 2 })], total: 45 },
+        2: { items: [subOf({ id: 3 }), subOf({ id: 4 })], total: 40 },
+        3: { items: [], total: 40 },
+      },
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+
+    render(<Subscriptions />);
+    await screen.findByTestId('sub-item-1');
+    expect(screen.getByTestId('subs-pagination-page-indicator')).toHaveTextContent('1 / 3');
+
+    await userEvent.click(screen.getByTestId('subs-pagination-page-3'));
+    // 空页防御：回退重发新末页（page=2），指示收敛 2/2，无报错条
+    expect(await screen.findByTestId('sub-item-3')).toBeInTheDocument();
+    expect(screen.getByTestId('subs-pagination-page-indicator')).toHaveTextContent('2 / 2');
+    expect(screen.queryByTestId('subs-pagination-error')).toBeNull();
+    expect(store.listUrls.at(-1)).toContain('page=2');
+  });
+
+  it('分页·行操作保持页码：第 2 页退订成功后以 page=2 重拉（不回第 1 页）', async () => {
+    const store = makeStore({
+      pages: {
+        1: { items: [subOf({ id: 1 }), subOf({ id: 2 })], total: 40 },
+        2: { items: [subOf({ id: 3, subKey: '第二页甲' }), subOf({ id: 4 })], total: 40 },
+      },
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+
+    render(<Subscriptions />);
+    await screen.findByTestId('sub-item-1');
+    await userEvent.click(screen.getByTestId('subs-pagination-page-2'));
+    await screen.findByTestId('sub-item-3');
+
+    await userEvent.click(screen.getByTestId('sub-remove-3'));
+    await userEvent.click(screen.getByTestId('subs-remove-confirm-ok'));
+    await waitFor(() => expect(store.deleted).toEqual([3]));
+    // DELETE 后刷新保持当前页码
+    await waitFor(() => expect(store.listUrls.at(-1)).toContain('page=2'));
+  });
+
+  it('分页·新建成功回第 1 页：第 2 页新建订阅 → page=1 骨架重查', async () => {
+    const store = makeStore({
+      pages: {
+        1: { items: [subOf({ id: 1 })], total: 40 },
+        2: { items: [subOf({ id: 3 })], total: 40 },
+      },
+    });
+    vi.stubGlobal('fetch', store.fetchMock);
+
+    render(<Subscriptions />);
+    await screen.findByTestId('sub-item-1');
+    await userEvent.click(screen.getByTestId('subs-pagination-page-2'));
+    await screen.findByTestId('sub-item-3');
+
+    await userEvent.click(screen.getByTestId('subs-create-open'));
+    await userEvent.type(screen.getByTestId('subs-create-keyword'), '新主题');
+    await userEvent.click(screen.getByTestId('subs-create-submit'));
+    await waitFor(() => expect(store.created).toHaveLength(1));
+    await waitFor(() => expect(store.listUrls.at(-1)).toContain('page=1'));
+  });
+
+  it('三态：首屏骨架 → 空态（文案 + CTA 新建订阅；分页条不渲染）', async () => {
     vi.stubGlobal('fetch', makeStore({ subs: [] }).fetchMock);
 
     render(<Subscriptions />);
@@ -298,6 +443,9 @@ describe('Subscriptions 订阅管理页（体检 P1-3）', () => {
     expect(screen.getByTestId('subs-loading')).toBeInTheDocument();
     expect(await screen.findByTestId('subs-empty')).toHaveTextContent('还没有订阅');
     expect(screen.getByTestId('subs-empty-cta')).toHaveTextContent('新建订阅');
+    // total=0 分页条整体不渲染；「共 0 条」如实展示
+    expect(screen.queryByTestId('subs-pagination-root')).toBeNull();
+    expect(screen.getByTestId('subs-total')).toHaveTextContent('共 0 条');
 
     // 空态 CTA 直达新建对话框
     await userEvent.click(screen.getByTestId('subs-empty-cta'));
@@ -308,7 +456,11 @@ describe('Subscriptions 订阅管理页（体检 P1-3）', () => {
     let failFirst = true;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => (failFirst ? (failFirst = false, fail()) : ok({ items: [subOf({ id: 11 })], nextCursor: null }))),
+      vi.fn(async () =>
+        failFirst
+          ? (failFirst = false, fail())
+          : ok({ total: 1, items: [subOf({ id: 11 })], page: 1, size: 20 }),
+      ),
     );
 
     render(<Subscriptions />);
