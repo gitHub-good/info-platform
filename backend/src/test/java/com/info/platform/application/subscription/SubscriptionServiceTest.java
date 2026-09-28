@@ -319,7 +319,8 @@ class SubscriptionServiceTest {
         when(repository.countByOwnerId(ME, SubscriptionType.SUBJECT.code())).thenReturn(11L);
 
         // Act
-        SubscriptionPageView result = service.listSubscriptionsPaged(SubscriptionType.SUBJECT, 2, 10);
+        SubscriptionPageView result =
+                service.listSubscriptionsPaged(SubscriptionType.SUBJECT, 2, 10);
 
         // Assert：视图透传仓储页内容 + total 同源 + page/size 如实回显
         assertThat(result.total()).isEqualTo(11L);

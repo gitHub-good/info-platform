@@ -77,7 +77,8 @@ public class SubscriptionRepositoryImpl implements SubscriptionRepository {
     }
 
     @Override
-    public List<Subscription> findByOwnerIdPage(long ownerUserId, Integer subType, int page, int size) {
+    public List<Subscription> findByOwnerIdPage(
+            long ownerUserId, Integer subType, int page, int size) {
         // M26 T227：同 WHERE 同序（id ASC）的 offset 窗口；page/size 均经 PageQuery 校验的 int 拼接（无注入面），
         // offset 上界由 PageQuery.MAX_PAGE 保证不溢出 int
         LambdaQueryWrapper<SubscriptionPO> wrapper =

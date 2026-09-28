@@ -258,7 +258,8 @@ class SubscriptionRepositoryImplTest {
                             USER_A, SubscriptionType.TOPIC, "页码" + i, SubscriptionChannel.IN_APP));
         }
         repository.save(
-                Subscription.create(USER_B, SubscriptionType.TOPIC, "他人的", SubscriptionChannel.IN_APP));
+                Subscription.create(
+                        USER_B, SubscriptionType.TOPIC, "他人的", SubscriptionChannel.IN_APP));
 
         // Act/Assert：id ASC 窗口切页，页间不重叠不遗漏
         assertThat(repository.findByOwnerIdPage(USER_A, null, 1, 2))
@@ -301,9 +302,11 @@ class SubscriptionRepositoryImplTest {
     @Test
     void findByOwnerIdPage_typeFilter_appliesToWindowAndCount() {
         repository.save(
-                Subscription.create(USER_A, SubscriptionType.TOPIC, "主题甲", SubscriptionChannel.IN_APP));
+                Subscription.create(
+                        USER_A, SubscriptionType.TOPIC, "主题甲", SubscriptionChannel.IN_APP));
         repository.save(
-                Subscription.create(USER_A, SubscriptionType.TOPIC, "主题乙", SubscriptionChannel.IN_APP));
+                Subscription.create(
+                        USER_A, SubscriptionType.TOPIC, "主题乙", SubscriptionChannel.IN_APP));
         repository.save(
                 Subscription.create(
                         USER_A, SubscriptionType.SUBJECT, "600519", SubscriptionChannel.IN_APP));
@@ -311,7 +314,8 @@ class SubscriptionRepositoryImplTest {
         assertThat(repository.findByOwnerIdPage(USER_A, SubscriptionType.SUBJECT.code(), 1, 20))
                 .extracting(Subscription::getSubKey)
                 .containsExactly("600519");
-        assertThat(repository.countByOwnerId(USER_A, SubscriptionType.SUBJECT.code())).isEqualTo(1L);
+        assertThat(repository.countByOwnerId(USER_A, SubscriptionType.SUBJECT.code()))
+                .isEqualTo(1L);
         assertThat(repository.countByOwnerId(USER_A, SubscriptionType.TOPIC.code())).isEqualTo(2L);
     }
 

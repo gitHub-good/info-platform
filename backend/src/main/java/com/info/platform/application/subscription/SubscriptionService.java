@@ -132,15 +132,14 @@ public class SubscriptionService {
     }
 
     /**
-     * 列出当前用户订阅（页码分页，M26 T227 沿 T220 范式）：page/size offset 语义，可选按类型过滤； total 与分页行集同
-     * WHERE 同口径；越界页返回空列表（如实回显 page/size）。
+     * 列出当前用户订阅（页码分页，M26 T227 沿 T220 范式）：page/size offset 语义，可选按类型过滤； total 与分页行集同 WHERE
+     * 同口径；越界页返回空列表（如实回显 page/size）。
      *
      * @param type 订阅类型，null 表示全部类型
      * @param page 页码（1 起，PageQuery 已校验）
      * @param size 页大小（1~50，PageQuery 已校验）
      */
-    public SubscriptionPageView listSubscriptionsPaged(
-            SubscriptionType type, int page, int size) {
+    public SubscriptionPageView listSubscriptionsPaged(SubscriptionType type, int page, int size) {
         long userId = currentUserId();
         Integer subTypeCode = type != null ? type.code() : null;
         List<SubscriptionView> items =

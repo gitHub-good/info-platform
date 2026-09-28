@@ -119,13 +119,15 @@ class SubscriptionControllerTest {
     @Test
     void list_pageModeWithTypeAndSize_passesToService_cursorPathUntouched() throws Exception {
         // type 筛选两模式共用；显式 size 透传；游标路径不被调用
-        when(subscriptionService.listSubscriptionsPaged(eq(SubscriptionType.SUBJECT), eq(2), eq(10)))
+        when(subscriptionService.listSubscriptionsPaged(
+                        eq(SubscriptionType.SUBJECT), eq(2), eq(10)))
                 .thenReturn(new SubscriptionPageView(5L, List.of(), 2, 10));
 
-        mockMvc.perform(get("/api/v1/subscriptions")
-                        .param("type", "2")
-                        .param("page", "2")
-                        .param("size", "10"))
+        mockMvc.perform(
+                        get("/api/v1/subscriptions")
+                                .param("type", "2")
+                                .param("page", "2")
+                                .param("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(5))
                 .andExpect(jsonPath("$.data.items").isEmpty())
@@ -140,7 +142,8 @@ class SubscriptionControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
         verify(subscriptionService, org.mockito.Mockito.never()).listSubscriptions(any(), any());
-        verify(subscriptionService, org.mockito.Mockito.never()).listSubscriptionsPaged(any(), anyInt(), anyInt());
+        verify(subscriptionService, org.mockito.Mockito.never())
+                .listSubscriptionsPaged(any(), anyInt(), anyInt());
     }
 
     @Test

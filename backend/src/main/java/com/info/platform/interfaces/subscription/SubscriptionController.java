@@ -1,6 +1,5 @@
 package com.info.platform.interfaces.subscription;
 
-import com.info.platform.application.subscription.SubscriptionListView;
 import com.info.platform.application.subscription.SubscriptionService;
 import com.info.platform.application.subscription.SubscriptionView;
 import com.info.platform.domain.common.BusinessException;
@@ -51,8 +50,8 @@ public class SubscriptionController {
     /**
      * 列出当前用户订阅（双模式分页，可选按类型过滤）。
      *
-     * <p>{@code page} 参数出现即<b>页码模式</b>（M26 T227，V3.0 REQ-20260928-21 #9，M9 PageQuery 双模式同端点分派）：
-     * 返回 {@code {total, items, page, size}}（offset 语义，越界页 200 + 空列表）；参数校验经 {@link PageQuery} 共用件
+     * <p>{@code page} 参数出现即<b>页码模式</b>（M26 T227，V3.0 REQ-20260928-21 #9，M9 PageQuery 双模式同端点分派）： 返回
+     * {@code {total, items, page, size}}（offset 语义，越界页 200 + 空列表）；参数校验经 {@link PageQuery} 共用件
      * （{@code page≥1} 上限 100 万、{@code size} 缺省 20 上限 50 越界 400 拒绝不截断、{@code page} 与 {@code cursor}
      * 互斥 400）。缺席走既有游标路径（字节级不动）。
      *

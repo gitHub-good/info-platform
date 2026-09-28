@@ -39,8 +39,8 @@ public interface SubscriptionRepository {
             long ownerUserId, Integer subType, Long cursor, int limit);
 
     /**
-     * 按归属用户页码分页查订阅（M26 T227 页码模式）：同 WHERE 同序（id ASC，与 {@link
-     * #findByOwnerIdCursor} 单一全序一致）的 {@code LIMIT ? OFFSET ?} 窗口——页码第 1 页 = 游标首页。
+     * 按归属用户页码分页查订阅（M26 T227 页码模式）：同 WHERE 同序（id ASC，与 {@link #findByOwnerIdCursor} 单一全序一致）的 {@code
+     * LIMIT ? OFFSET ?} 窗口——页码第 1 页 = 游标首页。
      *
      * @param ownerUserId 归属用户
      * @param subType 订阅类型 code，null 表示不过滤（全部类型）
@@ -50,8 +50,8 @@ public interface SubscriptionRepository {
     List<Subscription> findByOwnerIdPage(long ownerUserId, Integer subType, int page, int size);
 
     /**
-     * 按归属用户统计订阅条数（M26 T227 页码模式 total）：与 {@link #findByOwnerIdPage} 同 WHERE
-     * 同口径（total 与分页行集一致），行级 {@code WHERE user_id=?}。
+     * 按归属用户统计订阅条数（M26 T227 页码模式 total）：与 {@link #findByOwnerIdPage} 同 WHERE 同口径（total 与分页行集一致），行级
+     * {@code WHERE user_id=?}。
      *
      * @param ownerUserId 归属用户
      * @param subType 订阅类型 code，null 表示不过滤（全部类型）
