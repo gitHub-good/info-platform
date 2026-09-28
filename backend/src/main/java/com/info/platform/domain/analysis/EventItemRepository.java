@@ -50,6 +50,18 @@ public interface EventItemRepository {
     /** 事件流筛选总数（与 findStreamItems 同口径；无筛选 = event_item 全量，§4.10 对账）。 */
     long countStreamItems(EventStreamFilter filter);
 
+    /**
+     * 事件流页码分页（M25 T220，V3.0 REQ-20260928-21 拍板四）：同筛选同序（id DESC）的 LIMIT/OFFSET 窗口取数—— 与 {@link
+     * #findStreamItems} 共用同一 WHERE 组装，两模式页内容可互相对照；越界页返回空列表（offset 语义，M9 §3.4 裁决）。
+     *
+     * <p>SQLite OFFSET 成本 = 索引顺走 offset 行（M9 §3.2 实测先例：当前量级毫秒级），护栏阈值与清理策略沿用 ADR-0035。
+     *
+     * @param filter 四维筛选（null 维度 = 不过滤）
+     * @param page 页码（1 起；1 ≤ page ≤ 1,000,000 由 PageQuery 校验）
+     * @param size 页大小（1~50 由 PageQuery 校验）
+     */
+    List<EventStreamItem> findStreamItemsPaged(EventStreamFilter filter, int page, int size);
+
     /** 事件流四维筛选（null 维度 = 不过滤；行业 = 申万枚举名，affected_industries ∋ 该行业）。 */
     record EventStreamFilter(
             EventType eventType, String industry, Importance importance, Direction direction) {

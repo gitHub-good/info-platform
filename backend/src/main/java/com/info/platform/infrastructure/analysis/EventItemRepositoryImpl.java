@@ -166,6 +166,19 @@ public class EventItemRepositoryImpl implements EventItemRepository {
         return count == null ? 0 : count;
     }
 
+    @Override
+    public List<EventItemRepository.EventStreamItem> findStreamItemsPaged(
+            EventItemRepository.EventStreamFilter filter, int page, int size) {
+        // M25 T220：同 WHERE/同序（id DESC）的 offset 窗口；offset 上界由 PageQuery.MAX_PAGE 保证不溢出 int
+        StringBuilder sql = new StringBuilder(FIND_STREAM_SQL);
+        List<Object> args = new ArrayList<>();
+        appendStreamFilters(sql, args, filter);
+        sql.append(" ORDER BY e.id DESC LIMIT ? OFFSET ?");
+        args.add(size);
+        args.add((page - 1) * size);
+        return jdbcTemplate.query(sql.toString(), STREAM_ROW, args.toArray());
+    }
+
     /** 四维筛选拼装（null 维度跳过；行业 = affected JSON 引号定界 LIKE，防「非银金融」子串误配）。 */
     private static void appendStreamFilters(
             StringBuilder sql, List<Object> args, EventItemRepository.EventStreamFilter filter) {

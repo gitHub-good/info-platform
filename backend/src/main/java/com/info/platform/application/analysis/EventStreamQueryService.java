@@ -58,6 +58,27 @@ public class EventStreamQueryService {
                         page.isEmpty() ? null : page.get(page.size() - 1).event().getId()));
     }
 
+    /**
+     * 事件流页码分页（M25 T220，V3.0 REQ-20260928-21 拍板四）：page/size offset 语义（M9 PageQuery 模式）。
+     *
+     * <p>四维筛选解析与游标模式同一套（非法枚举 → 30079 字段级）；total 沿 {@code countStreamItems}——两模式计数同源同口径；
+     * 越界页返回空列表（如实回显 page/size，M9 §3.4）。
+     */
+    public EventStreamPageView listPaged(
+            String type, String industry, String importance, String direction, int page, int size) {
+        EventItemRepository.EventStreamFilter filter =
+                new EventItemRepository.EventStreamFilter(
+                        resolveType(type),
+                        resolveIndustry(industry),
+                        resolveImportance(importance),
+                        resolveDirection(direction));
+        List<EventItemRepository.EventStreamItem> rows =
+                repository.findStreamItemsPaged(filter, page, size);
+        long total = repository.countStreamItems(filter);
+        return new EventStreamPageView(
+                total, rows.stream().map(EventStreamView.EventCardView::of).toList(), page, size);
+    }
+
     private static Long nextBeforeId(int pageSize, int limit, long total, Long lastIdOfPage) {
         return pageSize == limit && total > limit ? lastIdOfPage : null;
     }

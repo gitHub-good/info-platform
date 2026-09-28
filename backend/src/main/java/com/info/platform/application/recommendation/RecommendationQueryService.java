@@ -102,6 +102,37 @@ public class RecommendationQueryService {
                         page.isEmpty() ? null : page.get(page.size() - 1).getId()));
     }
 
+    /**
+     * 卡片流页码分页（M25 T220，V3.0 REQ-20260928-21 拍板四）：page/size offset 语义（M9 PageQuery 模式）。
+     *
+     * <p>四维筛选解析与游标模式同一套（非法枚举 → 30082 字段级）；total 沿 {@code countByUser}——两模式计数同源同口径； 越界页返回空列表（如实回显
+     * page/size，M9 §3.4）。
+     */
+    public RecommendationCardPageView listPaged(
+            long userId,
+            String level,
+            String eventType,
+            String direction,
+            String read,
+            int page,
+            int size) {
+        RecommendationCardRepository.CardFilter filter =
+                new RecommendationCardRepository.CardFilter(
+                        resolveLevel(level),
+                        resolveEventType(eventType),
+                        resolveDirection(direction),
+                        resolveRead(read));
+        List<RecommendationCard> cards = cardRepository.findByUserPage(userId, filter, page, size);
+        long total = cardRepository.countByUser(userId, filter);
+        return new RecommendationCardPageView(
+                total,
+                cards.stream()
+                        .map(card -> toView(card, eventJoin(cards), latestActions(cards)))
+                        .toList(),
+                page,
+                size);
+    }
+
     /** 卡片详情（logicInputs = 生成输入快照，抽检对账与复现面；gen_method/prompt_version 不对用户展示）。 */
     public RecommendationCardDetailView detail(long userId, long cardId) {
         RecommendationCard card =

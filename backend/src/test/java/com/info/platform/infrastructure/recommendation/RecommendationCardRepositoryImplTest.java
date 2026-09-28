@@ -6,6 +6,7 @@ import com.info.platform.domain.recommendation.CardGenMethod;
 import com.info.platform.domain.recommendation.CardPushStatus;
 import com.info.platform.domain.recommendation.RecLevel;
 import com.info.platform.domain.recommendation.RecommendationCard;
+import com.info.platform.domain.recommendation.RecommendationCardRepository;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -129,5 +130,80 @@ class RecommendationCardRepositoryImplTest {
     @Test
     void findByUserAndEvent_missing_returnsEmpty() {
         assertThat(repository.findByUserAndEvent(701L, 424242L)).isEmpty();
+    }
+
+    // ---- T220（M25 V3.0）：page/size 页码模式（LIMIT/OFFSET，id DESC 同序）----
+
+    @Test
+    void findByUserPage_offsetWindows_idDesc_disjointAndBeyondLastEmpty() {
+        // Arrange：5 张卡 → size=2 三页 + 越界第 4 页空列表（offset 语义 200 + 如实回显）
+        for (long eventId = 501L; eventId <= 505L; eventId++) {
+            repository.insertIgnore(card(eventId, 4.0));
+        }
+        java.util.List<Long> allIds =
+                jdbcTemplate.queryForList(
+                        "SELECT id FROM recommendation_card WHERE user_id = 701"
+                                + " ORDER BY id DESC",
+                        Long.class);
+
+        // Act/Assert：id DESC 窗口切页，页间不重叠不遗漏
+        assertThat(
+                        repository.findByUserPage(
+                                701L, RecommendationCardRepository.CardFilter.unfiltered(), 1, 2))
+                .extracting(RecommendationCard::getId)
+                .containsExactly(allIds.get(0), allIds.get(1));
+        assertThat(
+                        repository.findByUserPage(
+                                701L, RecommendationCardRepository.CardFilter.unfiltered(), 2, 2))
+                .extracting(RecommendationCard::getId)
+                .containsExactly(allIds.get(2), allIds.get(3));
+        assertThat(
+                        repository.findByUserPage(
+                                701L, RecommendationCardRepository.CardFilter.unfiltered(), 3, 2))
+                .extracting(RecommendationCard::getId)
+                .containsExactly(allIds.get(4));
+        assertThat(
+                        repository.findByUserPage(
+                                701L, RecommendationCardRepository.CardFilter.unfiltered(), 4, 2))
+                .isEmpty(); // 越界页
+        assertThat(
+                        repository.countByUser(
+                                701L, RecommendationCardRepository.CardFilter.unfiltered()))
+                .isEqualTo(5L);
+    }
+
+    @Test
+    void findByUserPage_consistentWithCursorAndFilterScoped() {
+        // Arrange：本用户 2 张 P1 + 1 张 P2；他人 1 张（行级隔离）
+        repository.insertIgnore(card(601L, 4.0)); // P2（card() 缺省）
+        jdbcTemplate.update(
+                "INSERT INTO recommendation_card (user_id, event_id, news_id, event_type,"
+                        + " importance, direction, level, industries, subjects, logic_chain,"
+                        + " logic_inputs, gen_method, prompt_version, recscore, basis, combo_key,"
+                        + " push_status, pushed_at, read, adopted, created_at, updated_at)"
+                        + " VALUES (701, 602, 8602, 'POLICY_RELEASE', 'HIGH', 'BULLISH', 'P1', '[]',"
+                        + " '[]', '链', '{}', 'TEMPLATE', NULL, 4.0, 'b', 'ck', 'PUSHED', NULL, 0, 0,"
+                        + " '2026-09-22T08:00:00Z', '2026-09-22T08:00:00Z'),"
+                        + " (701, 603, 8603, 'POLICY_RELEASE', 'HIGH', 'BULLISH', 'P1', '[]',"
+                        + " '[]', '链', '{}', 'TEMPLATE', NULL, 4.0, 'b', 'ck', 'PUSHED', NULL, 0, 0,"
+                        + " '2026-09-22T08:00:00Z', '2026-09-22T08:00:00Z'),"
+                        + " (799, 604, 8604, 'POLICY_RELEASE', 'HIGH', 'BULLISH', 'P1', '[]',"
+                        + " '[]', '链', '{}', 'TEMPLATE', NULL, 4.0, 'b', 'ck', 'PUSHED', NULL, 0, 0,"
+                        + " '2026-09-22T08:00:00Z', '2026-09-22T08:00:00Z')");
+        RecommendationCardRepository.CardFilter p1Only =
+                new RecommendationCardRepository.CardFilter(RecLevel.P1, null, null, null);
+
+        // Act/Assert：P1 筛选 total=2，第 1 页 = 游标首页（同序对照）；他人卡不计入
+        assertThat(repository.countByUser(701L, p1Only)).isEqualTo(2L);
+        assertThat(repository.findByUserPage(701L, p1Only, 1, 1))
+                .extracting(RecommendationCard::getId)
+                .containsExactlyElementsOf(
+                        repository.findByUserCursor(701L, p1Only, null, 1).stream()
+                                .map(RecommendationCard::getId)
+                                .toList());
+        assertThat(repository.findByUserPage(701L, p1Only, 2, 1))
+                .extracting(RecommendationCard::getId)
+                .hasSize(1);
+        jdbcTemplate.update("DELETE FROM recommendation_card WHERE user_id = 799");
     }
 }

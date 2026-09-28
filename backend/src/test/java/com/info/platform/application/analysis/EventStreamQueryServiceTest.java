@@ -225,4 +225,35 @@ class EventStreamQueryServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.EVENT_FILTER_INVALID);
     }
+
+    // ---- T220（M25 V3.0）：page/size 页码模式（offset 语义，total 与游标模式同口径）----
+
+    @Test
+    void listPaged_passesFilterPageAndSize_totalSameAsCursorMode() {
+        // Arrange：四维筛选 + 页码/页大小透传仓储；total 沿 countStreamItems（与游标模式同源）
+        EventItemRepository.EventStreamFilter expected =
+                new EventItemRepository.EventStreamFilter(
+                        EventType.POLICY_RELEASE, null, Importance.HIGH, null);
+        when(repository.findStreamItemsPaged(expected, 3, 10))
+                .thenReturn(List.of(item(9, "央行降准", "https://example.com/n/9")));
+        when(repository.countStreamItems(expected)).thenReturn(28L);
+
+        // Act
+        EventStreamPageView view = service.listPaged("POLICY_RELEASE", null, "HIGH", null, 3, 10);
+
+        // Assert：page/size 如实回显，total 与游标模式同一计数口
+        assertThat(view.total()).isEqualTo(28L);
+        assertThat(view.page()).isEqualTo(3);
+        assertThat(view.size()).isEqualTo(10);
+        assertThat(view.items()).hasSize(1);
+        assertThat(view.items().get(0).id()).isEqualTo(9L);
+        verify(repository).findStreamItemsPaged(expected, 3, 10);
+        verify(repository).countStreamItems(expected);
+    }
+
+    @Test
+    void listPaged_invalidFilters_30079_sameAsCursorMode() {
+        // 页码模式同样走四维筛选解析（非法枚举字段级 30079）
+        assertFilterInvalid(() -> service.listPaged("NOT_A_TYPE", null, null, null, 1, 20), "type");
+    }
 }

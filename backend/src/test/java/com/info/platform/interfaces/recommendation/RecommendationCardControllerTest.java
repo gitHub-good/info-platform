@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.info.platform.application.recommendation.RecommendationCardDetailView;
 import com.info.platform.application.recommendation.RecommendationCardListView;
+import com.info.platform.application.recommendation.RecommendationCardPageView;
 import com.info.platform.application.recommendation.RecommendationFeedbackService;
 import com.info.platform.application.recommendation.RecommendationQueryService;
 import com.info.platform.application.recommendation.RecommendationStatsView;
@@ -156,6 +157,103 @@ class RecommendationCardControllerTest {
         mockMvc.perform(get("/api/v1/recommendations").param("limit", "51"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(30082));
+    }
+
+    // ---- T220（M25 V3.0）：page/size 页码模式（M9 PageQuery 双模式分派，beforeId 游标保留兼容）----
+
+    @Test
+    void list_pageMode_returnsPagedViewWithoutCursorFields() throws Exception {
+        // Arrange：page 出现即页码模式（{total, items, page, size}，无 nextBeforeId）
+        when(queryService.listPaged(eq(7L), eq(null), eq(null), eq(null), eq(null), eq(2), eq(5)))
+                .thenReturn(new RecommendationCardPageView(42L, List.of(cardView(9L)), 2, 5));
+
+        // Act + Assert
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "2").param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(42))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(5))
+                .andExpect(jsonPath("$.data.items[0].id").value(9))
+                .andExpect(jsonPath("$.data.nextBeforeId").doesNotExist());
+    }
+
+    @Test
+    void list_pageMode_passesFourFilters() throws Exception {
+        // Arrange：四维筛选与页码模式正交
+        when(queryService.listPaged(
+                        eq(7L),
+                        eq("P1"),
+                        eq("BUYBACK_CHANGE"),
+                        eq("BULLISH"),
+                        eq("0"),
+                        eq(1),
+                        eq(20)))
+                .thenReturn(new RecommendationCardPageView(1L, List.of(), 1, 20));
+
+        // Act + Assert
+        mockMvc.perform(
+                        get("/api/v1/recommendations")
+                                .param("level", "P1")
+                                .param("eventType", "BUYBACK_CHANGE")
+                                .param("direction", "BULLISH")
+                                .param("read", "0")
+                                .param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20)); // size 缺省 20（PageQuery.DEFAULT_SIZE）
+    }
+
+    @Test
+    void list_pageWithBeforeId_mutuallyExclusive_400() throws Exception {
+        // Arrange/Act/Assert：page 与 beforeId 互斥（2001，M9 契约确定性）
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "1").param("beforeId", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value("page 与 cursor 互斥，只能二选一"));
+    }
+
+    @Test
+    void list_sizeWithoutPageOrLimitWithPage_400() throws Exception {
+        mockMvc.perform(get("/api/v1/recommendations").param("size", "20"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value("缺少 page 参数（size 仅页码模式可用）"));
+
+        // limit 为游标模式专属（页码模式请用 size——M9/资讯库同例）
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "1").param("limit", "20"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001))
+                .andExpect(jsonPath("$.msg").value("limit 仅游标模式可用（页码模式请使用 size）"));
+    }
+
+    @Test
+    void list_pageModeBounds_rejectedNotTruncated() throws Exception {
+        // 越界拒绝不截断（page<1 / page 超上限 / size<1 / size>50）
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "1000001"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "1").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+        mockMvc.perform(get("/api/v1/recommendations").param("page", "1").param("size", "51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(2001));
+    }
+
+    @Test
+    void list_cursorMode_regression_pageAbsent() throws Exception {
+        // 页码+游标模式并存回归：page 缺席走既有游标路径（nextBeforeId 照常）
+        when(queryService.list(eq(7L), eq(null), eq(null), eq(null), eq(null), eq(100L), eq(null)))
+                .thenReturn(new RecommendationCardListView(42L, List.of(cardView(9L)), 9L));
+
+        mockMvc.perform(get("/api/v1/recommendations").param("beforeId", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nextBeforeId").value(9))
+                .andExpect(jsonPath("$.data.page").doesNotExist());
     }
 
     @Test

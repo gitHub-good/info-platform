@@ -299,4 +299,185 @@ class EventItemRepositoryImplTest {
                                 EventItemRepository.EventStreamFilter.unfiltered(), null, 20))
                 .isEmpty();
     }
+
+    // ---- T220（M25 V3.0）：page/size 页码模式（LIMIT/OFFSET，id DESC 同序）----
+
+    @Test
+    void findStreamItemsPaged_offsetWindows_idDesc_disjointAndBeyondLastEmpty() {
+        // Arrange：5 条事件 → size=2 三页 + 越界第 4 页空列表（offset 语义 200 + 如实回显）
+        long idA =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "页码A");
+        long idB =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "页码B");
+        long idC =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "页码C");
+        long idD =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "页码D");
+        long idE =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "页码E");
+        EventItemRepository.EventStreamFilter unfiltered =
+                EventItemRepository.EventStreamFilter.unfiltered();
+
+        // Act/Assert：id DESC 窗口切页，页间不重叠不遗漏
+        assertThat(repository.findStreamItemsPaged(unfiltered, 1, 2))
+                .extracting(row -> row.event().getId())
+                .containsExactly(idE, idD);
+        assertThat(repository.findStreamItemsPaged(unfiltered, 2, 2))
+                .extracting(row -> row.event().getId())
+                .containsExactly(idC, idB);
+        assertThat(repository.findStreamItemsPaged(unfiltered, 3, 2))
+                .extracting(row -> row.event().getId())
+                .containsExactly(idA);
+        assertThat(repository.findStreamItemsPaged(unfiltered, 4, 2)).isEmpty(); // 越界页
+        assertThat(repository.countStreamItems(unfiltered)).isEqualTo(5L);
+    }
+
+    @Test
+    void findStreamItemsPaged_consistentWithCursorFirstPage() {
+        // 页码+游标模式并存回归：同筛选同序（ORDER BY id DESC 单一全序），第 1 页 = 游标首页
+        long idA =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "对照A");
+        long idB =
+                seedEvent(
+                        EventType.EARNINGS_FORECAST,
+                        Direction.NEUTRAL,
+                        Importance.MEDIUM,
+                        "[\"钢铁\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "对照B");
+        long idC =
+                seedEvent(
+                        EventType.MA_MERGER,
+                        Direction.BEARISH,
+                        Importance.LOW,
+                        "[\"银行\"]",
+                        "[]",
+                        "[]",
+                        null,
+                        "对照C");
+        EventItemRepository.EventStreamFilter unfiltered =
+                EventItemRepository.EventStreamFilter.unfiltered();
+
+        assertThat(repository.findStreamItemsPaged(unfiltered, 1, 2))
+                .extracting(row -> row.event().getId())
+                .containsExactlyElementsOf(
+                        repository.findStreamItems(unfiltered, null, 2).stream()
+                                .map(row -> row.event().getId())
+                                .toList()); // [idC, idB]
+        assertThat(repository.findStreamItemsPaged(unfiltered, 2, 2))
+                .extracting(row -> row.event().getId())
+                .containsExactly(idA);
+    }
+
+    @Test
+    void findStreamItemsPaged_deepOffset_measuredPerformance() {
+        // offset 实测留档（沿 M9 §3.2 深分页实测先例）：600 行量级最深页窗口查询毫秒级
+        seedBulkEvents(600);
+        int size = 20;
+        long total =
+                repository.countStreamItems(EventItemRepository.EventStreamFilter.unfiltered());
+        int deepestPage = (int) (total / size); // 最深有数据页（offset ≈ total-size）
+
+        long startedAt = System.nanoTime();
+        List<EventItemRepository.EventStreamItem> deepest =
+                repository.findStreamItemsPaged(
+                        EventItemRepository.EventStreamFilter.unfiltered(), deepestPage, size);
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+
+        assertThat(deepest).isNotEmpty();
+        assertThat(deepest).hasSizeLessThanOrEqualTo(size);
+        // 护栏断言（宽松上界防 CI 抖动；实测数值由 stdout 留档，M9 护栏阈值 100ms P95 对照）
+        assertThat(elapsedMs).isLessThan(500L);
+        System.out.printf(
+                "[T220 offset 实测] event_item %d 行最深页(page=%d, size=%d) 返回 %d 行，耗时 %dms%n",
+                total, deepestPage, size, deepest.size(), elapsedMs);
+    }
+
+    /** 批量直插事件行（性能实测造数：news_item + event_item 各 N 行，避开 seedEvent 逐行回查）。 */
+    private void seedBulkEvents(int count) {
+        String now = NOW.toString();
+        String stamp = String.valueOf(System.nanoTime());
+        java.util.List<Object[]> newsRows = new java.util.ArrayList<>(count);
+        java.util.List<Object[]> eventRows = new java.util.ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            String title = "t220 批量-" + stamp + "-" + i;
+            newsRows.add(
+                    new Object[] {
+                        sourceId,
+                        "t220_" + stamp + "_" + i,
+                        title,
+                        "摘要",
+                        "https://example.com/t220/" + i,
+                        now,
+                        now,
+                        "fp-t220-" + stamp + "-" + i,
+                        now,
+                        now
+                    });
+            eventRows.add(new Object[] {now, now, now, title});
+        }
+        jdbcTemplate.batchUpdate(
+                "INSERT INTO news_item (source_id, external_id, title, summary, url, published_at,"
+                        + " fetched_at, fingerprint, status, created_at, updated_at)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                newsRows);
+        jdbcTemplate.batchUpdate(
+                "INSERT INTO event_item (news_id, event_type, summary, affected_industries,"
+                        + " direction, importance, key_figures, subjects, quote, event_time,"
+                        + " event_date, prompt_version, created_at, updated_at)"
+                        + " SELECT id, 'POLICY_RELEASE', 't220 性能造数', '[\"银行\"]', 'BULLISH',"
+                        + " 'HIGH', '[]', '[]', NULL, ?, '2026-09-22', 'v1.0', ?, ?"
+                        + " FROM news_item WHERE title = ?",
+                eventRows);
+    }
 }

@@ -57,6 +57,17 @@ public interface RecommendationCardRepository {
     /** 卡片流筛选总数（与 findByUserCursor 同口径；无筛选 = 该用户全量卡，对账基准）。 */
     long countByUser(long userId, CardFilter filter);
 
+    /**
+     * 卡片流页码分页（M25 T220，V3.0 REQ-20260928-21 拍板四）：同筛选同序（id DESC）的 LIMIT/OFFSET 窗口取数——与 {@link
+     * #findByUserCursor} 共用同一 WHERE 组装，两模式页内容可互相对照；越界页返回空列表（offset 语义，M9 §3.4 裁决）。
+     *
+     * @param userId 归属用户（行级权限键）
+     * @param filter 四维筛选（null 维度 = 不过滤）
+     * @param page 页码（1 起；1 ≤ page ≤ 1,000,000 由 PageQuery 校验）
+     * @param size 页大小（1~50 由 PageQuery 校验）
+     */
+    List<RecommendationCard> findByUserPage(long userId, CardFilter filter, int page, int size);
+
     /** 按主键取卡（详情端点；owner 校验在应用层）。 */
     Optional<RecommendationCard> findById(long cardId);
 

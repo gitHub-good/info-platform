@@ -310,6 +310,29 @@ public class RecommendationCardRepositoryImpl implements RecommendationCardRepos
     }
 
     @Override
+    public List<RecommendationCard> findByUserPage(
+            long userId, RecommendationCardRepository.CardFilter filter, int page, int size) {
+        // M25 T220：同 WHERE/同序（id DESC）的 offset 窗口；offset 上界由 PageQuery.MAX_PAGE 保证不溢出 int
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT id, user_id, event_id, news_id, event_type, importance, direction, level,
+                               industries, subjects, logic_chain, logic_inputs, gen_method, prompt_version,
+                               recscore, basis, combo_key, push_status, pushed_at, read, adopted,
+                               created_at, updated_at
+                          FROM recommendation_card
+                         WHERE user_id = ?
+                        """);
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        appendCardFilters(sql, args, filter);
+        sql.append(" ORDER BY id DESC LIMIT ? OFFSET ?");
+        args.add(size);
+        args.add((page - 1) * size);
+        return jdbcTemplate.query(sql.toString(), cardRow, args.toArray());
+    }
+
+    @Override
     public Optional<RecommendationCard> findById(long cardId) {
         List<RecommendationCard> cards = jdbcTemplate.query(FIND_BY_ID_SQL, cardRow, cardId);
         return cards.isEmpty() ? Optional.empty() : Optional.of(cards.get(0));
