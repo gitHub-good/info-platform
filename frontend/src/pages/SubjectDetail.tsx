@@ -2,9 +2,7 @@ import { useEffect } from 'react';
 import { useSubjectDetail } from '@/hooks/useSubjectDetail';
 import { trackReadingOnce } from '@/api/readingEvent';
 import { ApiError } from '@/api/http';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AnnounceSection } from '@/components/subject/AnnounceSection';
 import { EventSection } from '@/components/subject/EventSection';
@@ -12,17 +10,10 @@ import { FinanceSection } from '@/components/subject/FinanceSection';
 import { NewsSection } from '@/components/subject/NewsSection';
 import { PolicySection } from '@/components/subject/PolicySection';
 import { QuoteSection } from '@/components/subject/QuoteSection';
+import { SubjectHeader } from '@/components/subject/SubjectHeader';
 import { ValuationSection } from '@/components/subject/ValuationSection';
 import { ValueScoreSection } from '@/components/subject/ValueScoreSection';
-import { navigate, rememberSubject } from '@/lib/navigation';
-import type { Subject, SubjectMarket } from '@/types/subject-detail';
-
-const MARKET_LABEL: Record<SubjectMarket, string> = {
-  A_SHARE: 'A 股',
-  HK: '港股',
-  INDEX: '指数',
-  SECTOR: '板块',
-};
+import { rememberSubject } from '@/lib/navigation';
 
 /** 后端错误码：标的不存在（SUBJECT_NOT_FOUND） */
 const CODE_SUBJECT_NOT_FOUND = 30001;
@@ -45,38 +36,6 @@ function friendlyErrorMessage(error: Error, subjectCode: string): string {
     }
   }
   return '详情加载失败，请稍后重试';
-}
-
-function SubjectHeader({ subject, subjectId }: { subject: Subject; subjectId: number | null }) {
-  return (
-    <Card data-testid="subject-header">
-      <CardHeader>
-        <CardTitle className="text-lg">{subject.name}</CardTitle>
-        <CardAction>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{MARKET_LABEL[subject.market] ?? subject.market}</Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              // 带数字主键预填 AiBrief（P1 顺带项）；未解析到时退化为无参入口
-              onClick={() =>
-                navigate(subjectId != null ? `/ai-brief?subjectId=${subjectId}` : '/ai-brief')
-              }
-              data-testid="subject-goto-ai-brief"
-            >
-              AI 简报
-            </Button>
-          </div>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span>代码：{subject.subjectCode}</span>
-          {subject.industry ? <span>行业：{subject.industry}</span> : null}
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function LoadingSkeleton() {

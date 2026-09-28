@@ -272,25 +272,24 @@ describe('Watchlist 管理页', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/watchlists');
   });
 
-  it('标的行操作：查看详情打开弹框（预览分区+完整详情链接），AI 简报带参跳转', async () => {
+  it('标的行操作：查看详情打开完整弹框（7 分区，无完整详情链接），AI 简报带参跳转', async () => {
     const store = makeStore();
     const user = userEvent.setup();
     await renderReady(store);
 
-    // 查看详情：按钮打开弹框（不再是锚链接跳独立页；行情/摘要到达后渲染）
+    // 查看详情：按钮打开弹框（完整版弹框承载全部内容；行情/摘要到达后渲染）
     await user.click(await screen.findByTestId('watchlist-item-detail-10'));
     const dialog = await screen.findByTestId('subject-dialog-content');
-    // 标题栏：标的名 / 代码 / 行业徽章
+    // 头部（与独立页同源 SubjectHeader）：标的名 / 代码 / 市场 / 行业
     expect(within(dialog).getByText('五粮液')).toBeInTheDocument();
     expect(within(dialog).getByText(/SZ000858/)).toBeInTheDocument();
-    expect(within(dialog).getByText('白酒')).toBeInTheDocument();
-    // 弹框内预览不离开清单页（hash 未跳走）
+    expect(within(dialog).getByText('A 股')).toBeInTheDocument();
+    expect(within(dialog).getByText(/行业：白酒/)).toBeInTheDocument();
+    // 弹框内查看不离开清单页（hash 未跳走）
     expect(window.location.hash).toBe('');
-    // 完整详情链接保留独立页可达（链接在弹框 footer，位于内容区外）
-    expect(screen.getByTestId('subject-dialog-full-detail')).toHaveAttribute(
-      'href',
-      '#/subjects/SZ000858',
-    );
+    // 弹框即终点：无「查看完整详情」链接（完整内容已在弹框内）
+    expect(screen.queryByTestId('subject-dialog-full-detail')).toBeNull();
+    expect(screen.queryByText(/查看完整详情/)).toBeNull();
 
     // 关闭：弹框消失、清单明细仍在
     await user.click(screen.getByTestId('dialog-close'));
