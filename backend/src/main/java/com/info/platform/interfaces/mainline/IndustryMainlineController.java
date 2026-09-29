@@ -8,6 +8,9 @@ import com.info.platform.application.mainline.IndustryMainlineQueryService.Detai
 import com.info.platform.application.mainline.IndustryMainlineQueryService.HeatMapView;
 import com.info.platform.application.mainline.IndustryMainlineQueryService.MainlineView;
 import com.info.platform.application.mainline.IndustryMainlineService;
+import com.info.platform.domain.aggregation.Market;
+import com.info.platform.domain.common.BusinessException;
+import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.interfaces.common.Result;
 import jakarta.validation.constraints.NotBlank;
 import java.time.Clock;
@@ -21,13 +24,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 行业主线接口（M27 T244，方案 §4.5，Bearer JWT）：
+ * 行业主线接口（M27 T244，方案 §4.5，Bearer JWT；M29 T255 读端点增 market 查询参数——缺省 A_SHARE 既有行为零回归）：
  *
  * <ul>
- *   <li>{@code GET /api/v1/industry-heat-map?date=} —— 31 行业热力数据 +
- *       meta（source/quoteTime/stale/snapshotDate；30093 全空）
- *   <li>{@code GET /api/v1/industry-mainline?date=&version=} —— 主线榜单（30094 无榜单 / 30095 参数非法或版本不存在）
- *   <li>{@code GET /api/v1/industry-mainline/{industry}/detail} —— 下钻（30095 行业非申万枚举或无快照行）
+ *   <li>{@code GET /api/v1/industry-heat-map?market=&date=} —— 各市场行业热力数据 +
+ *       meta（market/industrySystem/currency/source/quoteTime/stale/snapshotDate；30093 全空）
+ *   <li>{@code GET /api/v1/industry-mainline?market=&date=&version=} —— 主线榜单（30094 无榜单 / 30095
+ *       参数非法或版本不存在； 港美股 bootstrap/leadersAvailable 留痕）
+ *   <li>{@code GET /api/v1/industry-mainline/{industry}/detail?market=} —— 下钻（30095
+ *       行业非该市场进榜枚举或无快照行）
  *   <li>{@code GET /api/v1/industry-mainline/config} —— 两键配置当前值（键缺失 = 代码缺省）
  *   <li>{@code PATCH /api/v1/industry-mainline/config} —— 两键全量替换（30096 字段级原值保留；expectedUpdatedAt 不符
  *       30065/409）
@@ -57,24 +62,29 @@ public class IndustryMainlineController {
         this.clock = clock;
     }
 
-    /** 31 行业热力数据（date 缺省当日，无当日行回退最近有行日；仅全空才 30093——空态由前端呈现）。 */
+    /** 各市场行业热力数据（market 缺省 A_SHARE；date 缺省当日，无当日行回退最近有行日；仅全空才 30093——空态由前端呈现）。 */
     @GetMapping("/industry-heat-map")
-    public Result<HeatMapView> heatMap(@RequestParam(name = "date", required = false) String date) {
-        return Result.ok(queryService.heatMap(date));
+    public Result<HeatMapView> heatMap(
+            @RequestParam(name = "market", required = false) String market,
+            @RequestParam(name = "date", required = false) String date) {
+        return Result.ok(queryService.heatMap(date, market));
     }
 
-    /** 主线榜单（date/version 缺省最新有榜日最大版本；非交易日回退最近榜日；全库无榜 30094）。 */
+    /** 主线榜单（market 缺省 A_SHARE；date/version 缺省最新有榜日最大版本；非交易日回退最近榜日；全库无榜 30094）。 */
     @GetMapping("/industry-mainline")
     public Result<MainlineView> mainline(
+            @RequestParam(name = "market", required = false) String market,
             @RequestParam(name = "date", required = false) String date,
             @RequestParam(name = "version", required = false) String version) {
-        return Result.ok(queryService.mainline(date, version));
+        return Result.ok(queryService.mainline(date, version, market));
     }
 
-    /** 行业下钻（当日行 source 分形态：通道 A 板块明细 / 通道 B 成分股涨跌 + 领涨股 + 龙头 + 成员统计）。 */
+    /** 行业下钻（market 缺省 A_SHARE，同名行业靠 market 消歧；通道 A 板块明细 / 通道 B 成分股涨跌 + 领涨股 + 龙头 + 成员统计）。 */
     @GetMapping("/industry-mainline/{industry}/detail")
-    public Result<DetailView> detail(@PathVariable("industry") @NotBlank String industry) {
-        return Result.ok(queryService.detail(industry));
+    public Result<DetailView> detail(
+            @PathVariable("industry") @NotBlank String industry,
+            @RequestParam(name = "market", required = false) String market) {
+        return Result.ok(queryService.detail(industry, market));
     }
 
     /** 两键配置视图（mainline 13 字段 + leader 7 字段 + updatedAt 防呆比对）。 */
@@ -89,15 +99,19 @@ public class IndustryMainlineController {
         return Result.ok(configFacade.update(update));
     }
 
-    /** 手动重算入口（同步执行；trigger_source=MANUAL 留痕 version+1——任务中心手动触发同路径）。 */
+    /** 手动重算入口（同步执行；market 缺省 A_SHARE；trigger_source=MANUAL 留痕 version+1——任务中心手动触发同路径）。 */
     @PostMapping("/industry-mainline/recompute")
-    public Result<RecomputeView> recompute() {
+    public Result<RecomputeView> recompute(
+            @RequestParam(name = "market", required = false) String marketParam) {
+        Market market = resolveMarket(marketParam);
         IndustryMainlineService.GenerationReport report =
                 mainlineService.compute(
                         clock.instant().atZone(IndustryMainlineService.RANK_ZONE).toLocalDate(),
+                        market,
                         true);
         return Result.ok(
                 new RecomputeView(
+                        market.name(),
                         clock.instant()
                                 .atZone(IndustryMainlineService.RANK_ZONE)
                                 .toLocalDate()
@@ -106,6 +120,20 @@ public class IndustryMainlineController {
                         report.detail()));
     }
 
+    /** market 参数解析（缺省 A_SHARE；非法 30095——与读端点同口径）。 */
+    private static Market resolveMarket(String marketParam) {
+        if (marketParam == null || marketParam.isBlank()) {
+            return Market.A_SHARE;
+        }
+        try {
+            return Market.fromName(marketParam.trim());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(
+                    ErrorCode.INDUSTRY_MAINLINE_QUERY_INVALID,
+                    "market: 须为 A_SHARE / HK / US，当前值 " + marketParam);
+        }
+    }
+
     /** 重算结果摘要（行数 + detail——版本号等留痕细节见任务中心 lastRunDetail）。 */
-    record RecomputeView(String rankDate, int topSize, String detail) {}
+    record RecomputeView(String market, String rankDate, int topSize, String detail) {}
 }

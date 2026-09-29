@@ -1,5 +1,6 @@
 package com.info.platform.application.markettop;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.markettop.MarketTopRepository;
@@ -52,16 +53,19 @@ public class HitStatsService {
     }
 
     /**
-     * 命中统计（GET /api/v1/market-top/hit-stats，数据不足是合法态非错误——仅无任何榜单日 30089）。
+     * 命中统计（GET /api/v1/market-top/hit-stats?market=，数据不足是合法态非错误——仅该市场无任何榜单日 30089；M29 T256 market
+     * 参数缺省 A_SHARE——三市场各回各的不混榜）。
      *
      * <p>容量：180 天留痕上限 ~180×10 行 × 3 窗逐日 join，逐日收盘截面按需现读（同日截面跨窗复用），毫秒级（方案 §5）。
      */
-    public HitStatsView stats() {
-        List<RankedSubject> tops = marketTopRepository.listTopByMaxVersion();
+    public HitStatsView stats(String marketParam) {
+        Market market = MarketTopQueryService.resolveMarket(marketParam);
+        List<RankedSubject> tops = marketTopRepository.listTopByMaxVersion(market);
         if (tops.isEmpty()) {
-            throw new BusinessException(ErrorCode.MARKET_TOP_NOT_FOUND, "无任何榜单日（Job 未跑过）");
+            throw new BusinessException(
+                    ErrorCode.MARKET_TOP_NOT_FOUND, "该市场无任何榜单日（Job 未跑过）: market=" + market);
         }
-        List<String> tradingDates = marketRepository.findTradingDates();
+        List<String> tradingDates = marketRepository.findTradingDates(market);
         Map<String, Integer> indexByDate = new HashMap<>();
         for (int i = 0; i < tradingDates.size(); i++) {
             indexByDate.put(tradingDates.get(i), i);
@@ -80,11 +84,12 @@ public class HitStatsService {
         }
         String asOf = tradingDates.isEmpty() ? null : tradingDates.get(tradingDates.size() - 1);
         log.info(
-                "命中统计回算 rankDays={} tradingDates={} asOf={}",
+                "命中统计回算 market={} rankDays={} tradingDates={} asOf={}",
+                market,
                 topByDate.size(),
                 tradingDates.size(),
                 asOf);
-        return new HitStatsView(BASIS, asOf, DISCLAIMER, List.copyOf(windows));
+        return new HitStatsView(market.name(), BASIS, asOf, DISCLAIMER, List.copyOf(windows));
     }
 
     /** 单窗口逐榜单日回算 + 池化聚合（样本日 < MIN_AGG_DAYS 或零有价样本 → INSUFFICIENT 如实）。 */
@@ -193,9 +198,13 @@ public class HitStatsService {
         }
     }
 
-    /** 统计视图（§4.2-③ 契约：basis 口径留档 + asOf + 免责 + 三窗）。 */
+    /** 统计视图（§4.2-③ 契约：market 回显 + basis 口径留档 + asOf + 免责 + 三窗）。 */
     public record HitStatsView(
-            String basis, String asOf, String disclaimer, List<WindowView> windows) {}
+            String market,
+            String basis,
+            String asOf,
+            String disclaimer,
+            List<WindowView> windows) {}
 
     /** 单窗口视图（days 升序；agg 池化聚合）。 */
     public record WindowView(String window, List<DayStatView> days, AggView agg) {}

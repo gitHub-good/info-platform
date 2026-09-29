@@ -137,6 +137,40 @@ class MainlineCalculatorTest {
     }
 
     @Test
+    void calculate_coldStart_insufficientHistory_bootstrapsTopByScore() {
+        // 回归（50000 排障）：可用历史 1 日 < persistMinDays=2 → 门槛数学上不可能通过，
+        // 免门槛按 mainScore 出榜 + bootstrap=true + gatePassed 保持严格口径 0
+        List<IndustryRow> rows = fiveIndustries();
+
+        Result result =
+                MainlineCalculator.calculate(
+                        DEFAULT_PARAMS,
+                        new CalculationInput(
+                                rows, uniformWindow(rows).subList(4, 5), List.of(Map.of())));
+
+        assertThat(result.bootstrap()).isTrue();
+        assertThat(result.gatePassed()).isZero();
+        assertThat(result.topRows()).isNotEmpty();
+        assertThat(result.topRows().get(0).industry()).isEqualTo("甲");
+        assertThat(result.topRows().get(0).persistentDays()).isEqualTo(1);
+    }
+
+    @Test
+    void calculate_sufficientHistoryNoPass_notBootstrap() {
+        // 反例：历史充足（5 日）但无人过门槛（本构造 11 行过，故另造空历史）——空窗日
+        // 不算可用历史，5 日全空 = 冷启动；已有数据的正常轮次不误标
+        List<IndustryRow> rows = fiveIndustries();
+
+        Result normal =
+                MainlineCalculator.calculate(
+                        DEFAULT_PARAMS,
+                        new CalculationInput(rows, uniformWindow(rows), heatWindowOf(rows)));
+
+        assertThat(normal.bootstrap()).isFalse();
+        assertThat(normal.topRows()).hasSize(5);
+    }
+
+    @Test
     void calculate_pctD5AllMissing_dimensionNeutralWithFlag() {
         // 冷启动：pct_d5 全 NULL → 价格子维 d5 记 50 中性 + dimensionMissing.pctD5 = true（不出空榜）
         List<IndustryRow> rows =

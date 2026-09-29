@@ -32,11 +32,11 @@ class L2PromptTemplateSeedTest {
 
     @Test
     void seed_l2ExtractTemplate_activeAndRenderable() {
-        // Arrange + Act：加载启用模板（V24 播种 status=1 v1.0）
+        // Arrange + Act：加载启用模板（V39 播种 status=1 v1.1，v1.0 置废——M29 T254 按市场注入枚举集）
         PromptTemplate template = promptTemplateService.loadActiveTemplate(BriefType.L2_EXTRACT);
 
         // Assert：版本/分段/事件类型 9 值与代码权威同源 + 原文约束（幻觉防线）
-        assertThat(template.getVersion()).isEqualTo("v1.0");
+        assertThat(template.getVersion()).isEqualTo("v1.1");
         for (EventType type : EventType.values()) {
             assertThat(template.getTemplate()).contains(type.name());
         }

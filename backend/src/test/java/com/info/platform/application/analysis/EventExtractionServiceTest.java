@@ -109,6 +109,11 @@ class EventExtractionServiceTest {
 
     private static NewsAnalysisRepository.L2Candidate candidate(
             long id, String title, String sourceCategory, L2Status status) {
+        return candidate(id, title, sourceCategory, status, null);
+    }
+
+    private static NewsAnalysisRepository.L2Candidate candidate(
+            long id, String title, String sourceCategory, L2Status status, String l1Market) {
         return new NewsAnalysisRepository.L2Candidate(
                 id,
                 title,
@@ -119,7 +124,8 @@ class EventExtractionServiceTest {
                 NOW.minusSeconds(3600),
                 NOW.minusSeconds(3600),
                 status,
-                null);
+                null,
+                l1Market);
     }
 
     private static String event(long id, String type, String industries, String importance) {
@@ -445,10 +451,11 @@ class EventExtractionServiceTest {
 
     @Test
     void placeholders_registeredForL2Extract() {
+        // M29 T254：V39 模板 v1.1 增 industryEnums/marketLabel 注入（ADR-0022 同源闸门）
         assertThat(service.briefTypes()).containsExactly(BriefType.L2_EXTRACT);
         assertThat(service.provided())
                 .extracting("key")
-                .containsExactly("today", "batchSize", "items");
+                .containsExactly("today", "batchSize", "items", "marketLabel", "industryEnums");
     }
 
     // ---- T144（M17）：HIGH 落库自动生成影响链挂勾 ----
@@ -514,5 +521,54 @@ class EventExtractionServiceTest {
         EventExtractionService.BatchOutcome outcome = service.extractBatch(List.of(hit(1)));
 
         assertThat(outcome.extracted()).as("影响链生成失败不阻断 L2 落库（段式容错）").isEqualTo(1);
+    }
+
+    @Test
+    void extractBatch_hkMarket_whitelistByHkEnumsAndMarketContextInjected() {
+        // M29 T254：港股条目（l1_market=HK）affected 白名单按港股枚举——HK 枚举「软件服务」保留、申万「食品饮料」丢弃；
+        // 渲染上下文注入 marketLabel=港股 + 港股枚举集（V39 模板 v1.1 占位符）
+        when(llmGateway.chat(any(LlmRequest.class)))
+                .thenReturn(
+                        llmResponse(
+                                response(
+                                        event(
+                                                1,
+                                                "EARNINGS_FORECAST",
+                                                "[\"软件服务\",\"食品饮料\"]",
+                                                "MEDIUM"),
+                                        "")));
+        NewsAnalysisRepository.L2Candidate hkItem =
+                candidate(1, "港股公司业绩预增", "公告", L2Status.SELECTED, "HK");
+
+        EventExtractionService.BatchOutcome outcome = service.extractBatch(List.of(hkItem));
+
+        assertThat(outcome.extracted()).isEqualTo(1);
+        ArgumentCaptor<EventItem> captor = ArgumentCaptor.forClass(EventItem.class);
+        verify(eventRepository).upsert(captor.capture());
+        assertThat(captor.getValue().getAffectedIndustries())
+                .containsExactly("软件服务"); // 申万枚举对 HK 市场越界丢弃（隐藏 A 股假设已修）
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> ctxCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(promptTemplateService).render(any(), ctxCaptor.capture());
+        assertThat(ctxCaptor.getValue().get("marketLabel")).isEqualTo("港股");
+        assertThat(ctxCaptor.getValue().get("industryEnums")).contains("软件服务");
+    }
+
+    @Test
+    void extractBatch_aShareMarket_zeroRegression_containerStillDropped() {
+        // A 股条目（l1_market 缺省）行为零回归：申万枚举保留、容器「宏观」丢弃
+        when(llmGateway.chat(any(LlmRequest.class)))
+                .thenReturn(
+                        llmResponse(
+                                response(
+                                        event(1, "POLICY_RELEASE", "[\"银行\",\"宏观\"]", "HIGH"),
+                                        "")));
+
+        service.extractBatch(List.of(hit(1)));
+
+        ArgumentCaptor<EventItem> captor = ArgumentCaptor.forClass(EventItem.class);
+        verify(eventRepository).upsert(captor.capture());
+        assertThat(captor.getValue().getAffectedIndustries()).containsExactly("银行");
+        assertThat(captor.getValue().getAffectedIndustries()).doesNotContain("宏观");
     }
 }

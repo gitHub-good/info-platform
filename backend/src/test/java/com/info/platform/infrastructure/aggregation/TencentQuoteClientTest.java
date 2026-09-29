@@ -137,6 +137,39 @@ class TencentQuoteClientTest {
         assertThat(row.get("f47")).isEqualTo(14277944L);
         // 港股 37 位已是元（6237711469.338≈东财 f48 6237711360），不换算
         assertThat((BigDecimal) row.get("f48")).isEqualByComparingTo("6237711469.338");
+        // M29 T252 港股原生位：总市值@44 亿 HKD + 币种@75（Spike-E E-2a 新增关注位）
+        assertThat((BigDecimal) row.get("market_cap")).isEqualByComparingTo("39873.0635");
+        assertThat(row.get("currency")).isEqualTo("HKD");
+    }
+
+    @Test
+    void fetchQuote_usLine_mapsThirdLayoutWithMarketCapAndCurrency() {
+        // M29 T252 美股第三套字段位（Spike-E §2.1，2026-09-29 实测行）：73 字段布局与 A/HK 分叉
+        Bound bound = bindSingleResponse(TencentQuoteFixtures.LINE_USAAPL);
+
+        Map<String, Object> row = bound.client().fetchQuote("usAAPL").orElseThrow();
+
+        assertThat(row.get("f57")).isEqualTo("AAPL.OQ");
+        assertThat(row.get("f58")).isEqualTo("苹果");
+        assertThat((BigDecimal) row.get("f43")).isEqualByComparingTo("338.40");
+        assertThat((BigDecimal) row.get("f60")).isEqualByComparingTo("341.07");
+        assertThat((BigDecimal) row.get("f46")).isEqualByComparingTo("340.37");
+        assertThat((BigDecimal) row.get("f169")).isEqualByComparingTo("-2.67");
+        assertThat((BigDecimal) row.get("f170")).isEqualByComparingTo("-0.78");
+        assertThat((BigDecimal) row.get("f44")).isEqualByComparingTo("342.99");
+        assertThat((BigDecimal) row.get("f45")).isEqualByComparingTo("338.04");
+        assertThat(row.get("f47")).isEqualTo(32820848L);
+        // 美股 37 位为美元且已是元（11156465186），不换算
+        assertThat((BigDecimal) row.get("f48")).isEqualByComparingTo("11156465186");
+        // 美股 PE@39（38.81，与新浪 40.77 口径差异以源标注不对账，Spike-E §2.1）
+        assertThat((BigDecimal) row.get("f162")).isEqualByComparingTo("38.81");
+        // 美股换手/PB/振幅位未实证不产出（白名单语义）
+        assertThat(row).doesNotContainKeys("f168", "f167", "f171");
+        // 美股原生位：币种@35 USD（布局分叉点——HK 此位是现价重复）+ 总市值@44 亿 USD
+        assertThat(row.get("currency")).isEqualTo("USD");
+        assertThat((BigDecimal) row.get("market_cap")).isEqualByComparingTo("49356.00844");
+        // 美东时区源时间戳原样透传（拍板六原币口径同款，展示侧处理）
+        assertThat(row.get("f30")).isEqualTo("2026-09-28 16:00:01");
     }
 
     @Test
@@ -184,6 +217,9 @@ class TencentQuoteClientTest {
                 .contains("sz000001");
         assertThat(TencentQuoteClient.toTencentSymbol(SubjectCode.of("HK00700")))
                 .contains("hk00700");
+        // M29 T252：美股符号 = us + 大写 ticker（与 A/HK 代码段转小写相反，Spike-E §2.2 必改点）
+        assertThat(TencentQuoteClient.toTencentSymbol(SubjectCode.of("USAAPL"))).contains("usAAPL");
+        assertThat(TencentQuoteClient.toTencentSymbol(SubjectCode.of("usmsft"))).contains("usmsft");
         // 腾讯不支持的前缀（如板块）拒绝换算——调用方按无备选数据处理
         assertThat(TencentQuoteClient.toTencentSymbol(SubjectCode.of("BK0475"))).isEmpty();
         assertThat(TencentQuoteClient.toTencentSymbol(SubjectCode.of("SH"))).isEmpty();

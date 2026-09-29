@@ -126,7 +126,11 @@ public class TencentBoardRankClient implements IndustryQuoteSource {
             mapRow((Map<?, ?>) item).ifPresent(industries::add);
         }
         String quoteTime =
-                clock.instant().atZone(SNAPSHOT_ZONE).truncatedTo(ChronoUnit.SECONDS).toString();
+                clock.instant()
+                        .atZone(SNAPSHOT_ZONE)
+                        .truncatedTo(ChronoUnit.SECONDS)
+                        .toOffsetDateTime()
+                        .toString();
         log.info("腾讯板块排行拉取完成 industries={}", industries.size());
         return new IndustryQuoteBatch(SOURCE, quoteTime, List.of(), List.copyOf(industries), 0);
     }

@@ -232,6 +232,16 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
         return jdbcTemplate.query(ACTIVE_SUBJECTS_SQL, SUBJECT_ROW);
     }
 
+    /** 分市场活跃名录（M29 T256）：A_SHARE 与既有无参口径逐值一致（market='A_SHARE' AND status=1）。 */
+    @Override
+    public List<SubjectRef> findActiveSubjects(com.info.platform.domain.aggregation.Market market) {
+        return jdbcTemplate.query(
+                "SELECT id, subject_code, name FROM subject_master"
+                        + " WHERE market = ? AND status = 1 ORDER BY id ASC",
+                SUBJECT_ROW,
+                market.name());
+    }
+
     @Override
     public long countActiveSubjects() {
         Long count =
@@ -305,9 +315,28 @@ public class FactorSnapshotRepositoryImpl implements FactorSnapshotRepository {
         return jdbcTemplate.query(H24_HEAT_SQL, HEAT_ROW, HeatWindow.H24.name());
     }
 
+    /** 分市场 H24 热度行（M29 T256）：market 过滤消跨市场重名混桶（A_SHARE = 申万 31 行原口径）。 */
+    @Override
+    public List<HeatRow> findH24Heat(com.info.platform.domain.aggregation.Market market) {
+        return jdbcTemplate.query(
+                H24_HEAT_SQL + " AND market = ?", HEAT_ROW, HeatWindow.H24.name(), market.name());
+    }
+
     @Override
     public List<IndustryMemberRow> findIndustryMembers() {
         return jdbcTemplate.query(INDUSTRY_MEMBERS_SQL, INDUSTRY_MEMBER_ROW);
+    }
+
+    /** 分市场行业成员投影（M29 T256）：industry 原文直出——港美股免 SW 映射（枚举即口径）。 */
+    @Override
+    public List<IndustryMemberRow> findIndustryMembers(
+            com.info.platform.domain.aggregation.Market market) {
+        return jdbcTemplate.query(
+                "SELECT subject_code, industry FROM subject_master"
+                        + " WHERE market = ? AND status = 1 AND industry IS NOT NULL"
+                        + " AND TRIM(industry) <> '' ORDER BY id ASC",
+                INDUSTRY_MEMBER_ROW,
+                market.name());
     }
 
     @Override

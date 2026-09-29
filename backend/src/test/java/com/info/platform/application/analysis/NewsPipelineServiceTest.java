@@ -208,10 +208,10 @@ class NewsPipelineServiceTest {
 
         service.tick();
 
-        // 24h 补跑窗口（缺省）+ maxRetries 3 + tick 上限 400
+        // 96h 补跑窗口（V3.2 缺省）+ maxRetries 3 + tick 上限 400
         verify(repository)
                 .findPendingForL1(
-                        NOW.minus(Duration.ofHours(24)).toString(),
+                        NOW.minus(Duration.ofHours(96)).toString(),
                         3,
                         java.util.List.of(),
                         PipelineSettings.L1_TICK_CAP);

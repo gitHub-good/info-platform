@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.analysis.PipelineGuardService;
 import com.info.platform.application.markettop.DeepDiveService.DiveResult;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.GuardLevel;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.markettop.DeepDiveInput;
@@ -176,11 +177,12 @@ class IncrementalTopServiceTest {
 
     /** 同日前一版本（v1）：1~9 在榜且为 FULL（dive_detail 可继承），10 在榜。 */
     private void stubPriorVersion() {
-        when(repository.maxVersion(DATE.toString())).thenReturn(1);
+        when(repository.maxVersion(DATE.toString(), Market.A_SHARE)).thenReturn(1);
         List<MarketTopRankRow> items = new java.util.ArrayList<>();
         for (long id = 1; id <= 10; id++) {
             items.add(
                     new MarketTopRankRow(
+                            Market.A_SHARE,
                             DATE.toString(),
                             1,
                             (int) id,
@@ -202,11 +204,12 @@ class IncrementalTopServiceTest {
                             "mt-v1:…",
                             "2026-09-28T01:00:00Z"));
         }
-        when(repository.find(DATE.toString(), 1))
+        when(repository.find(DATE.toString(), 1, Market.A_SHARE))
                 .thenReturn(
                         Optional.of(
                                 new MarketTopVersion(
                                         new MarketTopBatchRow(
+                                                Market.A_SHARE,
                                                 DATE.toString(),
                                                 1,
                                                 "DAILY",
@@ -222,7 +225,7 @@ class IncrementalTopServiceTest {
                                                 null,
                                                 "2026-09-28T01:00:00Z"),
                                         items)));
-        when(repository.findPreviousTop(anyString())).thenReturn(List.of());
+        when(repository.findPreviousTop(anyString(), any(Market.class))).thenReturn(List.of());
     }
 
     private void stubPool() {
@@ -346,9 +349,9 @@ class IncrementalTopServiceTest {
 
     @Test
     void link_noSameDayVersion_diffBaseFallsBackToYesterday() {
-        when(repository.maxVersion(DATE.toString())).thenReturn(0);
-        when(repository.find(DATE.toString(), 1)).thenReturn(Optional.empty());
-        when(repository.findPreviousTop(DATE.toString()))
+        when(repository.maxVersion(DATE.toString(), Market.A_SHARE)).thenReturn(0);
+        when(repository.find(DATE.toString(), 1, Market.A_SHARE)).thenReturn(Optional.empty());
+        when(repository.findPreviousTop(DATE.toString(), Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 new PrevSubject(1, "SH000001", "标的1", 2),

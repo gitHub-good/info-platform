@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.info.platform.application.ai.PlaceholderProvider;
 import com.info.platform.application.ai.PromptTemplateService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmException;
@@ -529,7 +530,9 @@ public class WeeklyReportService implements PlaceholderProvider {
 
     /** 窗口条目取数（仓储 WindowItem → 计算器 HeatItem，HeatSnapshotService 同款）。 */
     private List<HeatCalculator.HeatItem> heatItems(Instant from, Instant to) {
-        return heatSnapshotRepository.findWindowItems(from.toString(), to.toString()).stream()
+        return heatSnapshotRepository
+                .findWindowItems(from.toString(), to.toString(), Market.A_SHARE)
+                .stream()
                 .map(
                         item ->
                                 new HeatCalculator.HeatItem(

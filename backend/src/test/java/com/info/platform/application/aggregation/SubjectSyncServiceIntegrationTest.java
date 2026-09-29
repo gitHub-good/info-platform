@@ -49,7 +49,7 @@ class SubjectSyncServiceIntegrationTest {
         // 股票桶观察态复位（含本类与同库其他测试类留下的 streak/停用痕迹）；指数桶不经同步测试触碰，无需复位
         jdbcTemplate.update(
                 "UPDATE subject_master SET missing_streak = 0, status = 1 "
-                        + "WHERE subject_type = 1 AND market IN ('A_SHARE', 'HK')");
+                        + "WHERE subject_type = 1 AND market IN ('A_SHARE', 'HK', 'US')");
     }
 
     // ---- 首轮：种子对齐 + 新增建池 + 批量分批 ----
@@ -71,6 +71,7 @@ class SubjectSyncServiceIntegrationTest {
                                 snapshot("688004", "心脉医疗", "医疗器械"),
                                 snapshot("688005", "容百科技", "新材料")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
         SubjectSyncService service = newService(source);
 
         List<MarketSyncResult> results = service.syncAll();
@@ -124,6 +125,7 @@ class SubjectSyncServiceIntegrationTest {
                                 snapshot("601997", "停用新名", "新行业"),
                                 snapshot("600519", "贵州茅台", "白酒")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
         List<MarketSyncResult> results = newService(source).syncAll();
 
         // 停用标的照常更新（updated 计入），但 status 不被复活、缺失也不计数
@@ -147,6 +149,7 @@ class SubjectSyncServiceIntegrationTest {
                 List.of(snapshot("600519", "贵州茅台", "白酒"), snapshot("688011", "金山办公办公版", "办公软件"));
         when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK)).thenReturn(external);
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
         SubjectSyncService service = newService(source);
 
         MarketSyncResult first = service.syncAll().get(0);
@@ -181,6 +184,7 @@ class SubjectSyncServiceIntegrationTest {
         when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
                 .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
         SubjectSyncService service = newService(source);
 
         // 第一轮：SZ002345 不在全量结果 → missing_streak 1（缺失确认只计数上报，停用动作 T52）
@@ -224,6 +228,7 @@ class SubjectSyncServiceIntegrationTest {
         when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
                 .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
 
         MarketSyncResult aShare = newService(source).syncAll().get(0);
 
@@ -251,6 +256,7 @@ class SubjectSyncServiceIntegrationTest {
         when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
                 .thenThrow(new IllegalStateException("clist 第 3 页拉取失败（重试耗尽）"));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
 
         assertThatThrownBy(() -> newService(source).syncAll())
                 .isInstanceOf(SubjectSyncException.class);
@@ -265,6 +271,7 @@ class SubjectSyncServiceIntegrationTest {
         subjectRepository.save(newStock("SH603780", "停用后回归验证"));
         SubjectListSource source = mock(SubjectListSource.class);
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
 
         // 连续 3 轮缺失 → 达阈值停用（status 1→0）
         when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
@@ -309,6 +316,7 @@ class SubjectSyncServiceIntegrationTest {
                 .thenReturn(List.of(snapshot("688021", "新标的隔离验证", null)));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK))
                 .thenThrow(new IllegalStateException("clist total 完整性校验失败 bucket=HK_STOCK"));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
         SubjectSyncService service = newService(source);
 
         assertThatThrownBy(service::syncAll).isInstanceOf(SubjectSyncException.class);
@@ -329,6 +337,7 @@ class SubjectSyncServiceIntegrationTest {
         when(source.fetchAll(MarketSyncSpec.A_SHARE_STOCK))
                 .thenReturn(List.of(snapshot("600519", "贵州茅台", "白酒")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(List.of(hkSeed()));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(List.of());
         // 指数桶源快照：4 只 V17 种子按代码对齐；f100 恒 "-" → industry null（§4.3 指数桶差异，行业以源为准）
         when(source.fetchAll(MarketSyncSpec.CN_INDEX))
                 .thenReturn(
@@ -341,7 +350,8 @@ class SubjectSyncServiceIntegrationTest {
         List<MarketSyncResult> results = newService(source, true).syncAll();
 
         // 第 3 桶 = CN_INDEX：V17 种子按 subject_code 自然对齐，不重复插入；行业全量对齐源（null）→ updated=4
-        MarketSyncResult index = results.get(2);
+        // 第 4 桶 = CN_INDEX（顺序 A→HK→US→INDEX，US 桶空快照照常成功）
+        MarketSyncResult index = results.get(3);
         assertThat(index.bucket()).isEqualTo(MarketSyncSpec.CN_INDEX);
         assertThat(index.inserted()).isZero();
         assertThat(index.updated()).isEqualTo(4);

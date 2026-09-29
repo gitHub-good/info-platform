@@ -18,6 +18,7 @@ import { Events } from '@/pages/Events';
 import { Recommendations } from '@/pages/Recommendations';
 import { MarketTop } from '@/pages/MarketTop';
 import { NewsLibrary } from '@/pages/NewsLibrary';
+import { NewsPulse } from '@/pages/NewsPulse';
 import { Sources } from '@/pages/Sources';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
@@ -75,6 +76,9 @@ function useHashRoute(): string {
   }
   // 资讯库（M19 T161）：「数据」组——news_item 原始库全量列表（自带 main+max-w-4xl）；
   // V2.4 T213 增 URL 预填：effectiveRoute 随归一层透传（#/policies 重定向 L1=监管·政策 即达）
+  if (route.startsWith('/news-pulse')) {
+    return <NewsPulse />;
+  }
   if (route.startsWith('/news-library')) {
     return <NewsLibrary route={route} />;
   }

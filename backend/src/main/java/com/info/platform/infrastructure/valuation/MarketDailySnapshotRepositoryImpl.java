@@ -25,8 +25,8 @@ public class MarketDailySnapshotRepositoryImpl implements MarketDailySnapshotRep
             """
             INSERT INTO market_daily_snapshot
               (subject_id, snapshot_date, close_price, pct_change, turnover_rate, amplitude,
-               volume, pe_ttm, pb, source, quote_time, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               volume, pe_ttm, pb, source, quote_time, market_cap, currency, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(subject_id, snapshot_date) DO UPDATE SET
               close_price = excluded.close_price,
               pct_change = excluded.pct_change,
@@ -37,13 +37,15 @@ public class MarketDailySnapshotRepositoryImpl implements MarketDailySnapshotRep
               pb = excluded.pb,
               source = excluded.source,
               quote_time = excluded.quote_time,
+              market_cap = excluded.market_cap,
+              currency = excluded.currency,
               updated_at = excluded.updated_at
             """;
 
     private static final String FIND_BY_DATE_SQL =
             """
             SELECT subject_id, snapshot_date, close_price, pct_change, turnover_rate, amplitude,
-                   volume, pe_ttm, pb, source, quote_time
+                   volume, pe_ttm, pb, source, quote_time, market_cap, currency
               FROM market_daily_snapshot
              WHERE snapshot_date = ?
             """;
@@ -61,7 +63,9 @@ public class MarketDailySnapshotRepositoryImpl implements MarketDailySnapshotRep
                             nullableDouble(rs, "pe_ttm"),
                             nullableDouble(rs, "pb"),
                             rs.getString("source"),
-                            rs.getString("quote_time"));
+                            rs.getString("quote_time"),
+                            nullableDouble(rs, "market_cap"),
+                            rs.getString("currency"));
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -93,8 +97,10 @@ public class MarketDailySnapshotRepositoryImpl implements MarketDailySnapshotRep
                                 setNullableDouble(ps, 9, row.pb());
                                 ps.setString(10, row.source());
                                 ps.setString(11, row.quoteTime());
-                                ps.setString(12, now);
-                                ps.setString(13, now);
+                                setNullableDouble(ps, 12, row.marketCap());
+                                ps.setString(13, row.currency());
+                                ps.setString(14, now);
+                                ps.setString(15, now);
                             }
 
                             @Override
@@ -134,6 +140,33 @@ public class MarketDailySnapshotRepositoryImpl implements MarketDailySnapshotRep
         return jdbcTemplate.queryForList(
                 "SELECT DISTINCT snapshot_date FROM market_daily_snapshot ORDER BY snapshot_date ASC",
                 String.class);
+    }
+
+    /** M29 T256：分市场交易日序列（JOIN subject_master 按 market 过滤——hit-stats 三市场窗口不混序）。 */
+    @Override
+    public List<String> findTradingDates(com.info.platform.domain.aggregation.Market market) {
+        return jdbcTemplate.queryForList(
+                "SELECT DISTINCT s.snapshot_date FROM market_daily_snapshot s"
+                        + " JOIN subject_master m ON m.id = s.subject_id"
+                        + " WHERE m.market = ? ORDER BY s.snapshot_date ASC",
+                String.class,
+                market.name());
+    }
+
+    /** M29 T256：该市场最近行情快照日（港美股榜单 basis「数据口径」留痕；无任何快照返回 empty）。 */
+    @Override
+    public java.util.Optional<String> findLatestSnapshotDate(
+            com.info.platform.domain.aggregation.Market market) {
+        List<String> dates =
+                jdbcTemplate.queryForList(
+                        "SELECT MAX(s.snapshot_date) FROM market_daily_snapshot s"
+                                + " JOIN subject_master m ON m.id = s.subject_id"
+                                + " WHERE m.market = ?",
+                        String.class,
+                        market.name());
+        return dates.isEmpty() || dates.get(0) == null
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(dates.get(0));
     }
 
     /** M22 T193：收盘价投影（close NULL 行缺键——有价样本口径与对账 SQL 的 IS NOT NULL 过滤同义）。 */

@@ -50,7 +50,7 @@ public class SubjectSyncJob implements ManagedJob, JobRunStats {
 
     @Override
     public String description() {
-        return "每日全量拉取 A 股/港股上市股票与沪深指数，自动新增/更新标的池（退市连续 3 轮确认停用，永不删除）";
+        return "每日全量拉取 A 股/港股/美股上市股票与沪深指数，自动新增/更新标的池（港美股经东财 F10 档案含行业回填；退市连续 3 轮确认停用，永不删除）";
     }
 
     @Override

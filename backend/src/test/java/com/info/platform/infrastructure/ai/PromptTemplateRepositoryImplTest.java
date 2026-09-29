@@ -40,9 +40,14 @@ class PromptTemplateRepositoryImplTest {
             assertThat(t.getBriefType()).isEqualTo(type);
             assertThat(t.getVersion())
                     .isEqualTo(
-                            type == BriefType.DAILY_RECOMMEND || type == BriefType.STOCK
-                                    ? "v1.1"
-                                    : "v1.0");
+                            switch (type) {
+                                case DAILY_RECOMMEND, STOCK -> "v1.1";
+                                    // M29 T253 V38：L1 归类 v2.0（按市场注入枚举集），v1.0 置废
+                                case L1_CLASSIFY -> "v2.0";
+                                    // M29 T254 V39：L2 事件提取 v1.1（affected 按市场注入枚举集），v1.0 置废
+                                case L2_EXTRACT -> "v1.1";
+                                default -> "v1.0";
+                            });
             assertThat(t.isActive()).isTrue();
         }
     }

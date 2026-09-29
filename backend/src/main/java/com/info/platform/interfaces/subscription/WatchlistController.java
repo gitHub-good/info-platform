@@ -1,8 +1,10 @@
 package com.info.platform.interfaces.subscription;
 
 import com.info.platform.application.subscription.WatchlistItemView;
+import com.info.platform.application.subscription.WatchlistItemsPagedView;
 import com.info.platform.application.subscription.WatchlistService;
 import com.info.platform.application.subscription.WatchlistView;
+import com.info.platform.interfaces.common.PageQuery;
 import com.info.platform.interfaces.common.Result;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -59,10 +62,42 @@ public class WatchlistController {
         return Result.ok(watchlistService.createWatchlist(request.name(), request.remark()));
     }
 
+    /** 改名；不存在→30010/404，越权→30012/403，与他人启用清单同名→30011/409；改名 = 当前名幂等成功。 */
+    @PatchMapping("/{id}")
+    public Result<WatchlistView> rename(
+            @PathVariable Long id, @Valid @RequestBody RenameWatchlistRequest request) {
+        return Result.ok(watchlistService.renameWatchlist(id, request.name()));
+    }
+
+    /** 删除清单（软删除）；不存在→30010/404，越权→30012/403。删除后异动检测同步停止。 */
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable Long id) {
+        watchlistService.deleteWatchlist(id);
+        return Result.ok();
+    }
+
     /** 单清单（含清单项）；不存在→30010/404，越权→30012/403。 */
     @GetMapping("/{id}")
     public Result<WatchlistView> get(@PathVariable Long id) {
         return Result.ok(watchlistService.getWatchlist(id));
+    }
+
+    /**
+     * 清单项分页+排序（M9 页码契约 {total, items, page, size} + sort/dir 回显）。
+     *
+     * <p>sort ∈ {addedAt, price, changePct}（缺省 addedAt）、dir ∈ {asc, desc}（缺省 asc）； 行情两列内联
+     * （实时源缓存），行情缺失行 price/changePct=null 恒沉底。page/size 边界同全站（1~50，越界 400 拒绝不截断）。
+     */
+    @GetMapping("/{id}/items")
+    public Result<WatchlistItemsPagedView> listItems(
+            @PathVariable Long id,
+            @RequestParam(value = "page", defaultValue = "1") Integer page,
+            @RequestParam(value = "size", defaultValue = "20") Integer size,
+            @RequestParam(value = "sort", defaultValue = "addedAt") String sort,
+            @RequestParam(value = "dir", defaultValue = "asc") String dir) {
+        PageQuery query = PageQuery.resolve(page, size, null);
+        return Result.ok(
+                watchlistService.listItemsPaged(id, query.page(), query.size(), sort, dir));
     }
 
     /** 加标的到清单；清单不存在→30010/404、越权→30012/403、标的不存在→30001/404、已在清单→30011/409（幂等）。 */
@@ -96,6 +131,9 @@ public class WatchlistController {
     /** 创建清单请求体。 */
     public record CreateWatchlistRequest(
             @NotBlank(message = "清单名不能为空") String name, String remark) {}
+
+    /** 改名请求体。 */
+    public record RenameWatchlistRequest(@NotBlank(message = "清单名不能为空") String name) {}
 
     /** 加标的请求体（anomalyThreshold 可空，缺省走默认 3.00）。 */
     public record AddItemRequest(

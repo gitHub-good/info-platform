@@ -4,6 +4,7 @@
 // PATCH 带 expectedUpdatedAt 并发防呆（不符 → 30065/409）。
 
 import { request } from './http';
+import type { MarketKey } from '@/lib/market';
 import type {
   IndustryHeatMapView,
   IndustryMainlineConfigUpdate,
@@ -14,23 +15,31 @@ import type {
 } from '@/types/industryMainline';
 
 /**
- * 31 行业热力图（GET /api/v1/industry-heat-map?date=）。
+ * 各市场行业热力图（GET /api/v1/industry-heat-map?market=&date=；market 缺省 A_SHARE）。
  * @throws ApiError 30093 快照无任何数据（404——空态由页面 EmptyState 呈现）
  */
-export function getIndustryHeatMap(date?: string, signal?: AbortSignal): Promise<IndustryHeatMapView> {
-  const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+export function getIndustryHeatMap(
+  query: { market?: MarketKey; date?: string } = {},
+  signal?: AbortSignal,
+): Promise<IndustryHeatMapView> {
+  const params = new URLSearchParams();
+  if (query.market != null) params.set('market', query.market);
+  if (query.date) params.set('date', query.date);
+  const qs = params.size > 0 ? `?${params}` : '';
   return request<IndustryHeatMapView>(`/industry-heat-map${qs}`, { signal });
 }
 
 /**
- * 主线榜单（GET /api/v1/industry-mainline?date=&version=；缺省最新有榜日最大版本）。
+ * 主线榜单（GET /api/v1/industry-mainline?market=&date=&version=；缺省最新有榜日最大版本；
+ * market 缺省 A_SHARE——M29 T255 分市场榜单，bootstrap 冷启动留痕）。
  * @throws ApiError 30094 全库无榜单（404）/ 30095 参数非法或该日+版本不存在（400）
  */
 export function getIndustryMainline(
-  query: { date?: string; version?: number } = {},
+  query: { market?: MarketKey; date?: string; version?: number } = {},
   signal?: AbortSignal,
 ): Promise<IndustryMainlineView> {
   const params = new URLSearchParams();
+  if (query.market != null) params.set('market', query.market);
   if (query.date) params.set('date', query.date);
   if (query.version != null) params.set('version', String(query.version));
   const qs = params.size > 0 ? `?${params}` : '';
@@ -38,16 +47,17 @@ export function getIndustryMainline(
 }
 
 /**
- * 行业下钻（GET /api/v1/industry-mainline/{industry}/detail；当日行 source 分形态：
- * 通道 A 板块明细 / 通道 B 成分股涨跌 + 领涨股）。
- * @throws ApiError 30095 行业非申万 31 枚举或该行业无快照行（400/404）
+ * 行业下钻（GET /api/v1/industry-mainline/{industry}/detail?market=；当日行 source 分形态：
+ * 通道 A 板块明细 / 通道 B 成分股涨跌 + 领涨股；同名行业靠 market 消歧）。
+ * @throws ApiError 30095 行业非该市场枚举或该行业无快照行（400/404）
  */
 export function getIndustryMainlineDetail(
   industry: string,
+  market: MarketKey = 'A_SHARE',
   signal?: AbortSignal,
 ): Promise<IndustryMainlineDetailView> {
   return request<IndustryMainlineDetailView>(
-    `/industry-mainline/${encodeURIComponent(industry)}/detail`,
+    `/industry-mainline/${encodeURIComponent(industry)}/detail?market=${market}`,
     { signal },
   );
 }
@@ -67,7 +77,9 @@ export function patchIndustryMainlineConfig(
   });
 }
 
-/** 手动重算（POST recompute——同步执行 version+1；任务中心手动触发同路径）。 */
-export function recomputeIndustryMainline(): Promise<IndustryMainlineRecomputeView> {
-  return request<IndustryMainlineRecomputeView>('/industry-mainline/recompute', { method: 'POST' });
+/** 手动重算（POST recompute?market=——同步执行 version+1；任务中心手动触发同路径；缺省 A_SHARE）。 */
+export function recomputeIndustryMainline(market: MarketKey = 'A_SHARE'): Promise<IndustryMainlineRecomputeView> {
+  return request<IndustryMainlineRecomputeView>(`/industry-mainline/recompute?market=${market}`, {
+    method: 'POST',
+  });
 }

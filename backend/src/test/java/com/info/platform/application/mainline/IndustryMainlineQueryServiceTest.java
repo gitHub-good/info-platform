@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository;
@@ -27,9 +28,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * IndustryMainlineQueryService 单测（M27 T244，方案 §4.5）：heat-map meta（source/quoteTime/stale 回退最近有行日 /
- * 30093 全空）/ mainline 版本回退读（date+version / 30094 全库无榜 / 30095 版本不存在）/ detail 30095（非申万枚举 /
- * 无快照行）与两形态分叉。
+ * IndustryMainlineQueryService 单测（M27 T244，方案 §4.5；M29 T255 market 参数化）：heat-map
+ * meta（market/industrySystem/currency 回显 + source/quoteTime/stale 回退最近有行日 / 30093 全空）/ mainline
+ * 版本回退读（市场内 date+version / 30094 全库无榜 / 30095 版本不存在 + 港美股 bootstrap/leadersAvailable 留痕）/ detail
+ * 30095（非该市场进榜枚举 / 无快照行）与两形态分叉 + 港美股龙头占位。
  */
 class IndustryMainlineQueryServiceTest {
 
@@ -86,9 +88,10 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void heatMap_defaultsToNearestRows_metaCarriesSourceAndStale() {
-        when(marketSnapshotRepository.recentSnapshotDates(anyInt()))
+        when(marketSnapshotRepository.recentSnapshotDates(
+                        anyInt(), org.mockito.ArgumentMatchers.eq(Market.A_SHARE)))
                 .thenReturn(List.of("2026-09-27", "2026-09-26"));
-        when(marketSnapshotRepository.findIndustryRows("2026-09-27"))
+        when(marketSnapshotRepository.findIndustryRows("2026-09-27", Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 industryRow(
@@ -97,8 +100,11 @@ class IndustryMainlineQueryServiceTest {
                                         "tencent-rank",
                                         "2026-09-27T15:00:02+08:00")));
 
-        IndustryMainlineQueryService.HeatMapView view = serviceOf(STALE_CLOCK).heatMap(null);
+        IndustryMainlineQueryService.HeatMapView view = serviceOf(STALE_CLOCK).heatMap(null, null);
 
+        assertThat(view.market()).isEqualTo("A_SHARE"); // market 缺省回显（零回归断言）
+        assertThat(view.industrySystem()).isEqualTo("A股：申万一级 31");
+        assertThat(view.currency()).isEqualTo("CNY");
         assertThat(view.snapshotDate()).isEqualTo("2026-09-27");
         assertThat(view.source()).isEqualTo("tencent-rank");
         assertThat(view.quoteTime()).isEqualTo("2026-09-27T15:00:02+08:00");
@@ -111,9 +117,10 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void heatMap_freshQuote_notStale() {
-        when(marketSnapshotRepository.recentSnapshotDates(anyInt()))
+        when(marketSnapshotRepository.recentSnapshotDates(
+                        anyInt(), org.mockito.ArgumentMatchers.eq(Market.A_SHARE)))
                 .thenReturn(List.of("2026-09-28"));
-        when(marketSnapshotRepository.findIndustryRows("2026-09-28"))
+        when(marketSnapshotRepository.findIndustryRows("2026-09-28", Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 industryRow(
@@ -123,7 +130,7 @@ class IndustryMainlineQueryServiceTest {
                                         "2026-09-28T15:00:02+08:00")));
 
         IndustryMainlineQueryService.HeatMapView view =
-                serviceOf(FRESH_CLOCK).heatMap("2026-09-28");
+                serviceOf(FRESH_CLOCK).heatMap("2026-09-28", null);
 
         assertThat(view.stale()).isFalse();
         assertThat(view.snapshotDate()).isEqualTo("2026-09-28");
@@ -131,10 +138,12 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void heatMap_emptyLibrary_30093() {
-        when(marketSnapshotRepository.recentSnapshotDates(anyInt())).thenReturn(List.of());
+        when(marketSnapshotRepository.recentSnapshotDates(
+                        anyInt(), org.mockito.ArgumentMatchers.eq(Market.A_SHARE)))
+                .thenReturn(List.of());
         when(marketSnapshotRepository.findIndustryRows("2026-09-28")).thenReturn(List.of());
 
-        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).heatMap(null))
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).heatMap(null, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -144,9 +153,58 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void heatMap_invalidDate_30095() {
-        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).heatMap("2026/09/28"))
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).heatMap("2026/09/28", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("yyyy-MM-dd");
+    }
+
+    @Test
+    void heatMap_hkMarket_echoesCurrencyAndSystemLabel() {
+        when(marketSnapshotRepository.recentSnapshotDates(
+                        anyInt(), org.mockito.ArgumentMatchers.eq(Market.HK)))
+                .thenReturn(List.of("2026-09-28"));
+        when(marketSnapshotRepository.findIndustryRows("2026-09-28", Market.HK))
+                .thenReturn(
+                        List.of(
+                                new MarketSnapshotRow(
+                                        Market.HK.name(),
+                                        "INDUSTRY",
+                                        "软件服务",
+                                        "软件服务",
+                                        "2026-09-28",
+                                        -0.78,
+                                        null,
+                                        23,
+                                        41,
+                                        null,
+                                        4935600.0e6,
+                                        "HKD",
+                                        null,
+                                        "hkus-aggregate",
+                                        "CAP_WEIGHTED",
+                                        "2026-09-28T16:00:01+08:00")));
+
+        IndustryMainlineQueryService.HeatMapView view =
+                serviceOf(FRESH_CLOCK).heatMap("2026-09-28", "HK");
+
+        // 方案 §5.2：market/industrySystem/currency 回显；pctD5 NULL 透传（前端如实缺省不造假）
+        assertThat(view.market()).isEqualTo("HK");
+        assertThat(view.industrySystem()).contains("港股");
+        assertThat(view.currency()).isEqualTo("HKD");
+        assertThat(view.industries()).hasSize(1);
+        assertThat(view.industries().get(0).industry()).isEqualTo("软件服务");
+        assertThat(view.industries().get(0).pctD5()).isNull();
+        assertThat(view.industries().get(0).mainNetFlow()).isNull();
+    }
+
+    @Test
+    void heatMap_invalidMarket_30095() {
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).heatMap(null, "JP"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        ex ->
+                                assertThat(((BusinessException) ex).getErrorCode())
+                                        .isEqualTo(ErrorCode.INDUSTRY_MAINLINE_QUERY_INVALID));
     }
 
     @Test
@@ -177,14 +235,19 @@ class IndustryMainlineQueryServiceTest {
                                         "[{\"rank\":1,\"rankLabel\":\"龙一\"}]",
                                         "mainline-v1:...",
                                         "2026-09-27T10:30:00Z")));
-        when(mainlineRepository.findLatest("2026-09-28")).thenReturn(Optional.empty());
-        when(mainlineRepository.findLatestAnyDate()).thenReturn(Optional.of(version));
+        when(mainlineRepository.findLatest("2026-09-28", Market.A_SHARE))
+                .thenReturn(Optional.empty());
+        when(mainlineRepository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.of(version));
 
         IndustryMainlineQueryService.MainlineView view =
-                serviceOf(FRESH_CLOCK).mainline("2026-09-28", null);
+                serviceOf(FRESH_CLOCK).mainline("2026-09-28", null, null);
 
-        // 非交易日回退最近榜日最大版本
+        // 非交易日回退最近榜日最大版本；market 回显 + A 股龙头可用
         assertThat(view.rankDate()).isEqualTo("2026-09-27");
+        assertThat(view.market()).isEqualTo("A_SHARE");
+        assertThat(view.bootstrap()).isFalse();
+        assertThat(view.items().get(0).leadersAvailable()).isTrue();
+        assertThat(view.items().get(0).leaderUnavailableReason()).isNull();
         assertThat(view.version()).isEqualTo(2);
         assertThat(view.items()).hasSize(1);
         assertThat(view.items().get(0).leaders().get(0).path("rankLabel").asText()).isEqualTo("龙一");
@@ -192,9 +255,9 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void mainline_explicitVersionMissing_30095() {
-        when(mainlineRepository.find("2026-09-27", 9)).thenReturn(Optional.empty());
+        when(mainlineRepository.find("2026-09-27", 9, Market.A_SHARE)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).mainline("2026-09-27", "9"))
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).mainline("2026-09-27", "9", null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -204,9 +267,9 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void mainline_noRankAnywhere_30094() {
-        when(mainlineRepository.findLatestAnyDate()).thenReturn(Optional.empty());
+        when(mainlineRepository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).mainline(null, null))
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).mainline(null, null, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -216,7 +279,7 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void detail_invalidIndustry_30095() {
-        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).detail("半导体概念"))
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).detail("半导体概念", null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(
                         ex ->
@@ -226,8 +289,9 @@ class IndustryMainlineQueryServiceTest {
 
     @Test
     void detail_noSnapshotRowForIndustry_30095() {
-        when(marketSnapshotRepository.latestSnapshotDate()).thenReturn(Optional.of("2026-09-28"));
-        when(marketSnapshotRepository.findIndustryRows("2026-09-28"))
+        when(marketSnapshotRepository.latestSnapshotDate(Market.A_SHARE))
+                .thenReturn(Optional.of("2026-09-28"));
+        when(marketSnapshotRepository.findIndustryRows("2026-09-28", Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 industryRow(
@@ -236,14 +300,15 @@ class IndustryMainlineQueryServiceTest {
                                         "tencent-rank",
                                         "2026-09-28T15:00:02+08:00")));
 
-        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).detail("电子"))
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).detail("电子", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("该行业无快照行");
     }
 
     @Test
     void detail_channelB_constituentsLeadersAndMemberCount() {
-        when(marketSnapshotRepository.latestSnapshotDate()).thenReturn(Optional.of("2026-09-28"));
+        when(marketSnapshotRepository.latestSnapshotDate(Market.A_SHARE))
+                .thenReturn(Optional.of("2026-09-28"));
         MarketSnapshotRow electronics =
                 new MarketSnapshotRow(
                         "INDUSTRY",
@@ -260,7 +325,7 @@ class IndustryMainlineQueryServiceTest {
                         "tencent-rank",
                         "TENCENT_DIRECT",
                         "2026-09-28T15:00:02+08:00");
-        when(marketSnapshotRepository.findIndustryRows("2026-09-28"))
+        when(marketSnapshotRepository.findIndustryRows("2026-09-28", Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 industryRow(
@@ -285,9 +350,9 @@ class IndustryMainlineQueryServiceTest {
                                         "SH688981", "2026-09-28", -2.85),
                                 new MainlineRepository.MarketQuoteRow(
                                         "SZ300162", "2026-09-28", 12.89)));
-        when(mainlineRepository.findLatestAnyDate()).thenReturn(Optional.empty());
+        when(mainlineRepository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.empty());
 
-        IndustryMainlineQueryService.DetailView view = serviceOf(FRESH_CLOCK).detail("电子");
+        IndustryMainlineQueryService.DetailView view = serviceOf(FRESH_CLOCK).detail("电子", null);
 
         // 通道 B 形态：成分股（半导体→电子映射 + 光学光电子→电子）+ 领涨股 + 成员统计
         assertThat(view.source()).isEqualTo("tencent-rank");
@@ -296,5 +361,55 @@ class IndustryMainlineQueryServiceTest {
         assertThat(view.leaderStock().path("name").asText()).isEqualTo("雷曼光电");
         assertThat(view.memberCount()).isEqualTo(2);
         assertThat(view.leaders().isArray()).isTrue();
+        assertThat(view.leadersAvailable()).isTrue(); // A 股龙头可用
+    }
+
+    @Test
+    void detail_hkMarket_leaderPlaceholderAndNoConstituents() {
+        when(marketSnapshotRepository.latestSnapshotDate(Market.HK))
+                .thenReturn(Optional.of("2026-09-28"));
+        when(marketSnapshotRepository.findIndustryRows("2026-09-28", Market.HK))
+                .thenReturn(
+                        List.of(
+                                new MarketSnapshotRow(
+                                        Market.HK.name(),
+                                        "INDUSTRY",
+                                        "软件服务",
+                                        "软件服务",
+                                        "2026-09-28",
+                                        1.2,
+                                        null,
+                                        30,
+                                        20,
+                                        null,
+                                        8e11,
+                                        "HKD",
+                                        null,
+                                        "hkus-aggregate",
+                                        "CAP_WEIGHTED",
+                                        "2026-09-28T16:00:01+08:00")));
+        when(mainlineRepository.findLatestAnyDate(Market.HK)).thenReturn(Optional.empty());
+
+        IndustryMainlineQueryService.DetailView view = serviceOf(FRESH_CLOCK).detail("软件服务", "HK");
+
+        // 港美股：无板块下钻（P6 Could 另议）+ 成员/龙头 A 股专用面如实空 + leadersAvailable 占位（W1 不静默）
+        assertThat(view.market()).isEqualTo("HK");
+        assertThat(view.boards()).isEmpty();
+        assertThat(view.constituents()).isEmpty();
+        assertThat(view.memberCount()).isZero();
+        assertThat(view.leaders().isArray()).isTrue();
+        assertThat(view.leadersAvailable()).isFalse();
+        assertThat(view.leaderUnavailableReason()).isEqualTo("港美股龙头分析暂未支持（依赖基本面因子体系）");
+    }
+
+    @Test
+    void detail_hkEnumInvalidForAShareDefault_30095() {
+        // 同名/异名行业跨市场消歧：港股枚举「药品及生物科技」对缺省 A 股口径非法
+        assertThatThrownBy(() -> serviceOf(FRESH_CLOCK).detail("药品及生物科技", null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(
+                        ex ->
+                                assertThat(((BusinessException) ex).getErrorCode())
+                                        .isEqualTo(ErrorCode.INDUSTRY_MAINLINE_QUERY_INVALID));
     }
 }

@@ -15,9 +15,12 @@ import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { MarketTabs } from '@/components/common/MarketTabs';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useMarketParam } from '@/hooks/useMarketParam';
+import type { MarketKey } from '@/lib/market';
 import {
   directionTextClass,
   directionToneClass,
@@ -152,10 +155,12 @@ function TraceFootnote({ anyMissingUrl }: { anyMissingUrl: boolean }) {
 interface DrillDownProps {
   industry: string;
   window: HeatWindow;
+  /** 市场维度（M29 T255：下钻清单按 market 过滤，行业枚举同市场口径）。 */
+  market: MarketKey;
 }
 
-/** 行业下钻（news / events 双清单 + beforeId 游标加载更多；total 与榜单计数对账）。 */
-function IndustryDrillDown({ industry, window }: DrillDownProps) {
+/** 行业下钻（news / events 双清单 + beforeId 游标加载更多；total 与榜单计数对账——同市场口径）。 */
+function IndustryDrillDown({ industry, window, market }: DrillDownProps) {
   const [type, setType] = useState<IndustryItemsType>('news');
   const [items, setItems] = useState<IndustryHeatItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -176,7 +181,11 @@ function IndustryDrillDown({ industry, window }: DrillDownProps) {
       if (beforeId == null) setLoading(true);
       else setLoadingMore(true);
       try {
-        const view = await getIndustryHeatItems(industry, { window, type: listType, beforeId }, ctrl.signal);
+        const view = await getIndustryHeatItems(
+          industry,
+          { window, type: listType, market, beforeId },
+          ctrl.signal,
+        );
         if (ctrl.signal.aborted) return;
         if (stateRef.current.type !== listType) return; // 竞态守卫：响应到达时已切类型则丢弃
         setTotal(view.total);
@@ -193,7 +202,7 @@ function IndustryDrillDown({ industry, window }: DrillDownProps) {
         }
       }
     },
-    [industry, window],
+    [industry, window, market],
   );
 
   useEffect(() => {
@@ -359,8 +368,8 @@ function IndustryDrillDown({ industry, window }: DrillDownProps) {
 
 // —— 热度榜 Tab ——
 
-/** 热度榜（窗口切换 + 榜单行 + 页内下钻 + 护栏横幅 + 口径脚注；focusIndustry 为 C 级溯源链直达参数）。 */
-function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
+/** 热度榜（窗口切换 + 榜单行 + 页内下钻 + 护栏横幅 + 口径脚注；focusIndustry 为 C 级溯源链直达参数；market 三市场切换）。 */
+function HeatBoardTab({ focusIndustry, market }: { focusIndustry: string | null; market: MarketKey }) {
   const [window, setWindow] = useState<HeatWindow>('H24');
   const [board, setBoard] = useState<IndustryHeatBoardView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -374,7 +383,7 @@ function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       try {
-        const data = await getIndustryHeatBoard(target, ctrl.signal);
+        const data = await getIndustryHeatBoard(target, market, ctrl.signal);
         if (ctrl.signal.aborted) return;
         setBoard(data);
         setError(null);
@@ -385,7 +394,7 @@ function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
         if (!ctrl.signal.aborted) setLoading(false);
       }
     },
-    [],
+    [market],
   );
 
   useEffect(() => {
@@ -427,7 +436,9 @@ function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
             7 天
           </Button>
         </div>
-        <span className="text-xs text-muted-foreground">31 个申万一级行业 · 0 分沉底 · 每日 30 分钟快照</span>
+        <span className="text-xs text-muted-foreground" data-testid="heat-industry-system">
+          {(market === 'A_SHARE' ? 'A股：申万一级 31' : board?.industrySystem) ?? '--'} · 0 分沉底 · 每日 30 分钟快照
+        </span>
       </div>
 
       {loading ? (
@@ -447,8 +458,12 @@ function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
         </div>
       ) : rows.length === 0 ? (
         <EmptyState
-          title="暂无行业热度数据"
-          description="AI 管道快照生成中，可稍后刷新"
+          title="该市场暂无热度数据"
+          description={
+            market === 'A_SHARE'
+              ? 'AI 管道快照生成中，可稍后刷新'
+              : '该市场资讯归类或热度快照尚未积累（覆盖不足如实呈现，不隐藏不填充）——可稍后刷新或切换市场。'
+          }
           testId="heat-empty"
         />
       ) : (
@@ -501,7 +516,7 @@ function HeatBoardTab({ focusIndustry }: { focusIndustry: string | null }) {
                     aria-hidden="true"
                   />
                 </button>
-                {isOpen ? <div className="px-3 pb-3"><IndustryDrillDown industry={row.industry} window={window} /></div> : null}
+                {isOpen ? <div className="px-3 pb-3"><IndustryDrillDown industry={row.industry} window={window} market={market} /></div> : null}
               </div>
             );
           })}
@@ -1402,9 +1417,11 @@ interface IndustryHeatProps {
   retryPollMs?: number;
 }
 
-/** 行业热度与日报页（第 16 页，三 Tab：热度榜 / 日报 / 周报——M17 T145 扩三 Tab）。 */
+/** 行业热度与日报页（第 16 页，三 Tab：热度榜 / 日报 / 周报——M17 T145 扩三 Tab；M29 T257 增三市场切换）。 */
 export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHeatProps = {}) {
   const [tab, setTab] = useState<'heat' | 'report' | 'weekly'>('heat');
+  // 三市场切换（M29 T257）：URL ?market= 持久化，缺省 A 股；日报/周报恒 A 股口径（§5.1）
+  const [market, setMarket] = useMarketParam();
   // C 级溯源链直达：#/industry-heat?industry=X（日报/周报行业名、工作台 Top5 行）→ 切热度榜并展开下钻；
   // 挂载期惰性读一次 + hashchange 监听（报告 Tab 页内点击自身路由参数变化不重挂载，由监听承接）
   const [focusIndustry, setFocusIndustry] = useState<string | null>(() =>
@@ -1426,8 +1443,13 @@ export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHe
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="industry-heat-page">
       <PageHeader
         title="行业热度与日报"
-        subtitle="按行业看信息、按事件抓重点：热度榜 31 行业分钟级快照，行业日报每日 08:00 晨读，行业周报周日晚 20:00 纵深复盘。"
+        subtitle="按行业看信息、按事件抓重点：热度榜分钟级快照（行业体系随市场切换），行业日报每日 08:00 晨读，行业周报周日晚 20:00 纵深复盘。"
       />
+
+      {/* 三市场切换（M29：PageHeader 下统一 MarketTabs，Tab 不隐藏——拍板三；?market= 持久化） */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <MarketTabs value={market} onChange={setMarket} />
+      </div>
 
       <Tabs
         value={tab}
@@ -1449,8 +1471,14 @@ export function IndustryHeat({ retryPollMs = DEFAULT_RETRY_POLL_MS }: IndustryHe
         </TabsList>
       </Tabs>
 
+      {tab !== 'heat' && market !== 'A_SHARE' ? (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="heat-report-market-note">
+          行业日报 / 周报目前仅 A 股口径（M29 热度榜先扩市场，日报周报不扩——如实标注）。
+        </p>
+      ) : null}
+
       {tab === 'heat' ? (
-        <HeatBoardTab focusIndustry={focusIndustry} />
+        <HeatBoardTab focusIndustry={focusIndustry} market={market} />
       ) : tab === 'report' ? (
         <ReportTab retryPollMs={retryPollMs} />
       ) : (

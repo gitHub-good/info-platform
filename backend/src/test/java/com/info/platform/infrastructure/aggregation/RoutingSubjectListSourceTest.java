@@ -15,8 +15,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * RoutingSubjectListSource 单测（M7 备选源切换，ADR-0030）：Mockito 隔离两实现——auto 东财成功不碰新浪 / 东财失败自动 fallback
- * 新浪重拉整桶 / 双失败抛桶失败（东财原因挂 suppressed）/ 强制单源模式（排障）/ 非 A 股桶恒东财（新浪无港股节点）/ 非法配置值启动即失败（fail-fast）。
+ * RoutingSubjectListSource 单测（M7 备选源切换，ADR-0030；M29 T251 扩港美股 F10 路由）：Mockito 隔离实现——auto 东财成功不碰 新浪
+ * / 东财失败自动 fallback 新浪重拉整桶 / 双失败抛桶失败（东财原因挂 suppressed）/ 强制单源模式（排障）/ 港美股桶恒 F10 + 指数桶恒东财 /
+ * 非法配置值启动即失败（fail-fast）。
  */
 class RoutingSubjectListSourceTest {
 
@@ -111,19 +112,39 @@ class RoutingSubjectListSourceTest {
     }
 
     @Test
-    void nonAShareBucket_alwaysEastMoney_evenForcedSina() {
+    void nonAShareBucket_hkAndUsAlwaysF10_indexAlwaysEastMoney() {
         EastMoneyListClient eastMoney = mock(EastMoneyListClient.class);
         SinaSubjectListClient sina = mock(SinaSubjectListClient.class);
-        List<SubjectSnapshot> fromEast = List.of(snapshot("00700", "116.00700"));
-        when(eastMoney.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(fromEast);
+        EastMoneyF10ListClient f10 = mock(EastMoneyF10ListClient.class);
+        List<SubjectSnapshot> fromF10Hk = List.of(snapshot("00700", "116.00700"));
+        List<SubjectSnapshot> fromF10Us = List.of(usSnapshot("AAPL", "105.AAPL"));
+        List<SubjectSnapshot> fromEastIndex = List.of(snapshot("000001", "1.000001"));
+        when(f10.fetchAll(MarketSyncSpec.HK_STOCK)).thenReturn(fromF10Hk);
+        when(f10.fetchAll(MarketSyncSpec.US_STOCK)).thenReturn(fromF10Us);
+        when(eastMoney.fetchAll(MarketSyncSpec.CN_INDEX)).thenReturn(fromEastIndex);
 
-        // 港股/指数桶恒东财（新浪无港股节点，ADR-0030）——即使强制 sina 也只作用于 A 股桶
-        List<SubjectSnapshot> result =
-                new RoutingSubjectListSource(eastMoney, sina, "sina")
-                        .fetchAll(MarketSyncSpec.HK_STOCK);
-
-        assertThat(result).isSameAs(fromEast);
+        // 港美股桶恒东财 datacenter F10（M29 T251，ADR-0064 裁决 3）——即使强制 sina 也只作用于 A 股桶；
+        // 指数桶恒东财 clist（新浪无对应节点，ADR-0030）
+        RoutingSubjectListSource routing =
+                new RoutingSubjectListSource(eastMoney, sina, f10, "sina", null);
+        assertThat(routing.fetchAll(MarketSyncSpec.HK_STOCK)).isSameAs(fromF10Hk);
+        assertThat(routing.fetchAll(MarketSyncSpec.US_STOCK)).isSameAs(fromF10Us);
+        assertThat(routing.fetchAll(MarketSyncSpec.CN_INDEX)).isSameAs(fromEastIndex);
         verify(sina, never()).fetchAll(any());
+    }
+
+    @Test
+    void hkBucket_f10NotWired_failsFast() {
+        // 防御：固定模式构造（f10=null，纯 A 股排障场景）误用港美股桶 → 快速失败而非静默错走 clist
+        assertThatThrownBy(
+                        () ->
+                                new RoutingSubjectListSource(
+                                                mock(EastMoneyListClient.class),
+                                                mock(SinaSubjectListClient.class),
+                                                "auto")
+                                        .fetchAll(MarketSyncSpec.HK_STOCK))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("F10 列表客户端未装配");
     }
 
     @Test
@@ -169,5 +190,9 @@ class RoutingSubjectListSourceTest {
                 null,
                 secid,
                 secid.startsWith("116.") ? MarketSyncSpec.HK_STOCK : MarketSyncSpec.A_SHARE_STOCK);
+    }
+
+    private static SubjectSnapshot usSnapshot(String ticker, String secid) {
+        return new SubjectSnapshot("US" + ticker, "样本美股", null, secid, MarketSyncSpec.US_STOCK);
     }
 }

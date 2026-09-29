@@ -8,8 +8,9 @@ import java.util.List;
  *
  * <p>M13 种子三源覆盖全部三类适配通道（rss / json_api / preset）；M14 批次一十源 + M17 批次二九源（累计 22 预置）；M18 T150~T152
  * 批次三九源（门户 3/媒体 3/纵深/竞争/条件席，T153 预检终局 ADR-0055）+ 通用 RSS 示例包 ×2（<b>默认停用</b>播种不计 30 口径）；V2.3-M23 T200
- * gov_policy 第 34 预置源（纯目录配置 JSON_API，ADR-0062 裁决一）——目录 34 行、默认启用 32（Nasdaq 行留档待编排者软删后现役 31）；M14+
- * 每批新增源 = 本目录加行， {@code InfoSourceSeeder} seed-if-absent 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots
+ * gov_policy 第 34 预置源（纯目录配置 JSON_API，ADR-0062 裁决一）；M29 T253 增港美股四源（sina-roll-hk/us 频道配置型 +
+ * em-search-hk/us preset 型，34→38，ADR-0064 随批 5）——目录 38 行、默认启用 36（Nasdaq 行留档待编排者软删后现役 35）；M14+ 每批新增源
+ * = 本目录加行， {@code InfoSourceSeeder} seed-if-absent 补种（存量行不覆盖，DB 为权威）。目录即合规白名单：robots
  * 禁抓/需签名/登录墙的源根本不入目录（普查 §6 红线案例集；腾讯端点 WAF JS 盾即预检永久关闭不入目录，ADR-0055）。
  *
  * <p>合规预检留档（T106 复核）：MarketWatch robots 403 → RFC 9309 无 robots 即无限制（落地复核注记）；金十/新浪 7×24 无 robots。
@@ -774,6 +775,93 @@ public final class InfoSourceCatalog {
                     "cursorType":"NONE"}""",
                     60);
 
+    /**
+     * 新浪财经港股频道（M29 T253，Spike-E E-4b 实测 lid=2516 滚动池 10 万条）：纯目录配置 JSON_API 接入（零新 adapter）。
+     *
+     * <p>实测口径（2026-09-29）：条目数组 {@code result.data[]}，{@code docid}（comos: 前缀非数值）→ {@code
+     * cursorType=NONE} （重复轮由唯一索引幂等吸收，gov_policy 同款先例）；{@code intime} Unix
+     * <b>秒</b>（epoch_seconds_to_iso）； {@code intro} 摘要。robots：feed.mix.sina.com.cn 404 →
+     * 无限制（Spike-E §8 三验 #3 达标）。频控 30min（REQ ≥2 源/市场 的频道维源）。
+     */
+    private static final PresetEntry SINA_ROLL_HK =
+            new PresetEntry(
+                    "sina-roll-hk",
+                    "新浪财经·港股频道",
+                    "港股",
+                    AdapterType.JSON_API,
+                    null,
+                    "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&k=&num=20&page=1",
+                    """
+                    {"listPath":"result.data",\
+                    "itemMapping":[\
+                    {"source":"docid","target":"externalId","transform":"to_string"},\
+                    {"source":"intime","target":"publishedAt","transform":"epoch_seconds_to_iso"},\
+                    {"source":"title","target":"title","transform":"to_string"},\
+                    {"source":"intro","target":"summary","transform":"strip_html"},\
+                    {"source":"url","target":"url","transform":"to_string"}],\
+                    "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://finance.sina.com.cn"},\
+                    "maxItems":30,\
+                    "cursorType":"NONE"}""",
+                    30);
+
+    /** 新浪财经美股频道（M29 T253，Spike-E E-4b 实测 lid=2517 滚动池 10 万条）：与 sina-roll-hk 同端点同构，仅 lid 频道键不同。 */
+    private static final PresetEntry SINA_ROLL_US =
+            new PresetEntry(
+                    "sina-roll-us",
+                    "新浪财经·美股频道",
+                    "美股",
+                    AdapterType.JSON_API,
+                    null,
+                    "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2517&k=&num=20&page=1",
+                    """
+                    {"listPath":"result.data",\
+                    "itemMapping":[\
+                    {"source":"docid","target":"externalId","transform":"to_string"},\
+                    {"source":"intime","target":"publishedAt","transform":"epoch_seconds_to_iso"},\
+                    {"source":"title","target":"title","transform":"to_string"},\
+                    {"source":"intro","target":"summary","transform":"strip_html"},\
+                    {"source":"url","target":"url","transform":"to_string"}],\
+                    "headers":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36","Referer":"https://finance.sina.com.cn"},\
+                    "maxItems":30,\
+                    "cursorType":"NONE"}""",
+                    30);
+
+    /**
+     * 东财个股资讯搜索·港股（M29 T253，preset 型，Spike-E E-4a 实测「腾讯控股」5462 hits /「00700」950 hits）：预置 adapter
+     * （{@code eastmoneySearchNewsAdapter}）标的池 round-robin 关键词搜索（keyword=名称，pageSize=5，剥 {@code
+     * <em>} 高亮标签）， 港美两源共用 adapter（市场按 source_code 后缀 -hk/-us 区分）。
+     *
+     * <p>robots：search-api-web 404 JSON 错误体 → 无限制（Spike-E §8 三验 #2 达标）；限频按 1 req/s 起步观察（§7 条款 5，
+     * 适配器内请求间隔可配）。频控 30min（每 tick 40 标的轮转覆盖池）。
+     */
+    private static final PresetEntry EM_SEARCH_HK =
+            new PresetEntry(
+                    "em-search-hk",
+                    "东方财富·港股个股资讯",
+                    "港股",
+                    AdapterType.PRESET,
+                    "eastmoneySearchNewsAdapter",
+                    "https://search-api-web.eastmoney.com/search/jsonp",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
+    /**
+     * 东财个股资讯搜索·美股（M29 T253，Spike-E E-4a 实测「AAPL」93 hits）：与 em-search-hk 共用 adapter，标的池 = 美股 ticker
+     * round-robin。频控 30min。
+     */
+    private static final PresetEntry EM_SEARCH_US =
+            new PresetEntry(
+                    "em-search-us",
+                    "东方财富·美股个股资讯",
+                    "美股",
+                    AdapterType.PRESET,
+                    "eastmoneySearchNewsAdapter",
+                    "https://search-api-web.eastmoney.com/search/jsonp",
+                    """
+                    {"cursorType":"NONE"}""",
+                    30);
+
     /** 预置源清单（种子顺序即展示顺序；source_code 唯一由单测守护）。 */
     public static List<PresetEntry> presets() {
         return List.of(
@@ -809,6 +897,10 @@ public final class InfoSourceCatalog {
                 GELONGHUI_LIVE,
                 CE_NEWS,
                 GOV_POLICY,
+                SINA_ROLL_HK,
+                SINA_ROLL_US,
+                EM_SEARCH_HK,
+                EM_SEARCH_US,
                 EXAMPLE_WSJ_WORLD,
                 EXAMPLE_ITHOME);
     }

@@ -92,6 +92,22 @@ industry:
     enabled: false
     cron: 0 30 18 * * ?
 
+# 资讯脉搏 job 在测试环境关闭（V3.2 M28）：种子 job.NEWS_PULSE enabled=false → 调度零注册——
+# fixedDelay 首跑立即，测试上下文若注册会在调度线程提交 job_execution_log 留痕，污染共享内存库的
+# 计数类集成断言（T251 基线复跑定位）；脉搏分析改由单测直接调 NewsPulseService.analyze 验证（mock LLM 零外呼）。
+news:
+  pulse-job:
+    enabled: false
+    interval-millis: 1800000
+
+# 港美股行情快照 job 在测试环境关闭（M29 T252）：种子 job.HKUS_MARKET_SNAPSHOT enabled=false → 调度零注册
+# （沿 news.pulse-job 同款惯例——fixedDelay 首跑立即，注册会外呼腾讯/新浪污染集成断言）；
+# 快照/聚合/收敛逻辑改由单测直接调 HKUSMarketSnapshotService.run 验证（双源 Mock 零外呼）。
+hkus:
+  market-snapshot:
+    enabled: false
+    interval-millis: 3600000
+
 logging:
   level:
     org.springframework: WARN

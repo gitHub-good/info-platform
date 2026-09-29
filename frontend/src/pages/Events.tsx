@@ -5,9 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { MarketTabs } from '@/components/common/MarketTabs';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useMarketParam } from '@/hooks/useMarketParam';
+import type { MarketKey } from '@/lib/market';
+import { marketOf } from '@/lib/market';
 import { directionToneClass, formatDateTime } from '@/lib/format';
 import {
   DIRECTION_LABELS,
@@ -15,14 +19,21 @@ import {
   IMPORTANCE_LABELS,
   labelOf,
 } from '@/types/industryHeat';
-import { SW_INDUSTRIES, type EventCard, type ImpactChainView } from '@/types/eventStream';
+import {
+  SW_INDUSTRIES,
+  type EventCard,
+  type EventIndustryFilterGroup,
+  type ImpactChainView,
+} from '@/types/eventStream';
 
 // 事件流页（M15 T127，#/events 全站第 17 页——方案 §4.8 + REQ 故事 3）。
 // L2 结构化事件全字段卡片流：类型/方向（沿 A 股惯例利好红利空绿）/重要度（高>中>低）徽章、
 // 影响行业 chips、关键数字 chips（原文可回溯）、subjects 可点跳标的详情、quote 原文引用 + 原文外链；
-// 四维筛选（类型 9 枚举/行业 31 申万/重要度/方向）变更回第 1 页骨架重查。
+// 四维筛选（类型 9 枚举/行业随市场分组/重要度/方向）变更回第 1 页骨架重查。
 // M25 T224 分页化：beforeId 游标「加载更多」退役，接入 M9 Pagination（page/size 页码模式，
 // 消费 T220 契约）——翻页在途保留数据、失败可重试、末页收缩空页回退（M9 §5 语义）。
+// M29 T257：三市场切换（?market= 持久化；market 过滤 = 事件关联标的含该市场标的，A股缺省不过滤零回归；
+// 行业过滤器随响应 industryFilterGroups 分组切换，后端在途缺省回 SW 31 既有口径——容错不报错）。
 // 落点聚焦（M20 T173）从简裁量留档：页码模式下聚焦「当前页命中行」高亮滚入，不做定向跨页回溯。
 // 三态齐备：加载骨架 / 空态引导 / 错误重试；受保护接口 401 由 http 层统一跳登录。
 
@@ -316,16 +327,27 @@ interface FilterState {
   industry: string;
   importance: string;
   direction: string;
+  /** 市场过滤（M29：入 filters 走既有「变更回第 1 页重查」通道；A_SHARE = 不过滤零回归）。 */
+  market: MarketKey;
 }
 
-const INITIAL_FILTERS: FilterState = { type: '', industry: '', importance: '', direction: '' };
+const INITIAL_FILTERS: FilterState = {
+  type: '',
+  industry: '',
+  importance: '',
+  direction: '',
+  market: 'A_SHARE',
+};
 
-/** 下拉筛选行（类型 9 枚举 / 行业 31 申万 / 重要度 / 方向；变更即回第 1 页重拉）。 */
+/** 下拉筛选行（类型 9 枚举 / 行业随市场分组 / 重要度 / 方向；变更即回第 1 页重拉）。 */
 function FilterRow({
   filters,
+  industryOptions,
   onChange,
 }: {
   filters: FilterState;
+  /** 行业下拉选项（当前市场的枚举集——响应 industryFilterGroups 分组；缺省回 SW 31 既有口径）。 */
+  industryOptions: readonly string[];
   onChange: (key: keyof FilterState, value: string) => void;
 }) {
   const selectClass =
@@ -354,7 +376,7 @@ function FilterRow({
         className={selectClass}
       >
         <option value="">全部行业</option>
-        {SW_INDUSTRIES.map((industry) => (
+        {industryOptions.map((industry) => (
           <option key={industry} value={industry}>
             {industry}
           </option>
@@ -392,13 +414,17 @@ function FilterRow({
   );
 }
 
-/** 事件流页（第 17 页，「分析」组；M25 T224 分页化）。 */
+/** 事件流页（第 17 页，「分析」组；M25 T224 分页化 + M29 T257 三市场切换）。 */
 export function Events() {
-  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
+  // 三市场切换（M29 T257）：URL ?market= 持久化（挂载读初值——深链直达）；切换并进 filters 走既有重查通道
+  const [market, setMarket] = useMarketParam();
+  const [filters, setFilters] = useState<FilterState>(() => ({ ...INITIAL_FILTERS, market }));
   const [items, setItems] = useState<EventCard[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // 行业过滤器分组（M29 §5.4 契约增量：响应携带则按市场分组；后端在途缺省 null → 回 SW 31 口径）
+  const [industryGroups, setIndustryGroups] = useState<EventIndustryFilterGroup[] | null>(null);
   // pageSize 的稳定读取点：翻页回调不随渲染闭包漂移
   const pageSizeRef = useRef(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
@@ -414,16 +440,38 @@ export function Events() {
     return parsed != null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   });
 
+  /** 行业下拉选项：当前市场的枚举集（分组缺省回 SW 31——A 股既有口径零回归）。 */
+  const industryOptions: readonly string[] =
+    industryGroups?.find((group) => marketOf(group.market) === filters.market)?.industries ??
+    SW_INDUSTRIES;
+
   /** 空页防御回退（M9 §5.3）：响应 items 空且 total>0 且 page>1 → 页界漂移，静默重发末页。 */
   const fetchView = useCallback(
     async (
-      query: { type: string; industry: string; importance: string; direction: string },
+      query: {
+        type: string;
+        industry: string;
+        importance: string;
+        direction: string;
+        market: MarketKey;
+      },
       target: number,
       size: number,
       signal: AbortSignal,
     ): Promise<{ landed: number; total: number; items: EventCard[] }> => {
-      const call = (pageNo: number) => getEventsPaged({ ...query, page: pageNo, size }, signal);
+      // market=A_SHARE 不下发（§5.4 缺省不过滤——A 股视角零回归）；非 A 股下发，后端未识别即忽略回全量（容错）
+      const call = (pageNo: number) =>
+        getEventsPaged(
+          {
+            ...query,
+            market: query.market !== 'A_SHARE' ? query.market : undefined,
+            page: pageNo,
+            size,
+          },
+          signal,
+        );
       let view = await call(target);
+      setIndustryGroups(view.industryFilterGroups ?? null);
       if (view.items.length === 0 && view.total > 0 && target > 1) {
         const last = Math.ceil(view.total / size);
         if (last >= 1 && last < target) {
@@ -518,16 +566,28 @@ export function Events() {
     }
   }, [focusId, items]);
 
+  /** 市场切换（M29）：并进 filters 驱动既有「回第 1 页重查」通道；行业筛选随枚举集切换清空。 */
+  const handleMarketChange = (next: MarketKey) => {
+    setMarket(next);
+    setFilters((prev) => (prev.market === next ? prev : { ...prev, market: next, industry: '' }));
+  };
+
   return (
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="events-page">
       <PageHeader
         title="事件流"
-        subtitle="AI 管道提取的结构化事件：按类型/行业/重要度/方向筛选，关键数字与引用取自原文可回溯。"
+        subtitle="AI 管道提取的结构化事件：按市场/类型/行业/重要度/方向筛选，关键数字与引用取自原文可回溯。"
       />
+
+      {/* 三市场切换（M29：统一 MarketTabs，Tab 不隐藏——拍板三；A股 = 不过滤零回归） */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <MarketTabs value={filters.market} onChange={handleMarketChange} />
+      </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <FilterRow
           filters={filters}
+          industryOptions={industryOptions}
           onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
         />
         <span
@@ -561,7 +621,11 @@ export function Events() {
       ) : items.length === 0 ? (
         <EmptyState
           title="暂无事件"
-          description="AI 管道按配额提取高价值结构化事件（L2 产出），可稍后刷新或放宽筛选。"
+          description={
+            filters.market === 'A_SHARE'
+              ? 'AI 管道按配额提取高价值结构化事件（L2 产出），可稍后刷新或放宽筛选。'
+              : '该市场事件随港美股资讯源接入逐步积累（覆盖不足如实呈现，不隐藏不填充）；可稍后刷新、放宽筛选或切换市场。'
+          }
           testId="events-empty"
         />
       ) : (

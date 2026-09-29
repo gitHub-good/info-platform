@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.ai.PromptTemplateService;
 import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmException;
@@ -144,7 +146,7 @@ class WeeklyReportServiceTest {
                                 eventOf(2L, EventType.POLICY_RELEASE, "银行", Importance.MEDIUM),
                                 eventOf(3L, EventType.EARNINGS_FORECAST, "银行", Importance.MEDIUM),
                                 eventOf(4L, EventType.MAJOR_CONTRACT, "食品饮料", Importance.LOW)));
-        when(heatSnapshotRepository.findWindowItems(anyString(), anyString()))
+        when(heatSnapshotRepository.findWindowItems(anyString(), anyString(), eq(Market.A_SHARE)))
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.WindowItem(

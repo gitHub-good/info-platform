@@ -153,7 +153,11 @@ public class EastMoneyBoardQuoteClient implements IndustryQuoteSource {
         }
         List<IndustryQuote> industries = BoardAggregator.aggregate(boards);
         String quoteTime =
-                clock.instant().atZone(SNAPSHOT_ZONE).truncatedTo(ChronoUnit.SECONDS).toString();
+                clock.instant()
+                        .atZone(SNAPSHOT_ZONE)
+                        .truncatedTo(ChronoUnit.SECONDS)
+                        .toOffsetDateTime()
+                        .toString();
         log.info(
                 "push2 板块行情拉取完成 boards={} industries={} unmapped={}",
                 boards.size(),

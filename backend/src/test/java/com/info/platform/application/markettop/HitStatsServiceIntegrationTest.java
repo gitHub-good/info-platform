@@ -199,7 +199,7 @@ class HitStatsServiceIntegrationTest {
         insertClose(s1, "2099-03-03", 110.0);
         insertClose(s2, "2099-03-03", 90.0);
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         WindowView t1 =
                 view.windows().stream()
@@ -259,7 +259,7 @@ class HitStatsServiceIntegrationTest {
         insertClose(s1, "2099-04-07", s1Close);
         insertClose(s2, "2099-04-07", s2Close);
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         WindowView t1 =
                 view.windows().stream()

@@ -127,113 +127,30 @@ function KeywordSearch({ value, onChange, onSubmit, disabled }: KeywordSearchPro
   );
 }
 
+/** 关联标的市场推导（V3.2 动态 tag）：SH/SZ→A股、HK→港股、其余前缀（US 代码）→美股。 */
+function marketsOfSubjects(subjects: MatchedSubject[]): string[] {
+  const markets = new Set<string>();
+  for (const subject of subjects) {
+    if (subject.code.startsWith('SH') || subject.code.startsWith('SZ')) markets.add('A股');
+    else if (subject.code.startsWith('HK')) markets.add('港股');
+    else markets.add('美股');
+  }
+  return [...markets];
+}
+
 interface NewsLibraryRowProps {
   item: NewsLibraryItem;
   /** 标的 chip 点击（V3.1 双向联动）：以该标的为筛选条件重查。 */
   onSubjectPick: (subject: MatchedSubject) => void;
 }
 
-/** hover 详情卡（V3.1）：纯 CSS group-hover 浮层（零新依赖）——已有字段全量呈现，不截断任何信息。 */
-function NewsLibraryHoverCard({ item }: { item: NewsLibraryItem }) {
-  const l0 = L0_BADGES[item.l0Result];
-  return (
-    <aside
-      className="absolute inset-x-0 top-full z-20 hidden rounded-xl border border-border bg-popover p-4 text-sm shadow-lg group-hover:block"
-      data-testid={`news-library-hover-${item.id}`}
-      aria-label="条目详情"
-    >
-      <p className="font-medium break-words" data-testid={`news-library-hover-title-${item.id}`}>
-        {item.title}
-      </p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span title={item.sourceCode ?? undefined}>
-          源 {item.sourceName ?? `源 ${item.sourceId}`}
-        </span>
-        {item.author ? <span>作者 {item.author}</span> : null}
-        <span>发布 {formatDateTime(item.publishedAt)}</span>
-        <span>抓取 {formatDateTime(item.fetchedAt)}</span>
-        <Badge className={l0.className} title={item.l0Detail ?? undefined}>
-          {l0.label}
-        </Badge>
-        <Badge
-          variant={item.l1Main ? 'secondary' : 'outline'}
-          title={item.l1Confidence != null ? `置信度 ${item.l1Confidence}` : undefined}
-        >
-          {item.l1Main ?? '未分类'}
-        </Badge>
-        {item.lowConfidence ? (
-          <Badge className="bg-amber-500/15 text-amber-400">低置信</Badge>
-        ) : null}
-      </div>
-      {item.matchedSubjects.length > 0 ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">关联标的</span>
-          {item.matchedSubjects.map((subject) => (
-            <span
-              key={subject.code}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-xs"
-              data-testid={`news-library-hover-subject-${item.id}-${subject.code}`}
-            >
-              <span className="font-medium">{subject.code}</span>
-              <span>{subject.name}</span>
-              {subject.industry ? (
-                <span className="text-muted-foreground">· {subject.industry}</span>
-              ) : null}
-              <a
-                href={`#/subjects/${subject.code}`}
-                className="text-primary underline-offset-4 hover:underline"
-                data-testid={`news-library-hover-subject-link-${item.id}-${subject.code}`}
-              >
-                详情
-              </a>
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {item.summary ? (
-        <p
-          className="mt-2 whitespace-pre-wrap break-words text-muted-foreground"
-          data-testid={`news-library-hover-summary-${item.id}`}
-        >
-          {item.summary}
-        </p>
-      ) : null}
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-        {item.url ? (
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-0.5 text-primary underline-offset-4 hover:underline"
-            data-testid={`news-library-hover-origin-${item.id}`}
-          >
-            原文
-            <ExternalLink className="size-3" aria-hidden="true" />
-          </a>
-        ) : null}
-        {item.nearDupMasterUrl ? (
-          <a
-            href={item.nearDupMasterUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-0.5 text-primary underline-offset-4 hover:underline"
-            data-testid={`news-library-hover-master-${item.id}`}
-          >
-            主条
-            <ExternalLink className="size-3" aria-hidden="true" />
-          </a>
-        ) : null}
-      </div>
-    </aside>
-  );
-}
 
-/** 资讯库列表行：标题外链 / 源徽章 / 双时间 / L0·L1 徽章 / 标的 chips / 摘要（行内截断，悬浮卡全量）。 */
+/** 资讯库列表行：标题外链 / 源徽章 / 双时间 / L0·L1 徽章 / 标的 chips / 摘要两行截断（V3.2 移除悬浮卡——行内信息已完整）。 */
 function NewsLibraryRow({ item, onSubjectPick }: NewsLibraryRowProps) {
   const l0 = L0_BADGES[item.l0Result];
   return (
     <article
-      className="group relative rounded-xl border border-border bg-card p-4 shadow-sm"
+      className="relative rounded-xl border border-border bg-card p-4 shadow-sm"
       data-testid={`news-library-item-${item.id}`}
     >
       {item.url ? (
@@ -282,7 +199,18 @@ function NewsLibraryRow({ item, onSubjectPick }: NewsLibraryRowProps) {
             未分类
           </Badge>
         )}
-        {/* 关联标的 chips（V3.1，L1 徽章旁）：名称可点 → 以该标的筛选（双向联动）；详情入口在悬浮卡 */}
+        {/* 市场 tag（V3.2 动态 tag）：由关联标的代码推导 A股/港股/美股，随标的回联自动更新 */}
+        {marketsOfSubjects(item.matchedSubjects).map((market) => (
+          <Badge
+            key={`${item.id}-${market}`}
+            variant="outline"
+            className="border-sky-500/30 text-sky-400"
+            data-testid={`news-library-market-${item.id}-${market}`}
+          >
+            {market}
+          </Badge>
+        ))}
+        {/* 关联标的 chips（V3.1，L1 徽章旁）：名称可点 → 以该标的筛选（双向联动） */}
         {item.matchedSubjects.map((subject) => (
           <button
             key={subject.code}
@@ -326,7 +254,6 @@ function NewsLibraryRow({ item, onSubjectPick }: NewsLibraryRowProps) {
           {item.summary}
         </p>
       ) : null}
-      <NewsLibraryHoverCard item={item} />
     </article>
   );
 }
@@ -440,8 +367,8 @@ interface LibraryReload {
  * - 筛选行：关键词搜索（显式触发）+ L0 状态段（默认有效）+ L1 分类下拉（35 枚举硬编码）+
  *   源下拉（info-sources 活跃源复用；接口失败降级仅「全部源」不阻塞列表）+
  *   标的搜索（V3.1：SubjectPicker 联想选中 → subjectCode 过滤，chips 点击双向联动）。
- * - 行悬浮详情卡（V3.1 纯 CSS group-hover）：已有字段全量呈现不截断（完整标题/摘要/源/作者/
- *   双时间/L0·L1/关联标的/主条/原文），标的详情入口 #/subjects/:code。
+ * - 行内信息即全量（V3.2 移除 V3.1 悬浮卡）：标题外链/摘要两行截断/源徽章/双时间/
+ *   L0·L1 徽章（L1 动态 tag，PENDING 显示「未分类」）/标的 chips（点击筛选联动）。
  * - 联动（M9 §5 语义）：筛选变更 → page=1 骨架重查；翻页/条数切换保留数据；空页漂移静默回退末页；
  *   AbortController 单点防串台。
  * 三态：加载骨架 / 空态（区分库为空与筛选过窄）/ 错误重试；401 由 http 层统一跳 /login。
@@ -699,6 +626,15 @@ export function NewsLibrary({ route: routeProp }: { route?: string }) {
       <PageHeader
         title="资讯库"
         subtitle="资讯源原始条目全量 · 默认仅有效（PASS）条目 · 噪音/近重复可筛"
+        actions={
+          <a
+            href="#/news-pulse"
+            className="inline-flex items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
+            data-testid="news-library-pulse-entry"
+          >
+            资讯脉搏 · 时间窗 AI 大盘分析 →
+          </a>
+        }
       />
       {/* 标的聚合（V3.1）：选中标的后按当前口径呈现该标的关联资讯总数 */}
       {subjectSel ? (

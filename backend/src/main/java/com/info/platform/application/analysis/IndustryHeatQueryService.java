@@ -1,5 +1,6 @@
 package com.info.platform.application.analysis;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.GuardLevel;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.HeatWindow;
@@ -12,8 +13,9 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
- * 行业热度读服务（应用层，M15 T123，方案 §4.8）：榜单（窗口参数 + 31 行降序 + basis 脚注 + 护栏徽章）与行业下钻（news/events 双清单、 beforeId
- * 游标、对账 total）。参数校验：window/type/行业名非法 → 30076；limit 1~50 越界拒绝不截断（M9 口径）。
+ * 行业热度读服务（应用层，M15 T123，方案 §4.8；M29 T255 market 参数化——缺省 A_SHARE 既有语义零回归）：榜单（市场 + 窗口参数 + 各市场枚举行的降序 +
+ * basis 脚注 + 护栏徽章 + 口径标注）与行业下钻（news/events 双清单、beforeId 游标、对账 total——按 {@code l1_market}
+ * 分桶不混桶）。参数校验：market/window/type/行业名非法 → 30076；limit 1~50 越界拒绝不截断（M9 口径）。
  */
 @Service
 public class IndustryHeatQueryService {
@@ -34,26 +36,32 @@ public class IndustryHeatQueryService {
         this.clock = clock;
     }
 
-    /** 热度榜（window 缺省 H24）。 */
-    public IndustryHeatBoardView board(String windowParam) {
+    /** 热度榜（market 缺省 A_SHARE；window 缺省 H24）。 */
+    public IndustryHeatBoardView board(String marketParam, String windowParam) {
+        Market market = resolveMarket(marketParam);
         HeatWindow window = resolveWindow(windowParam);
-        List<IndustryHeatSnapshot> rows = repository.findBoard(window);
+        List<IndustryHeatSnapshot> rows = repository.findBoard(window, market);
         GuardLevel level = guardService.currentLevel();
-        return new IndustryHeatBoardView(
-                window.name(),
-                rows.stream().map(IndustryHeatBoardView.RowView::of).toList(),
-                basisOf(rows),
-                snapshotAtOf(rows),
-                new IndustryHeatBoardView.PipelineBadgeView(level.name()));
+        return IndustryHeatBoardView.of(
+                market, window, rows, new IndustryHeatBoardView.PipelineBadgeView(level.name()));
     }
 
-    /** 行业下钻（type 缺省 news；total 与榜单 news_count/event_count 对账相等）。 */
+    /** 行业下钻（type 缺省 news；total 与榜单 news_count/event_count 对账相等——同市场口径）。 */
     public IndustryHeatItemsView items(
-            String industry, String windowParam, String type, Long beforeId, Integer limit) {
-        if (!IndustryCategory.isSwIndustry(industry)) {
+            String industry,
+            String marketParam,
+            String windowParam,
+            String type,
+            Long beforeId,
+            Integer limit) {
+        Market market = resolveMarket(marketParam);
+        if (!IndustryCategory.isBoardIndustry(market, industry)) {
             throw new BusinessException(
                     ErrorCode.PIPELINE_CONFIG_INVALID,
-                    "industry: 须为申万一级行业枚举（31 选 1），当前值 " + industry);
+                    "industry: 须为该市场进榜行业枚举（"
+                            + IndustryCategory.industrySystemOf(market)
+                            + "），当前值 "
+                            + industry);
         }
         HeatWindow window = resolveWindow(windowParam);
         String listType = resolveType(type);
@@ -63,16 +71,22 @@ public class IndustryHeatQueryService {
         String to = windowEnd.toString();
 
         if ("events".equals(listType)) {
-            return eventsItems(industry, window, from, to, beforeId, pageSize);
+            return eventsItems(industry, window, market, from, to, beforeId, pageSize);
         }
-        return newsItems(industry, window, from, to, beforeId, pageSize);
+        return newsItems(industry, window, market, from, to, beforeId, pageSize);
     }
 
     private IndustryHeatItemsView newsItems(
-            String industry, HeatWindow window, String from, String to, Long beforeId, int limit) {
+            String industry,
+            HeatWindow window,
+            Market market,
+            String from,
+            String to,
+            Long beforeId,
+            int limit) {
         List<HeatSnapshotRepository.IndustryNewsItem> page =
-                repository.findIndustryNewsItems(industry, from, to, beforeId, limit);
-        long total = repository.countIndustryNewsItems(industry, from, to);
+                repository.findIndustryNewsItems(industry, from, to, beforeId, limit, market);
+        long total = repository.countIndustryNewsItems(industry, from, to, market);
         return new IndustryHeatItemsView(
                 industry,
                 window.name(),
@@ -87,10 +101,16 @@ public class IndustryHeatQueryService {
     }
 
     private IndustryHeatItemsView eventsItems(
-            String industry, HeatWindow window, String from, String to, Long beforeId, int limit) {
+            String industry,
+            HeatWindow window,
+            Market market,
+            String from,
+            String to,
+            Long beforeEventId,
+            int limit) {
         List<HeatSnapshotRepository.IndustryEventItem> page =
-                repository.findIndustryEventItems(industry, from, to, beforeId, limit);
-        long total = repository.countIndustryEventItems(industry, from, to);
+                repository.findIndustryEventItems(industry, from, to, beforeEventId, limit, market);
+        long total = repository.countIndustryEventItems(industry, from, to, market);
         return new IndustryHeatItemsView(
                 industry,
                 window.name(),
@@ -107,6 +127,20 @@ public class IndustryHeatQueryService {
     private static Long nextBeforeId(int pageSize, int limit, long total, Long lastIdOfPage) {
         // BUG-02（M15 验收）：空页时调用方传 null，原始 long 形参拆箱 NPE——改包装类型（空页恒返 null）
         return pageSize == limit && total > limit ? lastIdOfPage : null;
+    }
+
+    /** 市场参数解析（缺省 A_SHARE；非法 30076——方案 §五 统一约定）。 */
+    static Market resolveMarket(String marketParam) {
+        if (marketParam == null || marketParam.isBlank()) {
+            return Market.A_SHARE;
+        }
+        try {
+            return Market.fromName(marketParam.trim());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(
+                    ErrorCode.PIPELINE_CONFIG_INVALID,
+                    "market: 须为 A_SHARE / HK / US，当前值 " + marketParam);
+        }
     }
 
     private static HeatWindow resolveWindow(String windowParam) {
@@ -143,13 +177,5 @@ public class IndustryHeatQueryService {
                     "limit: 须在 1~" + ITEMS_LIMIT_MAX + "（越界拒绝不截断），当前值 " + limit);
         }
         return limit;
-    }
-
-    private static String basisOf(List<IndustryHeatSnapshot> rows) {
-        return rows.isEmpty() ? null : rows.get(0).getBasis();
-    }
-
-    private static String snapshotAtOf(List<IndustryHeatSnapshot> rows) {
-        return rows.isEmpty() ? null : rows.get(0).getSnapshotAt().toString();
     }
 }

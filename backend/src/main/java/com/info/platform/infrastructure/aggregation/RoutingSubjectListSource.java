@@ -26,8 +26,10 @@ import org.springframework.stereotype.Component;
  * <p>路由规则（运行时键 {@code subject.sync}，<b>每次取数用时读快照</b>——页面保存后下一轮同步即新源，无需重启）：
  *
  * <ul>
- *   <li><b>非 A 股桶（港股/指数）恒东财</b>——新浪无港股节点（实测 hk_stocks 返空，ADR-0027/0030），链只作用于 A 股桶
- *   <li><b>降级链</b>（ADR-0033，文档字段 {@code fallbackChain: ["eastmoney","sina"]}，缺省注册表全链）：
+ *   <li><b>港美股桶恒东财 datacenter F10</b>（M29 T251，ADR-0064 裁决 3——push2 封禁期建池走 F10 档案报表；{@link
+ *       EastMoneyF10ListClient} 承载，解封后 F10 可降备链，先例同 A 股桶双实现）
+ *   <li><b>指数桶恒东财 clist</b>（T54 既有口径）
+ *   <li><b>A 股桶降级链</b>（ADR-0033，文档字段 {@code fallbackChain: ["eastmoney","sina"]}，缺省注册表全链）：
  *       按链依次尝试——主源拉取失败（重试耗尽 / total 不符等）→ 记 WARN（带 provider 名与链位）→ 下一备选
  *       <b>整桶重拉</b>（非增量续传，全量语义下无半截数据）；全链失败抛末级异常（前级挂 {@code suppressed} 留诊断链）
  *   <li><b>旧开关折算</b>（{@code aShareSource: auto | eastmoney | sina}，读取兼容逐步淘汰）：auto→全链、
@@ -43,7 +45,7 @@ public class RoutingSubjectListSource implements SubjectListSource {
 
     private static final Logger log = LoggerFactory.getLogger(RoutingSubjectListSource.class);
 
-    /** A 股桶可用 provider 注册表（代码事实，首元素 = 默认主源；港股/指数桶恒东财与此无关）。 */
+    /** A 股桶可用 provider 注册表（代码事实，首元素 = 默认主源；港美股/指数桶恒东财与此无关）。 */
     private static final List<SourceProvider> PROVIDERS = SourceProviders.A_SHARE_LIST_PROVIDERS;
 
     /** A 股桶源选择模式（{@code subject.sync.aShareSource} 合法取值；ADR-0033 起为兼容口径）。 */
@@ -55,6 +57,7 @@ public class RoutingSubjectListSource implements SubjectListSource {
 
     private final EastMoneyListClient eastMoney;
     private final SinaSubjectListClient sina;
+    private final EastMoneyF10ListClient f10;
 
     /** 开关回落值（纯构造单测/配置中心缺失或键缺失时）。 */
     private final Mode fallbackMode;
@@ -65,26 +68,40 @@ public class RoutingSubjectListSource implements SubjectListSource {
     /** Spring 装配构造：开关回落缺省取 {@link DataSourceDefaults}，热读注入配置中心。 */
     @Autowired
     public RoutingSubjectListSource(
-            EastMoneyListClient eastMoney, SinaSubjectListClient sina, ConfigCenter configCenter) {
-        this(eastMoney, sina, DataSourceDefaults.A_SHARE_LIST_SOURCE, configCenter);
+            EastMoneyListClient eastMoney,
+            SinaSubjectListClient sina,
+            EastMoneyF10ListClient f10,
+            ConfigCenter configCenter) {
+        this(eastMoney, sina, f10, DataSourceDefaults.A_SHARE_LIST_SOURCE, configCenter);
     }
 
     /** 全参构造（纯构造单测指定回落模式；configCenter 传 null 即固定构造期模式）。 */
     public RoutingSubjectListSource(
             EastMoneyListClient eastMoney,
             SinaSubjectListClient sina,
+            EastMoneyF10ListClient f10,
             String mode,
             ConfigCenter configCenter) {
         this.eastMoney = eastMoney;
         this.sina = sina;
+        this.f10 = f10;
         this.fallbackMode = parseMode(mode);
         this.configCenter = configCenter;
+    }
+
+    /** 兼容构造（M29 前调用面：无 F10 客户端——仅 A 股链语义，港美股桶会快速失败）。 */
+    public RoutingSubjectListSource(
+            EastMoneyListClient eastMoney,
+            SinaSubjectListClient sina,
+            String mode,
+            ConfigCenter configCenter) {
+        this(eastMoney, sina, null, mode, configCenter);
     }
 
     /** 固定模式构造（纯构造单测：无配置中心，模式即构造期值）。 */
     public RoutingSubjectListSource(
             EastMoneyListClient eastMoney, SinaSubjectListClient sina, String mode) {
-        this(eastMoney, sina, mode, null);
+        this(eastMoney, sina, null, mode, null);
     }
 
     /** 解析配置值：大小写不敏感；空值回落 auto；非法取值抛 {@link IllegalArgumentException}（fail-fast）。 */
@@ -103,8 +120,15 @@ public class RoutingSubjectListSource implements SubjectListSource {
 
     @Override
     public List<SubjectSnapshot> fetchAll(MarketSyncSpec bucket) {
+        if (bucket == MarketSyncSpec.HK_STOCK || bucket == MarketSyncSpec.US_STOCK) {
+            // 港美股桶恒东财 datacenter F10（M29 T251，ADR-0064 裁决 3——push2 封禁期建池主通道，无备源降级）
+            if (f10 == null) {
+                throw new IllegalStateException("F10 列表客户端未装配，港美股桶不可用 bucket=" + bucket);
+            }
+            return f10.fetchAll(bucket);
+        }
         if (bucket != MarketSyncSpec.A_SHARE_STOCK) {
-            // 港股/指数桶恒东财（新浪无港股节点，ADR-0030）——链只作用于 A 股桶
+            // 指数桶恒东财 clist（新浪无对应节点，ADR-0030）——链只作用于 A 股桶
             return eastMoney.fetchAll(bucket);
         }
         return fetchByChain(bucket, currentChain());

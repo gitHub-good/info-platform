@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { Pagination } from '@/components/ui/pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SubjectDetailDialog } from '@/components/subject/SubjectDetailDialog';
 import {
@@ -15,17 +16,34 @@ import {
 } from '@/components/ui/table';
 import { navigate } from '@/lib/navigation';
 import { changeColorClass, formatNumber, formatPct, formatPrice } from '@/lib/format';
-import type { SubjectQuoteRow } from '@/api/subject';
-import type { WatchlistItemView, WatchlistView } from '@/types/watchlist';
+import type {
+  WatchlistItemPagedRow,
+  WatchlistItemView,
+  WatchlistItemsPagedView,
+  WatchlistItemsSortKey,
+  WatchlistView,
+} from '@/types/watchlist';
 
 interface WatchlistDetailProps {
   watchlist: WatchlistView | null;
+  /** 清单元信息（名称/备注）加载态。 */
   loading: boolean;
   submitting: boolean;
   /** 详情区动作（加/删/改阈值）的错误提示。 */
   actionError: string | null;
-  /** 标的摘要+行情（按 subjectId 索引，体检 P1-2 自选清单增强）；null = 未加载/加载失败，行情列显示「—」。 */
-  subjectRows: Record<number, SubjectQuoteRow> | null;
+  /** 清单项分页视图（行情内联，分页排序态由受控 props 承载）；null = 未加载。 */
+  itemsView: WatchlistItemsPagedView | null;
+  itemsLoading: boolean;
+  itemsError: string | null;
+  page: number;
+  pageSize: number;
+  sort: WatchlistItemsSortKey;
+  dir: 'asc' | 'desc';
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+  /** 点排序表头：非当前键 → 该键降序（金融列表降序优先）；当前键 → 升降切换。 */
+  onSortChange: (key: WatchlistItemsSortKey) => void;
+  onRetryItems: () => void;
   onOpenAdd: () => void;
   onOpenEdit: (item: WatchlistItemView) => void;
   onRemove: (itemId: number) => void;
@@ -40,17 +58,17 @@ function DetailSkeleton() {
   );
 }
 
-/** 标的列：代码 + 名称 + 行业徽章（行情缺失或标的未知时回退数字主键，不裸奔错误）。 */
-function SubjectCell({ item, row }: { item: WatchlistItemView; row?: SubjectQuoteRow }) {
-  if (!row) {
+/** 标的列：代码 + 名称 + 行业徽章（行情整体缺失或标的未知时回退数字主键，不裸奔错误）。 */
+function SubjectCell({ row }: { row: WatchlistItemPagedRow }) {
+  if (!row.subjectCode) {
     return (
-      <span className="text-muted-foreground" data-testid={`watchlist-item-subject-${item.id}`}>
-        #{item.subjectId}
+      <span className="text-muted-foreground" data-testid={`watchlist-item-subject-${row.id}`}>
+        #{row.subjectId}
       </span>
     );
   }
   return (
-    <div className="flex items-center gap-2" data-testid={`watchlist-item-subject-${item.id}`}>
+    <div className="flex items-center gap-2" data-testid={`watchlist-item-subject-${row.id}`}>
       <span className="font-medium">{row.subjectCode}</span>
       <span>{row.name}</span>
       {row.industry ? <Badge variant="secondary">{row.industry}</Badge> : null}
@@ -58,7 +76,7 @@ function SubjectCell({ item, row }: { item: WatchlistItemView; row?: SubjectQuot
   );
 }
 
-/** 行情列：无数据显示「—」（行情失败不阻断清单）。 */
+/** 行情列：无数据显示「—」（行情缺失不阻断清单）。 */
 function QuoteCell({
   testId,
   value,
@@ -66,7 +84,7 @@ function QuoteCell({
   colorize = false,
 }: {
   testId: string;
-  value: number | null | undefined;
+  value: number | null;
   format: (v: number) => string;
   colorize?: boolean;
 }) {
@@ -84,13 +102,59 @@ function QuoteCell({
   );
 }
 
-/** 清单详情：标题 + 添加标的入口 + 清单项表（标的/最新价/涨跌幅/阈值/操作；移除需二次确认）。 */
+/** 可排序表头（最新价/涨跌幅）：箭头随激活态与方向切换。 */
+function SortableTableHead({
+  label,
+  sortKey,
+  activeSort,
+  activeDir,
+  onSortChange,
+  testId,
+}: {
+  label: string;
+  sortKey: WatchlistItemsSortKey;
+  activeSort: WatchlistItemsSortKey;
+  activeDir: 'asc' | 'desc';
+  onSortChange: (key: WatchlistItemsSortKey) => void;
+  testId: string;
+}) {
+  const active = activeSort === sortKey;
+  return (
+    <TableHead>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="-ml-2 gap-1 px-2 font-medium"
+        onClick={() => onSortChange(sortKey)}
+        aria-label={`按${label}排序`}
+        data-testid={testId}
+      >
+        {label}
+        <span className="text-[10px] leading-none" aria-hidden>
+          {active ? (activeDir === 'desc' ? '▼' : '▲') : '⇅'}
+        </span>
+      </Button>
+    </TableHead>
+  );
+}
+
+/** 清单详情：标题 + 添加标的入口 + 清单项表（分页 + 最新价/涨跌幅排序；移除需二次确认）。 */
 export function WatchlistDetail({
   watchlist,
   loading,
   submitting,
   actionError,
-  subjectRows,
+  itemsView,
+  itemsLoading,
+  itemsError,
+  page,
+  pageSize,
+  sort,
+  dir,
+  onPageChange,
+  onPageSizeChange,
+  onSortChange,
+  onRetryItems,
   onOpenAdd,
   onOpenEdit,
   onRemove,
@@ -112,7 +176,13 @@ export function WatchlistDetail({
     );
   }
 
-  const items = watchlist.items;
+  const rows = itemsView?.items ?? [];
+  const rowAsItem = (row: WatchlistItemPagedRow): WatchlistItemView => ({
+    id: row.id,
+    subjectId: row.subjectId,
+    anomalyThreshold: row.anomalyThreshold,
+    status: 1,
+  });
   return (
     <>
       <Card data-testid="watchlist-detail">
@@ -135,7 +205,19 @@ export function WatchlistDetail({
               {actionError}
             </p>
           ) : null}
-          {items.length === 0 ? (
+          {itemsError ? (
+            <div
+              className="mb-3 flex items-center gap-2"
+              data-testid="watchlist-items-error"
+              role="alert"
+            >
+              <p className="text-sm text-destructive">{itemsError}</p>
+              <Button variant="outline" size="xs" onClick={onRetryItems}>
+                重试
+              </Button>
+            </div>
+          ) : null}
+          {itemsView != null && itemsView.total === 0 ? (
             <p
               className="py-6 text-center text-sm text-muted-foreground"
               data-testid="watchlist-detail-no-items"
@@ -143,68 +225,81 @@ export function WatchlistDetail({
               该清单暂无标的，点“添加标的”开始监控
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>标的</TableHead>
-                  <TableHead>最新价</TableHead>
-                  <TableHead>涨跌幅</TableHead>
-                  <TableHead>异动阈值（%）</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody data-testid="watchlist-items-table">
-                {items.map((item) => {
-                  const row = subjectRows?.[item.subjectId];
-                  return (
-                    <TableRow key={item.id} data-testid={`watchlist-item-row-${item.id}`}>
+            <div className={itemsLoading && rows.length === 0 ? 'opacity-60' : undefined}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>标的</TableHead>
+                    <SortableTableHead
+                      label="最新价"
+                      sortKey="price"
+                      activeSort={sort}
+                      activeDir={dir}
+                      onSortChange={onSortChange}
+                      testId="watchlist-sort-price"
+                    />
+                    <SortableTableHead
+                      label="涨跌幅"
+                      sortKey="changePct"
+                      activeSort={sort}
+                      activeDir={dir}
+                      onSortChange={onSortChange}
+                      testId="watchlist-sort-changePct"
+                    />
+                    <TableHead>异动阈值（%）</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody data-testid="watchlist-items-table">
+                  {rows.map((row) => (
+                    <TableRow key={row.id} data-testid={`watchlist-item-row-${row.id}`}>
                       <TableCell>
-                        <SubjectCell item={item} row={row} />
+                        <SubjectCell row={row} />
                       </TableCell>
                       <TableCell>
                         <QuoteCell
-                          testId={`watchlist-item-price-${item.id}`}
-                          value={row?.quote?.price}
+                          testId={`watchlist-item-price-${row.id}`}
+                          value={row.price}
                           format={formatPrice}
                         />
                       </TableCell>
                       <TableCell>
                         <QuoteCell
-                          testId={`watchlist-item-changepct-${item.id}`}
-                          value={row?.quote?.changePct}
+                          testId={`watchlist-item-changepct-${row.id}`}
+                          value={row.changePct}
                           format={formatPct}
                           colorize
                         />
                       </TableCell>
-                      <TableCell data-testid={`watchlist-item-threshold-${item.id}`}>
-                        {formatNumber(item.anomalyThreshold)}
+                      <TableCell data-testid={`watchlist-item-threshold-${row.id}`}>
+                        {formatNumber(row.anomalyThreshold)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button
                             variant="outline"
                             size="xs"
-                            onClick={() => onOpenEdit(item)}
+                            onClick={() => onOpenEdit(rowAsItem(row))}
                             disabled={submitting}
-                            data-testid={`watchlist-edit-threshold-${item.id}`}
+                            data-testid={`watchlist-edit-threshold-${row.id}`}
                           >
                             改阈值
                           </Button>
                           <Button
                             variant="destructive"
                             size="xs"
-                            onClick={() => setRemoveTarget(item)}
+                            onClick={() => setRemoveTarget(rowAsItem(row))}
                             disabled={submitting}
-                            data-testid={`watchlist-remove-item-${item.id}`}
+                            data-testid={`watchlist-remove-item-${row.id}`}
                           >
                             移除
                           </Button>
-                          {row ? (
+                          {row.subjectCode ? (
                             <Button
                               variant="outline"
                               size="xs"
                               onClick={() => setDetailCode(row.subjectCode)}
-                              data-testid={`watchlist-item-detail-${item.id}`}
+                              data-testid={`watchlist-item-detail-${row.id}`}
                             >
                               查看详情
                             </Button>
@@ -213,18 +308,30 @@ export function WatchlistDetail({
                             variant="outline"
                             size="xs"
                             disabled={submitting}
-                            onClick={() => navigate(`/ai-brief?subjectId=${item.subjectId}`)}
-                            data-testid={`watchlist-item-brief-${item.id}`}
+                            onClick={() => navigate(`/ai-brief?subjectId=${row.subjectId}`)}
+                            data-testid={`watchlist-item-brief-${row.id}`}
                           >
                             AI 简报
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableBody>
+              </Table>
+              {itemsView != null ? (
+                <Pagination
+                  page={page}
+                  pageSize={pageSize}
+                  total={itemsView.total}
+                  onPageChange={onPageChange}
+                  onPageSizeChange={onPageSizeChange}
+                  disabled={itemsLoading || submitting}
+                  pageSizeOptions={[10, 20, 50]}
+                  testIdPrefix="watchlist-items"
+                />
+              ) : null}
+            </div>
           )}
         </CardContent>
       </Card>

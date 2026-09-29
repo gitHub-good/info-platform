@@ -80,9 +80,12 @@ public final class MainlineCalculator {
             Integer heatRank,
             String divergence) {}
 
-    /** 计算结果（Top N 行 + 缺维留痕 + 门槛通过数）。 */
+    /** 计算结果（Top N 行 + 缺维留痕 + 门槛通过数 + 冷启动标记）。 */
     public record Result(
-            List<MainlineRow> topRows, int gatePassed, Map<String, Boolean> dimensionMissing) {}
+            List<MainlineRow> topRows,
+            int gatePassed,
+            Map<String, Boolean> dimensionMissing,
+            boolean bootstrap) {}
 
     /**
      * 计算 Top N 主线行。
@@ -185,8 +188,59 @@ public final class MainlineCalculator {
                 java.util.Comparator.comparing(MainlineRow::mainScore)
                         .reversed()
                         .thenComparing(MainlineRow::industry));
+        int gatePassed = candidates.size();
+        // 冷启动兜底：可用历史天数 < persistMinDays 时门槛数学上不可能通过（max persist =
+        // 可用天数），此时按 mainScore 免门槛出榜并标记 bootstrap——行内 persistentDays 如实
+        // 展示真实持续性，待历史攒够自动恢复严格门槛口径
+        int availableDays =
+                Math.max(
+                        (int) input.dailyPctDay().stream().filter(m -> !m.isEmpty()).count(),
+                        (int) input.dailyHeat().stream().filter(m -> !m.isEmpty()).count());
+        boolean bootstrap =
+                candidates.isEmpty() && !rows.isEmpty() && availableDays < params.persistMinDays();
+        if (bootstrap) {
+            for (IndustryRow row : rows) {
+                String industry = row.industry();
+                double mainScore =
+                        params.wp() * priceScore.get(industry)
+                                + params.wh() * heatScore.get(industry)
+                                + params.we() * eventScore.get(industry);
+                Integer heatRank = currentHeatRank.get(industry);
+                Integer dayRank = currentPriceRank.get(industry);
+                String divergence =
+                        dayRank != null
+                                        && dayRank <= 3
+                                        && heatRank != null
+                                        && heatRank > params.divergenceHeatRank()
+                                ? "PRICE_HOT_HEAT_COLD"
+                                : "NONE";
+                candidates.add(
+                        new MainlineRow(
+                                industry,
+                                mainScore,
+                                new DimDetail(
+                                        priceScore.get(industry),
+                                        priceRank.get(industry),
+                                        row.pctDay()),
+                                new DimDetail(
+                                        heatScore.get(industry),
+                                        heatDimRank.get(industry),
+                                        row.heatH24()),
+                                new DimDetail(
+                                        eventScore.get(industry),
+                                        eventDimRank.get(industry),
+                                        row.eventWeighted()),
+                                persistentDays.getOrDefault(industry, 0),
+                                heatRank,
+                                divergence));
+            }
+            candidates.sort(
+                    java.util.Comparator.comparing(MainlineRow::mainScore)
+                            .reversed()
+                            .thenComparing(MainlineRow::industry));
+        }
         List<MainlineRow> top = candidates.stream().limit(params.topN()).toList();
-        return new Result(List.copyOf(top), candidates.size(), Map.copyOf(missing));
+        return new Result(List.copyOf(top), gatePassed, Map.copyOf(missing), bootstrap);
     }
 
     /**

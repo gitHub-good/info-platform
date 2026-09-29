@@ -35,7 +35,7 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
             """
             UPDATE news_analysis
                SET main_category = ?, raw_main = ?, sub_industry = ?, confidence = ?, low_confidence = ?,
-                   matched_subjects = ?, l1_prompt_version = ?, classified_at = ?,
+                   matched_subjects = ?, l1_prompt_version = ?, classified_at = ?, l1_market = ?,
                    l1_status = 'DONE', updated_at = ?
              WHERE news_id = ? AND l1_status IN ('PENDING', 'FAILED')
             """;
@@ -211,6 +211,7 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
                 write.matchedSubjects(),
                 write.promptVersion(),
                 write.classifiedAt().toString(),
+                write.l1Market(),
                 now.toString(),
                 write.newsId());
     }
@@ -233,7 +234,8 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
     private static final String FIND_L2_CANDIDATES_SQL =
             """
             SELECT na.news_id, ni.title, ni.summary, s.name AS source_name, s.category AS source_category,
-                   na.main_category, ni.published_at, na.created_at, na.l2_status, na.matched_subjects
+                   na.main_category, ni.published_at, na.created_at, na.l2_status, na.matched_subjects,
+                   na.l1_market
               FROM news_analysis na
               JOIN news_item ni ON ni.id = na.news_id
               JOIN info_source s ON s.id = ni.source_id
@@ -285,7 +287,8 @@ public class NewsAnalysisRepositoryImpl implements NewsAnalysisRepository {
                             Instant.parse(rs.getString("published_at")),
                             Instant.parse(rs.getString("created_at")),
                             L2Status.fromName(rs.getString("l2_status")),
-                            nullable(rs.getString("matched_subjects")));
+                            nullable(rs.getString("matched_subjects")),
+                            nullable(rs.getString("l1_market")));
 
     @Override
     public List<NewsAnalysisRepository.L2Candidate> findL2Candidates(

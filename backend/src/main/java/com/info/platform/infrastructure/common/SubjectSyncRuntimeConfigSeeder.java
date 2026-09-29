@@ -23,6 +23,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class SubjectSyncRuntimeConfigSeeder implements RuntimeConfigSeeder {
 
+    /** 美股市值收敛阈值键（M29 T252，方案 §3.5；消费方 {@code HKUSMarketSnapshotService} 同名常量）。 */
+    static final String US_MV_MIN_CONFIG_KEY = "subject.sync.us-mv-min-usd";
+
+    /** 美股市值收敛阈值缺省（20 亿 USD，ADR-0064 裁决 3 罗素 3000 量级）。 */
+    static final double US_MV_MIN_USD_DEFAULT = 2_000_000_000d;
+
     private final ObjectMapper objectMapper;
 
     public SubjectSyncRuntimeConfigSeeder(ObjectMapper objectMapper) {
@@ -39,11 +45,17 @@ public class SubjectSyncRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 .toList(),
                         "aShareSource",
                         DataSourceDefaults.A_SHARE_LIST_SOURCE);
+        Map<String, Object> usMvMin = Map.of("usMvMinUsd", Double.valueOf(US_MV_MIN_USD_DEFAULT));
         return List.of(
                 new RuntimeConfigSeed(
                         SubjectSyncConfigValidator.KEY,
                         write(doc),
-                        "标的池同步取数参数（A 股桶列表源降级链：东财失败自动降级新浪整桶重拉；旧键 aShareSource 兼容保留）"));
+                        "标的池同步取数参数（A 股桶列表源降级链：东财失败自动降级新浪整桶重拉；旧键 aShareSource 兼容保留）"),
+                new RuntimeConfigSeed(
+                        US_MV_MIN_CONFIG_KEY,
+                        write(usMvMin),
+                        "美股代表集市值收敛阈值（M29 T252，ADR-0064 裁决 3：HKUS 行情快照轮按 market_cap ≥ 阈值（USD）"
+                                + "保持/复活 status=1，其余 status=0 留池可查；下界 1 亿防误配清空代表集，保存即热生效）"));
     }
 
     private String write(Map<String, Object> doc) {

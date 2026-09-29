@@ -17,26 +17,38 @@ import java.util.Map;
  *   <li>港股：主板 t:3 + 创业板 GEM t:4（任务建议的 t:1 实测为人民币柜台/房托桶，不采用）
  *   <li>指数：上证 t:1 + 深证 t:5（Should，T54 接入，本批仅预留桶定义）
  * </ul>
+ *
+ * <p>M29 桶语义扩展（ADR-0064 裁决 3，方案 §4 C2）：桶定义 =「来源 = 数据源 + 过滤规则」——美股桶 {@link #US_STOCK} 无 fs 选择器（push2
+ * 封禁期不走 clist），由 {@code EastMoneyF10ListClient} 按 F10 {@code SECUCODE} 后缀（{@code .N}/ {@code .O}
+ * 主板）预筛承载；fs 字段仅 A 股/港股/指数桶（clist 通道）使用，对 US_STOCK 为 null。
  */
 public enum MarketSyncSpec {
 
     /** A 股股票桶（实测 total=5561 / 56 页）。 */
     A_SHARE_STOCK("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", Market.A_SHARE, SubjectType.STOCK),
 
-    /** 港股股票桶：主板+创业板（实测 total=2927 / 30 页）。 */
+    /** 港股股票桶：主板+创业板（实测 total=2927 / 30 页；M29 起经 F10 通道承载，fs 为 push2 解封后备链口径）。 */
     HK_STOCK("m:116+t:3,m:116+t:4", Market.HK, SubjectType.STOCK),
+
+    /**
+     * 美股股票桶（M29 T251 新增）：来源 = datacenter F10 {@code RPT_USF10_INFO_ORGPROFILE} + 后缀过滤 （{@code .N}
+     * NYSE / {@code .O} NASDAQ 主板，剔 {@code .F} OTC 与 {@code .A} AMEX——2026-09-29 首跑后缀分布
+     * F=15294/O=3997/N=2000/A=270 勘定）+ 行业非空预筛；无 fs（push2 clist 封禁期，解封后可升精确桶）。
+     */
+    US_STOCK(null, Market.US, SubjectType.STOCK),
 
     /** 沪深指数桶（Should，T54 接入：开关 subject.sync.index-enabled + V17 种子对齐验证）。 */
     CN_INDEX("m:1+t:1,m:0+t:5", Market.INDEX, SubjectType.INDEX);
 
     /**
-     * 东财 f13 市场码 → subject_code 前缀（技术方案增补 §4.2 字段映射表）：1=沪 / 0=深 / 116=港。
+     * 东财 f13 市场码 → subject_code 前缀（技术方案增补 §4.2 字段映射表）：1=沪 / 0=深 / 116=港 / 105+106+107=美。
      *
      * <p>f13 恰为 secid 市场前缀本身（实测），故本映射同时服务于 secid 派生（{@code secid = f13 + "." + f12}）与 tushare
-     * 后缀（{@code 代码.市场后缀}），无需第二张映射表。
+     * 后缀（{@code 代码.市场后缀}），无需第二张映射表。M29 扩 105/106/107 → {@code US}（Spike-E §5.2：105=纳斯达克 / 106=纽交所 /
+     * 107=美交所，三码同前缀，交易所差异由 F10 SECUCODE 后缀还原）。
      */
     private static final Map<Integer, String> CODE_PREFIX_BY_MARKET_FLAG =
-            Map.of(1, "SH", 0, "SZ", 116, "HK");
+            Map.of(1, "SH", 0, "SZ", 116, "HK", 105, "US", 106, "US", 107, "US");
 
     private final String fs;
     private final Market market;
@@ -48,7 +60,11 @@ public enum MarketSyncSpec {
         this.subjectType = subjectType;
     }
 
-    /** 东财 clist 的 fs 市场桶选择器（请求参数，透传 {@code EastMoneyListClient}）。 */
+    /**
+     * 东财 clist 的 fs 市场桶选择器（请求参数，透传 {@code EastMoneyListClient}）。
+     *
+     * @return fs 串；{@code null} 表示该桶不走 clist 通道（US_STOCK——由 F10 数据源 + 过滤规则承载，方案 §4 C2）
+     */
     public String fs() {
         return fs;
     }
@@ -63,7 +79,7 @@ public enum MarketSyncSpec {
         return subjectType;
     }
 
-    /** f13 市场码 → subject_code 前缀（SH/SZ/HK）；未知码抛异常（防御：源口径漂移时放弃该市场而非错配前缀）。 */
+    /** f13 市场码 → subject_code 前缀（SH/SZ/HK/US）；未知码抛异常（防御：源口径漂移时放弃该市场而非错配前缀）。 */
     public static String codePrefixOf(int marketFlag) {
         String prefix = CODE_PREFIX_BY_MARKET_FLAG.get(marketFlag);
         if (prefix == null) {

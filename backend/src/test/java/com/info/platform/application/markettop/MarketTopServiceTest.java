@@ -12,8 +12,11 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.analysis.PipelineGuardService;
 import com.info.platform.application.markettop.DeepDiveService.DiveResult;
+import com.info.platform.application.markettop.HkusCrossSectionService.HkusCrossSection;
 import com.info.platform.application.markettop.IndustryMemberBackfillService.BackfillReport;
 import com.info.platform.application.markettop.MarketTopService.GenerationReport;
+import com.info.platform.application.valuation.ValuationSettings;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.markettop.DeepDiveInput;
 import com.info.platform.domain.markettop.DeepDiveOutcome;
 import com.info.platform.domain.markettop.DeepDiveOutputParser.Parsed;
@@ -42,9 +45,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * MarketTopService 单测（M21 T183，方案 §4.6 四阶段编排 + §6 测试要点，LLM 全 Mock 零外呼）： 阶段编排全链落库 / 层数断言中止不落库 /
- * 触顶降级三档（单次失败模板兜底·连续失败中止·成本触顶停剩余——degraded 榜单仍产出） / 版本化追加与幂等（同日重跑 version+1、items 逐字段一致） / 快照日守卫跳过
- * / RankDiffer 接线 / 深析输入白名单源组装。
+ * MarketTopService 单测（M21 T183 方案 §4.6 四阶段编排 + §6 测试要点 + M29 T256 分市场，LLM 全 Mock 零外呼）： 阶段编排全链落库 /
+ * 层数断言中止不落库 / 触顶降级三档（单次失败模板兜底·连续失败中止·成本触顶停剩余——degraded 榜单仍产出） / 版本化追加与幂等（同日重跑 version+1、items
+ * 逐字段一致） / 快照日守卫跳过 / RankDiffer 接线 / 深析输入白名单源组装。
  */
 @ExtendWith(MockitoExtension.class)
 class MarketTopServiceTest {
@@ -87,6 +90,10 @@ class MarketTopServiceTest {
 
     @Mock private MarketTopConfigSettings configSettings;
 
+    @Mock private ValuationSettings valuationSettings;
+
+    @Mock private HkusCrossSectionService hkusCrossSectionService;
+
     @Mock private PipelineGuardService guardService;
 
     private MarketTopService service;
@@ -106,6 +113,7 @@ class MarketTopServiceTest {
                         repository,
                         configSettings,
                         guardService,
+                        hkusCrossSectionService,
                         objectMapper,
                         clock,
                         0L);
@@ -117,9 +125,11 @@ class MarketTopServiceTest {
         lenient()
                 .when(backfillService.backfillIfBelowFloor())
                 .thenReturn(new BackfillReport(5221, 4900, 4900, false, 0, 0));
-        lenient().when(repository.maxVersion(anyString())).thenReturn(0);
-        lenient().when(repository.findPreviousTop(anyString())).thenReturn(List.of());
-        lenient().when(snapshotRepository.findH24Heat()).thenReturn(List.of());
+        lenient().when(repository.maxVersion(anyString(), any(Market.class))).thenReturn(0);
+        lenient()
+                .when(repository.findPreviousTop(anyString(), any(Market.class)))
+                .thenReturn(List.of());
+        lenient().when(snapshotRepository.findH24Heat(any(Market.class))).thenReturn(List.of());
         lenient().when(marketRepository.findByDate(anyString())).thenReturn(Map.of());
         lenient()
                 .when(newsStore.findRelatedNews(anyString(), anyString(), anyInt()))
@@ -241,7 +251,7 @@ class MarketTopServiceTest {
 
     @Test
     void generate_deepDiveInputAssembledFromWhitelistSources() {
-        when(snapshotRepository.findH24Heat())
+        when(snapshotRepository.findH24Heat(Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 new com.info.platform.domain.valuation.HeatRow("电子", 88.0),
@@ -282,7 +292,7 @@ class MarketTopServiceTest {
     @Test
     void generate_sameDayRerun_versionIncrementedItemsIdentical() {
         service.generate(RANK_DATE);
-        when(repository.maxVersion(RANK_DATE_TEXT)).thenReturn(1); // 第二轮读到既有 v1
+        when(repository.maxVersion(RANK_DATE_TEXT, Market.A_SHARE)).thenReturn(1); // 第二轮读到既有 v1
 
         service.generate(RANK_DATE);
 
@@ -306,6 +316,7 @@ class MarketTopServiceTest {
 
     private static MarketTopRankRow withVersion(MarketTopRankRow row, int version) {
         return new MarketTopRankRow(
+                row.market(),
                 row.rankDate(),
                 version,
                 row.rankNo(),
@@ -456,7 +467,7 @@ class MarketTopServiceTest {
 
     @Test
     void generate_previousDayDiff_writesChangeAndDropped() {
-        when(repository.findPreviousTop(RANK_DATE_TEXT))
+        when(repository.findPreviousTop(RANK_DATE_TEXT, Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 new PrevSubject(2L, "SH2", "标的2", 1),
@@ -482,6 +493,180 @@ class MarketTopServiceTest {
         assertThat(batchCaptor.getValue().droppedSubjectsJson())
                 .contains("SH99")
                 .contains("prevRank\":3");
+    }
+
+    // ---- M29 T256：港美股分市场漏斗 ----
+
+    @Test
+    void generate_hkusFunnel_zeroLlmDiveSkippedAndDimensionMissingLeftTrace() {
+        when(hkusCrossSectionService.rowsFor(RANK_DATE, Market.HK))
+                .thenReturn(new HkusCrossSection(hkusRows(), ValuationParams.defaults()));
+        when(marketRepository.findLatestSnapshotDate(Market.HK))
+                .thenReturn(Optional.of("2026-09-28"));
+
+        GenerationReport report = service.generate(RANK_DATE, Market.HK);
+
+        assertThat(report.status()).isEqualTo(GenerationReport.STATUS_SUCCESS);
+        assertThat(report.version()).isEqualTo(1);
+        assertThat(report.topSize()).isEqualTo(10);
+        assertThat(report.diveDone()).isZero();
+        assertThat(report.diveSkipped()).isEqualTo(10); // 候选层结构保留（漏斗同构），执行全跳
+        // 成本护栏：港美股零 LLM（深析仅 A 股 Top10 内触发）
+        verify(deepDiveService, never()).analyze(any(DeepDiveInput.class));
+
+        ArgumentCaptor<MarketTopBatchRow> batchCaptor =
+                ArgumentCaptor.forClass(MarketTopBatchRow.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketTopRankRow>> ranksCaptor = ArgumentCaptor.forClass(List.class);
+        verify(repository).insertVersion(batchCaptor.capture(), ranksCaptor.capture());
+
+        MarketTopBatchRow batch = batchCaptor.getValue();
+        assertThat(batch.market()).isEqualTo(Market.HK);
+        assertThat(batch.diveLlmCalls()).isZero();
+        assertThat(batch.diveCostMicros()).isZero();
+        assertThat(batch.promptVersion()).isNull();
+        assertThat(batch.basis())
+                .startsWith("mt-v1:hkus:")
+                .contains("missing=fundamental|valuation")
+                .contains("dive=A_SHARE_ONLY")
+                .contains("quotes=2026-09-28"); // 数据口径留痕（快照日如实回显）
+        // 拍板四：维度裁剪留痕不静默（funnel_stats.dimensionMissing + dataFlags 端点直读）
+        assertThat(batch.funnelStatsJson())
+                .contains("\"divePolicy\":\"A_SHARE_ONLY\"")
+                .contains("\"NO_FUNDAMENTAL_MARKET\"")
+                .contains("\"NO_VALUATION_MARKET\"")
+                .contains(MarketTopService.MISSING_FUNDAMENTAL_TEXT)
+                .contains(MarketTopService.MISSING_VALUATION_TEXT)
+                .contains("\"snapshotRows\":15")
+                .contains("\"poolSize\":10")
+                .contains("\"diveDone\":0");
+
+        List<MarketTopRankRow> ranks = ranksCaptor.getValue();
+        assertThat(ranks).hasSize(10);
+        assertThat(ranks.get(0).market()).isEqualTo(Market.HK);
+        assertThat(ranks.get(0).generation()).isEqualTo("FACTOR_ONLY"); // 港美股纯规则零 LLM
+        assertThat(ranks.get(0).diveMethod()).isNull();
+        assertThat(ranks.get(0).diveSummary()).isEqualTo(MarketTopService.DIVE_UNAVAILABLE_SUMMARY);
+        assertThat(ranks.get(0).percentile()).isEqualTo(100.0); // 百分位市场内（HK 横截面内第 1）
+    }
+
+    @Test
+    void generate_sameDayThreeMarkets_versionsCoexistIndependently() {
+        // 同日三市场各 version=1（UNIQUE(rank_date, version, market) 三市场共存不混榜）
+        when(hkusCrossSectionService.rowsFor(RANK_DATE, Market.HK))
+                .thenReturn(new HkusCrossSection(hkusRows(), ValuationParams.defaults()));
+        when(hkusCrossSectionService.rowsFor(RANK_DATE, Market.US))
+                .thenReturn(new HkusCrossSection(hkusRows(), ValuationParams.defaults()));
+
+        service.generate(RANK_DATE, Market.A_SHARE);
+        service.generate(RANK_DATE, Market.HK);
+        service.generate(RANK_DATE, Market.US);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketTopRankRow>> ranksCaptor = ArgumentCaptor.forClass(List.class);
+        verify(repository, org.mockito.Mockito.times(3))
+                .insertVersion(any(MarketTopBatchRow.class), ranksCaptor.capture());
+        List<List<MarketTopRankRow>> versions = ranksCaptor.getAllValues();
+        assertThat(versions.get(0).get(0).market()).isEqualTo(Market.A_SHARE);
+        assertThat(versions.get(1).get(0).market()).isEqualTo(Market.HK);
+        assertThat(versions.get(2).get(0).market()).isEqualTo(Market.US);
+        for (List<MarketTopRankRow> marketRanks : versions) {
+            assertThat(marketRanks.get(0).version()).isEqualTo(1);
+        }
+        // RankDiffer 市场内：三市场各自 findPreviousTop(date, market)
+        verify(repository).findPreviousTop(RANK_DATE_TEXT, Market.A_SHARE);
+        verify(repository).findPreviousTop(RANK_DATE_TEXT, Market.HK);
+        verify(repository).findPreviousTop(RANK_DATE_TEXT, Market.US);
+    }
+
+    @Test
+    void generate_hkusEmptyPool_skipsWithNoPoolTrace() {
+        when(hkusCrossSectionService.rowsFor(RANK_DATE, Market.US))
+                .thenReturn(new HkusCrossSection(List.of(), ValuationParams.defaults()));
+
+        GenerationReport report = service.generate(RANK_DATE, Market.US);
+
+        assertThat(report.skipped()).isTrue();
+        assertThat(report.market()).isEqualTo(Market.US);
+        assertThat(report.reason()).contains("no-pool");
+        verify(repository, never()).insertVersion(any(), any());
+    }
+
+    @Test
+    void generate_hkusNoSignal_skipsWithoutEmptyVersion() {
+        // 合格信号全无（F1=0 ∧ F2=0 全排除）→ no-signal 跳过（不落空版本——空态走 30089 EmptyState）
+        List<PoolRow> noSignal = new ArrayList<>();
+        for (long id = 1; id <= 5; id++) {
+            noSignal.add(
+                    new PoolRow(
+                            id,
+                            "HK" + id,
+                            "港股标的" + id,
+                            null,
+                            0.0,
+                            0.0,
+                            0.0,
+                            90.0,
+                            0.0,
+                            30.0,
+                            false,
+                            "{}",
+                            ValuationParams.defaults().basis(),
+                            null));
+        }
+        when(hkusCrossSectionService.rowsFor(RANK_DATE, Market.HK))
+                .thenReturn(new HkusCrossSection(noSignal, ValuationParams.defaults()));
+
+        GenerationReport report = service.generate(RANK_DATE, Market.HK);
+
+        assertThat(report.skipped()).isTrue();
+        assertThat(report.reason()).contains("no-signal");
+        verify(repository, never()).insertVersion(any(), any());
+    }
+
+    @Test
+    void generate_aShareDefaultEntry_routesToAShareUnchanged() {
+        // A 股兼容入口零回归：generate(date) ≡ generate(date, A_SHARE)（batch market 回显 A_SHARE）
+        GenerationReport report = service.generate(RANK_DATE);
+
+        assertThat(report.status()).isEqualTo(GenerationReport.STATUS_SUCCESS);
+        ArgumentCaptor<MarketTopBatchRow> batchCaptor =
+                ArgumentCaptor.forClass(MarketTopBatchRow.class);
+        verify(repository).insertVersion(batchCaptor.capture(), any());
+        assertThat(batchCaptor.getValue().market()).isEqualTo(Market.A_SHARE);
+        assertThat(batchCaptor.getValue().basis()).startsWith("mt-v1:final="); // A 股 basis 原口径不变
+        assertThat(batchCaptor.getValue().funnelStatsJson())
+                .doesNotContain("dimensionMissing")
+                .doesNotContain("divePolicy"); // A 股 funnel_stats 键集零变化
+        verify(hkusCrossSectionService, never()).rowsFor(any(), any());
+    }
+
+    /** 港美股横截面夹具（15 行——快照行同构 PoolRow，F3/F5=0 缺省、权重再归一后总分）。 */
+    private static List<PoolRow> hkusRows() {
+        List<PoolRow> rows = new ArrayList<>();
+        for (long id = 1; id <= ROWS; id++) {
+            rows.add(
+                    new PoolRow(
+                            id,
+                            "HK" + String.format("%05d", id),
+                            "港股标的" + id,
+                            null,
+                            60.0 - id, // F1 事件催化（递减——id 1 最高分）
+                            10.0 + id, // F2 行业传导
+                            0.0, // F3 基本面缺省（权重置 0 再归一）
+                            85.0,
+                            0.0, // F5 估值缺省
+                            50.0 + ROWS - id,
+                            id <= 5,
+                            "{\"catalyst\":{\"raw\":0.5,\"entries\":[{\"eventId\":201}]},"
+                                    + "\"risk\":{\"stFlag\":false,\"eventPenalty\":0,\"entries\":[]}}",
+                            ValuationParams.defaults()
+                                    .withWFundamental(0)
+                                    .withWValuation(0)
+                                    .basis(),
+                            "2026-09-1" + (id % 10)));
+        }
+        return rows;
     }
 
     private static MarketDailySnapshotRepository.MarketDailyRow marketRow() {

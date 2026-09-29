@@ -121,6 +121,11 @@ subject:
     # 页间隔加大到 1.5s：东财 WAF 对密集请求 IP 封禁（实测 ~30 次密集触发），一轮 86 页需更保守
     page-interval-millis: 1500
     max-pages: 200
+    # M29 港美股建池（T251，东财 datacenter F10 档案报表，ADR-0064 裁决 3）：500/页（方案 §8 压测惯例，
+    # 2026-09-29 首跑实测港 14 页/美 44 页稳定）；页间隔 ≥500ms 礼貌限速（个人研究低频，日一轮）。
+    f10-page-size: 500
+    f10-page-interval-millis: 500
+    f10-max-pages: 150
     batch-size: 500
     missing-streak-threshold: 3
     enabled: true
@@ -181,8 +186,9 @@ valuation:
   factor-snapshot:
     enabled: true
     cron: "0 30 17 * * ?"
-# 全市场榜单引擎（M21 T183，方案 §4.6）：job.MARKET_TOP_JOB 种子来源（ManagedJob 第 17 键）。
-# 盘后 18:00 日频（FACTOR_SNAPSHOT 17:30 完成后 30 分钟余量——独立 CRON 错开而非依赖触发，ADR-0059 裁决 7）；
+# 全市场榜单引擎（M21 T183 方案 §4.6 + M29 T256 分市场方案 §7）：job.MARKET_TOP_JOB 种子来源（ManagedJob 第 17 键）。
+# 盘后 18:00 日频三市场顺序执行（A_SHARE→HK→US，market 内版本独立递增；FACTOR_SNAPSHOT 17:30 完成后 30 分钟余量
+# ——独立 CRON 错开而非依赖触发，ADR-0059 裁决 7；港美股深析跳过零 LLM，行情快照口径留痕 basis）；
 # 测试 profile 置 false → 调度零注册隔离；漏斗参数热改在 runtime_config market.top 键。
 markettop:
   rank-job:
@@ -209,6 +215,15 @@ industry:
   mainline-job:
     enabled: true
     cron: "0 30 18 * * ?"
+
+# 港美股行情快照 Job（M29 T252，ADR-0064 裁决 4）：job.HKUS_MARKET_SNAPSHOT 种子来源（ManagedJob 第 20 键）。
+# FIXED_DELAY 默认 60min（可配 30~120min=1800000~7200000）：一职三责轮 = 港美股个股快照（腾讯主/新浪备，50/请求
+# 500ms 间隔）+ 行业就地聚合（市值加权）+ 美股代表集市值收敛（阈值热改见 runtime_config subject.sync.us-mv-min-usd，
+# 港股全量无收敛）；收盘后轮 UPSERT 同值幂等定格；测试 profile 置 false → 调度零注册隔离。
+hkus:
+  market-snapshot:
+    enabled: true
+    interval-millis: 3600000
 
 # 源异常告警（M14 T115，REQ-20260925-11 故事 3）：连续失败达阈值或本轮退避窗 ≥ 阈值分钟（取先到）→ 通知中心
 # SOURCE_ALERT 推送（复用 SSE 链路，全量用户广播）；同源节流（告警后恢复前不重复）；恢复成功发一条 SOURCE_RECOVERED

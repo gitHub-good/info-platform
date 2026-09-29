@@ -194,7 +194,7 @@ export function Overview() {
     }
     void (async () => {
       try {
-        const board = await getIndustryHeatBoard('D7', ctrl.signal);
+        const board = await getIndustryHeatBoard('D7', 'A_SHARE', ctrl.signal);
         if (!ctrl.signal.aborted) setHeat({ data: board, loading: false, error: null });
       } catch (err) {
         if (!ctrl.signal.aborted && !silent)

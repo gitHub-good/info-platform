@@ -8,6 +8,7 @@ import com.info.platform.application.markettop.HitStatsService.AggView;
 import com.info.platform.application.markettop.HitStatsService.DayStatView;
 import com.info.platform.application.markettop.HitStatsService.HitStatsView;
 import com.info.platform.application.markettop.HitStatsService.WindowView;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.markettop.MarketTopRepository;
@@ -48,7 +49,7 @@ class HitStatsServiceTest {
         marketTopRepository = org.mockito.Mockito.mock(MarketTopRepository.class);
         marketRepository = org.mockito.Mockito.mock(MarketDailySnapshotRepository.class);
         service = new HitStatsService(marketTopRepository, marketRepository);
-        when(marketRepository.findTradingDates()).thenReturn(TRADING_DATES);
+        when(marketRepository.findTradingDates(Market.A_SHARE)).thenReturn(TRADING_DATES);
     }
 
     // ---- 夹具：等比价格序列（s1 日涨 +10% / s2 日跌 −10% / s3 持平；D6 起 s3 停牌无价） ----
@@ -86,7 +87,7 @@ class HitStatsServiceTest {
             tops.add(new RankedSubject(date, 2, 2L));
             tops.add(new RankedSubject(date, 3, 3L));
         }
-        when(marketTopRepository.listTopByMaxVersion()).thenReturn(tops);
+        when(marketTopRepository.listTopByMaxVersion(Market.A_SHARE)).thenReturn(tops);
     }
 
     private static WindowView windowOf(HitStatsView view, String window) {
@@ -102,7 +103,7 @@ class HitStatsServiceTest {
                 "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06");
         stubPrices();
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         WindowView t1 = windowOf(view, "T+1");
         assertThat(t1.days()).hasSize(6);
@@ -131,7 +132,7 @@ class HitStatsServiceTest {
                 "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06");
         stubPrices();
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         // 仅 D1（目标 D6）/ D2（目标 D7）两窗可得 → 样本不足如实标注（INSUFFICIENT 态）
         WindowView t5 = windowOf(view, "T+5");
@@ -151,7 +152,7 @@ class HitStatsServiceTest {
         stubTops("2026-09-01");
         stubPrices();
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         WindowView t20 = windowOf(view, "T+20");
         assertThat(t20.days()).isEmpty();
@@ -162,14 +163,14 @@ class HitStatsServiceTest {
     @Test
     void stats_tradingWindowSkipsNoPriceDays() {
         // 交易日序列跳过无价日（周末/停市）——T+1 目标 = 下一有价日 09-07（非自然日 09-05）
-        when(marketRepository.findTradingDates())
+        when(marketRepository.findTradingDates(Market.A_SHARE))
                 .thenReturn(List.of("2026-09-04", "2026-09-07", "2026-09-08"));
         when(marketRepository.findClosePrices("2026-09-04")).thenReturn(Map.of(1L, 100.0));
         when(marketRepository.findClosePrices("2026-09-07")).thenReturn(Map.of(1L, 105.0));
         when(marketRepository.findClosePrices("2026-09-08")).thenReturn(Map.of(1L, 200.0));
         stubTops("2026-09-04");
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         DayStatView day = windowOf(view, "T+1").days().get(0);
         assertThat(day.pricedSamples()).isEqualTo(1);
@@ -184,7 +185,7 @@ class HitStatsServiceTest {
         stubTops("2026-09-05", "2026-10-01");
         stubPrices();
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         assertThat(windowOf(view, "T+1").days())
                 .extracting(DayStatView::rankDate)
@@ -193,9 +194,9 @@ class HitStatsServiceTest {
 
     @Test
     void stats_noRankDays_throws30089() {
-        when(marketTopRepository.listTopByMaxVersion()).thenReturn(List.of());
+        when(marketTopRepository.listTopByMaxVersion(Market.A_SHARE)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.stats())
+        assertThatThrownBy(() -> service.stats(null))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex ->
@@ -208,7 +209,7 @@ class HitStatsServiceTest {
         stubTops("2026-09-06");
         stubPrices();
 
-        HitStatsView view = service.stats();
+        HitStatsView view = service.stats(null);
 
         // 口径留档（hits-v1）+ 免责常驻 + asOf = 最新交易日
         assertThat(view.basis())
@@ -228,12 +229,31 @@ class HitStatsServiceTest {
         when(marketRepository.findClosePrices("2026-09-02")).thenReturn(Map.of(1L, 50.0, 2L, 60.0));
         stubTops("2026-09-01");
 
-        AggView agg = windowOf(service.stats(), "T+1").agg();
+        AggView agg = windowOf(service.stats(null), "T+1").agg();
 
         // 全平：上涨 0 家（严格 > 0）占比 0、中位 0——信号验证口径零漂移面
         assertThat(agg.status()).isEqualTo("INSUFFICIENT"); // 1 天 < 5
-        DayStatView day = windowOf(service.stats(), "T+1").days().get(0);
+        DayStatView day = windowOf(service.stats(null), "T+1").days().get(0);
         assertThat(day.upRatio()).isZero();
         assertThat(day.medianPctChg()).isZero();
+    }
+
+    @Test
+    void stats_marketParam_hkReadsHkTradingDatesAndTops() {
+        // M29 T256：market=HK 走 HK 交易日序列与 HK 榜单（不与 A 股混序混榜）+ market 回显
+        when(marketTopRepository.listTopByMaxVersion(Market.HK))
+                .thenReturn(List.of(new RankedSubject("2026-09-02", 1, 9L)));
+        when(marketRepository.findTradingDates(Market.HK))
+                .thenReturn(List.of("2026-09-01", "2026-09-02", "2026-09-03"));
+        when(marketRepository.findClosePrices("2026-09-02")).thenReturn(Map.of(9L, 100.0));
+        when(marketRepository.findClosePrices("2026-09-03")).thenReturn(Map.of(9L, 110.0));
+
+        HitStatsView view = service.stats("HK");
+
+        assertThat(view.market()).isEqualTo("HK");
+        WindowView t1 = windowOf(view, "T+1");
+        assertThat(t1.days()).hasSize(1);
+        assertThat(t1.days().get(0).rankDate()).isEqualTo("2026-09-02");
+        assertThat(t1.days().get(0).upRatio()).isEqualTo(1.0);
     }
 }

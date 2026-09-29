@@ -31,8 +31,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * IndustryMainlineController 切片测试（M27 T244，方案 §4.5——MarketTopControllerTest 同款）：六端点路由与 Result
- * 包装、30093/30094/ 30095/30096 异常映射、PATCH 并发冲突 409/30065、手动重算端点摘要。
+ * IndustryMainlineController 切片测试（M27 T244，方案 §4.5——MarketTopControllerTest 同款；M29 T255 market
+ * 参数）：六端点路由与 Result 包装、market 参数透传与回显、30093/30094/ 30095/30096 异常映射、PATCH 并发冲突
+ * 409/30065、手动重算端点摘要（分市场）。
  */
 class IndustryMainlineControllerTest {
 
@@ -64,13 +65,16 @@ class IndustryMainlineControllerTest {
 
     @Test
     void heatMap_returnsWrappedView() throws Exception {
-        when(queryService.heatMap(null))
+        when(queryService.heatMap(null, null))
                 .thenReturn(
                         new IndustryMainlineQueryService.HeatMapView(
+                                "A_SHARE",
+                                "A股：申万一级 31",
                                 "2026-09-28",
                                 "tencent-rank",
                                 "2026-09-28T15:00:02+08:00",
                                 false,
+                                "CNY",
                                 List.of(
                                         new IndustryMainlineQueryService.IndustryCell(
                                                 "食品饮料",
@@ -86,6 +90,7 @@ class IndustryMainlineControllerTest {
         mockMvc.perform(get("/api/v1/industry-heat-map"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
                 .andExpect(jsonPath("$.data.snapshotDate").value("2026-09-28"))
                 .andExpect(jsonPath("$.data.source").value("tencent-rank"))
                 .andExpect(jsonPath("$.data.stale").value(false))
@@ -96,7 +101,7 @@ class IndustryMainlineControllerTest {
 
     @Test
     void heatMap_emptyLibrary_maps404With30093() throws Exception {
-        when(queryService.heatMap(null))
+        when(queryService.heatMap(null, null))
                 .thenThrow(
                         new BusinessException(
                                 ErrorCode.INDUSTRY_MARKET_SNAPSHOT_EMPTY, "行业行情快照无任何数据"));
@@ -108,15 +113,18 @@ class IndustryMainlineControllerTest {
 
     @Test
     void mainline_returnsWrappedView() throws Exception {
-        when(queryService.mainline(null, null))
+        when(queryService.mainline(null, null, null))
                 .thenReturn(
                         new IndustryMainlineQueryService.MainlineView(
+                                "A_SHARE",
+                                "A股：申万一级 31",
                                 "2026-09-28",
                                 1,
                                 "DAILY",
                                 "2026-09-28",
                                 false,
                                 null,
+                                false,
                                 "mainline-v1:...",
                                 "2026-09-28T10:30:00Z",
                                 List.of(
@@ -129,21 +137,67 @@ class IndustryMainlineControllerTest {
                                                 1,
                                                 "NONE",
                                                 null,
+                                                true,
+                                                null,
                                                 "mainline-v1:...",
                                                 "2026-09-28T10:30:00Z"))));
 
         mockMvc.perform(get("/api/v1/industry-mainline"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
+                .andExpect(jsonPath("$.data.bootstrap").value(false))
                 .andExpect(jsonPath("$.data.rankDate").value("2026-09-28"))
                 .andExpect(jsonPath("$.data.version").value(1))
                 .andExpect(jsonPath("$.data.items[0].industry").value("电子"))
-                .andExpect(jsonPath("$.data.items[0].persistentDays").value(5));
+                .andExpect(jsonPath("$.data.items[0].persistentDays").value(5))
+                .andExpect(jsonPath("$.data.items[0].leadersAvailable").value(true));
+    }
+
+    @Test
+    void mainline_hkMarket_bootstrapAndLeaderPlaceholderEchoed() throws Exception {
+        when(queryService.mainline(null, null, "HK"))
+                .thenReturn(
+                        new IndustryMainlineQueryService.MainlineView(
+                                "HK",
+                                "港股：东财行业分类（31 直采，来源 F10 BELONG_INDUSTRY）",
+                                "2026-09-28",
+                                1,
+                                "DAILY",
+                                "2026-09-28",
+                                false,
+                                null,
+                                true,
+                                "mainline-v1:m2:...",
+                                "2026-09-28T10:30:00Z",
+                                List.of(
+                                        new IndustryMainlineQueryService.MainlineItemView(
+                                                1,
+                                                "软件服务",
+                                                72.1,
+                                                null,
+                                                0,
+                                                1,
+                                                "NONE",
+                                                null,
+                                                false,
+                                                "港美股龙头分析暂未支持（依赖基本面因子体系）",
+                                                "mainline-v1:m2:...",
+                                                "2026-09-28T10:30:00Z"))));
+
+        mockMvc.perform(get("/api/v1/industry-mainline").param("market", "HK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.market").value("HK"))
+                .andExpect(jsonPath("$.data.bootstrap").value(true)) // 拍板五：冷启动留痕可见
+                .andExpect(jsonPath("$.data.items[0].leadersAvailable").value(false))
+                .andExpect(
+                        jsonPath("$.data.items[0].leaderUnavailableReason")
+                                .value("港美股龙头分析暂未支持（依赖基本面因子体系）"));
     }
 
     @Test
     void mainline_noRank_maps404With30094() throws Exception {
-        when(queryService.mainline(null, null))
+        when(queryService.mainline(null, null, null))
                 .thenThrow(new BusinessException(ErrorCode.INDUSTRY_MAINLINE_NOT_FOUND, "全库无主线榜单"));
 
         mockMvc.perform(get("/api/v1/industry-mainline"))
@@ -153,10 +207,10 @@ class IndustryMainlineControllerTest {
 
     @Test
     void detail_invalidIndustry_maps400With30095() throws Exception {
-        when(queryService.detail("半导体概念"))
+        when(queryService.detail("半导体概念", null))
                 .thenThrow(
                         new BusinessException(
-                                ErrorCode.INDUSTRY_MAINLINE_QUERY_INVALID, "行业参数非申万 31 枚举"));
+                                ErrorCode.INDUSTRY_MAINLINE_QUERY_INVALID, "行业参数非该市场进榜枚举"));
 
         mockMvc.perform(get("/api/v1/industry-mainline/半导体概念/detail"))
                 .andExpect(status().isBadRequest())
@@ -165,9 +219,11 @@ class IndustryMainlineControllerTest {
 
     @Test
     void detail_returnsWrappedView() throws Exception {
-        when(queryService.detail("电子"))
+        when(queryService.detail("电子", null))
                 .thenReturn(
                         new IndustryMainlineQueryService.DetailView(
+                                "A_SHARE",
+                                "A股：申万一级 31",
                                 "电子",
                                 "2026-09-28",
                                 "tencent-rank",
@@ -184,13 +240,17 @@ class IndustryMainlineControllerTest {
                                 List.of(),
                                 List.of(),
                                 null,
+                                true,
+                                null,
                                 120));
 
         mockMvc.perform(get("/api/v1/industry-mainline/电子/detail"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
                 .andExpect(jsonPath("$.data.industry").value("电子"))
                 .andExpect(jsonPath("$.data.source").value("tencent-rank"))
-                .andExpect(jsonPath("$.data.memberCount").value(120));
+                .andExpect(jsonPath("$.data.memberCount").value(120))
+                .andExpect(jsonPath("$.data.leadersAvailable").value(true));
     }
 
     @Test
@@ -255,14 +315,45 @@ class IndustryMainlineControllerTest {
 
     @Test
     void recompute_returnsManualSummary() throws Exception {
-        when(mainlineService.compute(any(java.time.LocalDate.class), eq(true)))
+        when(mainlineService.compute(
+                        any(java.time.LocalDate.class),
+                        eq(com.info.platform.domain.aggregation.Market.A_SHARE),
+                        eq(true)))
                 .thenReturn(new IndustryMainlineService.GenerationReport(5, "top=5 version=2"));
 
         mockMvc.perform(post("/api/v1/industry-mainline/recompute"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
                 .andExpect(jsonPath("$.data.rankDate").value("2026-09-28"))
                 .andExpect(jsonPath("$.data.topSize").value(5))
                 .andExpect(jsonPath("$.data.detail").value("top=5 version=2"));
+    }
+
+    @Test
+    void recompute_hkMarket_delegatesWithMarket() throws Exception {
+        when(mainlineService.compute(
+                        any(java.time.LocalDate.class),
+                        eq(com.info.platform.domain.aggregation.Market.HK),
+                        eq(true)))
+                .thenReturn(new IndustryMainlineService.GenerationReport(3, "market=HK top=3"));
+
+        mockMvc.perform(post("/api/v1/industry-mainline/recompute").param("market", "HK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.market").value("HK"))
+                .andExpect(jsonPath("$.data.topSize").value(3));
+
+        org.mockito.Mockito.verify(mainlineService)
+                .compute(
+                        any(java.time.LocalDate.class),
+                        eq(com.info.platform.domain.aggregation.Market.HK),
+                        eq(true));
+    }
+
+    @Test
+    void recompute_invalidMarket_maps400With30095() throws Exception {
+        mockMvc.perform(post("/api/v1/industry-mainline/recompute").param("market", "JP"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30095));
     }
 }

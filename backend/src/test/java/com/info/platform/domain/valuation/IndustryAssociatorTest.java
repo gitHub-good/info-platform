@@ -295,4 +295,65 @@ class IndustryAssociatorTest {
         assertThat(lowHeat.score()).isGreaterThan(0.0).isLessThan(30.0);
         assertThat(topHeat.assoc().get(0).source()).isEqualTo("INDUSTRY_MEMBER");
     }
+
+    // ---- M29 T256：分市场白名单（港美股 F10 枚举进出边——A 股委托零回归） ----
+
+    @Test
+    void marketScoped_hkWhitelist_swOnlyNamesRejected() {
+        // 港股口径：HK 枚举（软件服务/银行）出边；SW-only 名（美容护理）与 UNKNOWN 兜底不出边
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(
+                                eventLink(List.of("HK00700"), List.of("软件服务", "美容护理"), 1),
+                                eventLink(List.of("HK09988"), List.of("UNKNOWN"), 1)),
+                        List.of(newsLink(List.of("HK00700"), "银行", "美容护理", 2)),
+                        List.of(new IndustryAssociator.MemberLink("HK09988", "软件服务")),
+                        SNAPSHOT,
+                        WINDOW,
+                        com.info.platform.domain.aggregation.Market.HK);
+
+        assertThat(assoc.get("HK00700"))
+                .extracting(IndustryAssociator.Association::industry)
+                .containsExactlyInAnyOrder("软件服务", "银行");
+        assertThat(assoc.get("HK09988"))
+                .extracting(IndustryAssociator.Association::industry)
+                .containsExactly("软件服务"); // UNKNOWN 兜底不出边
+    }
+
+    @Test
+    void marketScoped_usWhitelist_usEnumsLinked() {
+        Map<String, List<IndustryAssociator.Association>> assoc =
+                IndustryAssociator.associate(
+                        List.of(eventLink(List.of("USAAPL"), List.of("软件与信息服务"), 0)),
+                        List.of(),
+                        List.of(),
+                        SNAPSHOT,
+                        WINDOW,
+                        com.info.platform.domain.aggregation.Market.US);
+
+        assertThat(assoc.get("USAAPL")).hasSize(1);
+        assertThat(assoc.get("USAAPL").get(0).industry()).isEqualTo("软件与信息服务");
+    }
+
+    @Test
+    void marketScoped_aShareDelegation_identicalToLegacyOverloads() {
+        // A 股委托零回归：market=A_SHARE 六参与既有五参逐值一致
+        List<IndustryAssociator.EventLink> events =
+                List.of(eventLink(List.of("SH600519"), List.of("食品饮料"), 3));
+        List<IndustryAssociator.NewsLink> news =
+                List.of(newsLink(List.of("SH600519"), "银行", "房地产", 5));
+        List<IndustryAssociator.MemberLink> members =
+                List.of(new IndustryAssociator.MemberLink("SH600519", "食品饮料"));
+        Map<String, List<IndustryAssociator.Association>> viaMarket =
+                IndustryAssociator.associate(
+                        events,
+                        news,
+                        members,
+                        SNAPSHOT,
+                        WINDOW,
+                        com.info.platform.domain.aggregation.Market.A_SHARE);
+        Map<String, List<IndustryAssociator.Association>> legacy =
+                IndustryAssociator.associate(events, news, members, SNAPSHOT, WINDOW);
+        assertThat(viaMarket).isEqualTo(legacy);
+    }
 }

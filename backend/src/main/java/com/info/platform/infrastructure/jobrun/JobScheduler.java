@@ -53,9 +53,10 @@ public class JobScheduler {
      * MARKET_TOP_JOB 全程 4~12min 长任务，14→15——18:00 与快照/清理错峰仍留并发余量；M22 增 INCREMENTAL_REEVAL 常驻 60s
      * tick 短轮询（每轮 <25s，ADR-0061 裁决 1），15→16——与 17:30/18:00 重窗互斥走让路查询非线程 starvation；M27 增
      * INDUSTRY_MARKET_SNAPSHOT 常驻 30min tick（每轮 1 请求秒级）+ INDUSTRY_MAINLINE 盘后 18:30 长任务（全轮 &lt;10s，
-     * ADR-0063 裁决 6），16→18——任务键 16→18 每任务一线程全额覆盖）。
+     * ADR-0063 裁决 6），16→18——任务键 16→18 每任务一线程全额覆盖；M29 增 HKUS_MARKET_SNAPSHOT 常驻 60min tick（每轮 ~235
+     * 请求分块 500ms ≈2min，ADR-0064 裁决 4），18→19——任务键 19→20 全额覆盖）。
      */
-    private static final int POOL_SIZE = 18;
+    private static final int POOL_SIZE = 19;
 
     private final ThreadPoolTaskScheduler taskScheduler;
     private final JobRegistry registry;

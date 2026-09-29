@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.info.platform.application.mainline.IndustryMainlineSettings.LeaderParams;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.HeatWindow;
 import com.info.platform.domain.analysis.IndustryCategory;
@@ -99,41 +100,61 @@ public class IndustryMainlineService {
     }
 
     /**
-     * 计算一轮榜单（Job tick 与手动重算共用入口）。
+     * 计算一轮榜单（A 股兼容入口——Job/既有调用面零改动断言，方案 §4 C12）。
      *
      * @param rankDate 榜单口径日（Asia/Shanghai yyyy-MM-dd；同日重跑 version+1 追加）
      * @param manual true = 任务中心/端点手动触发（trigger_source=MANUAL 留痕）
      * @return 生成报告（行数 + detail——任务中心 lastRunDetail）
      */
     public GenerationReport compute(LocalDate rankDate, boolean manual) {
+        return compute(rankDate, Market.A_SHARE, manual);
+    }
+
+    /**
+     * 计算一轮榜单（Job tick 与手动重算共用入口；M29 T255 分市场——mainline-v1:m2 口径，全部输入按市场切横截面）。
+     *
+     * <p><b>m2 口径（方案 §6）</b>：三维权重与持续性硬门槛结构零变更，百分位市场内计算；价格维取 {@code
+     * industry_market_snapshot(market)}（港美股 pct_d5 v1 留 NULL → 价格维降 day 单窗 + dimensionMissing
+     * 留痕，M27 缺维中性化先例）；热度维取 {@code industry_heat_snapshot(market)}；事件维按源条目 {@code l1_market =
+     * market} 分桶。 港美历史不足 persistMinDays → bootstrap 免门槛出榜（M27 先例）；龙头仅 A 股（W1——港美股 leaders 恒 {@code
+     * []}）。
+     *
+     * @param market 市场口径（A_SHARE / HK / US）
+     */
+    public GenerationReport compute(LocalDate rankDate, Market market, boolean manual) {
         Params params = settings.mainlineParams();
         String date = rankDate.toString();
-        String snapshotDate = marketSnapshotRepository.latestSnapshotDate().orElse(null);
+        String snapshotDate = marketSnapshotRepository.latestSnapshotDate(market).orElse(null);
         if (snapshotDate == null) {
-            log.warn("主线计算跳过：全库无行情快照（INDUSTRY_MARKET_SNAPSHOT 未跑过）rankDate={}", date);
-            return new GenerationReport(0, "no-snapshot（行情快照未就绪，本轮跳过）");
+            log.warn(
+                    "主线计算跳过：该市场全库无行情快照（INDUSTRY_MARKET_SNAPSHOT 未跑过）rankDate={} market={}",
+                    date,
+                    market);
+            return new GenerationReport(0, "no-snapshot（" + market + " 行情快照未就绪，本轮跳过）");
         }
         boolean degraded = snapshotDate.compareTo(date) < 0;
         List<MarketSnapshotRow> industryRows =
-                marketSnapshotRepository.findIndustryRows(snapshotDate);
+                marketSnapshotRepository.findIndustryRows(snapshotDate, market);
         if (industryRows.isEmpty()) {
-            return new GenerationReport(0, "no-snapshot（行情快照无 INDUSTRY 行，本轮跳过）");
+            return new GenerationReport(0, "no-snapshot（" + market + " 行情快照无 INDUSTRY 行，本轮跳过）");
         }
         // 价格侧窗口：本表 distinct snapshot_date 倒取（含当日快照日，时间升序喂计算器）
         List<String> windowDates =
                 new ArrayList<>(
-                        marketSnapshotRepository.recentSnapshotDates(params.persistWindowDays()));
+                        marketSnapshotRepository.recentSnapshotDates(
+                                params.persistWindowDays(), market));
         if (!windowDates.contains(snapshotDate)) {
             windowDates.add(0, snapshotDate);
         }
         java.util.Collections.reverse(windowDates);
-        List<Map<String, Double>> dailyPctDay = loadDailyPctDay(windowDates, industryRows);
+        List<Map<String, Double>> dailyPctDay = loadDailyPctDay(market, windowDates, industryRows);
 
-        // 热度侧：当日 H24/D7 现值 + 历史日报 heat_top（当日以现值计——日报次日 08:00 才生成）
-        Map<String, IndustryHeatSnapshot> h24 = heatBoard(HeatWindow.H24);
-        Map<String, IndustryHeatSnapshot> d7 = heatBoard(HeatWindow.D7);
+        // 热度侧：当日 H24/D7 现值 + 历史日报 heat_top（当日以现值计——日报次日 08:00 才生成；日报 v1 恒 A 股口径，
+        // 港美股历史空窗 → 持续性按可得日计、不足 persistMinDays 走 bootstrap，方案 §6.2 拍板五）
+        Map<String, IndustryHeatSnapshot> h24 = heatBoard(HeatWindow.H24, market);
+        Map<String, IndustryHeatSnapshot> d7 = heatBoard(HeatWindow.D7, market);
         List<IndustryRow> current = new ArrayList<>(industryRows.size());
-        Map<String, Double> eventWeighted = eventWeighted(windowDates);
+        Map<String, Double> eventWeighted = eventWeighted(windowDates, market);
         for (MarketSnapshotRow row : industryRows) {
             IndustryHeatSnapshot h24Row = h24.get(row.industry());
             IndustryHeatSnapshot d7Row = d7.get(row.industry());
@@ -147,22 +168,23 @@ public class IndustryMainlineService {
                             h24Row == null ? null : h24Row.getDeltaPct(),
                             eventWeighted.getOrDefault(row.industry(), 0d)));
         }
-        List<Map<String, Double>> dailyHeat = loadDailyHeat(windowDates, h24);
+        List<Map<String, Double>> dailyHeat = loadDailyHeat(windowDates, h24, market);
 
         Result result =
                 MainlineCalculator.calculate(
                         params, new CalculationInput(List.copyOf(current), dailyPctDay, dailyHeat));
 
-        // 龙头识别 + 主力徽章（T244）：每个 Top 行业成员内三维综合分 → 龙一/二/三（纯规则零 LLM）
-        LeaderOutcomes leaders = leadersFor(result.topRows(), rankDate);
+        // 龙头识别 + 主力徽章（T244）：仅 A 股生效（W1 港美股龙头 Won't——leaders 恒 []，detail 端点给 unavailableReason）
+        LeaderOutcomes leaders = leadersFor(market, result.topRows(), rankDate);
         String computedAt = clock.instant().toString();
-        String basis = basis(params, snapshotDate, windowDates);
-        int version = mainlineRepository.maxVersion(date) + 1;
+        String basis = basis(market, params, snapshotDate, windowDates);
+        int version = mainlineRepository.maxVersion(date, market) + 1;
         List<MainlineRankRow> rankRows = new ArrayList<>(result.topRows().size());
         for (int i = 0; i < result.topRows().size(); i++) {
             MainlineRow row = result.topRows().get(i);
             rankRows.add(
                     new MainlineRankRow(
+                            market,
                             date,
                             version,
                             i + 1,
@@ -178,6 +200,7 @@ public class IndustryMainlineService {
         }
         MainlineBatchRow batch =
                 new MainlineBatchRow(
+                        market,
                         date,
                         version,
                         manual ? "MANUAL" : "DAILY",
@@ -189,7 +212,9 @@ public class IndustryMainlineService {
                         computedAt);
         mainlineRepository.insertVersion(batch, rankRows);
         String detail =
-                "top="
+                "market="
+                        + market
+                        + " top="
                         + rankRows.size()
                         + " version="
                         + version
@@ -200,6 +225,7 @@ public class IndustryMainlineService {
                         + " snapshot="
                         + snapshotDate
                         + (degraded ? " degraded=SNAPSHOT_STALE" : "")
+                        + (result.bootstrap() ? " bootstrap=COLD_START" : "")
                         + " dimensionMissing="
                         + result.dimensionMissing();
         log.info("主线榜单落库完成 rankDate={} {}（Job 留痕摘要）", date, detail);
@@ -208,9 +234,10 @@ public class IndustryMainlineService {
 
     /** 价格侧窗口装载：窗口各交易日 industry→pct_day（时间升序、末位 = 当日；缺行日照常缺——持续性按可得日计）。 */
     private List<Map<String, Double>> loadDailyPctDay(
-            List<String> windowDates, List<MarketSnapshotRow> todayRows) {
+            Market market, List<String> windowDates, List<MarketSnapshotRow> todayRows) {
         Map<String, Map<String, Double>> byDate = new HashMap<>();
-        for (HistoryPctDay row : marketSnapshotRepository.findIndustryPctDayForDates(windowDates)) {
+        for (HistoryPctDay row :
+                marketSnapshotRepository.findIndustryPctDayForDates(windowDates, market)) {
             byDate.computeIfAbsent(row.snapshotDate(), key -> new HashMap<>())
                     .put(row.industry(), row.pctDay());
         }
@@ -225,14 +252,20 @@ public class IndustryMainlineService {
         return daily;
     }
 
-    /** 热度侧窗口装载：历史日报 heat_top + 当日 H24 现值（与价格侧按日对齐等长——缺数日空映射占位，末日 = 当日）。 */
+    /**
+     * 热度侧窗口装载：历史日报 heat_top + 当日 H24 现值（与价格侧按日对齐等长——缺数日空映射占位，末日 = 当日）。 日报 v1 恒 A 股口径（该表无 market
+     * 维）——港美股历史空窗（仅当日现值），持续性按可得日计 → 不足 persistMinDays 由计算器 bootstrap 承接。
+     */
     private List<Map<String, Double>> loadDailyHeat(
-            List<String> windowDates, Map<String, IndustryHeatSnapshot> h24) {
+            List<String> windowDates, Map<String, IndustryHeatSnapshot> h24, Market market) {
         Map<String, Map<String, Double>> byDate = new HashMap<>();
-        for (HeatTopDay day : mainlineRepository.findRecentHeatTop(HEAT_HISTORY_LOOKBACK_DAYS)) {
-            Map<String, Double> scores = parseHeatTop(day.heatTopJson());
-            if (!scores.isEmpty()) {
-                byDate.put(day.reportDate(), scores);
+        if (market == Market.A_SHARE) {
+            for (HeatTopDay day :
+                    mainlineRepository.findRecentHeatTop(HEAT_HISTORY_LOOKBACK_DAYS)) {
+                Map<String, Double> scores = parseHeatTop(day.heatTopJson());
+                if (!scores.isEmpty()) {
+                    byDate.put(day.reportDate(), scores);
+                }
             }
         }
         Map<String, Double> today = new HashMap<>();
@@ -245,20 +278,20 @@ public class IndustryMainlineService {
         return daily;
     }
 
-    private Map<String, IndustryHeatSnapshot> heatBoard(HeatWindow window) {
+    private Map<String, IndustryHeatSnapshot> heatBoard(HeatWindow window, Market market) {
         Map<String, IndustryHeatSnapshot> board = new HashMap<>();
-        for (IndustryHeatSnapshot snapshot : heatSnapshotRepository.findBoard(window)) {
+        for (IndustryHeatSnapshot snapshot : heatSnapshotRepository.findBoard(window, market)) {
             board.put(snapshot.getIndustry(), snapshot);
         }
         return board;
     }
 
-    /** 事件密度：窗口首日起 [from, to] 的加权计数（HIGH×2 / MEDIUM×1 / LOW×0，SQL 可复算）。 */
-    private Map<String, Double> eventWeighted(List<String> windowDates) {
+    /** 事件密度：窗口首日起 [from, to] 的加权计数（HIGH×2 / MEDIUM×1 / LOW×0，源条目 l1_market = market 分桶，SQL 可复算）。 */
+    private Map<String, Double> eventWeighted(List<String> windowDates, Market market) {
         String from = windowDates.get(0);
         String to = windowDates.get(windowDates.size() - 1);
         Map<String, Double> weighted = new HashMap<>();
-        for (EventWeightRow row : mainlineRepository.sumEventWeightByIndustry(from, to)) {
+        for (EventWeightRow row : mainlineRepository.sumEventWeightByIndustry(from, to, market)) {
             weighted.put(row.industry(), row.weightedCount());
         }
         return weighted;
@@ -313,6 +346,7 @@ public class IndustryMainlineService {
         doc.put("industries", industries);
         doc.put("persistPass", result.gatePassed());
         doc.put("topN", result.topRows().size());
+        doc.put("bootstrap", result.bootstrap());
         ObjectNode missing = doc.putObject("dimensionMissing");
         result.dimensionMissing().forEach(missing::put);
         ObjectNode excluded = doc.putObject("excluded");
@@ -331,9 +365,11 @@ public class IndustryMainlineService {
         static final LeaderOutcomes EMPTY = new LeaderOutcomes(Map.of(), 0, Map.of());
     }
 
-    /** 逐 Top 行业识别龙头（成员装载 → ST 排除留痕 → 三维计算 → 徽章内嵌 → JSON 组装）。 */
-    private LeaderOutcomes leadersFor(List<MainlineRow> topRows, LocalDate rankDate) {
-        if (topRows.isEmpty()) {
+    /** 逐 Top 行业识别龙头（成员装载 → ST 排除留痕 → 三维计算 → 徽章内嵌 → JSON 组装）；港美股恒空产出（W1）。 */
+    private LeaderOutcomes leadersFor(
+            Market market, List<MainlineRow> topRows, LocalDate rankDate) {
+        if (topRows.isEmpty() || market != Market.A_SHARE) {
+            // W1：港美股龙头分析暂未支持（依赖基本面因子体系）——leaders 恒 []，detail 端点 leadersAvailable=false + reason 占位
             return LeaderOutcomes.EMPTY;
         }
         LeaderParams leaderParams = settings.leaderParams();
@@ -620,9 +656,14 @@ public class IndustryMainlineService {
         return objectMapper.createArrayNode();
     }
 
-    /** basis 口径串（§3.4 契约：权重/阈值/输入指纹全量拼入——复算对账锚）。 */
-    private String basis(Params params, String snapshotDate, List<String> windowDates) {
-        return "mainline-v1:wp="
+    /**
+     * basis 口径串（§3.4 契约：权重/阈值/输入指纹全量拼入——复算对账锚；M29 §6：A 股 mainline-v1 / 港美股 mainline-v1:m2 前缀区分）。
+     */
+    private String basis(
+            Market market, Params params, String snapshotDate, List<String> windowDates) {
+        String version = market == Market.A_SHARE ? "mainline-v1" : "mainline-v1:m2";
+        return version
+                + ":wp="
                 + params.wp()
                 + ",wh="
                 + params.wh()

@@ -69,6 +69,19 @@ public class Watchlist {
         return w;
     }
 
+    /** 改名（领域行为：与 create 同口径非空校验；同名冲突由应用层查重，领域不查库）。 */
+    public void rename(String newName) {
+        if (newName == null || newName.isBlank()) {
+            throw new IllegalArgumentException("name 不能为空");
+        }
+        this.name = newName;
+    }
+
+    /** 软删除（status → DELETED；启用查询与异动任务按 status=1 自然排除，清单项保留供追溯）。 */
+    public void delete() {
+        this.status = WatchlistStatus.DELETED;
+    }
+
     public Long getId() {
         return id;
     }

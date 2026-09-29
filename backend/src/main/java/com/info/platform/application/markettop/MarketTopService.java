@@ -3,7 +3,9 @@ package com.info.platform.application.markettop;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.markettop.DeepDiveService.DiveResult;
+import com.info.platform.application.markettop.HkusCrossSectionService.HkusCrossSection;
 import com.info.platform.application.markettop.IndustryMemberBackfillService.BackfillReport;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.markettop.DeepDiveInput;
 import com.info.platform.domain.markettop.DeepDiveInput.EventFact;
 import com.info.platform.domain.markettop.DeepDiveInput.FactorDim;
@@ -44,17 +46,20 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 全市场榜单四阶段编排（应用层，M21 T183，方案 §4.6 + ADR-0059 裁决 2/4/5/6）：
+ * 全市场榜单四阶段编排（应用层，M21 T183，方案 §4.6 + ADR-0059 裁决 2/4/5/6；M29 T256 分市场——方案 §7）：
  *
  * <ol>
- *   <li>阶段 0 回联保障：成员覆盖率预检 + 双通道回填（整段失败降级继续）；
- *   <li>阶段 1 粗筛：当日快照全量行 → PoolBuilder 排除/四键排序/切分（池 ~300 + 深析候选 ~40）；
- *   <li>阶段 2 深析：逐只「成本预检 → 输入组装 → LLM → 五步校验链 → 兜底」，三档降级监控（单次失败模板兜底 / 连续 ≥5 失败中止 LLM_FAILURE /
- *       成本触顶停剩余 COST_CAP）+ 管道护栏联动（级别非 NORMAL 深析整体跳过，T186）；
- *   <li>阶段 3 合成：TopComposer（层数断言 → final 排序 → 恰 10 截断）→ RankDiffer（昨日 diff）→ V31 两表追加式版本化落库。
+ *   <li>阶段 0 回联保障：成员覆盖率预检 + 双通道回填（整段失败降级继续；A 股专属——港美股行业 F10 直采免回填）；
+ *   <li>阶段 1 粗筛：当日横截面全量行 → PoolBuilder 排除/四键排序/切分（池 ~300 + 深析候选 ~40）——A 股读因子快照（5221 行），港美股 {@link
+ *       HkusCrossSectionService} 就地现算（F3/F5 权重置 0 再归一 + dimensionMissing 留痕，拍板四）；
+ *   <li>阶段 2 深析（<b>仅 A 股</b>，T256 成本护栏——港美股纯规则零 LLM 跳过留痕）：逐只「成本预检 → 输入组装 → LLM → 五步校验链 → 兜底」，三档降级监控
+ *       + 管道护栏联动（级别非 NORMAL 深析整体跳过，T186）；
+ *   <li>阶段 3 合成：TopComposer（层数断言 → final 排序 → 恰 10 截断）→ RankDiffer（昨日 diff，市场内）→ 两表追加式版本化落库
+ *       （(rank_date, version, market) 三市场同日共存不混榜）。
  * </ol>
  *
- * <p><b>快照日守卫</b>（§4.6）：请求日无当日快照 → WARN 跳过留痕（次日全量自然修复 + 任务中心手动补触发）。LLM 全 Mock 下本类可全链单测。
+ * <p><b>快照日守卫</b>（§4.6，A 股）：请求日无当日快照 → WARN 跳过留痕。港美股无因子快照依赖：池空跳过（no-pool）、合格信号全无跳过
+ * （no-signal）——榜单照常口径在 basis 落行情快照最近日（盘中未收敛如实回显）。LLM 全 Mock 下本类可全链单测。
  */
 @Service
 public class MarketTopService {
@@ -85,6 +90,19 @@ public class MarketTopService {
 
     static final String DEGRADED_LLM_FAILURE = "LLM_FAILURE";
 
+    /** 深析不可用摘要（港美股榜行 dive_summary 常量——W1 价值维依赖，A 股先行）。 */
+    static final String DIVE_UNAVAILABLE_SUMMARY = "该市场暂未支持深析（价值维因子体系 A 股先行），按因子分排序。";
+
+    /** 价值维缺省留痕文案（funnel_stats.dimensionMissing——方案 §5.5 契约原文）。 */
+    static final String MISSING_FUNDAMENTAL_TEXT = "本市场暂无基本面因子（F3/F5 权重置 0 后再归一）";
+
+    static final String MISSING_VALUATION_TEXT = "本市场暂无价值评分因子";
+
+    /** 价值维缺省 data_flags（沿 M20 条件因子裁剪留痕先例，方案 §7.2）。 */
+    static final String FLAG_NO_FUNDAMENTAL_MARKET = "NO_FUNDAMENTAL_MARKET";
+
+    static final String FLAG_NO_VALUATION_MARKET = "NO_VALUATION_MARKET";
+
     private static final Logger log = LoggerFactory.getLogger(MarketTopService.class);
 
     private final IndustryMemberBackfillService backfillService;
@@ -102,6 +120,8 @@ public class MarketTopService {
     private final MarketTopConfigSettings configSettings;
 
     private final com.info.platform.application.analysis.PipelineGuardService guardService;
+
+    private final HkusCrossSectionService hkusCrossSectionService;
 
     private final ObjectMapper objectMapper;
 
@@ -123,6 +143,7 @@ public class MarketTopService {
             MarketTopRepository repository,
             MarketTopConfigSettings configSettings,
             com.info.platform.application.analysis.PipelineGuardService guardService,
+            HkusCrossSectionService hkusCrossSectionService,
             ObjectMapper objectMapper,
             Clock clock,
             @org.springframework.beans.factory.annotation.Value(
@@ -136,41 +157,84 @@ public class MarketTopService {
         this.repository = repository;
         this.configSettings = configSettings;
         this.guardService = guardService;
+        this.hkusCrossSectionService = hkusCrossSectionService;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.diveCallIntervalMillis = diveCallIntervalMillis;
     }
 
     /**
-     * 生成一版本榜单（幂等键 = (rank_date, version)：同日重跑 version+1 追加不覆盖）。
+     * 生成一版本榜单（A 股兼容入口——既有调用面零改动，方案 §4 C12）。
      *
      * @param rankDate 榜单日（Asia/Shanghai 口径；须已有该日快照，否则守卫跳过）
      * @return 生成报告（状态/漏斗计数/深析统计/降级态——JobRunStats detail 留痕面）
      */
     public GenerationReport generate(LocalDate rankDate) {
-        String date = rankDate.toString();
-        Optional<String> latestSnapshot = snapshotRepository.findLatestSnapshotDate();
-        if (latestSnapshot.isEmpty() || !latestSnapshot.get().equals(date)) {
-            log.warn(
-                    "快照日守卫跳过（当日快照未出，次日自愈或手动补触发）: rankDate={} latestSnapshot={}",
-                    date,
-                    latestSnapshot.orElse(null));
-            return GenerationReport.skipped(date, latestSnapshot.orElse(null));
-        }
+        return generate(rankDate, Market.A_SHARE);
+    }
 
-        BackfillReport backfill = backfillService.backfillIfBelowFloor();
-        List<PoolRow> rows = snapshotRepository.findPoolRowsByDate(date);
-        if (rows.isEmpty()) {
-            log.warn("当日快照零行（防御跳过）: rankDate={}", date);
-            return GenerationReport.skipped(date, date);
+    /**
+     * 生成一版本榜单（M29 T256 分市场——幂等键 = (rank_date, version, market)：同日重跑 market 内 version+1
+     * 追加不覆盖，三市场同日版本共存）。
+     *
+     * <p>港美股口径（方案 §7 + 拍板四）：第 1 层 {@link HkusCrossSectionService} 现算横截面（F3/F5 缺省再归一）；深析整体跳过（A 股
+     * Top10 内触发不增量，零 LLM）留痕 divePolicy=A_SHARE_ONLY；百分位/昨日 diff 均市场内。
+     *
+     * @param market 市场口径（A_SHARE / HK / US）
+     */
+    public GenerationReport generate(LocalDate rankDate, Market market) {
+        String date = rankDate.toString();
+        BackfillReport backfill = new BackfillReport(0, 0, 0, false, 0, 0); // 港美股无回填面（占位——A 股路径覆写）
+        List<PoolRow> rows;
+        if (market == Market.A_SHARE) {
+            Optional<String> latestSnapshot = snapshotRepository.findLatestSnapshotDate();
+            if (latestSnapshot.isEmpty() || !latestSnapshot.get().equals(date)) {
+                log.warn(
+                        "快照日守卫跳过（当日快照未出，次日自愈或手动补触发）: rankDate={} latestSnapshot={}",
+                        date,
+                        latestSnapshot.orElse(null));
+                return GenerationReport.skipped(date, latestSnapshot.orElse(null));
+            }
+            backfill = backfillService.backfillIfBelowFloor();
+            rows = snapshotRepository.findPoolRowsByDate(date);
+            if (rows.isEmpty()) {
+                log.warn("当日快照零行（防御跳过）: rankDate={}", date);
+                return GenerationReport.skipped(date, date);
+            }
+        } else {
+            HkusCrossSection crossSection = hkusCrossSectionService.rowsFor(rankDate, market);
+            if (crossSection.rows().isEmpty()) {
+                log.warn("港美股池空跳过（标的池未建/未收敛）: rankDate={} market={}", date, market);
+                return GenerationReport.skipped(market, date, "no-pool（" + market + " 活跃标的池为空）");
+            }
+            rows = crossSection.rows();
+            if (eligibleSignalCount(rows) == 0) {
+                log.warn("港美股合格信号全无跳过（粗筛 E2 全排除——资讯/事件面尚未积累）: rankDate={} market={}", date, market);
+                return GenerationReport.skipped(market, date, "no-signal（" + market + " 无可入池信号标的）");
+            }
+            return composeAndPersist(rankDate, market, rows, backfill, crossSection.params());
         }
+        return composeAndPersist(rankDate, market, rows, backfill, null);
+    }
+
+    /** 阶段 1~3 共用编排（市场内四键粗筛 → 深析（仅 A 股）→ 合成 → 落库）。 */
+    private GenerationReport composeAndPersist(
+            LocalDate rankDate,
+            Market market,
+            List<PoolRow> rows,
+            BackfillReport backfill,
+            ValuationParams hkusParams) {
+        String date = rankDate.toString();
         MarketTopConfig config = configSettings.current();
         PoolResult pool =
                 MarketTopPoolBuilder.build(
                         candidatesOf(rows),
                         new PoolConfig(config.poolSize(), config.deepDiveLimit()));
 
-        DiveLoopResult diveLoop = runDiveLoop(pool.diveCandidates(), rows, rankDate);
+        DiveLoopResult diveLoop =
+                market == Market.A_SHARE
+                        ? runDiveLoop(pool.diveCandidates(), rows, rankDate)
+                        : skipDiveLoop(pool.diveCandidates());
 
         List<Composed> top =
                 TopComposer.compose(
@@ -185,10 +249,32 @@ public class MarketTopService {
         } catch (IllegalStateException e) {
             // 宁缺毋错：装配/配置错误中止落库（「全量 LLM 逐股」类事故的运行时防线，§4.3.4）
             log.error("漏斗层数断言违反，中止落库: {}", e.getMessage());
-            return GenerationReport.failed(date, e.getMessage(), pool, diveLoop, backfill);
+            return GenerationReport.failed(market, date, e.getMessage(), pool, diveLoop, backfill);
         }
-        int version = persist(date, rows.size(), pool, diveLoop, top);
-        return GenerationReport.success(date, version, pool, diveLoop, top.size(), backfill);
+        if (market != Market.A_SHARE && top.isEmpty()) {
+            // 港美股防御：合格信号探测后仍零行 → no-signal 跳过（A 股既有「空版本照落」口径不变——零回归红线）
+            log.warn("港美股榜单零行（防御跳过不落库）: rankDate={} market={}", date, market);
+            return GenerationReport.skipped(market, date, "no-signal（粗筛后零行）");
+        }
+        int version = persist(date, market, rows.size(), pool, diveLoop, top, hkusParams);
+        return GenerationReport.success(
+                market, date, version, pool, diveLoop, top.size(), backfill);
+    }
+
+    /** 深析跳过（港美股——divePolicy=A_SHARE_ONLY：候选层结构保留（漏斗同构可查），执行零 LLM）。 */
+    private static DiveLoopResult skipDiveLoop(List<Candidate> diveCandidates) {
+        return new DiveLoopResult(Map.of(), 0, 0, diveCandidates.size(), 0, 0, null, null);
+    }
+
+    /** 港美股合格信号计数（粗筛 E2 前置探测——F1=0 ∧ F2=0 全排除时 no-signal 跳过不落空版本）。 */
+    private static int eligibleSignalCount(List<PoolRow> rows) {
+        int count = 0;
+        for (PoolRow row : rows) {
+            if (row.fCatalyst() != 0.0 || row.fConduction() != 0.0) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // ---- 阶段 2：深析循环（三档降级监控） ----
@@ -200,7 +286,7 @@ public class MarketTopService {
             rowById.put(row.subjectId(), row);
         }
         Map<Long, Double> percentileBySubject = percentilesOf(rows);
-        Map<String, Integer> heatRankByIndustry = heatRanks();
+        Map<String, Integer> heatRankByIndustry = heatRanks(Market.A_SHARE);
         Map<Long, MarketDailySnapshotRepository.MarketDailyRow> marketBySubject =
                 marketRepository.findByDate(rankDate.toString());
         String newsFromIso =
@@ -314,7 +400,7 @@ public class MarketTopService {
                         row.lastEventDate()),
                 row,
                 percentileBySubject,
-                heatRanks(),
+                heatRanks(Market.A_SHARE),
                 marketRepository.findByDate(rankDate.toString()).get(row.subjectId()),
                 rankDate.minusDays(RELATED_NEWS_WINDOW_DAYS)
                         .atStartOfDay(RANK_ZONE)
@@ -364,26 +450,38 @@ public class MarketTopService {
 
     // ---- 阶段 3：合成 + diff + 落库 ----
 
-    /** 落库一版本（合成终态 → RankDiffer → 两表追加；返回落库版本号）。 */
+    /** 落库一版本（合成终态 → RankDiffer（市场内昨日）→ 两表追加；返回落库版本号）。 */
     private int persist(
             String date,
+            Market market,
             long snapshotRows,
             PoolResult pool,
             DiveLoopResult diveLoop,
-            List<Composed> top) {
+            List<Composed> top,
+            ValuationParams hkusParams) {
         RankDiffer.Diff diff =
                 RankDiffer.diff(
-                        repository.findPreviousTop(date),
+                        repository.findPreviousTop(date, market),
                         top.stream().map(Composed::subjectId).toList());
-        int version = repository.maxVersion(date) + 1;
+        int version = repository.maxVersion(date, market) + 1;
         String computedAt = clock.instant().toString();
         MarketTopConfig config = configSettings.current();
+        boolean hkus = market != Market.A_SHARE;
         String basis =
-                TopComposer.basis(
-                        new TopComposer.Config(
-                                config.poolSize(),
-                                config.deepDiveLimit(),
-                                config.deepDiveCostCapRatio()));
+                hkus
+                        ? TopComposer.basisHkus(
+                                new TopComposer.Config(
+                                        config.poolSize(),
+                                        config.deepDiveLimit(),
+                                        config.deepDiveCostCapRatio()),
+                                hkusWeights(hkusParams),
+                                marketRepository.findLatestSnapshotDate(market).orElse(null),
+                                top.size())
+                        : TopComposer.basis(
+                                new TopComposer.Config(
+                                        config.poolSize(),
+                                        config.deepDiveLimit(),
+                                        config.deepDiveCostCapRatio()));
 
         List<MarketTopRankRow> rankRows = new ArrayList<>(top.size());
         for (int index = 0; index < top.size(); index++) {
@@ -395,6 +493,7 @@ public class MarketTopService {
                                     new RankDiffer.Change(null, RankDiffer.NEW));
             rankRows.add(
                     new MarketTopRankRow(
+                            market,
                             date,
                             version,
                             index + 1,
@@ -407,10 +506,12 @@ public class MarketTopService {
                             composed.breakthrough(),
                             composed.generation(),
                             composed.diveMethod(),
-                            composed.dive() == null
-                                    ? "该标的未深析（降级/未入深析候选），按因子分排序。"
-                                    : composed.dive().summary(),
-                            diveDetailJson(composed.dive()),
+                            hkus
+                                    ? DIVE_UNAVAILABLE_SUMMARY
+                                    : composed.dive() == null
+                                            ? "该标的未深析（降级/未入深析候选），按因子分排序。"
+                                            : composed.dive().summary(),
+                            hkus ? "{}" : diveDetailJson(composed.dive()),
                             composed.evidenceCount(),
                             composed.lastEventDate(),
                             change.prevRank(),
@@ -421,16 +522,19 @@ public class MarketTopService {
 
         MarketTopBatchRow batch =
                 new MarketTopBatchRow(
+                        market,
                         date,
                         version,
                         "DAILY",
                         date,
-                        funnelStatsJson(snapshotRows, pool, diveLoop, top.size()),
+                        funnelStatsJson(market, snapshotRows, pool, diveLoop, top.size()),
                         diveLoop.degradedReason() != null,
                         diveLoop.degradedReason(),
                         droppedSubjectsJson(diff),
-                        guardService.todaySceneCostMicros(
-                                com.info.platform.domain.ai.BriefType.DEEP_DIVE.key()),
+                        hkus
+                                ? 0L
+                                : guardService.todaySceneCostMicros(
+                                        com.info.platform.domain.ai.BriefType.DEEP_DIVE.key()),
                         diveLoop.llmCalls(),
                         diveLoop.promptVersion(),
                         basis,
@@ -438,13 +542,24 @@ public class MarketTopService {
                         null); // created_at 由仓储落库时回填
         repository.insertVersion(batch, rankRows);
         log.info(
-                "榜单版本落库: rankDate={} version={} topSize={} degraded={} reason={}",
+                "榜单版本落库: rankDate={} market={} version={} topSize={} degraded={} reason={}",
                 date,
+                market,
                 version,
                 top.size(),
                 batch.degraded(),
                 diveLoop.degradedReason());
         return version;
+    }
+
+    /** 港美股剩余维有效权重指纹（w1|w2|w4——F3/F5 置 0 后，basis 审计锚；%.2f 与 vs-v1/mt-v1 指纹同风格）。 */
+    private static String hkusWeights(ValuationParams params) {
+        return String.format(
+                java.util.Locale.ROOT,
+                "%.2f|%.2f|%.2f",
+                params.wCatalyst(),
+                params.wConduction(),
+                params.wRisk());
     }
 
     // ---- 组装辅助（纯投影） ----
@@ -504,9 +619,9 @@ public class MarketTopService {
         return percentiles;
     }
 
-    /** 行业 24h 热度排名（heat_score 降序，1 起）。 */
-    private Map<String, Integer> heatRanks() {
-        List<HeatRow> heatRows = new ArrayList<>(snapshotRepository.findH24Heat());
+    /** 行业 24h 热度排名（heat_score 降序，1 起；分市场读取——跨市场重名行业由 market 消歧，A 股 = 申万 31 行原口径）。 */
+    private Map<String, Integer> heatRanks(Market market) {
+        List<HeatRow> heatRows = new ArrayList<>(snapshotRepository.findH24Heat(market));
         heatRows.sort(Comparator.comparingDouble(HeatRow::heatScore).reversed());
         Map<String, Integer> ranks = new HashMap<>();
         for (int index = 0; index < heatRows.size(); index++) {
@@ -606,9 +721,16 @@ public class MarketTopService {
         }
     }
 
-    /** funnel_stats JSON（§4.2 契约：漏斗五值 + dive 计数）。 */
+    /**
+     * funnel_stats JSON（§4.2 契约：漏斗五值 + dive 计数；港美股增
+     * dimensionMissing/dataFlags/divePolicy——拍板四维度裁剪留痕不静默）。
+     */
     private String funnelStatsJson(
-            long snapshotRows, PoolResult pool, DiveLoopResult diveLoop, int topSize) {
+            Market market,
+            long snapshotRows,
+            PoolResult pool,
+            DiveLoopResult diveLoop,
+            int topSize) {
         Map<String, Object> funnel = new LinkedHashMap<>();
         funnel.put("snapshotRows", snapshotRows);
         funnel.put("eligible", pool.funnel().eligible());
@@ -619,6 +741,14 @@ public class MarketTopService {
         funnel.put("diveTemplate", diveLoop.templateDone());
         funnel.put("diveSkipped", diveLoop.skipped());
         funnel.put("topSize", topSize);
+        if (market != Market.A_SHARE) {
+            funnel.put("divePolicy", "A_SHARE_ONLY");
+            Map<String, String> missing = new LinkedHashMap<>();
+            missing.put("fundamental", MISSING_FUNDAMENTAL_TEXT);
+            missing.put("valuation", MISSING_VALUATION_TEXT);
+            funnel.put("dimensionMissing", missing);
+            funnel.put("dataFlags", List.of(FLAG_NO_FUNDAMENTAL_MARKET, FLAG_NO_VALUATION_MARKET));
+        }
         try {
             return objectMapper.writeValueAsString(funnel);
         } catch (Exception e) {
@@ -656,9 +786,10 @@ public class MarketTopService {
     /**
      * 生成报告（JobRunStats detail 留痕面；MarketTopQueryService 版本读取另见）。
      *
-     * @param status SKIPPED（快照日守卫/零行）/ SUCCESS / FAILED（层数断言中止）
+     * @param status SKIPPED（快照日守卫/零行/no-pool/no-signal）/ SUCCESS / FAILED（层数断言中止）
      */
     record GenerationReport(
+            Market market,
             String status,
             String rankDate,
             int version,
@@ -682,8 +813,10 @@ public class MarketTopService {
 
         static final String STATUS_FAILED = "FAILED";
 
+        /** A 股快照日守卫跳过态（既有口径——reason 含 latestSnapshot 对账值）。 */
         static GenerationReport skipped(String rankDate, String latestSnapshot) {
             return new GenerationReport(
+                    Market.A_SHARE,
                     STATUS_SKIPPED,
                     rankDate,
                     0,
@@ -702,13 +835,37 @@ public class MarketTopService {
                     "snapshotGuard: latestSnapshot=" + latestSnapshot);
         }
 
+        /** 港美股跳过态（no-pool / no-signal——reason 人读留痕）。 */
+        static GenerationReport skipped(Market market, String rankDate, String reason) {
+            return new GenerationReport(
+                    market,
+                    STATUS_SKIPPED,
+                    rankDate,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    null,
+                    0,
+                    "",
+                    reason);
+        }
+
         static GenerationReport failed(
+                Market market,
                 String rankDate,
                 String reason,
                 PoolResult pool,
                 DiveLoopResult diveLoop,
                 BackfillReport backfill) {
             return new GenerationReport(
+                    market,
                     STATUS_FAILED,
                     rankDate,
                     0,
@@ -728,6 +885,7 @@ public class MarketTopService {
         }
 
         static GenerationReport success(
+                Market market,
                 String rankDate,
                 int version,
                 PoolResult pool,
@@ -735,6 +893,7 @@ public class MarketTopService {
                 int topSize,
                 BackfillReport backfill) {
             return new GenerationReport(
+                    market,
                     STATUS_SUCCESS,
                     rankDate,
                     version,
@@ -753,14 +912,16 @@ public class MarketTopService {
                     null);
         }
 
-        /** 快照日守卫跳过态。 */
+        /** 快照日守卫/池空跳过态。 */
         boolean skipped() {
             return STATUS_SKIPPED.equals(status);
         }
 
-        /** JobRunStats 留痕明细（段式约定：funnel/dive/degraded/backfill 全量计数）。 */
+        /** JobRunStats 留痕明细（段式约定：market/funnel/dive/degraded/backfill 全量计数）。 */
         String detail() {
-            return "funnel="
+            return "market="
+                    + market
+                    + ";funnel="
                     + snapshotRows
                     + ">"
                     + poolSize

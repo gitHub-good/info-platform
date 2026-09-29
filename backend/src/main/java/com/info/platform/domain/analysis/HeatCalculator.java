@@ -1,5 +1,6 @@
 package com.info.platform.domain.analysis;
 
+import com.info.platform.domain.aggregation.Market;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -64,7 +65,7 @@ public final class HeatCalculator {
     }
 
     /**
-     * 现算一个窗口的 31 行业聚合（窗口外条目防御性跳过；返回按 {@link IndustryCategory#SW_INDUSTRIES} 全量零填， 容器不出现）。
+     * 现算一个窗口的行业聚合（窗口外条目防御性跳过；返回按 {@link IndustryCategory#SW_INDUSTRIES} 全量零填， 容器不出现）。
      *
      * @param items 窗口候选条目（调用方已按 published_at 过滤，此处双保险）
      * @param windowEnd 窗口终点（ageHours 基准）
@@ -72,8 +73,23 @@ public final class HeatCalculator {
      */
     public static Map<String, IndustryHeat> compute(
             List<HeatItem> items, HeatParams params, Instant windowEnd, Duration windowLength) {
+        return compute(items, params, windowEnd, windowLength, Market.A_SHARE);
+    }
+
+    /**
+     * 现算一个窗口的指定市场行业聚合（M29 T255，方案 §4 C11——按 (l1_market, main_category) 三市场各扫各自枚举，窗口逻辑零变化）：
+     * 全量零填与进榜校验均按 {@code market} 枚举集（A 股申万 31 / 港股 31 / 美股 40——容器与 UNKNOWN 不出现，跨市场重名由 market 消歧）。
+     *
+     * @param market 市场口径（条目由调用方按 l1_market 过滤，此处白名单双保险）
+     */
+    public static Map<String, IndustryHeat> compute(
+            List<HeatItem> items,
+            HeatParams params,
+            Instant windowEnd,
+            Duration windowLength,
+            Market market) {
         Map<String, IndustryHeat> acc = new LinkedHashMap<>();
-        for (String industry : IndustryCategory.SW_INDUSTRIES) {
+        for (String industry : boardIndustriesOf(market)) {
             acc.put(industry, IndustryHeat.EMPTY);
         }
         Instant windowStart = windowEnd.minus(windowLength);
@@ -83,29 +99,48 @@ public final class HeatCalculator {
                 continue;
             }
             double decay = decayFactor(item.publishedAt(), windowEnd, params, windowLength);
-            accumulateMain(acc, item, decay, params);
-            accumulateEventSpread(acc, item, decay, params);
+            accumulateMain(acc, item, decay, params, market);
+            accumulateEventSpread(acc, item, decay, params, market);
         }
         return Map.copyOf(acc);
     }
 
+    /** 市场进榜枚举集（零填范围 = A 股申万 31 / 港股 31 / 美股 40；与 {@link IndustryCategory#isBoardIndustry} 同源）。 */
+    private static java.util.Set<String> boardIndustriesOf(Market market) {
+        if (market == Market.HK) {
+            return IndustryCategory.HK_INDUSTRIES;
+        }
+        if (market == Market.US) {
+            return IndustryCategory.US_INDUSTRIES;
+        }
+        return IndustryCategory.SW_INDUSTRIES;
+    }
+
     private static void accumulateMain(
-            Map<String, IndustryHeat> acc, HeatItem item, double decay, HeatParams params) {
-        if (!IndustryCategory.isSwIndustry(item.mainCategory())) {
-            return; // 容器条目不进榜（事件扩散除外）
+            Map<String, IndustryHeat> acc,
+            HeatItem item,
+            double decay,
+            HeatParams params,
+            Market market) {
+        if (!IndustryCategory.isBoardIndustry(market, item.mainCategory())) {
+            return; // 容器/他市场枚举条目不进榜（事件扩散除外）
         }
         double contribution = (1.0 + params.k1() * params.impCoef(item.eventImportance())) * decay;
         merge(acc, item.mainCategory(), contribution, 1, 0);
     }
 
     private static void accumulateEventSpread(
-            Map<String, IndustryHeat> acc, HeatItem item, double decay, HeatParams params) {
+            Map<String, IndustryHeat> acc,
+            HeatItem item,
+            double decay,
+            HeatParams params,
+            Market market) {
         if (item.eventImportance() == null || item.affectedIndustries() == null) {
             return;
         }
         double k1Coef = params.k1() * params.impCoef(item.eventImportance());
         for (String industry : item.affectedIndustries()) {
-            if (!IndustryCategory.isSwIndustry(industry)) {
+            if (!IndustryCategory.isBoardIndustry(market, industry)) {
                 continue; // 越界元素已在 L2 落库前丢弃，此处防御性双保险
             }
             int eventCount = 1; // 影响本行业的事件数（含 main == 本行业的直接命中）

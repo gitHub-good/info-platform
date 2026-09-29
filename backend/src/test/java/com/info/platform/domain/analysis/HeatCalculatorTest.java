@@ -219,13 +219,13 @@ class HeatCalculatorTest {
 
     @Test
     void entity_rejectsContainerIndustry() {
-        // 实体把守：容器枚举进快照直接拒绝（62 行常驻只含申万 31）
+        // 实体把守：容器枚举进快照直接拒绝（常驻行只含各市场进榜枚举——M29 T255 分市场白名单）
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () ->
                                 IndustryHeatSnapshot.create(
                                         "宏观", HeatWindow.H24, 1.0, 0.0, 1, 0, "heat-v1:...", END))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("申万");
+                .hasMessageContaining("进榜");
     }
 
     @Test

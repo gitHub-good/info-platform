@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.HeatCalculator;
@@ -29,9 +30,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * HeatSnapshotRepository 集成测试（T123，方案 §4.5/§4.10）：62 行 UPSERT 幂等、榜单排序（0 分沉底）、窗口现算取数（PASS+DONE + 事件
- * join + 容器条目进窗）、行业下钻 news/events 游标分页、下钻计数与 HeatCalculator 现算对账（榜单=快照=现算 三面一致）。V23 表由 Flyway
- * 内存库建出。t123_ 前缀隔离清理。
+ * HeatSnapshotRepository 集成测试（T123，方案 §4.5/§4.10；M29 T255 market 参数化）：A 股 62 行 UPSERT 幂等、榜单排序（0
+ * 分沉底）、窗口现算取数 （PASS+DONE + 事件 join + 容器条目进窗）、行业下钻 news/events 游标分页、下钻计数与 HeatCalculator
+ * 现算对账（榜单=快照=现算 三面一致）、 HK/US 分桶隔离（l1_market 消歧——同窗同行业不混桶）。V23 表由 Flyway 内存库建出。t123_ 前缀隔离清理。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -94,6 +95,16 @@ class HeatSnapshotRepositoryImplTest {
 
     private long classifiedNews(
             String title, String main, String publishedAtIso, L0Result l0, String eventJson) {
+        return classifiedNews(title, main, publishedAtIso, l0, eventJson, "A_SHARE");
+    }
+
+    private long classifiedNews(
+            String title,
+            String main,
+            String publishedAtIso,
+            L0Result l0,
+            String eventJson,
+            String l1Market) {
         jdbcTemplate.update(
                 "INSERT INTO news_item (source_id, external_id, title, summary, url, published_at,"
                         + " fetched_at, fingerprint, status, created_at, updated_at)"
@@ -116,7 +127,7 @@ class HeatSnapshotRepositoryImplTest {
         if (l0 == L0Result.PASS) {
             newsAnalysisRepository.applyL1Result(
                     new NewsAnalysisRepository.L1Write(
-                            newsId, main, null, null, 0.9, false, null, "v1.0", NOW));
+                            newsId, main, null, null, 0.9, false, null, "v1.0", l1Market, NOW));
         }
         if (eventJson != null) {
             jdbcTemplate.update(
@@ -188,13 +199,13 @@ class HeatSnapshotRepositoryImplTest {
                 IndustryHeatSnapshot.create("银行", HeatWindow.H24, 30.0, 0, 10, 2, "heat-v1", NOW));
         repository.upsertAll(rows);
 
-        List<IndustryHeatSnapshot> board = repository.findBoard(HeatWindow.H24);
+        List<IndustryHeatSnapshot> board = repository.findBoard(HeatWindow.H24, Market.A_SHARE);
 
         assertThat(board).hasSize(31);
         assertThat(board.get(0).getIndustry()).isEqualTo("银行");
         assertThat(board.get(30).getHeatScore()).isZero(); // 0 分沉底
         // D7 窗独立（不串窗）
-        assertThat(repository.findBoard(HeatWindow.D7)).hasSize(31);
+        assertThat(repository.findBoard(HeatWindow.D7, Market.A_SHARE)).hasSize(31);
     }
 
     @Test
@@ -206,7 +217,9 @@ class HeatSnapshotRepositoryImplTest {
 
         List<HeatSnapshotRepository.WindowItem> items =
                 repository.findWindowItems(
-                        NOW.minus(java.time.Duration.ofHours(24)).toString(), NOW.toString());
+                        NOW.minus(java.time.Duration.ofHours(24)).toString(),
+                        NOW.toString(),
+                        Market.A_SHARE);
 
         assertThat(items).hasSize(2); // NOISE 排除（NOISE 恒 PENDING 无 main）、窗口外排除
         HeatSnapshotRepository.WindowItem plain =
@@ -229,8 +242,9 @@ class HeatSnapshotRepositoryImplTest {
 
         String from = NOW.minus(java.time.Duration.ofHours(24)).toString();
         List<HeatSnapshotRepository.IndustryNewsItem> page1 =
-                repository.findIndustryNewsItems("银行", from, NOW.toString(), null, 2);
-        long total = repository.countIndustryNewsItems("银行", from, NOW.toString());
+                repository.findIndustryNewsItems(
+                        "银行", from, NOW.toString(), null, 2, Market.A_SHARE);
+        long total = repository.countIndustryNewsItems("银行", from, NOW.toString(), Market.A_SHARE);
 
         assertThat(page1)
                 .extracting(HeatSnapshotRepository.IndustryNewsItem::newsId)
@@ -242,7 +256,8 @@ class HeatSnapshotRepositoryImplTest {
         assertThat(page1.get(0).url()).isEqualTo("https://example.com/n/" + "银行下钻条目三".hashCode());
         assertThat(page1.get(1).url()).isEqualTo("https://example.com/n/" + "银行下钻条目二".hashCode());
         List<HeatSnapshotRepository.IndustryNewsItem> page2 =
-                repository.findIndustryNewsItems("银行", from, NOW.toString(), second, 2);
+                repository.findIndustryNewsItems(
+                        "银行", from, NOW.toString(), second, 2, Market.A_SHARE);
         assertThat(page2)
                 .extracting(HeatSnapshotRepository.IndustryNewsItem::newsId)
                 .containsExactly(first);
@@ -258,8 +273,9 @@ class HeatSnapshotRepositoryImplTest {
 
         String from = NOW.minus(java.time.Duration.ofHours(24)).toString();
         List<HeatSnapshotRepository.IndustryEventItem> events =
-                repository.findIndustryEventItems("银行", from, NOW.toString(), null, 20);
-        long total = repository.countIndustryEventItems("银行", from, NOW.toString());
+                repository.findIndustryEventItems(
+                        "银行", from, NOW.toString(), null, 20, Market.A_SHARE);
+        long total = repository.countIndustryEventItems("银行", from, NOW.toString(), Market.A_SHARE);
 
         assertThat(events).hasSize(2); // affected ∋ 银行（含 main=银行直接命中——与事件流同口径）
         assertThat(total).isEqualTo(2);
@@ -283,7 +299,7 @@ class HeatSnapshotRepositoryImplTest {
 
         String from = NOW.minus(java.time.Duration.ofHours(24)).toString();
         List<HeatCalculator.HeatItem> heatItems =
-                repository.findWindowItems(from, NOW.toString()).stream()
+                repository.findWindowItems(from, NOW.toString(), Market.A_SHARE).stream()
                         .map(
                                 w ->
                                         new HeatCalculator.HeatItem(
@@ -300,14 +316,63 @@ class HeatSnapshotRepositoryImplTest {
                         HeatWindow.H24.length());
 
         assertThat(computed.get("银行").newsCount())
-                .isEqualTo(repository.countIndustryNewsItems("银行", from, NOW.toString()));
+                .isEqualTo(
+                        repository.countIndustryNewsItems(
+                                "银行", from, NOW.toString(), Market.A_SHARE));
         assertThat(computed.get("银行").eventCount())
-                .isEqualTo(repository.countIndustryEventItems("银行", from, NOW.toString()));
+                .isEqualTo(
+                        repository.countIndustryEventItems(
+                                "银行", from, NOW.toString(), Market.A_SHARE));
         assertThat(computed.get("房地产").newsCount())
-                .isEqualTo(repository.countIndustryNewsItems("房地产", from, NOW.toString()));
+                .isEqualTo(
+                        repository.countIndustryNewsItems(
+                                "房地产", from, NOW.toString(), Market.A_SHARE));
         assertThat(computed.get("房地产").eventCount()).isEqualTo(1L);
         assertThat(computed.get("钢铁").newsCount()).isEqualTo(1L);
         assertThat(computed.get("钢铁").eventCount())
-                .isEqualTo(repository.countIndustryEventItems("钢铁", from, NOW.toString()));
+                .isEqualTo(
+                        repository.countIndustryEventItems(
+                                "钢铁", from, NOW.toString(), Market.A_SHARE));
+    }
+
+    @Test
+    void marketBuckets_isolatedByL1Market_hkNotMixedIntoAShare() {
+        // Arrange：A 股与港股各 1 条「银行」（重名行业跨市场）；港股条目带「银行」affected 事件
+        classifiedNews("A股银行条目", "银行", "2026-09-22T07:00:00Z", L0Result.PASS, null);
+        classifiedNews("HK银行条目", "银行", "2026-09-22T07:30:00Z", L0Result.PASS, "[\"银行\"]", "HK");
+        String from = NOW.minus(java.time.Duration.ofHours(24)).toString();
+
+        // Assert ①：窗口取数按 l1_market 分桶——A 股桶仅 1 条、HK 桶仅 1 条
+        assertThat(repository.findWindowItems(from, NOW.toString(), Market.A_SHARE)).hasSize(1);
+        assertThat(
+                        repository
+                                .findWindowItems(from, NOW.toString(), Market.HK)
+                                .get(0)
+                                .mainCategory())
+                .isEqualTo("银行");
+
+        // Assert ②：下钻计数市场隔离——HK「银行」news 1 条 + events 1 条（事件 join 源条目 l1_market）
+        assertThat(repository.countIndustryNewsItems("银行", from, NOW.toString(), Market.HK))
+                .isEqualTo(1);
+        assertThat(repository.countIndustryNewsItems("银行", from, NOW.toString(), Market.A_SHARE))
+                .isEqualTo(1);
+        assertThat(repository.countIndustryEventItems("银行", from, NOW.toString(), Market.HK))
+                .isEqualTo(1);
+        assertThat(repository.countIndustryEventItems("银行", from, NOW.toString(), Market.A_SHARE))
+                .isZero();
+
+        // Assert ③：HK 快照行独立落库（同 industry 名不同 market 不覆盖）+ 榜单读面分市场
+        repository.upsertAll(
+                List.of(
+                        IndustryHeatSnapshot.create(
+                                Market.HK, "银行", HeatWindow.H24, 5.0, 0, 1, 1, "heat-v1", NOW)));
+        assertThat(repository.findBoard(HeatWindow.H24, Market.HK))
+                .filteredOn(row -> row.getIndustry().equals("银行"))
+                .hasSize(1);
+        Integer hkRows =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM industry_heat_snapshot WHERE market = 'HK'",
+                        Integer.class);
+        assertThat(hkRows).isEqualTo(1);
     }
 }

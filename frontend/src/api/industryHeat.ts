@@ -3,6 +3,7 @@
 // 错误码：30076 窗口/类型/行业参数非法（400）、30077 日报已成功（409）、30078 日报不存在（404）。
 
 import { request } from './http';
+import type { MarketKey } from '@/lib/market';
 import type {
   HeatWindow,
   IndustryHeatBoardView,
@@ -15,29 +16,35 @@ import type {
   IndustryWeeklyReportListView,
 } from '@/types/industryHeat';
 
-/** 下钻查询参数（beforeId 游标 + limit 缺省 20 ≤50，越界后端拒绝不截断）。 */
+/** 下钻查询参数（beforeId 游标 + limit 缺省 20 ≤50，越界后端拒绝不截断；market 随页面三市场切换）。 */
 export interface IndustryItemsQuery {
   window: HeatWindow;
   type: IndustryItemsType;
+  /** 市场（M29 T255：行业枚举随市场切换，缺省 A_SHARE）。 */
+  market?: MarketKey;
   beforeId?: number;
   limit?: number;
 }
 
-/** 热度榜（window 缺省 H24；31 行业降序 + basis/snapshotAt 脚注 + 护栏徽章）。 */
+/** 热度榜（window 缺省 H24；market 缺省 A_SHARE——各市场枚举降序 + basis/snapshotAt 脚注 + 口径标注 + 护栏徽章）。 */
 export function getIndustryHeatBoard(
   window: HeatWindow,
+  market: MarketKey = 'A_SHARE',
   signal?: AbortSignal,
 ): Promise<IndustryHeatBoardView> {
-  return request<IndustryHeatBoardView>(`/industry-heat?window=${window}`, { signal });
+  return request<IndustryHeatBoardView>(`/industry-heat?window=${window}&market=${market}`, {
+    signal,
+  });
 }
 
-/** 行业下钻（news 含 L2 事件标记 / events 与事件流同口径；total 与榜单计数对账相等）。 */
+/** 行业下钻（news 含 L2 事件标记 / events 与事件流同口径；total 与榜单计数对账相等——同市场口径）。 */
 export function getIndustryHeatItems(
   industry: string,
   query: IndustryItemsQuery,
   signal?: AbortSignal,
 ): Promise<IndustryHeatItemsView> {
   const params = new URLSearchParams({ window: query.window, type: query.type });
+  if (query.market != null) params.set('market', query.market);
   if (query.beforeId != null) params.set('beforeId', String(query.beforeId));
   if (query.limit != null) params.set('limit', String(query.limit));
   const industryPath = encodeURIComponent(industry);

@@ -83,9 +83,9 @@ class PromptTemplateAdminServiceTest {
         // Act
         ListView view = service.list();
 
-        // Assert：恒按 BriefType 序出组（M17 T145 起 9 组，M21 T182 起 10 组——场景 5 归类/6 提取/7 行业日报/8 推荐卡片/
-        // 9 行业周报/10 全市场深析零特例自动可见，ADR-0046 裁决 3 同款）；数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
-        assertThat(view.groups()).hasSize(10);
+        // Assert：恒按 BriefType 序出组（M21 T182 起 10 组，V3.2 M28 起 11 组——场景 5 归类/6 提取/7 行业日报/8 推荐卡片/
+        // 9 行业周报/10 全市场深析/11 资讯脉搏零特例自动可见，ADR-0046 裁决 3 同款）；数值降序（v1.10 在 v1.9 前，字典序会错）；空场景组保留
+        assertThat(view.groups()).hasSize(11);
         var stock = view.groups().get(0);
         assertThat(stock.name()).isEqualTo("个股简报");
         assertThat(stock.versions())

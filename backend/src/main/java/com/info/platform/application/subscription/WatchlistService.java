@@ -1,5 +1,7 @@
 package com.info.platform.application.subscription;
 
+import com.info.platform.application.aggregation.AggregationService;
+import com.info.platform.application.aggregation.SubjectQuote;
 import com.info.platform.domain.aggregation.SubjectRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -8,7 +10,12 @@ import com.info.platform.domain.subscription.Watchlist;
 import com.info.platform.domain.subscription.WatchlistItem;
 import com.info.platform.domain.subscription.WatchlistRepository;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -42,10 +49,15 @@ public class WatchlistService {
 
     private final WatchlistRepository repository;
     private final SubjectRepository subjectRepository;
+    private final AggregationService aggregationService;
 
-    public WatchlistService(WatchlistRepository repository, SubjectRepository subjectRepository) {
+    public WatchlistService(
+            WatchlistRepository repository,
+            SubjectRepository subjectRepository,
+            AggregationService aggregationService) {
         this.repository = repository;
         this.subjectRepository = subjectRepository;
+        this.aggregationService = aggregationService;
     }
 
     /** 列出当前用户全部启用清单（含清单项）。 */
@@ -68,6 +80,123 @@ public class WatchlistService {
         return WatchlistView.from(watchlist);
     }
 
+    /** 分页排序键白名单：addedAt（加入顺序，缺省）/ price（最新价）/ changePct（涨跌幅）。 */
+    private static final Set<String> ITEM_SORT_KEYS = Set.of("addedAt", "price", "changePct");
+
+    /**
+     * 清单项分页+排序（M9 页码契约 {total, items, page, size}）。
+     *
+     * <p>行情不落库（实时源适配器 + 缓存），故 SQL 侧只约束清单归属，排序在应用层内存完成： 全量项 + 批量行情（{@link
+     * AggregationService#getQuotes}，享 QUOTE 源缓存）联行 → 排序 → 切页。
+     * 清单为个人列表量级（几十项），内存排序成本可忽略；行情缺失行（源失败/类型不适用）按 nulls-last 沉底，不阻断榜单。sort/dir 非白名单 → 2xxx/400
+     * 拒绝不静默纠正。
+     */
+    public WatchlistItemsPagedView listItemsPaged(
+            Long watchlistId, int page, int size, String sort, String dir) {
+        long userId = currentUserId();
+        if (!ITEM_SORT_KEYS.contains(sort)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "sort 仅支持 " + ITEM_SORT_KEYS);
+        }
+        if (!"asc".equals(dir) && !"desc".equals(dir)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "dir 仅支持 asc/desc");
+        }
+        Watchlist watchlist =
+                repository
+                        .findByOwnerIdAndId(userId, watchlistId)
+                        .orElseThrow(
+                                () ->
+                                        repository.existsById(watchlistId)
+                                                ? new BusinessException(
+                                                        ErrorCode.WATCHLIST_FORBIDDEN)
+                                                : new BusinessException(
+                                                        ErrorCode.WATCHLIST_NOT_FOUND));
+        List<WatchlistItem> items = watchlist.getItems();
+        if (items.isEmpty()) {
+            return WatchlistItemsPagedView.empty(page, size, sort, dir);
+        }
+
+        Map<Long, SubjectQuote> quotes = new HashMap<>();
+        for (SubjectQuote row :
+                aggregationService.getQuotes(
+                        items.stream().map(WatchlistItem::getSubjectId).toList())) {
+            quotes.put(row.id(), row);
+        }
+
+        List<WatchlistItemPagedRow> rows = new ArrayList<>(items.size());
+        for (WatchlistItem item : items) {
+            SubjectQuote quote = quotes.get(item.getSubjectId());
+            rows.add(
+                    new WatchlistItemPagedRow(
+                            item.getId(),
+                            item.getSubjectId(),
+                            item.getAnomalyThreshold(),
+                            quote == null ? null : quote.subjectCode(),
+                            quote == null ? null : quote.name(),
+                            quote == null ? null : quote.market(),
+                            quote == null ? null : quote.industry(),
+                            quote == null ? null : decimalOf(quote.quote(), "price"),
+                            quote == null ? null : decimalOf(quote.quote(), "changePct")));
+        }
+
+        Comparator<WatchlistItemPagedRow> comparator =
+                switch (sort) {
+                    case "price" -> Comparator.comparing(
+                            WatchlistItemPagedRow::price,
+                            Comparator.nullsLast(Comparator.naturalOrder()));
+                    case "changePct" -> Comparator.comparing(
+                            WatchlistItemPagedRow::changePct,
+                            Comparator.nullsLast(Comparator.naturalOrder()));
+                    default -> Comparator.comparing(WatchlistItemPagedRow::id);
+                };
+        if ("desc".equals(dir)) {
+            comparator = comparator.reversed();
+        }
+        // desc 反转会把 nullsLast 变 nullsFirst：null 标志前置恢复「行情缺失恒沉底」；addedAt 键无 null 直通
+        String sortKey = sort;
+        comparator =
+                Comparator.comparing(
+                                (WatchlistItemPagedRow row) ->
+                                        sortValueOf(row, sortKey) == null ? 1 : 0)
+                        .thenComparing(comparator);
+        rows.sort(comparator);
+
+        int from = Math.min((page - 1) * size, rows.size());
+        int to = Math.min(from + size, rows.size());
+        return new WatchlistItemsPagedView(
+                items.size(), List.copyOf(rows.subList(from, to)), page, size, sort, dir);
+    }
+
+    /** 排序键取值（addedAt 键无行情语义，恒非 null——null 标志前置对其直通）。 */
+    private static BigDecimal sortValueOf(WatchlistItemPagedRow row, String sort) {
+        return switch (sort) {
+            case "price" -> row.price();
+            case "changePct" -> row.changePct();
+            default -> BigDecimal.ONE;
+        };
+    }
+
+    /** 行情 map 取数值列（FieldMapper to_decimal 产物为 BigDecimal；对 Number/String 兜底兼容）。 */
+    private static BigDecimal decimalOf(Map<String, Object> quote, String key) {
+        if (quote == null) {
+            return null;
+        }
+        Object value = quote.get(key);
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return new BigDecimal(text);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     /** 创建清单；同名→30011/409（幂等：重复请求不产生重复行）。 */
     @Transactional
     public WatchlistView createWatchlist(String name, String remark) {
@@ -79,6 +208,58 @@ public class WatchlistService {
         Watchlist saved = repository.save(Watchlist.create(userId, name, remark));
         log.info("创建清单成功: id={}, userId={}, name={}", saved.getId(), userId, name);
         return WatchlistView.from(saved);
+    }
+
+    /**
+     * 改名；清单不存在→30010/404，越权→30012/403，与他人启用清单同名→30011/409（幂等语义同创建）。
+     *
+     * <p>改名 = 自身当前名 → 幂等成功直接返回（不误报同名冲突）。
+     */
+    @Transactional
+    public WatchlistView renameWatchlist(Long watchlistId, String name) {
+        long userId = currentUserId();
+        Watchlist watchlist = loadOwned(userId, watchlistId);
+        if (watchlist.getName().equals(name)) {
+            // 改名 = 当前名：幂等成功，无变更不落库
+            return WatchlistView.from(watchlist);
+        }
+        if (repository.existsByOwnerIdAndName(userId, name)) {
+            log.info("改名同名冲突（幂等拦截）: userId={}, watchlistId={}, name={}", userId, watchlistId, name);
+            throw new BusinessException(ErrorCode.SUBJECT_ALREADY_IN_WATCHLIST, "清单名已存在");
+        }
+        watchlist.rename(name);
+        Watchlist saved = repository.save(watchlist);
+        log.info("改名清单成功: id={}, name={}", saved.getId(), saved.getName());
+        return WatchlistView.from(saved);
+    }
+
+    /**
+     * 删除清单（软删除 status→0）；清单不存在→30010/404，越权→30012/403。
+     *
+     * <p>软删除后：启用查询（findAll/findByOwnerIdAndId）与异动任务（JOIN w.status=1）自然排除； 清单项行保留供审计追溯，不释放
+     * watchlist_item 的 UNIQUE（清单已不可达，无重加冲突面）。
+     */
+    @Transactional
+    public void deleteWatchlist(Long watchlistId) {
+        long userId = currentUserId();
+        Watchlist watchlist = loadOwned(userId, watchlistId);
+        watchlist.delete();
+        repository.save(watchlist);
+        log.info(
+                "删除清单成功（软删除）: id={}, userId={}, items={}",
+                watchlistId,
+                userId,
+                watchlist.getItems().size());
+    }
+
+    /** 行级装载启用清单：不存在→30010/404，存在但非本人/已删→30012/403。 */
+    private Watchlist loadOwned(long userId, Long watchlistId) {
+        if (!repository.existsById(watchlistId)) {
+            throw new BusinessException(ErrorCode.WATCHLIST_NOT_FOUND);
+        }
+        return repository
+                .findByOwnerIdAndId(userId, watchlistId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.WATCHLIST_FORBIDDEN));
     }
 
     /**

@@ -61,6 +61,10 @@ class InfoSourceCatalogTest {
                         "gelonghui_live",
                         "ce_news",
                         "gov_policy",
+                        "sina-roll-hk",
+                        "sina-roll-us",
+                        "em-search-hk",
+                        "em-search-us",
                         "example_wsj_world",
                         "example_ithome");
         assertThat(
@@ -98,8 +102,9 @@ class InfoSourceCatalogTest {
                         "people_finance",
                         "nasdaq_markets",
                         "wsj_markets");
-        // 34 = 33 存量 + V2.3-M23 gov_policy（第 5 个政策源；示例包 ×2 默认停用不计口径）
-        assertThat(codes).hasSize(34);
+        // 38 = 33 存量 + V2.3-M23 gov_policy + M29 T253 港美股四源（sina-roll-hk/us + em-search-hk/us，
+        // ADR-0064 随批 5；示例包 ×2 默认停用不计口径）
+        assertThat(codes).hasSize(38);
     }
 
     @Test
@@ -159,7 +164,9 @@ class InfoSourceCatalogTest {
                         "cctv_economy",
                         "em_finance_column",
                         "gelonghui_live",
-                        "ce_news");
+                        "ce_news",
+                        "em-search-hk",
+                        "em-search-us");
         for (String code :
                 new String[] {
                     "netease_money",
@@ -227,12 +234,12 @@ class InfoSourceCatalogTest {
                     .isEqualTo("TIME");
             assertThat(entry.intervalMinutes()).as("%s 频控", code).isBetween(15, 60);
         }
-        // 其余 32 行（22 现役目录 + 批次三 9 席 + V2.3 gov_policy）默认启用
+        // 其余 36 行（22 现役目录 + 批次三 9 席 + V2.3 gov_policy + M29 港美股四源）默认启用
         long enabled =
                 InfoSourceCatalog.presets().stream()
                         .filter(InfoSourceCatalog.PresetEntry::defaultEnabled)
                         .count();
-        assertThat(enabled).isEqualTo(32);
+        assertThat(enabled).isEqualTo(36);
     }
 
     @Test
@@ -328,7 +335,9 @@ class InfoSourceCatalogTest {
                         "nbd_news",
                         "cnfin_flash",
                         "gelonghui_live",
-                        "ce_news");
+                        "ce_news",
+                        "em-search-hk",
+                        "em-search-us");
         for (String code :
                 new String[] {
                     "ndrc_policy",
@@ -414,5 +423,59 @@ class InfoSourceCatalogTest {
         assertThat(config.effectiveCursorType().name()).isEqualTo("ID");
         assertThat(config.mappings()).isNotEmpty();
         assertThat(config.headers()).containsKey("User-Agent");
+    }
+
+    @Test
+    void presets_containsM29HkusSources_twoChannelsPerMarket() {
+        // M29 T253（ADR-0064 随批 5，Spike-E E-4a/E-4b 实测）：每市场恰 2 源（REQ F5）——
+        // sina-roll-hk/us = JSON_API 频道配置型（lid=2516/2517，docid 非数值 → cursorType=NONE，intime epoch
+        // 秒）；
+        // em-search-hk/us = PRESET 型共用 eastmoneySearchNewsAdapter（标的池 round-robin 关键词搜索）
+        var byCode =
+                InfoSourceCatalog.presets().stream()
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        InfoSourceCatalog.PresetEntry::sourceCode, p -> p));
+        assertThat(byCode)
+                .containsKeys("sina-roll-hk", "sina-roll-us", "em-search-hk", "em-search-us");
+
+        for (String code : new String[] {"sina-roll-hk", "sina-roll-us"}) {
+            var entry = byCode.get(code);
+            assertThat(entry.adapterType()).as("%s 通道", code).isEqualTo(AdapterType.JSON_API);
+            assertThat(entry.category())
+                    .as("%s 分组", code)
+                    .isEqualTo(code.endsWith("-hk") ? "港股" : "美股");
+            assertThat(entry.endpoint())
+                    .contains("lid=" + (code.endsWith("-hk") ? "2516" : "2517"));
+            assertThat(entry.intervalMinutes()).as("%s 频控", code).isEqualTo(30);
+            var config = codec.parse(entry.configJson());
+            assertThat(config.effectiveCursorType().name()).as("%s 游标", code).isEqualTo("NONE");
+            assertThat(config.listPath()).isEqualTo("result.data");
+            assertThat(config.headers()).containsKeys("User-Agent", "Referer");
+            assertThat(config.headers().get("Referer")).isEqualTo("https://finance.sina.com.cn");
+            // intime epoch 秒映射 + docid externalId
+            assertThat(config.mappings())
+                    .anySatisfy(
+                            m -> {
+                                assertThat(m.source()).isEqualTo("intime");
+                                assertThat(m.transform()).isEqualTo("epoch_seconds_to_iso");
+                            })
+                    .anySatisfy(
+                            m -> {
+                                assertThat(m.source()).isEqualTo("docid");
+                                assertThat(m.target()).isEqualTo("externalId");
+                            });
+        }
+
+        for (String code : new String[] {"em-search-hk", "em-search-us"}) {
+            var entry = byCode.get(code);
+            assertThat(entry.adapterType()).as("%s 通道", code).isEqualTo(AdapterType.PRESET);
+            assertThat(entry.adapterRef()).isEqualTo("eastmoneySearchNewsAdapter");
+            assertThat(entry.endpoint())
+                    .isEqualTo("https://search-api-web.eastmoney.com/search/jsonp");
+            assertThat(entry.intervalMinutes()).isEqualTo(30);
+            assertThat(codec.parse(entry.configJson()).effectiveCursorType().name())
+                    .isEqualTo("NONE");
+        }
     }
 }

@@ -8,6 +8,8 @@ export interface EventStreamQuery {
   industry?: string;
   importance?: string;
   direction?: string;
+  /** 市场过滤（M29 §5.4：事件关联标的含该市场标的；缺省不过滤——A 股零回归）。 */
+  market?: string;
   beforeId?: number;
   limit?: number;
 }
@@ -20,6 +22,8 @@ export interface EventStreamPageQuery {
   industry?: string;
   importance?: string;
   direction?: string;
+  /** 市场过滤（M29 §5.4：缺省不过滤；页面仅非 A 股市场下发）。 */
+  market?: string;
   /** 页码（1 起；上限 100 万防 offset 溢出）。 */
   page: number;
   /** 页大小（缺省 20 上限 50，越界后端拒绝不截断）。 */
@@ -71,6 +75,17 @@ export interface EventStreamPageView {
   items: EventCard[];
   page: number;
   size: number;
+  /**
+   * 行业过滤器分组（M29 §5.4 契约增量：三市场口径不混排——拍板二）。
+   * 后端 T254 在途时可能缺省（容错消费：缺省回 SW_INDUSTRIES 既有口径）。
+   */
+  industryFilterGroups?: EventIndustryFilterGroup[];
+}
+
+/** 行业过滤器分组元素（{market, industries}——各市场枚举集）。 */
+export interface EventIndustryFilterGroup {
+  market: string;
+  industries: string[];
 }
 
 // —— 行业影响链（M17 T144，对齐后端 ImpactChainView——GET /api/v1/events/{id}/impact-chains 契约） ——

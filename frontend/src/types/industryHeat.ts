@@ -20,6 +20,10 @@ export interface IndustryHeatRow {
 
 /** 热度榜视图（basis 口径版本串 + snapshotAt 快照时刻 + pipeline 护栏徽章数据面）。 */
 export interface IndustryHeatBoardView {
+  /** 市场回显（M29 T255：A_SHARE/HK/US，缺省 A_SHARE）。 */
+  market?: string;
+  /** 行业体系口径标注（拍板二——分市场枚举不混排，如「港股：东财行业分类（31 直采…）」）。 */
+  industrySystem?: string | null;
   window: HeatWindow;
   industries: IndustryHeatRow[];
   basis: string;

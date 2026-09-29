@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.info.platform.application.ai.PlaceholderProvider;
 import com.info.platform.application.ai.PromptTemplateService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmException;
@@ -188,7 +189,8 @@ public class DailyReportService implements PlaceholderProvider {
                 reportRepository.findEventsByDate(reportDate, EVENT_FETCH_CAP);
         List<DailyReportRepository.ReportEvent> topEvents =
                 events.stream().limit(TOP_EVENT_LIMIT).toList();
-        List<IndustryHeatSnapshot> board = heatSnapshotRepository.findBoard(HeatWindow.H24);
+        List<IndustryHeatSnapshot> board =
+                heatSnapshotRepository.findBoard(HeatWindow.H24, Market.A_SHARE);
 
         Map<String, Long> newsByIndustry = new LinkedHashMap<>();
         Map<String, Long> containerCounts = new LinkedHashMap<>();

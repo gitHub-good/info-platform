@@ -146,8 +146,10 @@ class PromptPlaceholderRegistryTest {
         // 无供给方时注册表返回空列表（差集基准空集 = 全部 unknown，防御语义），模板编辑器该组对照区为空
         assertThat(registry.byBriefType(BriefType.POLICY)).isEmpty();
         assertThat(registry.byBriefType(BriefType.DAILY_RECOMMEND)).hasSize(6);
-        assertThat(registry.byBriefType(BriefType.L1_CLASSIFY)).hasSize(2);
-        assertThat(registry.byBriefType(BriefType.L2_EXTRACT)).hasSize(3);
+        // M29 T253：L1 v2.0 增 marketLabel/industryEnums 两键（按市场注入枚举集）2→4
+        assertThat(registry.byBriefType(BriefType.L1_CLASSIFY)).hasSize(4);
+        // M29 T254：L2 v1.1 增 marketLabel/industryEnums 两键（affected 按市场注入枚举集）3→5
+        assertThat(registry.byBriefType(BriefType.L2_EXTRACT)).hasSize(5);
         assertThat(registry.byBriefType(BriefType.INDUSTRY_DAILY)).hasSize(3);
         assertThat(registry.byBriefType(BriefType.RECOMMEND_CARD)).hasSize(7);
         // 场景 9 行业周报 6 键（weekStart/weekEnd/heatStats/topEvents/policyLines/trendSignals，M17 T145）

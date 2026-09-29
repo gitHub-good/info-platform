@@ -21,12 +21,18 @@ export interface IndustryHeatMapCell {
   leaderStock: HeatLeaderStock | null;
 }
 
-/** 热力图响应（HeatMapView：31 行 + meta）。 */
+/** 热力图响应（HeatMapView：各市场行业格 ≤40 + meta）。 */
 export interface IndustryHeatMapView {
+  /** 市场回显（M29 T255）。 */
+  market?: string;
+  /** 行业体系口径标注（拍板二）。 */
+  industrySystem?: string | null;
   snapshotDate: string | null;
   source: string | null;
   quoteTime: string | null;
   stale: boolean;
+  /** 原币口径（拍板六：CNY/HKD/USD，不折算）。 */
+  currency?: string | null;
   industries: IndustryHeatMapCell[];
 }
 
@@ -114,18 +120,28 @@ export interface MainlineItem {
   heatRank: number | null;
   divergence: string | null;
   leaders: MainlineLeaderCard[] | null;
+  /** 龙头可用性（M29 W1：港美股恒 false——占位不静默）。 */
+  leadersAvailable?: boolean;
+  /** 龙头不可用原因（港美股龙头分析暂未支持——依赖基本面因子体系）。 */
+  leaderUnavailableReason?: string | null;
   basis: string | null;
   computedAt: string | null;
 }
 
 /** 主线榜单响应（MainlineView：batch 元信息 + Top 3~5 行）。 */
 export interface IndustryMainlineView {
+  /** 市场回显（M29 T255）。 */
+  market?: string;
+  /** 行业体系口径标注（拍板二）。 */
+  industrySystem?: string | null;
   rankDate: string;
   version: number;
   triggerSource: string | null;
   snapshotDate: string | null;
   degraded: boolean;
   degradedReason: string | null;
+  /** 冷启动留痕（拍板五：港美股历史不足 persistMinDays 免门槛出榜，攒足自动恢复）。 */
+  bootstrap?: boolean;
   basis: string | null;
   computedAt: string | null;
   items: MainlineItem[];
@@ -150,6 +166,10 @@ export interface IndustryConstituentCell {
 
 /** 行业下钻响应（DetailView：两形态共用——boards（A）/ constituents（B））。 */
 export interface IndustryMainlineDetailView {
+  /** 市场回显（M29 T255：同名行业靠 market 消歧）。 */
+  market?: string;
+  /** 行业体系口径标注（拍板二）。 */
+  industrySystem?: string | null;
   industry: string;
   snapshotDate: string | null;
   source: string | null;
@@ -161,11 +181,17 @@ export interface IndustryMainlineDetailView {
   downCount: number | null;
   mainNetFlow: number | null;
   totalMv: number | null;
+  /** 原币口径（拍板六：CNY/HKD/USD，不折算——总市值展示符号）。 */
+  currency?: string | null;
   aggMethod: string | null;
   leaderStock: HeatLeaderStock | null;
   boards: IndustryBoardCell[] | null;
   constituents: IndustryConstituentCell[] | null;
   leaders: MainlineLeaderCard[] | null;
+  /** 龙头可用性（M29 W1：港美股恒 false——占位不静默）。 */
+  leadersAvailable?: boolean;
+  /** 龙头不可用原因。 */
+  leaderUnavailableReason?: string | null;
   memberCount: number | null;
 }
 

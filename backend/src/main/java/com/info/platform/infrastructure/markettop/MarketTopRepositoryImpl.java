@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.markettop;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.markettop.MarketTopRepository;
 import com.info.platform.domain.markettop.RankDiffer.PrevSubject;
 import java.sql.PreparedStatement;
@@ -17,8 +18,9 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * {@link MarketTopRepository} 端口的 SQLite 实现（M21 T183，V31 两表）：追加式版本化写（batch + ranks 同一事务）；读取按 「日期 +
- * 最大 version」（idx_mtr_date_ver 命中）；昨日榜单 = rank_date &lt; ? 且 ≥ ?−7 天的最近有榜日（跨假日回看，方案 §4.5.2）。
+ * {@link MarketTopRepository} 端口的 SQLite 实现（M21 T183，V31 两表；M29 T256 分市场——V37 两表 market 维 +
+ * UNIQUE(rank_date, version, market)）：追加式版本化写（batch + ranks 同一事务，market 内 version 递增）；读取按「日期 + 市场 +
+ * 最大 version」 （idx_mtr_date_ver 命中）；昨日榜单 = 同市场 rank_date &lt; ? 且 ≥ ?−7 天的最近有榜日（跨假日回看，方案 §4.5.2）。
  */
 @Repository
 public class MarketTopRepositoryImpl implements MarketTopRepository {
@@ -31,33 +33,34 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
     private static final String INSERT_RANK_SQL =
             """
             INSERT INTO market_top_rank
-              (rank_date, version, rank_no, subject_id, subject_code, subject_name, total_score,
-               final_score, percentile, breakthrough, generation, dive_method, dive_summary,
-               dive_detail, evidence_count, last_event_date, prev_rank, change_type, basis,
-               computed_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (market, rank_date, version, rank_no, subject_id, subject_code, subject_name,
+               total_score, final_score, percentile, breakthrough, generation, dive_method,
+               dive_summary, dive_detail, evidence_count, last_event_date, prev_rank, change_type,
+               basis, computed_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String INSERT_BATCH_SQL =
             """
             INSERT INTO market_top_batch
-              (rank_date, version, trigger_source, snapshot_date, funnel_stats, degraded,
+              (market, rank_date, version, trigger_source, snapshot_date, funnel_stats, degraded,
                degraded_reason, dropped_subjects, dive_cost_micros, dive_llm_calls,
                prompt_version, basis, trigger_events, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String RANK_COLUMNS =
             """
-            rank_date, version, rank_no, subject_id, subject_code, subject_name, total_score,
-            final_score, percentile, breakthrough, generation, dive_method, dive_summary,
-            dive_detail, evidence_count, last_event_date, prev_rank, change_type, basis,
-            computed_at
+            market, rank_date, version, rank_no, subject_id, subject_code, subject_name,
+            total_score, final_score, percentile, breakthrough, generation, dive_method,
+            dive_summary, dive_detail, evidence_count, last_event_date, prev_rank, change_type,
+            basis, computed_at
             """;
 
     private static final RowMapper<MarketTopRankRow> RANK_ROW =
             (rs, rowNum) ->
                     new MarketTopRankRow(
+                            Market.fromName(rs.getString("market")),
                             rs.getString("rank_date"),
                             rs.getInt("version"),
                             rs.getInt("rank_no"),
@@ -82,6 +85,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
     private static final RowMapper<MarketTopBatchRow> BATCH_ROW =
             (rs, rowNum) ->
                     new MarketTopBatchRow(
+                            Market.fromName(rs.getString("market")),
                             rs.getString("rank_date"),
                             rs.getInt("version"),
                             rs.getString("trigger_source"),
@@ -108,6 +112,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
     private static final RowMapper<VersionSummary> SUMMARY_ROW =
             (rs, rowNum) ->
                     new VersionSummary(
+                            Market.fromName(rs.getString("market")),
                             rs.getString("rank_date"),
                             rs.getInt("version"),
                             rs.getString("trigger_source"),
@@ -128,19 +133,21 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
     }
 
     @Override
-    public int maxVersion(String rankDate) {
+    public int maxVersion(String rankDate, Market market) {
         Integer max =
                 jdbcTemplate.queryForObject(
-                        "SELECT MAX(version) FROM market_top_batch WHERE rank_date = ?",
+                        "SELECT MAX(version) FROM market_top_batch"
+                                + " WHERE rank_date = ? AND market = ?",
                         Integer.class,
-                        rankDate);
+                        rankDate,
+                        market.name());
         return max == null ? 0 : max;
     }
 
     /**
-     * 追加一版本（batch + ranks 两表一事务）。互斥层③（M22 T191，ADR-0061 裁决 3）：UNIQUE(rank_date, version) 冲突（增量联动进行中
-     * DAILY 起跑的反向缝隙——重试不适用 @Transactional 自调用代理失效，改走 TransactionTemplate 程序化事务）→ version 重取
-     * maxVersion+1 重试一次；二次仍冲突或非冲突异常原样上抛。
+     * 追加一版本（batch + ranks 两表一事务，market 内 version 递增）。互斥层③（M22 T191，ADR-0061 裁决 3）：UNIQUE(rank_date,
+     * version, market) 冲突（增量联动进行中 DAILY 起跑的反向缝隙——重试不适用 @Transactional 自调用代理失效，改走
+     * TransactionTemplate 程序化事务）→ version 重取 maxVersion+1 重试一次；二次仍冲突或非冲突异常原样上抛。
      */
     @Override
     public int insertVersion(MarketTopBatchRow batch, List<MarketTopRankRow> ranks) {
@@ -150,11 +157,12 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
             if (!isUniqueConflict(e)) {
                 throw e;
             }
-            int retryVersion = maxVersion(batch.rankDate()) + 1;
+            int retryVersion = maxVersion(batch.rankDate(), batch.market()) + 1;
             log.warn(
-                    "榜单版本唯一冲突（并发联动），重取 version={} 重试一次: rankDate={} 原version={}",
+                    "榜单版本唯一冲突（并发联动），重取 version={} 重试一次: rankDate={} market={} 原version={}",
                     retryVersion,
                     batch.rankDate(),
+                    batch.market(),
                     batch.version());
             return insertOnce(withVersion(batch, retryVersion), withVersion(ranks, retryVersion));
         }
@@ -166,6 +174,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                 status -> {
                     jdbcTemplate.update(
                             INSERT_BATCH_SQL,
+                            batch.market().name(),
                             batch.rankDate(),
                             batch.version(),
                             batch.triggerSource(),
@@ -186,28 +195,29 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                             ranks,
                             ranks.size(),
                             (PreparedStatement ps, MarketTopRankRow rank) -> {
-                                ps.setString(1, rank.rankDate());
-                                ps.setInt(2, rank.version());
-                                ps.setInt(3, rank.rankNo());
-                                ps.setLong(4, rank.subjectId());
-                                ps.setString(5, rank.subjectCode());
-                                ps.setString(6, rank.subjectName());
-                                ps.setDouble(7, rank.totalScore());
-                                ps.setDouble(8, rank.finalScore());
-                                ps.setObject(9, rank.percentile());
-                                ps.setInt(10, rank.breakthrough() ? 1 : 0);
-                                ps.setString(11, rank.generation());
-                                ps.setString(12, rank.diveMethod());
-                                ps.setString(13, rank.diveSummary());
-                                ps.setString(14, rank.diveDetailJson());
-                                ps.setInt(15, rank.evidenceCount());
-                                ps.setString(16, rank.lastEventDate());
-                                ps.setObject(17, rank.prevRank());
-                                ps.setString(18, rank.changeType());
-                                ps.setString(19, rank.basis());
-                                ps.setString(20, rank.computedAt());
-                                ps.setTimestamp(21, now);
+                                ps.setString(1, rank.market().name());
+                                ps.setString(2, rank.rankDate());
+                                ps.setInt(3, rank.version());
+                                ps.setInt(4, rank.rankNo());
+                                ps.setLong(5, rank.subjectId());
+                                ps.setString(6, rank.subjectCode());
+                                ps.setString(7, rank.subjectName());
+                                ps.setDouble(8, rank.totalScore());
+                                ps.setDouble(9, rank.finalScore());
+                                ps.setObject(10, rank.percentile());
+                                ps.setInt(11, rank.breakthrough() ? 1 : 0);
+                                ps.setString(12, rank.generation());
+                                ps.setString(13, rank.diveMethod());
+                                ps.setString(14, rank.diveSummary());
+                                ps.setString(15, rank.diveDetailJson());
+                                ps.setInt(16, rank.evidenceCount());
+                                ps.setString(17, rank.lastEventDate());
+                                ps.setObject(18, rank.prevRank());
+                                ps.setString(19, rank.changeType());
+                                ps.setString(20, rank.basis());
+                                ps.setString(21, rank.computedAt());
                                 ps.setTimestamp(22, now);
+                                ps.setTimestamp(23, now);
                             });
                 });
         return ranks.size();
@@ -215,6 +225,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
 
     private static MarketTopBatchRow withVersion(MarketTopBatchRow batch, int version) {
         return new MarketTopBatchRow(
+                batch.market(),
                 batch.rankDate(),
                 version,
                 batch.triggerSource(),
@@ -236,6 +247,7 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                 .map(
                         rank ->
                                 new MarketTopRankRow(
+                                        rank.market(),
                                         rank.rankDate(),
                                         version,
                                         rank.rankNo(),
@@ -271,13 +283,15 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
     }
 
     @Override
-    public Optional<MarketTopVersion> find(String rankDate, int version) {
+    public Optional<MarketTopVersion> find(String rankDate, int version, Market market) {
         List<MarketTopBatchRow> batches =
                 jdbcTemplate.query(
-                        "SELECT * FROM market_top_batch WHERE rank_date = ? AND version = ?",
+                        "SELECT * FROM market_top_batch"
+                                + " WHERE rank_date = ? AND version = ? AND market = ?",
                         BATCH_ROW,
                         rankDate,
-                        version);
+                        version,
+                        market.name());
         if (batches.isEmpty()) {
             return Optional.empty();
         }
@@ -288,35 +302,41 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
                                 "SELECT "
                                         + RANK_COLUMNS
                                         + " FROM market_top_rank"
-                                        + " WHERE rank_date = ? AND version = ? ORDER BY rank_no ASC",
+                                        + " WHERE rank_date = ? AND version = ? AND market = ?"
+                                        + " ORDER BY rank_no ASC",
                                 RANK_ROW,
                                 rankDate,
-                                version)));
+                                version,
+                                market.name())));
     }
 
     @Override
-    public Optional<MarketTopVersion> findLatest(String rankDate) {
-        return find(rankDate, maxVersion(rankDate));
+    public Optional<MarketTopVersion> findLatest(String rankDate, Market market) {
+        return find(rankDate, maxVersion(rankDate, market), market);
     }
 
     @Override
-    public Optional<MarketTopVersion> findLatestAnyDate() {
+    public Optional<MarketTopVersion> findLatestAnyDate(Market market) {
         String latestDate =
                 DataAccessUtils.singleResult(
                         jdbcTemplate.queryForList(
-                                "SELECT MAX(rank_date) FROM market_top_batch", String.class));
-        return latestDate == null ? Optional.empty() : findLatest(latestDate);
+                                "SELECT MAX(rank_date) FROM market_top_batch WHERE market = ?",
+                                String.class,
+                                market.name()));
+        return latestDate == null ? Optional.empty() : findLatest(latestDate, market);
     }
 
     @Override
-    public List<PrevSubject> findPreviousTop(String rankDate) {
-        // 最近有榜单日 = rank_date 严格早于指定日且在 7 天回看窗内的最大日（跨假日回看，§4.5.2）
+    public List<PrevSubject> findPreviousTop(String rankDate, Market market) {
+        // 最近有榜单日 = 同市场 rank_date 严格早于指定日且在 7 天回看窗内的最大日（跨假日回看，§4.5.2；三市场不混榜）
         String prevDate =
                 DataAccessUtils.singleResult(
                         jdbcTemplate.queryForList(
                                 "SELECT MAX(rank_date) FROM market_top_batch"
-                                        + " WHERE rank_date < ? AND rank_date >= date(?, ?)",
+                                        + " WHERE market = ? AND rank_date < ?"
+                                        + " AND rank_date >= date(?, ?)",
                                 String.class,
+                                market.name(),
                                 rankDate,
                                 rankDate,
                                 "-" + PREVIOUS_LOOKBACK_DAYS + " days"));
@@ -325,24 +345,30 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
         }
         return jdbcTemplate.query(
                 "SELECT subject_id, subject_code, subject_name, rank_no FROM market_top_rank"
-                        + " WHERE rank_date = ? AND version = (SELECT MAX(version) FROM"
-                        + " market_top_rank WHERE rank_date = ?) ORDER BY rank_no ASC",
+                        + " WHERE rank_date = ? AND market = ?"
+                        + " AND version = (SELECT MAX(version) FROM market_top_rank"
+                        + " WHERE rank_date = ? AND market = ?) ORDER BY rank_no ASC",
                 PREV_ROW,
                 prevDate,
-                prevDate);
+                market.name(),
+                prevDate,
+                market.name());
     }
 
     @Override
-    public List<VersionSummary> listVersions(String rankDate, int limit) {
+    public List<VersionSummary> listVersions(String rankDate, Market market, int limit) {
         String sql =
-                "SELECT b.rank_date, b.version, b.trigger_source, b.degraded, b.degraded_reason,"
-                        + " b.snapshot_date, b.created_at AS computed_at,"
+                "SELECT b.market, b.rank_date, b.version, b.trigger_source, b.degraded,"
+                        + " b.degraded_reason, b.snapshot_date, b.created_at AS computed_at,"
                         + " (SELECT COUNT(*) FROM market_top_rank r"
-                        + "   WHERE r.rank_date = b.rank_date AND r.version = b.version) AS top_size"
+                        + "   WHERE r.rank_date = b.rank_date AND r.version = b.version"
+                        + "     AND r.market = b.market) AS top_size"
                         + " FROM market_top_batch b"
-                        + (rankDate == null ? "" : " WHERE b.rank_date = ?")
+                        + " WHERE b.market = ?"
+                        + (rankDate == null ? "" : " AND b.rank_date = ?")
                         + " ORDER BY b.rank_date DESC, b.version DESC LIMIT ?";
         List<Object> args = new ArrayList<>();
+        args.add(market.name());
         if (rankDate != null) {
             args.add(rankDate);
         }
@@ -350,40 +376,44 @@ public class MarketTopRepositoryImpl implements MarketTopRepository {
         return jdbcTemplate.query(sql, SUMMARY_ROW, args.toArray());
     }
 
-    /** M22 T192：当日最新 EVENT 版本（version 降序首行——页头「最近增量重评」数据源）。 */
+    /** M22 T192：当日该市场最新 EVENT 版本（version 降序首行——页头「最近增量重评」数据源；EVENT 联动恒 A 股）。 */
     @Override
-    public Optional<EventVersion> findLatestEventVersion(String rankDate) {
+    public Optional<EventVersion> findLatestEventVersion(String rankDate, Market market) {
         return jdbcTemplate
                 .query(
                         "SELECT version, created_at, trigger_events FROM market_top_batch"
-                                + " WHERE rank_date = ? AND trigger_source = 'EVENT'"
+                                + " WHERE rank_date = ? AND market = ? AND trigger_source = 'EVENT'"
                                 + " ORDER BY version DESC LIMIT 1",
                         (rs, rowNum) ->
                                 new EventVersion(
                                         rs.getInt("version"),
                                         rs.getString("created_at"),
                                         rs.getString("trigger_events")),
-                        rankDate)
+                        rankDate,
+                        market.name())
                 .stream()
                 .findFirst();
     }
 
-    /** M22 T193：各榜单日最大 version Top 行（batch 表 maxVersion 子查询收口日终语义——EVENT 版本计入）。 */
+    /** M22 T193：该市场各榜单日最大 version Top 行（batch 表 maxVersion 子查询收口日终语义——market 内不混榜）。 */
     @Override
-    public List<RankedSubject> listTopByMaxVersion() {
+    public List<RankedSubject> listTopByMaxVersion(Market market) {
         return jdbcTemplate.query(
                 """
                 SELECT r.rank_date, r.rank_no, r.subject_id
                   FROM market_top_rank r
                   JOIN (SELECT rank_date, MAX(version) AS max_version
-                          FROM market_top_batch GROUP BY rank_date) b
+                          FROM market_top_batch WHERE market = ? GROUP BY rank_date) b
                     ON b.rank_date = r.rank_date AND r.version = b.max_version
+                 WHERE r.market = ?
                  ORDER BY r.rank_date DESC, r.rank_no ASC
                 """,
                 (rs, rowNum) ->
                         new RankedSubject(
                                 rs.getString("rank_date"),
                                 rs.getInt("rank_no"),
-                                rs.getLong("subject_id")));
+                                rs.getLong("subject_id")),
+                market.name(),
+                market.name());
     }
 }

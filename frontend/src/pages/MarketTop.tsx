@@ -14,8 +14,11 @@ import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { MarketTabs } from '@/components/common/MarketTabs';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useMarketParam } from '@/hooks/useMarketParam';
+import type { MarketKey } from '@/lib/market';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type {
@@ -163,13 +166,15 @@ function CitationChip({ citation }: { citation: MarketTopCitation }) {
   );
 }
 
-/** 深析区（FULL：摘要可展开论点+亮点+风险+引用；FACTOR_ONLY：额度满标注）。 */
-function DiveArea({ item }: { item: MarketTopItem }) {
+/** 深析区（FULL：摘要可展开论点+亮点+风险+引用；非 FULL：额度满/港美股暂不可用——按因子分排序如实标注）。 */
+function DiveArea({ item, market }: { item: MarketTopItem; market: MarketKey }) {
   const [expanded, setExpanded] = useState(false);
   if (item.generation !== 'FULL') {
     return (
       <p className="text-xs text-muted-foreground" data-testid="market-top-dive-factor-only">
-        因子分排序（深析额度已满）
+        {market !== 'A_SHARE'
+          ? '港美股深析暂不可用，按因子分排序'
+          : '因子分排序（深析额度已满）'}
       </p>
     );
   }
@@ -286,12 +291,14 @@ function AddWatchlistButton({
 /** 榜单卡（排名徽章 + 标的 + 分数区 + 五维条 + 深析区 + 操作行）。 */
 function MarketTopCard({
   item,
+  market,
   inWatchlist,
   adding,
   watchError,
   onAdd,
 }: {
   item: MarketTopItem;
+  market: MarketKey;
   inWatchlist: boolean;
   adding: boolean;
   watchError: string | null;
@@ -345,7 +352,7 @@ function MarketTopCard({
         </div>
 
         {item.factors.length > 0 ? <FactorMiniBars factors={item.factors} /> : null}
-        <DiveArea item={item} />
+        <DiveArea item={item} market={market} />
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
           <AddWatchlistButton
@@ -401,6 +408,27 @@ function DegradedBanner({ reason }: { reason: string | null }) {
       data-testid="market-top-degraded"
     >
       {banner.text}
+    </div>
+  );
+}
+
+/** 维度裁剪留痕徽章（M29 §5.5 拍板四：港美股价值/基本面维缺省——如实标注不静默降级）。 */
+function DimensionMissingBadges({ view }: { view: MarketTopRankView }) {
+  const missing = view.batch.funnelStats?.dimensionMissing;
+  const entries = missing ? Object.entries(missing) : [];
+  if (entries.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" data-testid="market-top-dimension-missing">
+      {entries.map(([key, reason]) => (
+        <Badge
+          key={key}
+          className="bg-amber-500/15 text-amber-400"
+          title={`维度裁剪留痕（拍板四）：${key} 维缺省——剩余维再归一`}
+          data-testid={`market-top-dimension-missing-${key}`}
+        >
+          {reason}
+        </Badge>
+      ))}
     </div>
   );
 }
@@ -490,13 +518,22 @@ function DualTimestamps({ view, versions }: { view: MarketTopRankView; versions:
   );
 }
 
-/** 页面级状态（榜单视图 + 自选状态；方法论子路由随 T185 增补）。 */
+/** 页面级状态（榜单视图 + 自选状态；方法论子路由随 T185 增补；M29 分市场独立榜单）。 */
 interface PageState {
   view: MarketTopRankView | null;
   versions: MarketTopVersionSummary[];
   selectedDate: string;
   selectedVersion: string;
 }
+
+/** 各市场独立榜单的日期/版本选择（M29 拍板四：Tab 间切换状态不丢——REQ 故事 8 场景 1）。 */
+type MarketSelections = Record<MarketKey, { date: string; version: string }>;
+
+const INITIAL_SELECTIONS: MarketSelections = {
+  A_SHARE: { date: '', version: '' },
+  HK: { date: '', version: '' },
+  US: { date: '', version: '' },
+};
 
 /** 榜单视图（第 20 页主体；方法论子路由视图见 MarketTopMethodology）。 */
 function MarketTopRankPage() {
@@ -510,6 +547,12 @@ function MarketTopRankPage() {
   const [empty, setEmpty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // 三市场切换（M29 T257）：URL ?market= 持久化；分市场独立榜单不混榜（拍板四）
+  const [market, setMarket] = useMarketParam();
+  // 分市场选择留痕（切换 Tab 回到该市场最近日期/版本）
+  const [selections, setSelections] = useState<MarketSelections>(INITIAL_SELECTIONS);
+  const selectionsRef = useRef(selections);
+  selectionsRef.current = selections;
   // 自选状态：首清单 id + 已在任一清单的标的集合 + 页内新增/进行中/失败态
   const [firstWatchlistId, setFirstWatchlistId] = useState<number | null>(null);
   const [watchSubjectIds, setWatchSubjectIds] = useState<Set<number>>(new Set());
@@ -544,6 +587,7 @@ function MarketTopRankPage() {
       try {
         const data = await getMarketTopRank(
           {
+            market,
             date: date || undefined,
             version: version ? Number(version) : undefined,
           },
@@ -564,23 +608,38 @@ function MarketTopRankPage() {
         if (!ctrl.signal.aborted) setLoading(false);
       }
     },
-    [applyRank],
+    [applyRank, market],
   );
 
+  // 榜单 + 版本列表（market 变化即重查：挂载首查 + 切换重查均经本 effect；状态重置在切换事件内完成）
   useEffect(() => {
-    void loadRank('', '');
-    // 版本列表 + 自选清单并行预取（选择器数据源 / 加自选幂等态）
-    getMarketTopVersions()
+    const sel = selectionsRef.current[market];
+    void loadRank(sel.date, sel.version);
+    getMarketTopVersions({ market })
       .then((versions) => setState((prev) => ({ ...prev, versions })))
       .catch(() => undefined); // 版本列表失败不阻断榜单（选择器回退当前版本单选项）
+    return () => abortRef.current?.abort();
+  }, [market, loadRank]);
+
+  /** 市场切换（M29）：回第 1 态（重查该市场最近日期/版本选择——Tab 间切换状态不丢）。 */
+  const handleMarketChange = (next: MarketKey) => {
+    const sel = selectionsRef.current[next];
+    setMarket(next); // URL ?market= 持久化（useMarketParam）
+    setLoading(true);
+    setEmpty(false);
+    setError(null);
+    setState((prev) => ({ ...prev, view: null, versions: [], selectedDate: sel.date, selectedVersion: sel.version }));
+  };
+
+  // 自选清单一次预取（市场无关——加自选幂等态）
+  useEffect(() => {
     listWatchlists()
       .then((lists) => {
         setFirstWatchlistId(lists.length > 0 ? lists[0].id : null);
         setWatchSubjectIds(subjectIdsOf(lists));
       })
       .catch(() => undefined); // 清单读取失败按未自选处理（加自选时再兜底解析）
-    return () => abortRef.current?.abort();
-  }, [loadRank]);
+  }, []);
 
   /** 加自选：首清单（无则建「默认清单」）→ 加标的；30011 已在清单按成功处理（幂等红线）。 */
   const handleAddWatchlist = (item: MarketTopItem) => {
@@ -617,15 +676,22 @@ function MarketTopRankPage() {
     })();
   };
 
+  /** 日期/版本选择留痕到当前市场（Tab 间切换状态不丢）。 */
+  const rememberSelection = useCallback((nextMarket: MarketKey, date: string, version: string) => {
+    setSelections((prev) => ({ ...prev, [nextMarket]: { date, version } }));
+  }, []);
+
   const handleDateChange = (date: string) => {
     setLoading(true);
     setState((prev) => ({ ...prev, selectedDate: date, selectedVersion: '' }));
+    rememberSelection(market, date, '');
     void loadRank(date, '');
   };
 
   const handleVersionChange = (version: string) => {
     setLoading(true);
     setState((prev) => ({ ...prev, selectedVersion: version }));
+    rememberSelection(market, state.selectedDate, version);
     void loadRank(state.selectedDate, version);
   };
 
@@ -639,8 +705,13 @@ function MarketTopRankPage() {
     <main className="mx-auto w-full max-w-4xl p-4 sm:p-6" data-testid="market-top-page">
       <PageHeader
         title="全市场推荐"
-        subtitle={`全市场快照经四层漏斗（粗筛 → LLM 深析 → 合成）产出的每日 Top10；${DUAL_LAYER_LATENCY_COPY}`}
+        subtitle={`三市场独立榜单（A股/港股/美股，不混榜）：全市场快照经四层漏斗（粗筛 → LLM 深析 → 合成）产出的每日 Top10；${DUAL_LAYER_LATENCY_COPY}`}
       />
+
+      {/* 三市场切换（M29：统一 MarketTabs，Tab 不隐藏；分市场独立榜单——拍板四） */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <MarketTabs value={market} onChange={handleMarketChange} />
+      </div>
 
       {state.view ? (
         <div className="mb-3 flex flex-col gap-2" data-testid="market-top-header">
@@ -683,6 +754,7 @@ function MarketTopRankPage() {
           </div>
           <DualTimestamps view={state.view} versions={state.versions} />
           <FunnelChain view={state.view} />
+          <DimensionMissingBadges view={state.view} />
         </div>
       ) : null}
 
@@ -720,6 +792,7 @@ function MarketTopRankPage() {
             <MarketTopCard
               key={item.subjectCode}
               item={item}
+              market={market}
               inWatchlist={watchSubjectIds.has(item.subjectId)}
               adding={addingIds.has(item.subjectId)}
               watchError={watchErrors[item.subjectId] || null}
@@ -734,7 +807,7 @@ function MarketTopRankPage() {
           <p className="pt-2 text-center text-xs text-muted-foreground" data-testid="market-top-disclaimer">
             {state.view.disclaimer}
           </p>
-          <HitStatsPanel />
+          <HitStatsPanel key={market} market={market} />
         </div>
       ) : (
         <EmptyState
@@ -857,8 +930,9 @@ function pctOf(value: number): string {
 /**
  * 历史表现区块（页底折叠，零新增页面）：三要素——可达（页内折叠一键展开）/ 样本标注（N/10 与样本日计数）/
  * 免责常驻「历史统计不构成收益承诺」。展开首拉（惰性——hits-v1 服务端现算零物化）；INSUFFICIENT 窗显示「样本积累中」。
+ * M29：market 分市场统计（key 随市场重挂载重拉）。
  */
-function HitStatsPanel() {
+function HitStatsPanel({ market }: { market: MarketKey }) {
   const [stats, setStats] = useState<MarketTopHitStatsView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -870,7 +944,7 @@ function HitStatsPanel() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
-    getMarketTopHitStats(ctrl.signal)
+    getMarketTopHitStats(market, ctrl.signal)
       .then((data) => {
         if (ctrl.signal.aborted) return;
         setStats(data);
@@ -883,7 +957,7 @@ function HitStatsPanel() {
       .finally(() => {
         if (!ctrl.signal.aborted) setLoading(false);
       });
-  }, []);
+  }, [market]);
 
   const handleToggle = (event: SyntheticEvent<HTMLDetailsElement>) => {
     if (event.currentTarget.open && !loadedRef.current) {

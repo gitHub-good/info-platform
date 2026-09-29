@@ -90,6 +90,8 @@ export interface MarketTopFunnelStats {
   diveTemplate: number;
   diveSkipped: number;
   topSize: number;
+  /** 维度裁剪留痕（M29 §5.5 拍板四：港美股价值/基本面维缺省——键如 valuation/fundamental，值为人读原因）。 */
+  dimensionMissing?: Record<string, string>;
 }
 
 /** 跌出名单（dropped 元素：昨日入榜今日出榜的标的留痕）。 */
@@ -126,6 +128,8 @@ export interface MarketTopRecentIncrement {
 
 /** GET /market-top 响应（缺省最新有榜单日最大版本；recentIncrement 无 EVENT 版本时为 null）。 */
 export interface MarketTopRankView {
+  /** 市场回显（M29 T256：A_SHARE/HK/US，缺省 A_SHARE；分市场独立榜单不混榜——拍板四）。 */
+  market?: string;
   rankDate: string;
   version: number;
   triggerSource: string;

@@ -173,4 +173,40 @@ class ConductionFactorTest {
 
         assertThat(result.assoc()).hasSize(10);
     }
+
+    // ---- M29 T256：分市场枚举行数归一（US 40——market 内百分位不跨市场耦合） ----
+
+    @Test
+    void marketScopedRows_usFortyRows_rankTwoNormalizedOverThirtyNine() {
+        // US rank 2 → (40−2)/39 ≈ 0.9744（同 rank 在 31 行口径为 29/30 ≈ 0.9667——两市场可区分）
+        java.util.Map<String, Double> norms =
+                ConductionFactor.heatNormByIndustry(
+                        List.of(new HeatRow("制药", 90.0), new HeatRow("软件与信息服务", 80.0)), 40);
+        assertThat(norms.get("制药")).isCloseTo(1.0, within(1e-9));
+        assertThat(norms.get("软件与信息服务")).isCloseTo(38.0 / 39.0, within(1e-9));
+
+        ConductionFactor.Result result =
+                ConductionFactor.compute(
+                        List.of(
+                                new IndustryAssociator.Association(
+                                        "软件与信息服务", 1.0, 0, IndustryAssociator.Source.EVENT)),
+                        List.of(new HeatRow("制药", 90.0), new HeatRow("软件与信息服务", 80.0)),
+                        PARAMS,
+                        40);
+        assertThat(result.score()).isCloseTo(100.0 * 38.0 / 39.0, within(1e-6));
+    }
+
+    @Test
+    void marketScopedRows_aShareDelegation_unchangedThirtyOneSemantics() {
+        // A 股既有 31 行口径零回归：重载委托与原三参方法逐值一致
+        List<IndustryAssociator.Association> associations =
+                List.of(
+                        new IndustryAssociator.Association(
+                                "电子", 1.0, 0, IndustryAssociator.Source.EVENT));
+        ConductionFactor.Result viaOverload =
+                ConductionFactor.compute(associations, heatRows(), PARAMS, 31);
+        ConductionFactor.Result original =
+                ConductionFactor.compute(associations, heatRows(), PARAMS);
+        assertThat(viaOverload.score()).isEqualTo(original.score());
+    }
 }

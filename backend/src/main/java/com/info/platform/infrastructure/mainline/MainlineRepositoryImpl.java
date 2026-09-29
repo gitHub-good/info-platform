@@ -1,5 +1,6 @@
 package com.info.platform.infrastructure.mainline;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.mainline.MainlineRepository;
 import java.util.List;
 import java.util.Optional;
@@ -18,28 +19,29 @@ public class MainlineRepositoryImpl implements MainlineRepository {
     private static final String INSERT_RANK_SQL =
             """
             INSERT INTO industry_mainline
-              (rank_date, version, rank_no, industry, main_score, dim_detail, persistent_days,
+              (market, rank_date, version, rank_no, industry, main_score, dim_detail, persistent_days,
                heat_rank, divergence, leaders, basis, computed_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String INSERT_BATCH_SQL =
             """
             INSERT INTO industry_mainline_batch
-              (rank_date, version, trigger_source, snapshot_date, funnel_stats, degraded,
+              (market, rank_date, version, trigger_source, snapshot_date, funnel_stats, degraded,
                degraded_reason, basis, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String RANK_COLUMNS =
             """
-            rank_date, version, rank_no, industry, main_score, dim_detail, persistent_days,
+            market, rank_date, version, rank_no, industry, main_score, dim_detail, persistent_days,
             heat_rank, divergence, leaders, basis, computed_at
             """;
 
     private static final RowMapper<MainlineRankRow> RANK_ROW =
             (rs, rowNum) ->
                     new MainlineRankRow(
+                            Market.fromName(rs.getString("market")),
                             rs.getString("rank_date"),
                             rs.getInt("version"),
                             rs.getInt("rank_no"),
@@ -56,6 +58,7 @@ public class MainlineRepositoryImpl implements MainlineRepository {
     private static final RowMapper<MainlineBatchRow> BATCH_ROW =
             (rs, rowNum) ->
                     new MainlineBatchRow(
+                            Market.fromName(rs.getString("market")),
                             rs.getString("rank_date"),
                             rs.getInt("version"),
                             rs.getString("trigger_source"),
@@ -83,12 +86,13 @@ public class MainlineRepositoryImpl implements MainlineRepository {
     }
 
     @Override
-    public int maxVersion(String rankDate) {
+    public int maxVersion(String rankDate, Market market) {
         Integer max =
                 jdbcTemplate.queryForObject(
-                        "SELECT MAX(version) FROM industry_mainline WHERE rank_date = ?",
+                        "SELECT MAX(version) FROM industry_mainline WHERE rank_date = ? AND market = ?",
                         Integer.class,
-                        rankDate);
+                        rankDate,
+                        market.name());
         return max == null ? 0 : max;
     }
 
@@ -97,43 +101,57 @@ public class MainlineRepositoryImpl implements MainlineRepository {
         Integer inserted =
                 transactionTemplate.execute(
                         status -> {
+                            // 同 (rank_date, version) 先删后插：重算幂等 + 并发写自愈（version 源自
+                            // ranks 表 MAX，batch 可先于 ranks 存在导致 maxVersion 滞后复用同号）
+                            jdbcTemplate.update(
+                                    "DELETE FROM industry_mainline WHERE rank_date = ? AND version = ? AND market = ?",
+                                    batch.rankDate(),
+                                    batch.version(),
+                                    batch.market());
+                            jdbcTemplate.update(
+                                    "DELETE FROM industry_mainline_batch WHERE rank_date = ? AND version = ? AND market = ?",
+                                    batch.rankDate(),
+                                    batch.version(),
+                                    batch.market());
                             jdbcTemplate.update(
                                     con -> {
                                         var ps = con.prepareStatement(INSERT_BATCH_SQL);
-                                        ps.setString(1, batch.rankDate());
-                                        ps.setInt(2, batch.version());
-                                        ps.setString(3, batch.triggerSource());
-                                        ps.setString(4, batch.snapshotDate());
-                                        ps.setString(5, batch.funnelStatsJson());
-                                        ps.setInt(6, batch.degraded() ? 1 : 0);
-                                        ps.setString(7, batch.degradedReason());
-                                        ps.setString(8, batch.basis());
-                                        ps.setString(9, batch.createdAt());
+                                        ps.setString(1, batch.market().name());
+                                        ps.setString(2, batch.rankDate());
+                                        ps.setInt(3, batch.version());
+                                        ps.setString(4, batch.triggerSource());
+                                        ps.setString(5, batch.snapshotDate());
+                                        ps.setString(6, batch.funnelStatsJson());
+                                        ps.setInt(7, batch.degraded() ? 1 : 0);
+                                        ps.setString(8, batch.degradedReason());
+                                        ps.setString(9, batch.basis());
                                         ps.setString(10, batch.createdAt());
+                                        ps.setString(11, batch.createdAt());
                                         return ps;
                                     });
                             for (MainlineRankRow rank : ranks) {
                                 jdbcTemplate.update(
                                         con -> {
                                             var ps = con.prepareStatement(INSERT_RANK_SQL);
-                                            ps.setString(1, rank.rankDate());
-                                            ps.setInt(2, rank.version());
-                                            ps.setInt(3, rank.rankNo());
-                                            ps.setString(4, rank.industry());
-                                            ps.setDouble(5, rank.mainScore());
-                                            ps.setString(6, rank.dimDetailJson());
-                                            ps.setInt(7, rank.persistentDays());
+                                            ps.setString(1, rank.market().name());
+                                            ps.setString(2, rank.rankDate());
+                                            ps.setInt(3, rank.version());
+                                            ps.setInt(4, rank.rankNo());
+                                            ps.setString(5, rank.industry());
+                                            ps.setDouble(6, rank.mainScore());
+                                            ps.setString(7, rank.dimDetailJson());
+                                            ps.setInt(8, rank.persistentDays());
                                             if (rank.heatRank() == null) {
-                                                ps.setNull(8, java.sql.Types.INTEGER);
+                                                ps.setNull(9, java.sql.Types.INTEGER);
                                             } else {
-                                                ps.setInt(8, rank.heatRank());
+                                                ps.setInt(9, rank.heatRank());
                                             }
-                                            ps.setString(9, rank.divergence());
-                                            ps.setString(10, rank.leadersJson());
-                                            ps.setString(11, rank.basis());
-                                            ps.setString(12, rank.computedAt());
+                                            ps.setString(10, rank.divergence());
+                                            ps.setString(11, rank.leadersJson());
+                                            ps.setString(12, rank.basis());
                                             ps.setString(13, rank.computedAt());
                                             ps.setString(14, rank.computedAt());
+                                            ps.setString(15, rank.computedAt());
                                             return ps;
                                         });
                             }
@@ -143,41 +161,46 @@ public class MainlineRepositoryImpl implements MainlineRepository {
     }
 
     @Override
-    public Optional<MainlineVersion> find(String rankDate, int version) {
+    public Optional<MainlineVersion> find(String rankDate, int version, Market market) {
         List<MainlineBatchRow> batches =
                 jdbcTemplate.query(
-                        "SELECT rank_date, version, trigger_source, snapshot_date, funnel_stats,"
+                        "SELECT market, rank_date, version, trigger_source, snapshot_date, funnel_stats,"
                                 + " degraded, degraded_reason, basis, created_at FROM"
-                                + " industry_mainline_batch WHERE rank_date = ? AND version = ?",
+                                + " industry_mainline_batch WHERE rank_date = ? AND version = ?"
+                                + " AND market = ?",
                         BATCH_ROW,
                         rankDate,
-                        version);
+                        version,
+                        market.name());
         if (batches.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new MainlineVersion(batches.get(0), rankRows(rankDate, version)));
+        return Optional.of(
+                new MainlineVersion(batches.get(0), rankRows(rankDate, version, market)));
     }
 
     @Override
-    public Optional<MainlineVersion> findLatest(String rankDate) {
-        Integer max = maxVersion(rankDate);
-        return max <= 0 ? Optional.empty() : find(rankDate, max);
+    public Optional<MainlineVersion> findLatest(String rankDate, Market market) {
+        Integer max = maxVersion(rankDate, market);
+        return max <= 0 ? Optional.empty() : find(rankDate, max, market);
     }
 
     @Override
-    public Optional<MainlineVersion> findLatestAnyDate() {
-        List<String> dates = listRankDates(1);
+    public Optional<MainlineVersion> findLatestAnyDate(Market market) {
+        List<String> dates = listRankDates(1, market);
         if (dates.isEmpty()) {
             return Optional.empty();
         }
-        return findLatest(dates.get(0));
+        return findLatest(dates.get(0), market);
     }
 
     @Override
-    public List<String> listRankDates(int limit) {
+    public List<String> listRankDates(int limit, Market market) {
         return jdbcTemplate.queryForList(
-                "SELECT DISTINCT rank_date FROM industry_mainline ORDER BY rank_date DESC LIMIT ?",
+                "SELECT DISTINCT rank_date FROM industry_mainline WHERE market = ?"
+                        + " ORDER BY rank_date DESC LIMIT ?",
                 String.class,
+                market.name(),
                 limit);
     }
 
@@ -191,17 +214,21 @@ public class MainlineRepositoryImpl implements MainlineRepository {
     }
 
     @Override
-    public List<EventWeightRow> sumEventWeightByIndustry(String fromDate, String toDate) {
+    public List<EventWeightRow> sumEventWeightByIndustry(
+            String fromDate, String toDate, Market market) {
+        // 市场消歧：事件维按「事件源条目 l1_market = market」分桶（方案 §6.1——跨市场重名行业如「银行」不混桶）
         return jdbcTemplate.query(
                 """
                 SELECT json_each.value AS industry, SUM(CASE e.importance
                        WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 1 ELSE 0 END) AS weighted
-                FROM event_item e, json_each(e.affected_industries)
-                WHERE e.event_date >= ? AND e.event_date <= ?
+                FROM event_item e
+                JOIN news_analysis na ON na.news_id = e.news_id, json_each(e.affected_industries)
+                WHERE na.l1_market = ? AND e.event_date >= ? AND e.event_date <= ?
                 GROUP BY json_each.value
                 ORDER BY industry
                 """,
                 EVENT_WEIGHT_ROW,
+                market.name(),
                 fromDate,
                 toDate);
     }
@@ -315,14 +342,15 @@ public class MainlineRepositoryImpl implements MainlineRepository {
                 limit);
     }
 
-    private List<MainlineRankRow> rankRows(String rankDate, int version) {
+    private List<MainlineRankRow> rankRows(String rankDate, int version, Market market) {
         return jdbcTemplate.query(
                 "SELECT "
                         + RANK_COLUMNS
                         + " FROM industry_mainline"
-                        + " WHERE rank_date = ? AND version = ? ORDER BY rank_no",
+                        + " WHERE rank_date = ? AND version = ? AND market = ? ORDER BY rank_no",
                 RANK_ROW,
                 rankDate,
-                version);
+                version,
+                market.name());
     }
 }

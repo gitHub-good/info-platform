@@ -60,15 +60,20 @@ class PolicyTrackRetirementGate3Test {
     void jobRegistry_exactlySixteenJobs_policyTrackKeysAbsent() {
         List<String> jobKeys = jobRegistry.jobs().stream().map(ManagedJob::jobKey).toList();
 
-        // M23 退役 18→16 后，M27 T242/T243 增 INDUSTRY_MARKET_SNAPSHOT/INDUSTRY_MAINLINE 两键
-        // 16→18（ADR-0063 裁决 6）
-        assertThat(jobRegistry.jobs()).as("Job 面 16→18（M27 行情快照 + 主线计算）").hasSize(18);
+        // M23 退役 18→16 后，M27 T242/T243 增两键 16→18（ADR-0063 裁决 6）；
+        // V3.2 M28 增 NEWS_PULSE（资讯脉搏六窗分析）18→19；
+        // M29 T252 增 HKUS_MARKET_SNAPSHOT（港美股行情快照一职三责轮）19→20（ADR-0064 裁决 4）
+        assertThat(jobRegistry.jobs()).as("Job 面 19→20（M29 港美股行情快照）").hasSize(20);
         assertThat(jobKeys)
                 .as("POLICY 双 Job 键不得残留")
                 .doesNotContain("POLICY_FETCH", "POLICY_TENDENCY");
         assertThat(jobKeys)
-                .as("M27 两新键在册")
-                .contains("INDUSTRY_MARKET_SNAPSHOT", "INDUSTRY_MAINLINE");
+                .as("M27 两新键 + M28 资讯脉搏 + M29 港美股快照在册")
+                .contains(
+                        "INDUSTRY_MARKET_SNAPSHOT",
+                        "INDUSTRY_MAINLINE",
+                        "NEWS_PULSE",
+                        "HKUS_MARKET_SNAPSHOT");
     }
 
     /** ② policy_item 零新增（静态：无写入调用方）——写链类整包不存在 = 停写构造性成立。 */

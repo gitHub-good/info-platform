@@ -561,7 +561,7 @@ describe('资讯库标的增强（V3.1：hover 详情卡 + 关联标的 + 按标
       ],
     });
 
-  it('hover 详情卡：完整字段全呈现（完整标题/完整摘要不截断/源/作者/双时间/L0·L1/主条/原文链接）', async () => {
+  it('V3.2 移除悬浮卡：行内不渲染 hover 层，标题/摘要/源/L1/低置信仍行内呈现', async () => {
     vi.stubGlobal(
       'fetch',
       makeFetch(() =>
@@ -570,7 +570,7 @@ describe('资讯库标的增强（V3.1：hover 详情卡 + 关联标的 + 按标
             itemOf({
               id: 1,
               title: '贵州茅台发布2026年中期业绩公告：营收与净利润均创新高',
-              summary: '一条不需要被 line-clamp 截断的完整摘要内容，悬浮卡全量呈现',
+              summary: '行内摘要两行截断呈现',
               author: '证券时报',
               nearDupMasterId: 4,
               nearDupMasterUrl: 'https://example.com/master',
@@ -582,59 +582,19 @@ describe('资讯库标的增强（V3.1：hover 详情卡 + 关联标的 + 按标
     render(<NewsLibrary />);
 
     await screen.findByTestId('news-library-item-1');
-    const hover = screen.getByTestId('news-library-hover-1');
-    expect(hover).toHaveTextContent('贵州茅台发布2026年中期业绩公告：营收与净利润均创新高');
-    expect(hover).toHaveTextContent('一条不需要被 line-clamp 截断的完整摘要内容，悬浮卡全量呈现');
-    expect(hover).toHaveTextContent('金十数据·快讯');
-    expect(hover).toHaveTextContent('证券时报');
-    expect(hover).toHaveTextContent('发布');
-    expect(hover).toHaveTextContent('抓取');
-    expect(hover).toHaveTextContent('通过');
-    expect(hover).toHaveTextContent('银行');
-    // 摘要不截断：悬浮卡摘要无 line-clamp（列表行摘要才有）
-    const hoverSummary = screen.getByTestId('news-library-hover-summary-1');
-    expect(hoverSummary.className).not.toContain('line-clamp');
-    // 主条 / 原文链接直达
-    expect(screen.getByTestId('news-library-hover-master-1')).toHaveAttribute(
+    // 悬浮层不挂载（V3.1 → V3.2 移除，行内信息即全量）
+    expect(screen.queryByTestId('news-library-hover-1')).toBeNull();
+    const row = screen.getByTestId('news-library-item-1');
+    expect(row.className).not.toContain('group-hover');
+    // 行内既有信息不受影响
+    expect(screen.getByTestId('news-library-title-1')).toHaveTextContent('贵州茅台发布2026年中期业绩公告');
+    expect(screen.getByTestId('news-library-summary-1')).toHaveTextContent('行内摘要两行截断呈现');
+    expect(screen.getByTestId('news-library-source-1')).toHaveTextContent('金十数据·快讯');
+    expect(screen.getByTestId('news-library-l1-1')).toHaveTextContent('银行');
+    expect(screen.getByTestId('news-library-master-1')).toHaveAttribute(
       'href',
       'https://example.com/master',
     );
-    expect(screen.getByTestId('news-library-hover-origin-1')).toHaveAttribute(
-      'href',
-      'https://example.com/n1',
-    );
-  });
-
-  it('hover 详情卡悬浮呈现（纯 CSS group-hover：卡片常驻 DOM，由行 group 控制可见性）', async () => {
-    const fetchMock = makeFetch();
-    vi.stubGlobal('fetch', fetchMock);
-    render(<NewsLibrary />);
-
-    await screen.findByTestId('news-library-item-1');
-    const row = screen.getByTestId('news-library-item-1');
-    const hover = screen.getByTestId('news-library-hover-1');
-    // 行为 group 容器、卡片为 group-hover 控制的浮层（零新依赖，jsdom 不模拟 hover 只验结构挂载）
-    expect(row.className).toContain('group');
-    expect(hover.className).toContain('group-hover:block');
-  });
-
-  it('hover 卡标的区：关联标的代码+名称+行业与详情链接 #/subjects/:code；无标的行不渲染标的区', async () => {
-    vi.stubGlobal(
-      'fetch',
-      makeFetch(() => ok(paged([withSubjects(1), itemOf({ id: 2 })]))),
-    );
-    render(<NewsLibrary />);
-
-    await screen.findByTestId('news-library-item-2');
-    const detail = screen.getByTestId('news-library-hover-subject-1-SH600519');
-    expect(detail).toHaveTextContent('SH600519');
-    expect(detail).toHaveTextContent('贵州茅台');
-    expect(detail).toHaveTextContent('白酒');
-    expect(screen.getByTestId('news-library-hover-subject-link-1-SH600519')).toHaveAttribute(
-      'href',
-      '#/subjects/SH600519',
-    );
-    expect(screen.queryByTestId('news-library-hover-subject-2-SH600519')).toBeNull();
   });
 
   it('标的 chips：matchedSubjects 行渲染名称 chips（title 带代码）；无关联标的行不渲染 chips', async () => {

@@ -15,11 +15,16 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
+import { MarketTabs } from '@/components/common/MarketTabs';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useMarketParam } from '@/hooks/useMarketParam';
+import type { MarketKey } from '@/lib/market';
 import {
+  currencySymbolOf,
   formatDateTime,
   formatMoney,
+  formatMoneyInCurrency,
   formatPct,
   heatCellShade,
   heatScaleGradientCss,
@@ -37,10 +42,10 @@ import type {
   MainlineLeaderCard,
 } from '@/types/industryMainline';
 
-// 行业主线页（M27 T245，#/industry-mainline 全站第 18 页——方案 §4.6 + REQ 故事 1/2/3）。
-// 四区块：① 行业热力图（31 格等分 CSS Grid，红涨绿跌色深线性 + hover 全信息 + stale 黄标 + 盘中轮询）
-// ② 主线行业榜单（Top 3~5 卡：三维迷你条 / 持续性 / 背离标注 / 依据互链）③ 龙头卡（龙一/二/三 展开）
-// ④ 页脚数据源标注；热力图与榜单两区块独立三态互不拖垮；重算 + 配置入口沿任务中心 Dialog 先例。
+// 行业主线页（M27 T245，#/industry-mainline 全站第 18 页——方案 §4.6 + REQ 故事 1/2/3；M29 T257 增三市场切换）。
+// 四区块：① 行业热力图（各市场枚举格 ≤40 等分 CSS Grid，红涨绿跌色深线性 + hover 全信息 + stale 黄标 + 盘中轮询）
+// ② 主线行业榜单（Top 3~5 卡：三维迷你条 / 持续性 / 背离标注 / 依据互链）③ 龙头卡（龙一/二/三 展开——
+// 港美股恒不开放，占位说明不静默）④ 页脚数据源标注；热力图与榜单两区块独立三态互不拖垮；重算 + 配置入口沿任务中心 Dialog 先例。
 
 /** 热力图盘中轮询间隔（方案 §4.6：页面节奏 60s ≠ 源采集 30min；测试可缩短加速）。 */
 const DEFAULT_REFRESH_MS = 60_000;
@@ -61,10 +66,16 @@ function signedPct(value: number | null | undefined): string {
   return `${value > 0 ? '+' : ''}${formatPct(value)}`;
 }
 
-/** 行情源标注（降级时如实标注——方案 §4.6 ④）。 */
+/** 维度原始值展示：保留两位有效精度（热度分等长浮点不溢出卡片）。 */
+function formatRaw(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+/** 行情源标注（降级时如实标注——方案 §4.6 ④；港美股聚合行 = hkus-aggregate）。 */
 const HEAT_SOURCE_LABELS: Record<string, string> = {
   'eastmoney-push2': '东方财富板块聚合',
   'tencent-rank': '腾讯 SW31 直出（主通道降级）',
+  'hkus-aggregate': '港美股个股快照就地聚合（市值加权）',
 };
 
 function heatSourceLabel(source: string | null | undefined): string {
@@ -79,8 +90,8 @@ const DIVERGENCE_LABELS: Record<string, string> = {
 
 // —— 热力图区块 ——
 
-/** hover 全信息 title（行业/当日/5日/涨跌家数/主力净流入/总市值/领涨股——REQ 故事 1 场景 2）。 */
-function heatCellTitle(cell: IndustryHeatMapCell): string {
+/** hover 全信息 title（行业/当日/5日/涨跌家数/主力净流入/总市值〔原币〕/领涨股——REQ 故事 1 场景 2）。 */
+function heatCellTitle(cell: IndustryHeatMapCell, currency: string | null | undefined): string {
   const leader = cell.leaderStock
     ? `领涨股 ${cell.leaderStock.name}${cell.leaderStock.pct != null ? ` ${signedPct(cell.leaderStock.pct)}` : ''}`
     : '领涨股 --';
@@ -91,13 +102,21 @@ function heatCellTitle(cell: IndustryHeatMapCell): string {
     `涨 ${cell.upCount ?? '--'} 家`,
     `跌 ${cell.downCount ?? '--'} 家`,
     `主力净流入 ${formatMoney(cell.mainNetFlow)}`,
-    `总市值 ${formatMoney(cell.totalMv)}`,
+    `总市值 ${formatMoneyInCurrency(cell.totalMv, currency)}`,
     leader,
   ].join(' · ');
 }
 
-/** 行业热力图区块（独立三态 + 盘中轮询 + 点击下钻）。 */
-function HeatMapSection({ refreshMs, onDrill }: { refreshMs: number; onDrill: (industry: string) => void }) {
+/** 行业热力图区块（独立三态 + 盘中轮询 + 点击下钻；market 三市场切换——格数 = 各市场枚举数 ≤40）。 */
+function HeatMapSection({
+  refreshMs,
+  market,
+  onDrill,
+}: {
+  refreshMs: number;
+  market: MarketKey;
+  onDrill: (industry: string) => void;
+}) {
   const [view, setView] = useState<IndustryHeatMapView | null>(null);
   const [loading, setLoading] = useState(true);
   const [empty, setEmpty] = useState(false);
@@ -109,7 +128,7 @@ function HeatMapSection({ refreshMs, onDrill }: { refreshMs: number; onDrill: (i
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      const data = await getIndustryHeatMap(undefined, ctrl.signal);
+      const data = await getIndustryHeatMap({ market }, ctrl.signal);
       if (ctrl.signal.aborted) return;
       setView(data);
       setEmpty(false);
@@ -125,7 +144,7 @@ function HeatMapSection({ refreshMs, onDrill }: { refreshMs: number; onDrill: (i
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [market]);
 
   useEffect(() => {
     void load();
@@ -154,8 +173,9 @@ function HeatMapSection({ refreshMs, onDrill }: { refreshMs: number; onDrill: (i
           </Badge>
         ) : null}
         <span className="text-xs text-muted-foreground" data-testid="heat-meta">
-          快照 {view?.snapshotDate ?? '--'} · {heatSourceLabel(view?.source)} · 报价{' '}
-          {formatDateTime(view?.quoteTime)}
+          {(market === 'A_SHARE' ? 'A股：申万一级 31' : view?.industrySystem) ?? '--'} · 原币{' '}
+          {currencySymbolOf(view?.currency ?? market)} · 快照 {view?.snapshotDate ?? '--'} ·{' '}
+          {heatSourceLabel(view?.source)} · 报价 {formatDateTime(view?.quoteTime)}
         </span>
         {/* 色阶图例：-5% 绿 → 0 → +5% 红（A 股惯例） */}
         <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="heat-legend">
@@ -177,8 +197,12 @@ function HeatMapSection({ refreshMs, onDrill }: { refreshMs: number; onDrill: (i
         </div>
       ) : empty ? (
         <EmptyState
-          title="暂无行业行情快照"
-          description="行情采集 Job 每交易日多轮采集，首个数据日即出热力图；可在任务中心查看采集轮次。"
+          title="该市场暂无行业行情快照"
+          description={
+            market === 'A_SHARE'
+              ? '行情采集 Job 每交易日多轮采集，首个数据日即出热力图；可在任务中心查看采集轮次。'
+              : '港美股行情随 HKUS 快照 Job 逐轮积累（个股快照就地聚合，无板块通道）——覆盖不足如实呈现，可稍后刷新或切换市场。'
+          }
           size="compact"
           testId="heat-empty"
         />
@@ -202,7 +226,7 @@ function HeatMapSection({ refreshMs, onDrill }: { refreshMs: number; onDrill: (i
               <button
                 key={cell.industry}
                 type="button"
-                title={heatCellTitle(cell)}
+                title={heatCellTitle(cell, view?.currency ?? market)}
                 onClick={() => onDrill(cell.industry)}
                 style={{ backgroundColor: shade.backgroundColor, color: shade.color }}
                 className="flex h-14 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-center transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -403,7 +427,7 @@ function MainlineCard({ item, onDrill }: { item: MainlineItem; onDrill: (industr
               热度第 {item.heatRank}
             </Badge>
           ) : null}
-          {item.divergence ? (
+          {item.divergence && item.divergence !== "NONE" ? (
             <Badge
               className="bg-amber-500/15 text-amber-400"
               title="价格动量强而资讯热度弱——警惕情绪先行、基本面待确认"
@@ -424,6 +448,15 @@ function MainlineCard({ item, onDrill }: { item: MainlineItem; onDrill: (industr
               龙头 {leaders.length} 只
               <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
             </Button>
+          ) : item.leadersAvailable === false ? (
+            // 港美股龙头 W1 不扩展：占位说明不静默（REQ 故事 7 场景 4）
+            <span
+              className="ml-auto text-xs text-muted-foreground"
+              title="龙头识别依赖价值评分/财务因子体系（A股-only）——地基与因子体系落成后另立 REQ 复议（Won't W1）"
+              data-testid={`mainline-leaders-unavailable-${item.rankNo}`}
+            >
+              {item.leaderUnavailableReason ?? '港美股龙头识别暂不开放'}
+            </span>
           ) : null}
         </div>
         <div className="flex flex-col gap-1">
@@ -435,7 +468,13 @@ function MainlineCard({ item, onDrill }: { item: MainlineItem; onDrill: (industr
                 testId={`mainline-dim-${item.rankNo}-${key}`}
                 label={label}
                 score={dim?.score}
-                detail={dim ? `第 ${dim.rank} 名${dim.raw != null ? ` · 原始 ${dim.raw}` : ''}` : '--'}
+                detail={
+                  dim
+                    ? `第 ${dim.rank} 名${
+                        dim.raw != null ? ` · 原始 ${formatRaw(dim.raw)}` : ''
+                      }`
+                    : '--'
+                }
               />
             );
           })}
@@ -465,12 +504,14 @@ function MainlineCard({ item, onDrill }: { item: MainlineItem; onDrill: (industr
   );
 }
 
-/** 榜单区块（独立三态：加载 / 空态 30094 / 错误重试；reloadSignal 随重算触发重拉）。 */
+/** 榜单区块（独立三态：加载 / 空态 30094 / 错误重试；reloadSignal 随重算触发重拉；market 三市场切换）。 */
 function MainlineSection({
   reloadSignal,
+  market,
   onDrill,
 }: {
   reloadSignal: number;
+  market: MarketKey;
   onDrill: (industry: string) => void;
 }) {
   const [view, setView] = useState<IndustryMainlineView | null>(null);
@@ -484,7 +525,7 @@ function MainlineSection({
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      const data = await getIndustryMainline({}, ctrl.signal);
+      const data = await getIndustryMainline({ market }, ctrl.signal);
       if (ctrl.signal.aborted) return;
       setView(data);
       setEmpty(false);
@@ -500,7 +541,7 @@ function MainlineSection({
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [market]);
 
   useEffect(() => {
     void load();
@@ -525,8 +566,18 @@ function MainlineSection({
             降级 · {view.degradedReason ?? '--'}
           </Badge>
         ) : null}
+        {view?.bootstrap ? (
+          <Badge
+            className="bg-amber-500/15 text-amber-400"
+            title="该市场历史不足持续性门槛最小天数——免门槛按主分出榜，persistentDays 如实展示，攒足后自动恢复严格口径（拍板五）"
+            data-testid="mainline-bootstrap"
+          >
+            冷启动
+          </Badge>
+        ) : null}
         <span className="text-xs text-muted-foreground" data-testid="mainline-meta">
-          榜单日 {view?.rankDate ?? '--'} · v{view?.version ?? '--'} ·{' '}
+          {(market === 'A_SHARE' ? 'A股：申万一级 31' : view?.industrySystem) ?? '--'} · 榜单日{' '}
+          {view?.rankDate ?? '--'} · v{view?.version ?? '--'} ·{' '}
           {view?.triggerSource === 'MANUAL' ? '手动重算' : '盘后定时'} · 计算{' '}
           {formatDateTime(view?.computedAt)}
         </span>
@@ -540,7 +591,11 @@ function MainlineSection({
       ) : empty ? (
         <EmptyState
           title="暂无主线榜单"
-          description="主线榜单每交易日 18:30 盘后计算（行情 × 热度 × 事件三维）；可点右上「重算」手动触发首榜。"
+          description={
+            market === 'A_SHARE'
+              ? '主线榜单每交易日 18:30 盘后计算（行情 × 热度 × 事件三维）；可点右上「重算」手动触发首榜。'
+              : '港美股主线随行情/热度/事件三维数据积累后点亮（冷启动期沿 bootstrap 免门槛出榜）；可点右上「重算」手动触发，或切换市场查看。'
+          }
           size="compact"
           testId="mainline-empty"
         />
@@ -566,8 +621,8 @@ function MainlineSection({
 
 // —— 行业下钻 Dialog ——
 
-/** 行情行（热力图格 / 下钻共用口径）。 */
-function QuoteRow({ cell }: { cell: IndustryMainlineDetailView }) {
+/** 行情行（热力图格 / 下钻共用口径；总市值原币符号——拍板六）。 */
+function QuoteRow({ cell, currency }: { cell: IndustryMainlineDetailView; currency: string | null | undefined }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="detail-quote">
       <span className="tabular-nums">当日 {signedPct(cell.pctDay)}</span>
@@ -576,7 +631,9 @@ function QuoteRow({ cell }: { cell: IndustryMainlineDetailView }) {
         涨 {cell.upCount ?? '--'} · 跌 {cell.downCount ?? '--'}
       </span>
       <span className="text-xs text-muted-foreground">主力净流入 {formatMoney(cell.mainNetFlow)}</span>
-      <span className="text-xs text-muted-foreground">总市值 {formatMoney(cell.totalMv)}</span>
+      <span className="text-xs text-muted-foreground">
+        总市值 {formatMoneyInCurrency(cell.totalMv, currency)}
+      </span>
       {cell.leaderStock ? (
         <span className="text-xs">
           领涨股 {cell.leaderStock.name}
@@ -587,8 +644,16 @@ function QuoteRow({ cell }: { cell: IndustryMainlineDetailView }) {
   );
 }
 
-/** 行业下钻 Dialog（行情行 + 通道 A 板块列表 / 通道 B 成分股 + 龙头完整信息 + 成员统计）。 */
-function IndustryDetailDialog({ industry, onClose }: { industry: string; onClose: () => void }) {
+/** 行业下钻 Dialog（行情行 + 通道 A 板块列表 / 通道 B 成分股 + 龙头完整信息 + 成员统计；market 消歧同名行业）。 */
+function IndustryDetailDialog({
+  industry,
+  market,
+  onClose,
+}: {
+  industry: string;
+  market: MarketKey;
+  onClose: () => void;
+}) {
   const [detail, setDetail] = useState<IndustryMainlineDetailView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -597,13 +662,13 @@ function IndustryDetailDialog({ industry, onClose }: { industry: string; onClose
     setLoading(true);
     setError(null);
     try {
-      setDetail(await getIndustryMainlineDetail(industry));
+      setDetail(await getIndustryMainlineDetail(industry, market));
     } catch (err) {
       setError(messageOf(err, '行业详情加载失败'));
     } finally {
       setLoading(false);
     }
-  }, [industry]);
+  }, [industry, market]);
 
   useEffect(() => {
     void load();
@@ -642,7 +707,7 @@ function IndustryDetailDialog({ industry, onClose }: { industry: string; onClose
                 成员 {detail.memberCount ?? '--'} 只
               </span>
             </div>
-            <QuoteRow cell={detail} />
+            <QuoteRow cell={detail} currency={detail.currency ?? market} />
             {detail.stale ? (
               <p className="text-xs text-amber-400">数据截至 {formatDateTime(detail.quoteTime)}（旧快照）</p>
             ) : null}
@@ -686,6 +751,11 @@ function IndustryDetailDialog({ industry, onClose }: { industry: string; onClose
                   <LeaderCardView key={`${leader.rank}-${leader.subjectCode}`} leader={leader} />
                 ))}
               </div>
+            ) : detail.leadersAvailable === false ? (
+              // 港美股龙头 W1 不扩展：占位说明不静默（不渲染空「龙头」区块留白）
+              <p className="text-xs text-muted-foreground" data-testid="detail-leaders-unavailable">
+                {detail.leaderUnavailableReason ?? '港美股龙头识别暂不开放（依赖基本面因子体系）'}
+              </p>
             ) : null}
             <p className="text-xs text-muted-foreground" data-testid="detail-source">
               快照 {detail.snapshotDate ?? '--'} · {heatSourceLabel(detail.source)} · 报价{' '}
@@ -876,7 +946,7 @@ interface IndustryMainlineProps {
   refreshMs?: number;
 }
 
-/** 行业主线页（第 18 页，分析组第 8 项：热力图 + 主线榜单 + 龙头 + 下钻 + 重算/配置）。 */
+/** 行业主线页（第 18 页，分析组第 8 项：热力图 + 主线榜单 + 龙头 + 下钻 + 重算/配置；M29 T257 增三市场切换）。 */
 export function IndustryMainline({ refreshMs = DEFAULT_REFRESH_MS }: IndustryMainlineProps = {}) {
   const [drillIndustry, setDrillIndustry] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -884,13 +954,15 @@ export function IndustryMainline({ refreshMs = DEFAULT_REFRESH_MS }: IndustryMai
   const [recomputeBusy, setRecomputeBusy] = useState(false);
   const [recomputeDone, setRecomputeDone] = useState<string | null>(null);
   const [recomputeError, setRecomputeError] = useState<string | null>(null);
+  // 三市场切换（M29 T257）：URL ?market= 持久化，缺省 A 股；热力图/榜单/下钻/重算同市场口径
+  const [market, setMarket] = useMarketParam();
 
   const handleRecompute = async () => {
     setRecomputeBusy(true);
     setRecomputeError(null);
     setRecomputeDone(null);
     try {
-      const res = await recomputeIndustryMainline();
+      const res = await recomputeIndustryMainline(market);
       setRecomputeDone(`重算完成 · Top ${res.topSize} · ${res.detail}`);
       setReloadSignal((s) => s + 1); // 受理即重拉榜单（后端同步执行）
     } catch (err) {
@@ -904,7 +976,7 @@ export function IndustryMainline({ refreshMs = DEFAULT_REFRESH_MS }: IndustryMai
     <main className="mx-auto w-full max-w-5xl p-4 sm:p-6" data-testid="industry-mainline-page">
       <PageHeader
         title="行业主线"
-        subtitle="31 申万行业热力图（红涨绿跌 · 盘中轮询）+ 主线榜单（价格动量 × 资讯热度 × 事件密度）+ 主线内龙头（龙一/二/三）。"
+        subtitle="行业热力图（红涨绿跌 · 盘中轮询 · 行业体系与币种随市场切换）+ 主线榜单（价格动量 × 资讯热度 × 事件密度）+ 主线内龙头（A股）。"
         actions={
           <>
             <Button
@@ -925,6 +997,11 @@ export function IndustryMainline({ refreshMs = DEFAULT_REFRESH_MS }: IndustryMai
         }
       />
 
+      {/* 三市场切换（M29：统一 MarketTabs，Tab 不隐藏——拍板三；?market= 持久化） */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <MarketTabs value={market} onChange={setMarket} />
+      </div>
+
       {recomputeDone ? (
         <p className="mb-3 rounded bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400" data-testid="mainline-recompute-done">
           {recomputeDone}（版本留痕见任务中心）
@@ -937,18 +1014,19 @@ export function IndustryMainline({ refreshMs = DEFAULT_REFRESH_MS }: IndustryMai
       ) : null}
 
       <div className="flex flex-col gap-6">
-        <HeatMapSection refreshMs={refreshMs} onDrill={setDrillIndustry} />
-        <MainlineSection reloadSignal={reloadSignal} onDrill={setDrillIndustry} />
+        <HeatMapSection refreshMs={refreshMs} market={market} onDrill={setDrillIndustry} />
+        <MainlineSection reloadSignal={reloadSignal} market={market} onDrill={setDrillIndustry} />
       </div>
 
-      {/* 页脚数据源标注（方案 §4.6 ④：行情源如实标注降级，资金面 datacenter） */}
+      {/* 页脚数据源标注（方案 §4.6 ④：行情源如实标注降级，资金面 datacenter；港美股 = 个股快照聚合） */}
       <p className="mt-6 text-xs text-muted-foreground" data-testid="mainline-footnote">
-        行情：东方财富板块聚合 / 腾讯 SW31 直出（降级时如实标注）· 资金面：东方财富 datacenter（龙虎榜 / 增减持）·
-        主线与龙头为规则化统计（mainline-v1 / leader-v1），零 LLM，不构成投资建议
+        行情：东方财富板块聚合 / 腾讯 SW31 直出（降级时如实标注）· 港美股：个股快照就地聚合（原币计价，无板块通道）·
+        资金面：东方财富 datacenter（龙虎榜 / 增减持，A股）· 主线与龙头为规则化统计（mainline-v1 / leader-v1），零
+        LLM，不构成投资建议
       </p>
 
       {drillIndustry ? (
-        <IndustryDetailDialog industry={drillIndustry} onClose={() => setDrillIndustry(null)} />
+        <IndustryDetailDialog industry={drillIndustry} market={market} onClose={() => setDrillIndustry(null)} />
       ) : null}
       {configOpen ? <MainlineConfigDialog onClose={() => setConfigOpen(false)} /> : null}
     </main>

@@ -24,10 +24,12 @@ const MSG_BY_CODE: Record<number, string> = {
 interface StoreOpts {
   /** 强制删标的返回该错误码（模拟越权 30012）。 */
   deleteItemCode?: number;
-  /** 强制 GET /subjects/quotes 返回 500（行情加载失败，表格应显示「—」回退）。 */
-  quotesFail?: boolean;
+  /** 强制 GET /watchlists/{id}/items 返回 500（分页行加载失败，表格应显示错误+重试）。 */
+  itemsFail?: boolean;
   /** 清单列表响应；缺省 [wl1, wl2]，传 [] 构造页面级空态。 */
   emptyList?: boolean;
+  /** wl1 扩容为 12 项（100/200/300 循环，id 10~21）——分页/排序用例数据面。 */
+  richList?: boolean;
 }
 
 function cloneWl(w: WatchlistView): WatchlistView {
@@ -38,12 +40,14 @@ function cloneWl(w: WatchlistView): WatchlistView {
 const SUBJECT_POOL = [
   { id: 100, subjectCode: 'SZ000858', name: '五粮液', market: 'A_SHARE', type: 1, industry: '白酒' },
   { id: 200, subjectCode: 'SH600036', name: '招商银行', market: 'A_SHARE', type: 1, industry: '银行' },
+  { id: 300, subjectCode: 'SH600519', name: '贵州茅台', market: 'A_SHARE', type: 1, industry: '白酒' },
   { id: 999, subjectCode: 'SH999999', name: '不存在的标的', market: 'A_SHARE', type: 1, industry: '测试' },
 ];
 
 const QUOTE_BY_ID: Record<number, { price: number; changePct: number }> = {
   100: { price: 128.5, changePct: -1.25 },
   200: { price: 38.2, changePct: 0.86 },
+  // 300 无行情：price/changePct=null 行（行情缺失沉底 + 「—」回退用例）
 };
 
 /** 标的详情弹框（交互优化）：by-code 解析 + 聚合 detail 的最小视图（全分区 ok）。 */
@@ -106,19 +110,27 @@ function subjectDetailOf(id: number) {
   };
 }
 
-/** 构造一个状态化 fetch mock：GET 列表/单查/search/quotes、POST 创建/加标的、DELETE/PATCH 清单项。 */
+/** 构造一个状态化 fetch mock：GET 列表/单查/search/清单项分页、POST 创建/加标的、DELETE/PATCH 清单项。 */
 function makeStore(opts: StoreOpts = {}) {
   const wl1: WatchlistView = {
     id: 1,
     name: '核心持仓',
     remark: null,
     status: 1,
-    items: [{ id: 10, subjectId: 100, anomalyThreshold: 3, status: 1 }],
+    items: opts.richList
+      ? Array.from({ length: 12 }, (_, i) => ({
+          id: 10 + i,
+          subjectId: [100, 200, 300][i % 3],
+          anomalyThreshold: 3,
+          status: 1,
+        }))
+      : [{ id: 10, subjectId: 100, anomalyThreshold: 3, status: 1 }],
   };
   const wl2: WatchlistView = { id: 2, name: '观察池', remark: null, status: 1, items: [] };
   const watchlists: WatchlistView[] = [wl1, wl2];
-  let nextItemId = 10; // 新增清单项 id 从 11 起（断言按 testid 精确定位）
+  let nextItemId = opts.richList ? 22 : 10; // 新增清单项 id 顺延（断言按 testid 精确定位）
   let nextWlId = 100;
+  let itemsFail = opts.itemsFail ?? false;
 
   const ok = (data: unknown) => ({
     ok: true,
@@ -143,20 +155,6 @@ function makeStore(opts: StoreOpts = {}) {
       );
       return ok(matched);
     }
-    if (method === 'GET' && /\/subjects\/quotes/.test(path)) {
-      if (opts.quotesFail) return fail(50000);
-      const ids = (new URL(path, 'http://localhost').searchParams.get('ids') ?? '')
-        .split(',')
-        .map(Number);
-      return ok(
-        ids
-          .filter((id) => SUBJECT_POOL.some((s) => s.id === id))
-          .map((id) => {
-            const base = SUBJECT_POOL.find((s) => s.id === id)!;
-            return { ...base, quote: QUOTE_BY_ID[id] ?? null };
-          }),
-      );
-    }
     // 标的详情弹框两跳：by-code 解析数字主键 → 聚合 detail（交互优化）
     if (method === 'GET' && /\/subjects\/by-code\//.test(path)) {
       const code = path.split('/by-code/')[1];
@@ -171,10 +169,71 @@ function makeStore(opts: StoreOpts = {}) {
     if (method === 'GET' && /\/watchlists$/.test(path)) {
       return ok(opts.emptyList ? [] : watchlists.map(cloneWl));
     }
+    // 清单项分页+排序（GET /watchlists/{id}/items?page&size&sort&dir）：行情内联 + null 沉底
+    let pm = path.match(/\/watchlists\/(\d+)\/items/);
+    if (method === 'GET' && pm) {
+      if (itemsFail) return fail(50000);
+      const w = find(Number(pm[1]));
+      if (!w) return fail(30010);
+      const params = new URL(path, 'http://localhost').searchParams;
+      const page = Number(params.get('page') ?? 1);
+      const size = Number(params.get('size') ?? 20);
+      const sort = params.get('sort') ?? 'addedAt';
+      const dir = params.get('dir') ?? 'asc';
+      const rows = w.items.map((it) => {
+        const base = SUBJECT_POOL.find((s) => s.id === it.subjectId);
+        const quote = base ? (QUOTE_BY_ID[base.id] ?? null) : null;
+        return {
+          id: it.id,
+          subjectId: it.subjectId,
+          anomalyThreshold: it.anomalyThreshold,
+          subjectCode: base?.subjectCode ?? null,
+          name: base?.name ?? null,
+          market: base?.market ?? null,
+          industry: base?.industry ?? null,
+          price: quote?.price ?? null,
+          changePct: quote?.changePct ?? null,
+        };
+      });
+      const sortValue = (r: (typeof rows)[number]) =>
+        sort === 'price' ? r.price : sort === 'changePct' ? r.changePct : r.id;
+      rows.sort((a, b) => {
+        const va = sortValue(a);
+        const vb = sortValue(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1; // 行情缺失恒沉底
+        if (vb == null) return -1;
+        return dir === 'desc' ? vb - va : va - vb;
+      });
+      const from = (page - 1) * size;
+      return ok({
+        total: rows.length,
+        items: rows.slice(from, from + size),
+        page,
+        size,
+        sort,
+        dir,
+      });
+    }
     let m = path.match(/\/watchlists\/(\d+)$/);
     if (method === 'GET' && m) {
       const w = find(Number(m[1]));
       return w ? ok(cloneWl(w)) : fail(30010);
+    }
+    if (method === 'PATCH' && m) {
+      const w = find(Number(m[1]));
+      if (!w) return fail(30010);
+      const body = JSON.parse(init?.body as string) as { name: string };
+      if (watchlists.some((o) => o.id !== w.id && o.name === body.name)) return fail(30011);
+      w.name = body.name;
+      return ok(cloneWl(w));
+    }
+    if (method === 'DELETE' && m) {
+      const deleteId = Number(m[1]);
+      const idx = watchlists.findIndex((w) => w.id === deleteId);
+      if (idx < 0) return fail(30010);
+      watchlists.splice(idx, 1);
+      return ok(null);
     }
     if (method === 'POST' && /\/watchlists$/.test(path)) {
       const body = JSON.parse(init?.body as string) as { name: string };
@@ -219,7 +278,13 @@ function makeStore(opts: StoreOpts = {}) {
     return fail(50000);
   });
 
-  return { fetch };
+  return {
+    fetch,
+    /** 切换清单项分页请求失败态（错误+重试用例）。 */
+    setItemsFail(value: boolean) {
+      itemsFail = value;
+    },
+  };
 }
 
 afterEach(() => {
@@ -317,16 +382,91 @@ describe('Watchlist 管理页', () => {
     );
   });
 
-  it('行情加载失败：标的列回退数字主键、行情列显示「—」，不阻断清单', async () => {
-    const store = makeStore({ quotesFail: true });
+  it('行情缺失行：标的摘要仍在、行情列「—」且按最新价排序沉底，不阻断清单', async () => {
+    // richList 含 subjectId=300（QUOTE_BY_ID 无行情）→ 该行 price/changePct=null
+    vi.stubGlobal('fetch', makeStore({ richList: true }).fetch);
+    render(<Watchlist />);
+    await screen.findByTestId('watchlist-item-row-12'); // 第 3 行（subjectId=300）
+
+    expect(screen.getByTestId('watchlist-item-subject-12')).toHaveTextContent('SH600519');
+    expect(screen.getByTestId('watchlist-item-price-12')).toHaveTextContent('—');
+    expect(screen.getByTestId('watchlist-item-changepct-12')).toHaveTextContent('—');
+    expect(screen.getByTestId('watchlist-item-threshold-12')).toHaveTextContent('3.00');
+
+    // 按最新价降序：行情缺失行（12/15/18/21，subjectId=300）沉底不随 desc 浮顶
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('watchlist-sort-price'));
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-sort-price')).toHaveTextContent('▼'),
+    );
+    const rowIds = screen
+      .getAllByTestId(/watchlist-item-row-\d+/)
+      .map((el) => el.getAttribute('data-testid'));
+    expect(rowIds.slice(-4)).toEqual([
+      'watchlist-item-row-12',
+      'watchlist-item-row-15',
+      'watchlist-item-row-18',
+      'watchlist-item-row-21',
+    ]);
+  });
+
+  it('清单项分页请求失败：错误条 + 重试恢复（不再裸奔数字主键表）', async () => {
+    const store = makeStore({ itemsFail: true });
     vi.stubGlobal('fetch', store.fetch);
     render(<Watchlist />);
 
+    // ApiError 透传服务端 msg（50000 → 服务异常）
+    expect(await screen.findByTestId('watchlist-items-error')).toHaveTextContent('服务异常');
+
+    store.setItemsFail(false);
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId('watchlist-items-error')).getByRole('button', { name: '重试' }));
     await screen.findByTestId('watchlist-item-row-10');
-    expect(screen.getByTestId('watchlist-item-subject-10')).toHaveTextContent('#100');
-    expect(screen.getByTestId('watchlist-item-price-10')).toHaveTextContent('—');
-    expect(screen.getByTestId('watchlist-item-changepct-10')).toHaveTextContent('—');
-    expect(screen.getByTestId('watchlist-item-threshold-10')).toHaveTextContent('3.00');
+    expect(screen.getByTestId('watchlist-item-price-10')).toHaveTextContent('128.50');
+  });
+
+  it('清单项分页 + 排序：默认加入顺序 12 条一页，切 10 条/页翻第 2 页，最新价降序请求带 sort/dir', async () => {
+    const store = makeStore({ richList: true });
+    const fetchMock = store.fetch;
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<Watchlist />);
+
+    // 默认 addedAt asc：12 项单页全量（size=20），总数条 + 页码指示
+    await screen.findByTestId('watchlist-item-row-21');
+    expect(screen.getAllByTestId(/watchlist-item-row-\d+/)).toHaveLength(12);
+    expect(screen.getByTestId('watchlist-items-total')).toHaveTextContent('12');
+    expect(screen.getByTestId('watchlist-items-page-indicator')).toHaveTextContent('1 / 1');
+
+    // 每页 10 条 → 第 1 页 10 行，翻第 2 页 2 行（原生 select，selectOptions 驱动）
+    await user.selectOptions(screen.getByTestId('watchlist-items-size'), '10');
+    await waitFor(() =>
+      expect(screen.getAllByTestId(/watchlist-item-row-\d+/)).toHaveLength(10),
+    );
+    await user.click(screen.getByTestId('watchlist-items-next'));
+    await waitFor(() =>
+      expect(screen.getAllByTestId(/watchlist-item-row-\d+/)).toHaveLength(2),
+    );
+
+    // 点涨跌幅表头：切 changePct 降序并回第 1 页（请求参数对账）
+    await user.click(screen.getByTestId('watchlist-sort-changePct'));
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-sort-changePct')).toHaveTextContent('▼'),
+    );
+    const sortCall = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .find((u) => u.includes('sort=changePct') && u.includes('dir=desc'));
+    expect(sortCall).toBeDefined();
+    expect(sortCall).toContain('page=1');
+    expect(sortCall).toContain('size=10');
+    // 再点一次 → 升序切换
+    await user.click(screen.getByTestId('watchlist-sort-changePct'));
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-sort-changePct')).toHaveTextContent('▲'),
+    );
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).includes('sort=changePct') && String(c[0]).includes('dir=asc')),
+    ).toBe(true);
   });
 
   it('创建清单成功后列表刷新出现新卡片', async () => {
@@ -531,5 +671,93 @@ describe('Watchlist 管理页', () => {
     await waitFor(() => {
       expect(screen.getByTestId('watchlist-item-threshold-10')).toHaveTextContent('5.00');
     });
+  });
+
+  // ---- 清单改名 / 删除 ----
+
+  it('改名选中清单：预填当前名，提交后卡片与详情标题同步更新', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    await user.click(screen.getByTestId('watchlist-rename-1'));
+    const input = screen.getByTestId('watchlist-rename-input') as HTMLInputElement;
+    expect(input.value).toBe('核心持仓'); // 预填当前名
+
+    await user.clear(input);
+    await user.type(input, '主力跟踪');
+    await user.click(screen.getByTestId('watchlist-rename-submit'));
+
+    await waitFor(() => expect(screen.getByTestId('watchlist-detail-name')).toHaveTextContent('主力跟踪'));
+    expect(screen.getByTestId('watchlist-card-1')).toHaveTextContent('主力跟踪');
+    const patchCall = store.fetch.mock.calls.find(
+      (c) => (c[1] as RequestInit).method === 'PATCH' && /\/watchlists\/1$/.test(String(c[0])),
+    );
+    expect(patchCall).toBeDefined();
+  });
+
+  it('改名 30011(409) 与他清单同名：弹框内提示，卡片名不变', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    await user.click(screen.getByTestId('watchlist-rename-1'));
+    const input = screen.getByTestId('watchlist-rename-input');
+    await user.clear(input);
+    await user.type(input, '观察池'); // 与 wl2 同名
+    await user.click(screen.getByTestId('watchlist-rename-submit'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-rename-error')).toHaveTextContent('同名清单已存在'),
+    );
+    expect(screen.getByTestId('watchlist-card-1')).toHaveTextContent('核心持仓');
+  });
+
+  it('删除清单需二次确认：取消不动；确认后卡片消失、选中改选剩余第一张', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    // 取消：不发 DELETE，卡片仍在
+    await user.click(screen.getByTestId('watchlist-delete-1'));
+    expect(screen.getByTestId('watchlist-delete-confirm-ok')).toBeInTheDocument();
+    await user.click(screen.getByTestId('watchlist-delete-confirm-cancel'));
+    expect(screen.getByTestId('watchlist-card-1')).toBeInTheDocument();
+    expect(
+      store.fetch.mock.calls.some(
+        (c) => (c[1] as RequestInit).method === 'DELETE' && /\/watchlists\/1$/.test(String(c[0])),
+      ),
+    ).toBe(false);
+
+    // 确认：删除选中的 wl1 → 改选 wl2，详情标题切到「观察池」
+    await user.click(screen.getByTestId('watchlist-delete-1'));
+    await user.click(screen.getByTestId('watchlist-delete-confirm-ok'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('watchlist-card-1')).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-detail-name')).toHaveTextContent('观察池'),
+    );
+  });
+
+  it('删除最后一张清单：卡片区空态 + 详情提示选择清单', async () => {
+    const store = makeStore();
+    const user = userEvent.setup();
+    await renderReady(store);
+
+    // 先删未选中的 wl2（不动选中态），再删选中的 wl1 → 全空
+    await user.click(screen.getByTestId('watchlist-delete-2'));
+    await user.click(screen.getByTestId('watchlist-delete-confirm-ok'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('watchlist-card-2')).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('watchlist-delete-1'));
+    await user.click(screen.getByTestId('watchlist-delete-confirm-ok'));
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-list-empty')).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('watchlist-detail-empty')).toBeInTheDocument(),
+    );
   });
 });

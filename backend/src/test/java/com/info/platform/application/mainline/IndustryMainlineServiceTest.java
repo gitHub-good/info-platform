@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.HeatWindow;
 import com.info.platform.domain.analysis.IndustryHeatSnapshot;
@@ -36,8 +38,9 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
 /**
- * IndustryMainlineService 单测（M27 T243，方案 §4.3 + ADR-0063 裁决 4）：快照守卫（无行情 no-op / 缺当日行 degraded
- * 回退最近有行日）/ 版本化追加（同日重算 version+1）/ 纯函数零漂移（同输入两轮 rank 行内容相等——幂等复算红线）/ 漏斗留痕 / basis 输入指纹。
+ * IndustryMainlineService 单测（M27 T243，方案 §4.3 + ADR-0063 裁决 4；M29 T255 三市场化）：快照守卫（无行情 no-op / 缺当日行
+ * degraded 回退最近有行日）/ 版本化追加（同日重算 version+1 市场内独立）/ 纯函数零漂移 / 漏斗留痕 / basis 输入指纹；HK 冷启动 bootstrap（免门槛出榜
+ * + pct_d5 缺失降 day 单窗 + leaders 恒 [] + basis m2 前缀 + 热度历史空窗）与 A 股缺省零回归。
  */
 class IndustryMainlineServiceTest {
 
@@ -111,8 +114,13 @@ class IndustryMainlineServiceTest {
     }
 
     private void stubHappyPath(String snapshotDate) {
-        when(marketSnapshotRepository.latestSnapshotDate()).thenReturn(Optional.of(snapshotDate));
-        when(marketSnapshotRepository.findIndustryRows(snapshotDate))
+        stubHappyPath(snapshotDate, Market.A_SHARE);
+    }
+
+    private void stubHappyPath(String snapshotDate, Market market) {
+        when(marketSnapshotRepository.latestSnapshotDate(market))
+                .thenReturn(Optional.of(snapshotDate));
+        when(marketSnapshotRepository.findIndustryRows(snapshotDate, market))
                 .thenReturn(
                         List.of(
                                 industryRow(snapshotDate, "电子", 3.0, 5.0),
@@ -120,7 +128,7 @@ class IndustryMainlineServiceTest {
                                 industryRow(snapshotDate, "食品饮料", -1.0, -2.0),
                                 industryRow(snapshotDate, "医药生物", 0.5, 0.0),
                                 industryRow(snapshotDate, "计算机", 2.0, 3.0)));
-        when(marketSnapshotRepository.recentSnapshotDates(anyInt()))
+        when(marketSnapshotRepository.recentSnapshotDates(anyInt(), eq(market)))
                 .thenReturn(
                         List.of(
                                 snapshotDate,
@@ -128,7 +136,7 @@ class IndustryMainlineServiceTest {
                                 "2026-09-25",
                                 "2026-09-24",
                                 "2026-09-22"));
-        when(marketSnapshotRepository.findIndustryPctDayForDates(anyList()))
+        when(marketSnapshotRepository.findIndustryPctDayForDates(anyList(), eq(market)))
                 .thenReturn(
                         List.of(
                                 new HistoryPctDay("2026-09-22", "电子", 2.0),
@@ -151,7 +159,7 @@ class IndustryMainlineServiceTest {
                                 new HistoryPctDay("2026-09-24", "计算机", 1.4),
                                 new HistoryPctDay("2026-09-25", "计算机", 0.9),
                                 new HistoryPctDay("2026-09-26", "计算机", 1.2)));
-        when(heatSnapshotRepository.findBoard(HeatWindow.H24))
+        when(heatSnapshotRepository.findBoard(HeatWindow.H24, market))
                 .thenReturn(
                         List.of(
                                 heat("电子", 90d, 40d),
@@ -159,7 +167,7 @@ class IndustryMainlineServiceTest {
                                 heat("银行", 50d, 0d),
                                 heat("医药生物", 30d, -10d),
                                 heat("食品饮料", 10d, -30d)));
-        when(heatSnapshotRepository.findBoard(HeatWindow.D7))
+        when(heatSnapshotRepository.findBoard(HeatWindow.D7, market))
                 .thenReturn(
                         List.of(
                                 heat("电子", 80d, 10d),
@@ -176,20 +184,21 @@ class IndustryMainlineServiceTest {
                                 new HeatTopDay(
                                         "2026-09-25",
                                         "[{\"industry\":\"电子\",\"heatScore\":80},{\"industry\":\"计算机\",\"heatScore\":60},{\"industry\":\"银行\",\"heatScore\":50},{\"industry\":\"医药生物\",\"heatScore\":30},{\"industry\":\"食品饮料\",\"heatScore\":10}]")));
-        when(mainlineRepository.sumEventWeightByIndustry(anyString(), anyString()))
+        when(mainlineRepository.sumEventWeightByIndustry(anyString(), anyString(), eq(market)))
                 .thenReturn(
                         List.of(
                                 new EventWeightRow("电子", 6d),
                                 new EventWeightRow("计算机", 3d),
                                 new EventWeightRow("银行", 1d)));
-        when(mainlineRepository.maxVersion(anyString())).thenReturn(0);
+        when(mainlineRepository.maxVersion(anyString(), eq(market))).thenReturn(0);
         when(mainlineRepository.insertVersion(any(), anyList()))
                 .thenAnswer(inv -> ((List<?>) inv.getArgument(1)).size());
     }
 
     @Test
     void compute_noSnapshotAtAll_noopSkip() {
-        when(marketSnapshotRepository.latestSnapshotDate()).thenReturn(Optional.empty());
+        when(marketSnapshotRepository.latestSnapshotDate(Market.A_SHARE))
+                .thenReturn(Optional.empty());
 
         IndustryMainlineService.GenerationReport report =
                 service.compute(LocalDate.parse(TODAY), false);
@@ -254,7 +263,7 @@ class IndustryMainlineServiceTest {
     @Test
     void compute_sameDayRecompute_versionIncrements_contentZeroDrift() {
         stubHappyPath(TODAY);
-        when(mainlineRepository.maxVersion(TODAY)).thenReturn(0, 1);
+        when(mainlineRepository.maxVersion(TODAY, Market.A_SHARE)).thenReturn(0, 1);
 
         service.compute(LocalDate.parse(TODAY), true);
         service.compute(LocalDate.parse(TODAY), true);
@@ -285,7 +294,8 @@ class IndustryMainlineServiceTest {
     @Test
     void compute_emptyHeatBoard_neutralDimensionStillOutputsRanking() {
         stubHappyPath(TODAY);
-        when(heatSnapshotRepository.findBoard(any(HeatWindow.class))).thenReturn(List.of());
+        when(heatSnapshotRepository.findBoard(any(HeatWindow.class), eq(Market.A_SHARE)))
+                .thenReturn(List.of());
         when(mainlineRepository.findRecentHeatTop(anyInt())).thenReturn(List.of());
 
         IndustryMainlineService.GenerationReport report =
@@ -363,5 +373,108 @@ class IndustryMainlineServiceTest {
         assertThat(batchCaptor.getValue().funnelStatsJson())
                 .contains("\"st\":1")
                 .contains("\"电子\":3");
+    }
+
+    @Test
+    void compute_hkColdStart_bootstrapExemptGateLeadersEmptyBasisM2() {
+        // M29 T255：港股冷启动——热度历史空窗（日报 A 股专用）+ 首个快照日 → bootstrap 免门槛出榜 +
+        // pct_d5 全 NULL（价格维降 day 单窗 + dimensionMissing 留痕）+ leaders 恒 [] + basis mainline-v1:m2 前缀
+        stubHappyPath(TODAY, Market.HK);
+        // 港美股行 pct_d5 v1 留 NULL（T252 回注）——热度板复用枚举键即可（计算器仅读 score/delta）
+        when(mainlineRepository.findRecentHeatTop(anyInt())).thenReturn(List.of());
+        when(heatSnapshotRepository.findBoard(HeatWindow.H24, Market.HK))
+                .thenReturn(
+                        List.of(
+                                heatHK("软件服务", 60d),
+                                heatHK("银行", 45d),
+                                heatHK("半导体", 30d),
+                                heatHK("地产", 20d),
+                                heatHK("电讯", 10d)));
+        when(heatSnapshotRepository.findBoard(HeatWindow.D7, Market.HK)).thenReturn(List.of());
+        when(marketSnapshotRepository.recentSnapshotDates(anyInt(), eq(Market.HK)))
+                .thenReturn(List.of(TODAY)); // 仅 1 个可得日 < persistMinDays=2 → bootstrap
+        when(marketSnapshotRepository.findIndustryPctDayForDates(anyList(), eq(Market.HK)))
+                .thenReturn(List.of());
+        when(marketSnapshotRepository.findIndustryRows(TODAY, Market.HK))
+                .thenReturn(
+                        List.of(
+                                hkIndustryRow("软件服务", 2.5),
+                                hkIndustryRow("银行", 1.5),
+                                hkIndustryRow("半导体", -0.5),
+                                hkIndustryRow("地产", 0.8),
+                                hkIndustryRow("电讯", 0.2)));
+        when(mainlineRepository.sumEventWeightByIndustry(anyString(), anyString(), eq(Market.HK)))
+                .thenReturn(List.of(new EventWeightRow("软件服务", 4d)));
+
+        IndustryMainlineService.GenerationReport report =
+                service.compute(LocalDate.parse(TODAY), Market.HK, false);
+
+        assertThat(report.detail()).contains("bootstrap=COLD_START").contains("market=HK");
+        assertThat(report.topSize()).isPositive();
+        ArgumentCaptor<MainlineBatchRow> batchCaptor =
+                ArgumentCaptor.forClass(MainlineBatchRow.class);
+        ArgumentCaptor<List<MainlineRankRow>> rowsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(mainlineRepository).insertVersion(batchCaptor.capture(), rowsCaptor.capture());
+        assertThat(batchCaptor.getValue().market()).isEqualTo(Market.HK);
+        assertThat(batchCaptor.getValue().basis()).startsWith("mainline-v1:m2:wp=");
+        assertThat(batchCaptor.getValue().funnelStatsJson()).contains("\"bootstrap\":true");
+        List<MainlineRankRow> rows = rowsCaptor.getValue();
+        assertThat(rows.get(0).industry()).isEqualTo("软件服务"); // day 单窗 + 热度/事件全顶
+        assertThat(rows.get(0).persistentDays()).isEqualTo(1); // bootstrap 行如实展示真实持续性（1 个可得日均上榜）
+        assertThat(batchCaptor.getValue().funnelStatsJson())
+                .contains("\"pctD5\":true"); // 价格维降 day 单窗留痕
+        // W1：港美股龙头恒空数组 + 龙头链路零触碰（成员/徽章不装载）
+        assertThat(rows).allSatisfy(row -> assertThat(row.leadersJson()).isEqualTo("[]"));
+        verify(mainlineRepository, never()).findActiveMembers();
+        verify(attentionProxyService, never()).badgesFor(anyList());
+    }
+
+    @Test
+    void compute_aShareDefault_zeroRegressionBasisV1AndLeadersComputed() {
+        // A 股缺省入口（compute(date, manual) 兼容面）——basis 仍 mainline-v1 前缀 + market 维恒 A_SHARE
+        stubHappyPath(TODAY);
+
+        IndustryMainlineService.GenerationReport report =
+                service.compute(LocalDate.parse(TODAY), false);
+
+        assertThat(report.detail()).contains("market=A_SHARE").doesNotContain("bootstrap");
+        ArgumentCaptor<MainlineBatchRow> batchCaptor =
+                ArgumentCaptor.forClass(MainlineBatchRow.class);
+        verify(mainlineRepository, atLeastOnce()).insertVersion(batchCaptor.capture(), anyList());
+        assertThat(batchCaptor.getValue().market()).isEqualTo(Market.A_SHARE);
+        assertThat(batchCaptor.getValue().basis()).startsWith("mainline-v1:wp=");
+    }
+
+    private static MarketSnapshotRow hkIndustryRow(String industry, Double pctDay) {
+        return new MarketSnapshotRow(
+                Market.HK.name(),
+                "INDUSTRY",
+                industry,
+                industry,
+                TODAY,
+                pctDay,
+                null, // pct_d5：港美股 v1 留 NULL（价格维降 day 单窗）
+                30,
+                20,
+                null,
+                9e10,
+                "HKD",
+                null,
+                "hkus-aggregate",
+                "CAP_WEIGHTED",
+                "2026-09-28T08:00:00Z");
+    }
+
+    private static IndustryHeatSnapshot heatHK(String industry, double score) {
+        return IndustryHeatSnapshot.create(
+                Market.HK,
+                industry,
+                HeatWindow.H24,
+                score,
+                0d,
+                0L,
+                0L,
+                "heat-v1",
+                Instant.parse("2026-09-28T08:00:00Z"));
     }
 }

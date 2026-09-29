@@ -1,5 +1,6 @@
 package com.info.platform.application.analysis;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.HeatCalculator;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.HeatWindow;
@@ -16,8 +17,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 行业热度快照服务（应用层，M15 T123，方案 §4.5）：双窗（H24/D7）现算 31×2 行 → {@code industry_heat_snapshot} UPSERT（62
- * 行常驻，含 0 分沉底）+ basis 版本串 + prev 等长窗口环比。零 LLM（快照恒常跑，护栏不停——方案 §4.6）。
+ * 行业热度快照服务（应用层，M15 T123，方案 §4.5；M29 T255 三市场化）：双窗（H24/D7）× 三市场（A_SHARE/HK/US）现算各市场枚举×2 行 → {@code
+ * industry_heat_snapshot} UPSERT（常驻，含 0 分沉底）+ basis 版本串 + prev 等长窗口环比。零 LLM（快照恒常跑，护栏不停——方案 §4.6）。
+ *
+ * <p>分桶口径（方案 §4 C11）：窗口条目按 {@code l1_market} 过滤（V37 ⑧ 消歧键——港美股资讯经 T253 源流入 + L1 v2.0 归类后自然累积，
+ * 不混桶）；A 股路径输入集与 v1 零变化（枚举/窗口逻辑零变化）。
  *
  * <p>对账口径（§4.10）：快照行 score/news_count/event_count = HeatCalculator 对同窗口现算值（重算相等断言的现算侧）。
  */
@@ -25,6 +29,9 @@ import org.springframework.stereotype.Service;
 public class HeatSnapshotService {
 
     private static final Logger log = LoggerFactory.getLogger(HeatSnapshotService.class);
+
+    /** 快照市场序（确定性——A 股首拉通后逐市场追加，报告 detail 按此序拼装）。 */
+    private static final List<Market> MARKETS = List.of(Market.A_SHARE, Market.HK, Market.US);
 
     private final HeatSnapshotRepository repository;
     private final PipelineSettings settings;
@@ -38,7 +45,7 @@ public class HeatSnapshotService {
     }
 
     /**
-     * 现算并 UPSERT 全部快照（定时与手动触发共用入口）。
+     * 现算并 UPSERT 全部快照（定时与手动触发共用入口；三市场 × 双窗全量常驻）。
      *
      * @return 快照报告（JobRunStats 留痕）
      */
@@ -47,42 +54,59 @@ public class HeatSnapshotService {
         HeatCalculator.HeatParams params = settings.heatParams();
         String basis = HeatCalculator.basis(params);
         List<IndustryHeatSnapshot> rows = new ArrayList<>();
-        for (HeatWindow window : HeatWindow.values()) {
-            rows.addAll(snapshotOfWindow(window, params, now, basis));
+        for (Market market : MARKETS) {
+            for (HeatWindow window : HeatWindow.values()) {
+                rows.addAll(snapshotOfWindow(market, window, params, now, basis));
+            }
         }
         int upserted = repository.upsertAll(rows);
         SnapshotReport report =
                 new SnapshotReport(
                         HeatWindow.values().length,
                         rows.size(),
-                        "heat=h24:"
-                                + countOf(rows, HeatWindow.H24)
-                                + "; d7:"
-                                + countOf(rows, HeatWindow.D7));
+                        "a:"
+                                + countOf(rows, Market.A_SHARE)
+                                + "; hk:"
+                                + countOf(rows, Market.HK)
+                                + "; us:"
+                                + countOf(rows, Market.US));
         log.info("行业热度快照完成: upsert={}/{}（basis={}）", upserted, rows.size(), basis);
         return report;
     }
 
-    /** 单窗快照行产出（current + prev 两窗现算，31 行零填常驻）。 */
+    /** 单市场单窗快照行产出（current + prev 两窗现算，各市场枚举全量零填常驻）。 */
     private List<IndustryHeatSnapshot> snapshotOfWindow(
-            HeatWindow window, HeatCalculator.HeatParams params, Instant windowEnd, String basis) {
+            Market market,
+            HeatWindow window,
+            HeatCalculator.HeatParams params,
+            Instant windowEnd,
+            String basis) {
         Duration length = window.length();
         Map<String, HeatCalculator.IndustryHeat> current =
                 HeatCalculator.compute(
-                        heatItems(windowEnd.minus(length), windowEnd), params, windowEnd, length);
+                        heatItems(market, windowEnd.minus(length), windowEnd),
+                        params,
+                        windowEnd,
+                        length,
+                        market);
         Instant prevEnd = windowEnd.minus(length);
         Map<String, HeatCalculator.IndustryHeat> prev =
                 HeatCalculator.compute(
-                        heatItems(prevEnd.minus(length), prevEnd), params, prevEnd, length);
+                        heatItems(market, prevEnd.minus(length), prevEnd),
+                        params,
+                        prevEnd,
+                        length,
+                        market);
 
         List<IndustryHeatSnapshot> rows = new ArrayList<>();
-        for (String industry : IndustryCategory.SW_INDUSTRIES) {
+        for (String industry : boardIndustriesOf(market)) {
             HeatCalculator.IndustryHeat now =
                     current.getOrDefault(industry, new HeatCalculator.IndustryHeat(0.0, 0, 0));
             HeatCalculator.IndustryHeat before =
                     prev.getOrDefault(industry, new HeatCalculator.IndustryHeat(0.0, 0, 0));
             rows.add(
                     IndustryHeatSnapshot.create(
+                            market,
                             industry,
                             window,
                             now.score(),
@@ -95,9 +119,20 @@ public class HeatSnapshotService {
         return rows;
     }
 
-    /** 窗口条目取数（仓储 WindowItem → 计算器 HeatItem）。 */
-    private List<HeatCalculator.HeatItem> heatItems(Instant from, Instant to) {
-        return repository.findWindowItems(from.toString(), to.toString()).stream()
+    /** 市场进榜枚举零填序（Collator 中文序确定性——Set 无序转稳定注入序）。 */
+    private static List<String> boardIndustriesOf(Market market) {
+        if (market == Market.HK) {
+            return ClassificationService.COLLATOR_ZH.sorted(IndustryCategory.HK_INDUSTRIES);
+        }
+        if (market == Market.US) {
+            return ClassificationService.COLLATOR_ZH.sorted(IndustryCategory.US_INDUSTRIES);
+        }
+        return ClassificationService.SW_ENUM_ORDER;
+    }
+
+    /** 窗口条目取数（按市场过滤——仓储 WindowItem → 计算器 HeatItem）。 */
+    private List<HeatCalculator.HeatItem> heatItems(Market market, Instant from, Instant to) {
+        return repository.findWindowItems(from.toString(), to.toString(), market).stream()
                 .map(
                         item ->
                                 new HeatCalculator.HeatItem(
@@ -108,8 +143,8 @@ public class HeatSnapshotService {
                 .toList();
     }
 
-    private static int countOf(List<IndustryHeatSnapshot> rows, HeatWindow window) {
-        return (int) rows.stream().filter(row -> row.getWindow() == window).count();
+    private static int countOf(List<IndustryHeatSnapshot> rows, Market market) {
+        return (int) rows.stream().filter(row -> row.getMarket() == market).count();
     }
 
     /** 快照轮报告。 */

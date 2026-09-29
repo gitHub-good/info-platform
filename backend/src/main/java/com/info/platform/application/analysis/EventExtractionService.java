@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.ai.PlaceholderProvider;
 import com.info.platform.application.ai.PromptTemplateService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmException;
@@ -30,6 +31,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,7 +44,8 @@ import org.springframework.stereotype.Service;
 /**
  * L2 事件提取服务（应用层，M15 T122，方案 §4.4）：重要性预筛（{@link ImportanceScorer} 纯函数——源权重/强弱触发词/标的加成） →
  * 配额截断（≤quotaRatio × 当日 L1 DONE 数；尾部 DEFERRED 如实统计；旧账优先）→ 批量 LLM 提取（briefType=6，10 条/批， {@code
- * cacheable=false} 绕缓存 + 对半拆批递归）→ {@code event_item} UPSERT + {@code news_analysis.l2_status} 推进。
+ * cacheable=false} 绕缓存 + 对半拆批递归；<b>M29 T254 按条目 {@code l1_market} 分组渲染 + affected
+ * 白名单分市场</b>——修除申万硬编码 假设）→ {@code event_item} UPSERT + {@code news_analysis.l2_status} 推进。
  *
  * <p><b>失败处理</b>同 L1 形态（ADR-0046 裁决 2）：整体解析失败对半拆批至单条（单条终败 FAILED）；网络类失败 attempts++ 本 tick 放弃；{@code
  * affected_industries} 越界值丢弃该元素不整条失败。
@@ -61,9 +64,15 @@ public class EventExtractionService implements PlaceholderProvider {
     private static final List<PlaceholderDescriptor> EXTRACT_PLACEHOLDERS =
             List.of(
                     new PlaceholderDescriptor("today", "今日日期（Asia/Shanghai yyyy-MM-dd）"),
-                    new PlaceholderDescriptor("batchSize", "本批待提取条目数"),
+                    new PlaceholderDescriptor("batchSize", "本组待提取条目数"),
                     new PlaceholderDescriptor(
-                            "items", "待提取条目 JSON 行（每条 {id,title,summary,main,candidates}）"));
+                            "items", "待提取条目 JSON 行（每条 {id,title,summary,main,candidates}）"),
+                    new PlaceholderDescriptor(
+                            "marketLabel",
+                            "本组条目市场口径（A股/港股/美股——取条目 l1_market；affectedIndustries 按该市场枚举集填写）"),
+                    new PlaceholderDescriptor(
+                            "industryEnums",
+                            "affectedIndustries 行业枚举清单（按市场注入：A股=申万31 / 港股31 / 美股40；容器与 UNKNOWN 不填）"));
 
     private final NewsAnalysisRepository repository;
     private final EventItemRepository eventRepository;
@@ -149,13 +158,44 @@ public class EventExtractionService implements PlaceholderProvider {
     /**
      * 提取一批（≤ l2BatchSize；解析失败与部分无效内部拆批递归，同 L1 形态）。
      *
+     * <p><b>市场分组（M29 T254）</b>：按条目 {@code l1_market} 先分组再逐组渲染（prompt 注入该市场 affected 枚举集 {@code
+     * {{industryEnums}}}，V39 模板 v1.1——A 股为主的批通常单组，调用次数近零增量，沿 L1 T253 先例）。
+     *
      * @param items 待提取条目
-     * @return 本批结果计数（含递归子批聚合）
+     * @return 本批结果计数（含分组与递归子批聚合）
      */
     public BatchOutcome extractBatch(List<NewsAnalysisRepository.L2Candidate> items) {
         if (items == null || items.isEmpty()) {
             return new BatchOutcome(0, 0, 0);
         }
+        Map<Market, List<NewsAnalysisRepository.L2Candidate>> groups = new EnumMap<>(Market.class);
+        for (NewsAnalysisRepository.L2Candidate item : items) {
+            groups.computeIfAbsent(marketOf(item), key -> new ArrayList<>()).add(item);
+        }
+        BatchOutcome total = new BatchOutcome(0, 0, 0);
+        for (Map.Entry<Market, List<NewsAnalysisRepository.L2Candidate>> group :
+                groups.entrySet()) {
+            total = total.plus(extractMarketBatch(group.getKey(), group.getValue()));
+        }
+        return total;
+    }
+
+    /** 条目市场口径（l1_market 直读；V37 前存量行 NULL → A_SHARE 容器面兜底）。 */
+    private static Market marketOf(NewsAnalysisRepository.L2Candidate item) {
+        String l1Market = item.l1Market();
+        if (l1Market == null || l1Market.isBlank()) {
+            return Market.A_SHARE;
+        }
+        try {
+            return Market.fromName(l1Market);
+        } catch (IllegalArgumentException e) {
+            return Market.A_SHARE; // 非法存量值安全侧归 A 股白名单（最严口径）
+        }
+    }
+
+    /** 单市场组提取（同既有单批语义 + 市场枚举注入）。 */
+    private BatchOutcome extractMarketBatch(
+            Market market, List<NewsAnalysisRepository.L2Candidate> items) {
         Map<Long, NewsAnalysisRepository.L2Candidate> byId = new LinkedHashMap<>();
         for (NewsAnalysisRepository.L2Candidate item : items) {
             byId.put(item.newsId(), item);
@@ -172,7 +212,8 @@ public class EventExtractionService implements PlaceholderProvider {
                         item.newsId(), subjectMatcher.match(item.title(), item.summary()));
             }
             List<ChatMessage> messages =
-                    promptTemplateService.render(template, buildContext(items, candidatesByNews));
+                    promptTemplateService.render(
+                            template, buildContext(market, items, candidatesByNews));
             LlmRequest request =
                     LlmRequest.pipeline(
                             messages,
@@ -185,16 +226,19 @@ public class EventExtractionService implements PlaceholderProvider {
             List<Long> newsIds = new ArrayList<>(byId.keySet());
             repository.markL2Failed(newsIds);
             log.warn(
-                    "L2 批量调用失败（本 tick 放弃 {} 条）: {}",
+                    "L2 批量调用失败（本 tick 放弃 {} 条）market={}: {}",
                     newsIds.size(),
+                    market,
                     String.valueOf(e.getMessage()));
             return new BatchOutcome(0, 0, newsIds.size());
         }
-        return applyResponse(new ArrayList<>(items), candidatesByNews, response, promptVersion);
+        return applyResponse(
+                market, new ArrayList<>(items), candidatesByNews, response, promptVersion);
     }
 
     /** 解析对齐 + 落库 + 未覆盖余量处理（整体无进展 → 对半拆批递归；单条终败 → FAILED）。 */
     private BatchOutcome applyResponse(
+            Market market,
             List<NewsAnalysisRepository.L2Candidate> items,
             Map<Long, List<SubjectMatcher.MatchedSubject>> candidatesByNews,
             LlmResponse response,
@@ -216,7 +260,7 @@ public class EventExtractionService implements PlaceholderProvider {
                 broken.add(item); // 缺 id / 重复 id / 非法枚举
                 continue;
             }
-            persist(item, row, candidatesByNews.get(item.newsId()), promptVersion);
+            persist(market, item, row, candidatesByNews.get(item.newsId()), promptVersion);
             extracted++;
         }
         if (broken.isEmpty()) {
@@ -238,18 +282,26 @@ public class EventExtractionService implements PlaceholderProvider {
         return new BatchOutcome(extracted, noEvent, 0).plus(extractBatch(broken));
     }
 
-    /** 事件落库：event_item UPSERT + l2_status → EXTRACTED（行业越界元素丢弃、eventTime 回退 published_at）。 */
+    /**
+     * 事件落库：event_item UPSERT + l2_status → EXTRACTED（affected_industries 按<b>条目市场</b>白名单校验——A 股 =
+     * 申万 31（容器不填， 既有行为）、港美股 = 各自枚举集（M29 T254 修除申万硬编码假设）；越界元素丢弃、eventTime 回退 published_at）。
+     */
     private void persist(
+            Market market,
             NewsAnalysisRepository.L2Candidate item,
             EventRow row,
             List<SubjectMatcher.MatchedSubject> matched,
             String promptVersion) {
         List<String> industries = new ArrayList<>();
         for (String industry : row.industries()) {
-            if (IndustryCategory.isSwIndustry(industry)) {
+            if (IndustryCategory.isBoardIndustry(market, industry)) {
                 industries.add(industry);
             } else {
-                log.debug("L2 affected 越界元素丢弃: newsId={} industry={}", item.newsId(), industry);
+                log.debug(
+                        "L2 affected 越界元素丢弃: newsId={} market={} industry={}",
+                        item.newsId(),
+                        market,
+                        industry);
             }
         }
         Instant eventTime = row.eventTime() != null ? row.eventTime() : item.publishedAt();
@@ -314,8 +366,9 @@ public class EventExtractionService implements PlaceholderProvider {
         return figures == null ? List.of() : figures;
     }
 
-    /** 渲染上下文（today + batchSize + items JSON 行；与 {@link #provided()} 同源同序）。 */
+    /** 渲染上下文（today + batchSize + items JSON 行 + 市场口径 + 按市场枚举集；与 {@link #provided()} 同源同序）。 */
     private Map<String, String> buildContext(
+            Market market,
             List<NewsAnalysisRepository.L2Candidate> items,
             Map<Long, List<SubjectMatcher.MatchedSubject>> candidatesByNews) {
         StringBuilder lines = new StringBuilder();
@@ -329,7 +382,32 @@ public class EventExtractionService implements PlaceholderProvider {
         ctx.put("today", LocalDate.ofInstant(clock.instant(), STAT_ZONE).toString());
         ctx.put("batchSize", String.valueOf(items.size()));
         ctx.put("items", lines.toString());
+        ctx.put("marketLabel", ClassificationService.marketLabelOf(market));
+        ctx.put("industryEnums", affectedEnumsOf(market));
         return ctx;
+    }
+
+    /** affectedIndustries 枚举注入（V39 模板 v1.1；容器与 UNKNOWN 不注入——affected 只填进榜行业）。 */
+    private static String affectedEnumsOf(Market market) {
+        if (market == Market.HK) {
+            return "港股行业枚举（"
+                    + IndustryCategory.hkSize()
+                    + " 个，东财 F10 口径）："
+                    + String.join(
+                            "、",
+                            ClassificationService.COLLATOR_ZH.sorted(
+                                    IndustryCategory.HK_INDUSTRIES));
+        }
+        if (market == Market.US) {
+            return "美股行业枚举（"
+                    + IndustryCategory.usSize()
+                    + " 个，东财 F10 归并大类）："
+                    + String.join(
+                            "、",
+                            ClassificationService.COLLATOR_ZH.sorted(
+                                    IndustryCategory.US_INDUSTRIES));
+        }
+        return "申万一级行业 31 个：" + String.join("、", ClassificationService.SW_ENUM_ORDER);
     }
 
     /**

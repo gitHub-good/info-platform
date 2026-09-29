@@ -81,13 +81,21 @@ class SubjectMatcherTest {
     }
 
     private void stubPool(List<Subject> aShares, List<Subject> hks) {
-        // doReturn 语法：thenThrow 桩后再换桩不触发真实调用（when() 内调用会吃到旧桩异常）
+        // doReturn 语法：thenThrow 桩后再换桩不触发真实调用（when() 内调用会吃到旧桩异常）；
+        // M29 T253 池扩美股桶——本测试类不涉美股用例，第三桶桩空表（缺桩 null 会触发装载降级语义）
+        stubPool(aShares, hks, List.of());
+    }
+
+    private void stubPool(List<Subject> aShares, List<Subject> hks, List<Subject> usShares) {
         org.mockito.Mockito.doReturn(aShares)
                 .when(subjectRepository)
                 .loadBucket(Market.A_SHARE, SubjectType.STOCK);
         org.mockito.Mockito.doReturn(hks)
                 .when(subjectRepository)
                 .loadBucket(Market.HK, SubjectType.STOCK);
+        org.mockito.Mockito.doReturn(usShares)
+                .when(subjectRepository)
+                .loadBucket(Market.US, SubjectType.STOCK);
     }
 
     @Test
@@ -171,6 +179,33 @@ class SubjectMatcherTest {
         clock.advance(Duration.ofMinutes(11));
         stubPool(List.of(subject("SH600519", "贵州茅台", "食品饮料", true)), List.of());
         assertThat(matcher.match("贵州茅台公告", null)).hasSize(1);
+    }
+
+    @Test
+    void match_usPoolSubject_hitCarriesMarketForL1Derivation() {
+        // M29 T253：池扩美股桶——美股命中项携带 market=US（l1_market 主市场派生原料，方案 §4 C9）
+        Subject apple =
+                Subject.reconstruct(
+                        null,
+                        com.info.platform.domain.aggregation.SubjectCode.of("USAAPL"),
+                        Market.US,
+                        SubjectType.STOCK,
+                        "苹果",
+                        null,
+                        "电子设备与元件",
+                        com.info.platform.domain.aggregation.SubjectStatus.ENABLED,
+                        0,
+                        null,
+                        null);
+        stubPool(List.of(), List.of(), List.of(apple));
+
+        var matched = matcher.match("苹果发布新款芯片", null);
+
+        assertThat(matched).hasSize(1);
+        assertThat(matched.get(0).market()).isEqualTo(Market.US);
+        assertThat(matched.get(0).code()).isEqualTo("USAAPL");
+        assertThat(matched.get(0).name()).isEqualTo("苹果");
+        assertThat(matched.get(0).industry()).isEqualTo("电子设备与元件");
     }
 
     @Test

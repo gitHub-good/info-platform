@@ -35,7 +35,7 @@ class PipelineSettingsTest {
         assertThat(settings.l1BatchSize()).isEqualTo(20);
         assertThat(settings.confidenceFloor()).isEqualTo(0.45);
         assertThat(settings.maxRetriesPerDay()).isEqualTo(3);
-        assertThat(settings.l1BackfillHours()).isEqualTo(24);
+        assertThat(settings.l1BackfillHours()).isEqualTo(96); // V3.2 由 24→96：LLM 不可用期积压出窗后永久滞留修复
         assertThat(settings.l0BufferMinutes()).isEqualTo(2);
         assertThat(settings.dupParams()).isEqualTo(new DupParams(18, 0.25, 8)); // ADR-0047 勘定 18
         assertThat(settings.nearDupWindowHours()).isEqualTo(24);

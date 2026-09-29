@@ -50,7 +50,25 @@ import org.springframework.web.client.RestClient;
  * </table>
  *
  * <p>港股 46 位为<b>英文名</b>（如 TENCENT）非 PB——PB 在 58 位；换手在 59 位（A 股在 38 位）。索引 47 起两市场布局整体分叉，
- * 故映射按行内市场前缀（sh/sz 走 A 股位、hk 走港股位）分列取数。
+ * 故映射按行内市场前缀（sh/sz 走 A 股位、hk 走港股位、us 走美股位）分列取数。
+ *
+ * <h2>M29 T252 港美股扩展（Spike-E §2.1 实测表，ADR-0064 裁决 1）</h2>
+ *
+ * <table border="1">
+ *   <caption>港/美新增原生位（无东财 f 键对应，沿 f30 原生位先例落新键）</caption>
+ *   <tr><th>市场</th><th>索引</th><th>含义</th><th>→ 新键</th><th>验证（Spike-E 同刻实测）</th></tr>
+ *   <tr><td>HK</td><td>44 / 45</td><td>总市值 / 港股市值（亿 HKD）</td><td>market_cap（@44）</td>
+ *       <td>39291.0085 ≈ 9095140845 股 × 432.000 自洽</td></tr>
+ *   <tr><td>HK</td><td>75</td><td>币种 {@code HKD}</td><td>currency</td><td>实测行 [75]=HKD</td></tr>
+ *   <tr><td>US</td><td>35</td><td>币种 {@code USD}（HK 布局此位是现价重复——布局分叉点）</td><td>currency</td>
+ *       <td>实测行 [35]=USD</td></tr>
+ *   <tr><td>US</td><td>44 / 45</td><td>总市值 / 流通市值（亿 USD）</td><td>market_cap（@44）</td>
+ *       <td>49356.00844 亿 = 4.94T，与新浪 4938671029752 USD 交叉一致</td></tr>
+ * </table>
+ *
+ * <p>美股第三套字段位（73 字段布局，Spike-E §2.1）：现价@3/昨收@4/今开@5、时间戳<b>美东时区</b>@30、涨跌@31/涨跌幅@32/最高@33/最低@34、
+ * 成交量@6、成交额<b>美元已是元</b>@37、PE@39——f 键与 A/HK 同名；换手/PB/振幅美股位未实证不映射（白名单语义半行优于整行丢弃）。 美股符号 = {@code us}
+ * + <b>大写</b> ticker（{@code usAAPL}），与 A/HK 的代码段转小写<b>相反</b>（Spike-E §2.2 必改点）。
  *
  * <h2>响应契约（2026-09-24 实测）</h2>
  *
@@ -89,9 +107,14 @@ public class TencentQuoteClient {
     /** A 股成交额字段单位万元 → 元的换算因子（东财 f48 单位元，对齐口径）。 */
     private static final BigDecimal WAN_TO_YUAN = BigDecimal.valueOf(10_000);
 
-    /** 内部标的码前缀 → 腾讯市场前缀（大小写不敏感换算；未列前缀不支持）。 */
+    /** 内部标的码前缀 → 腾讯市场前缀（大小写不敏感换算；未列前缀不支持）。M29 增 US→us（Spike-E §2.1 实测）。 */
     private static final Map<String, String> PREFIX_TO_TENCENT =
-            Map.of("SH", "sh", "SZ", "sz", "HK", "hk");
+            Map.of("SH", "sh", "SZ", "sz", "HK", "hk", "US", "us");
+
+    /** 市值/币种原生键（无东财 f 键对应，沿 f30 原生位先例；单位 = 亿原币）。 */
+    static final String MARKET_CAP_KEY = "market_cap";
+
+    static final String CURRENCY_KEY = "currency";
 
     private final RestClient restClient;
     private final String quoteUrl;
@@ -137,22 +160,24 @@ public class TencentQuoteClient {
 
     /**
      * 内部标的码 → 腾讯符号：{@code SH600519}→{@code sh600519} / {@code SZ000001}→{@code sz000001} / {@code
-     * HK00700}→{@code hk00700}（大小写不敏感）。
+     * HK00700}→{@code hk00700} / {@code USAAPL}→{@code usAAPL}（A/HK 代码段转小写；美股代码段<b>保持大写</b>—— 腾讯 US
+     * 布局符号为大写 ticker，与既有小写转换相反，Spike-E §2.2 必改点）。
      *
-     * @return 前缀不在 SH/SZ/HK（如板块码）或代码段为空时 {@link Optional#empty()}——调用方按无备选数据处理
+     * @return 前缀不在 SH/SZ/HK/US（如板块码）或代码段为空时 {@link Optional#empty()}——调用方按无备选数据处理
      */
     public static Optional<String> toTencentSymbol(SubjectCode subjectCode) {
         String value = subjectCode.value().trim();
         if (value.length() <= 2) {
             return Optional.empty();
         }
-        String tencentPrefix =
-                PREFIX_TO_TENCENT.get(value.substring(0, 2).toUpperCase(Locale.ROOT));
+        String prefixUpper = value.substring(0, 2).toUpperCase(Locale.ROOT);
+        String tencentPrefix = PREFIX_TO_TENCENT.get(prefixUpper);
         String code = value.substring(2);
         if (tencentPrefix == null || code.isBlank()) {
             return Optional.empty();
         }
-        return Optional.of(tencentPrefix + code.toLowerCase(Locale.ROOT));
+        boolean us = "US".equals(prefixUpper);
+        return Optional.of(tencentPrefix + (us ? code : code.toLowerCase(Locale.ROOT)));
     }
 
     // ---- 内部实现 ----
@@ -210,9 +235,16 @@ public class TencentQuoteClient {
         return Optional.of(new ParsedRow(symbol, mapFields(symbol, fields)));
     }
 
-    /** 字段映射（核对表见类 Javadoc）：按行内符号前缀分 A 股 / 港股两套字段位。 */
+    /**
+     * 字段映射（核对表见类 Javadoc）：按行内符号前缀分 A 股 / 港股 / 美股三套字段位（M29 T252 增美股第三套布局）。
+     *
+     * <p>港美股另落两个原生键（M29）：{@code market_cap}（亿原币，@44）、{@code currency}（HK@75 / US@35）——热力图聚合
+     * 权重与美股代表集收敛（{@code subject.sync.us-mv-min-usd}）消费；A 股布局市值位未实证不产出（V37 口径：既有 A 股行
+     * market_cap/currency NULL 未回填）。
+     */
     private Map<String, Object> mapFields(String symbol, String[] f) {
         boolean hk = symbol.startsWith("hk");
+        boolean us = symbol.startsWith("us");
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("f57", f[2]);
         row.put("f58", f[1]);
@@ -224,26 +256,45 @@ public class TencentQuoteClient {
         putDecimal(row, "f169", f[31]);
         putDecimal(row, "f170", f[32]);
         putLong(row, "f47", f[6]);
-        putAmount(row, hk, f[37]);
-        putDecimal(row, "f168", hk ? f[59] : f[38]);
-        putDecimal(row, "f171", f[43]);
-        putDecimal(row, "f162", hk ? f[39] : f[52]);
-        putDecimal(row, "f167", hk ? f[58] : f[46]);
+        putAmount(row, hk || us, f[37]);
+        if (us) {
+            putDecimal(row, "f162", f[39]);
+        } else {
+            putDecimal(row, "f168", hk ? f[59] : f[38]);
+            putDecimal(row, "f171", f[43]);
+            putDecimal(row, "f162", hk ? f[39] : f[52]);
+            putDecimal(row, "f167", hk ? f[58] : f[46]);
+        }
         // M20 T170 增量：腾讯原生 @30 源时间戳（无东财 f 键对应，键名取原生位）——market_daily_snapshot.quote_time
-        // freshness 对账用；既有 adapter 按白名单消费不受影响
+        // freshness 对账用；既有 adapter 按白名单消费不受影响。US 布局 @30 为美东时区（消费侧展示原样，拍板六原币口径同款）
         if (f.length > 30 && !f[30].isBlank()) {
             row.put("f30", f[30]);
+        }
+        if (hk || us) {
+            putDecimal(row, MARKET_CAP_KEY, f[44]);
+            putCurrency(row, hk ? f[75] : f[35]);
         }
         return row;
     }
 
-    /** 成交额：A 股万元 ×10000 → 元（对齐东财 f48 单位）；港股已是元直传。 */
-    private void putAmount(Map<String, Object> row, boolean hk, String raw) {
+    /** 成交额：A 股万元 ×10000 → 元（对齐东财 f48 单位）；港/美股已是元直传（HKD / USD）。 */
+    private void putAmount(Map<String, Object> row, boolean originalUnit, String raw) {
         Optional<BigDecimal> value = parseDecimal(raw);
         if (value.isEmpty()) {
             return;
         }
-        row.put("f48", hk ? value.get() : value.get().multiply(WAN_TO_YUAN));
+        row.put("f48", originalUnit ? value.get() : value.get().multiply(WAN_TO_YUAN));
+    }
+
+    /** 币种原生位（HK@75 / US@35）：空白或缺席不产出（白名单语义）。 */
+    private void putCurrency(Map<String, Object> row, String raw) {
+        if (f_hasValue(raw)) {
+            row.put(CURRENCY_KEY, raw.trim());
+        }
+    }
+
+    private static boolean f_hasValue(String raw) {
+        return raw != null && !raw.isBlank() && !"-".equals(raw.trim());
     }
 
     private void putDecimal(Map<String, Object> row, String key, String raw) {

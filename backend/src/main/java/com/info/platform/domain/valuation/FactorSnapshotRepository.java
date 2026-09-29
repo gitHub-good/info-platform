@@ -1,5 +1,6 @@
 package com.info.platform.domain.valuation;
 
+import com.info.platform.domain.aggregation.Market;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,12 @@ public interface FactorSnapshotRepository {
 
     /** 活跃标的名录（A_SHARE status=1，id 升序）——计算全集与 coverage 对账分母。 */
     List<SubjectRef> findActiveSubjects();
+
+    /**
+     * 分市场活跃标的名录（M29 T256，方案 §7.1「池 = market ∩ status=1」——market-top 港美股漏斗第 1 层；美股 status=1 为市值
+     * 收敛后活跃集）。
+     */
+    List<SubjectRef> findActiveSubjects(Market market);
 
     /** 活跃标的数（coverage 对账 activeSubjects）。 */
     long countActiveSubjects();
@@ -50,11 +57,20 @@ public interface FactorSnapshotRepository {
     /** H24 热度快照行（31 申万常驻，缺行由域层记 0）——F2 名次归一原料。 */
     List<HeatRow> findH24Heat();
 
+    /** 分市场 H24 热度快照行（M29 T256：A_SHARE = 申万 31 行原口径；HK/US = 该市场 F10 枚举行——跨市场重名由 market 消歧）。 */
+    List<HeatRow> findH24Heat(Market market);
+
     /**
      * 行业成员投影（M21 T180 六输入扩位）：A 股启用且 industry 非空的行（code + 东财板块原文）—— 编排层经 {@code
      * IndustryDirectory.swPrimaryOf} 映射为申万行业后喂路 C（未收录板块投影层过滤）。
      */
     List<IndustryMemberRow> findIndustryMembers();
+
+    /**
+     * 分市场行业成员投影（M29 T256）：industry 原文直出（A 股 = 东财板块原文走 swPrimaryOf 映射不变；港美股 = F10 枚举已是 该市场口径，免映射——
+     * UNKNOWN 兜底由消费侧 isBoardIndustry 白名单过滤）。
+     */
+    List<IndustryMemberRow> findIndustryMembers(Market market);
 
     /** 最新快照日（yyyy-MM-dd；无任何快照返回 empty——Job 未跑过）。 */
     Optional<String> findLatestSnapshotDate();

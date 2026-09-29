@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.analysis.PipelineGuardService;
 import com.info.platform.application.markettop.DeepDiveService.DiveResult;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.GuardLevel;
 import com.info.platform.domain.markettop.DeepDiveInput;
 import com.info.platform.domain.markettop.DeepDiveOutcome;
@@ -46,7 +47,8 @@ import org.springframework.stereotype.Service;
  *   <li>RankDiffer：EVENT 版本 diff 基准 = 同日前一版本（无则回落既有昨日口径）。
  * </ol>
  *
- * <p>幂等：UNIQUE(rank_date, version) 冲突由仓储 insertVersion 重取 +1 重试一次（互斥层③，DAILY/EVENT 共用）。
+ * <p>幂等：UNIQUE(rank_date, version, market) 冲突由仓储 insertVersion 重取 +1 重试一次（互斥层③，DAILY/EVENT
+ * 共用）。<b>M29 T256：EVENT 联动恒 A 股</b>（因子快照/增量重评链 A 股-only，方案 §7.4 market 隔离触发——港美股无因子快照行不进联动）。
  */
 @Service
 public class IncrementalTopService {
@@ -101,7 +103,7 @@ public class IncrementalTopService {
      */
     public int link(LocalDate rankDate, Verdict verdict, Collection<ReevalEvent> events) {
         String date = rankDate.toString();
-        int maxVersion = repository.maxVersion(date);
+        int maxVersion = repository.maxVersion(date, Market.A_SHARE);
         Map<Long, MarketTopRankRow> priorRows = priorVersionRows(date, maxVersion);
         List<PoolRow> poolRows = snapshotRepository.findPoolRowsByDate(date);
         Map<Long, PoolRow> rowById = new HashMap<>();
@@ -115,7 +117,9 @@ public class IncrementalTopService {
 
         // diff 基准：同日前一版本；无则回落昨日口径（findPreviousTop 7 天回看窗）
         List<RankDiffer.PrevSubject> prevTop =
-                maxVersion > 0 ? toPrevSubjects(priorRows) : repository.findPreviousTop(date);
+                maxVersion > 0
+                        ? toPrevSubjects(priorRows)
+                        : repository.findPreviousTop(date, Market.A_SHARE);
         RankDiffer.Diff diff =
                 RankDiffer.diff(
                         prevTop,
@@ -171,6 +175,7 @@ public class IncrementalTopService {
                                     new RankDiffer.Change(null, RankDiffer.NEW));
             rankRows.add(
                     new MarketTopRankRow(
+                            Market.A_SHARE,
                             date,
                             maxVersion + 1,
                             index + 1,
@@ -198,6 +203,7 @@ public class IncrementalTopService {
         }
         MarketTopBatchRow batch =
                 new MarketTopBatchRow(
+                        Market.A_SHARE,
                         date,
                         maxVersion + 1,
                         "EVENT",
@@ -314,7 +320,7 @@ public class IncrementalTopService {
         if (maxVersion <= 0) {
             return rows;
         }
-        Optional<MarketTopVersion> version = repository.find(date, maxVersion);
+        Optional<MarketTopVersion> version = repository.find(date, maxVersion, Market.A_SHARE);
         version.ifPresent(v -> v.items().forEach(item -> rows.put(item.subjectId(), item)));
         return rows;
     }

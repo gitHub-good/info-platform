@@ -18,8 +18,9 @@ import org.springframework.stereotype.Service;
  * 标的池回联（应用层，M15 T121，方案 §4.3）：标题/摘要含池内公司名 → 命中清单作 L1 提示词 companies 提示与 {@code matched_subjects}
  * 留痕（一致性信号 v1——池行业为东财口径且覆盖率不稳，不做自动行业差异比对，ADR-0046 实现附注）。
  *
- * <p>池范围：A_SHARE + HK 的 STOCK、status=1、名长 ≥2（方案 §4.3）。池快照内存缓存 10min TTL（批窗口 10min 对齐一次装载； 5k+ 行
- * contains 扫描毫秒级）。池加载失败降级为空池（记 WARN——回联是增强信号，不阻断归类主链路）。
+ * <p>池范围：A_SHARE + HK + US 的 STOCK、status=1、名长 ≥2（M29 T253 扩美股池——{@code l1_market} 由
+ * matched_subjects 主市场 派生的原料，方案 §4 C9）。池快照内存缓存 10min TTL（批窗口 10min 对齐一次装载；1.5 万行级 contains
+ * 扫描毫秒级）。池加载失败降级为 空池（记 WARN——回联是增强信号，不阻断归类主链路）。
  */
 @Service
 public class SubjectMatcher {
@@ -55,7 +56,9 @@ public class SubjectMatcher {
                 break;
             }
             if (text.contains(entry.name())) {
-                matched.add(new MatchedSubject(entry.code(), entry.name(), entry.industry()));
+                matched.add(
+                        new MatchedSubject(
+                                entry.code(), entry.name(), entry.industry(), entry.market()));
             }
         }
         return matched;
@@ -91,6 +94,9 @@ public class SubjectMatcher {
             for (Subject subject : subjectRepository.loadBucket(Market.HK, SubjectType.STOCK)) {
                 collectEntry(entries, subject);
             }
+            for (Subject subject : subjectRepository.loadBucket(Market.US, SubjectType.STOCK)) {
+                collectEntry(entries, subject);
+            }
             entries.sort(Comparator.comparingInt((PoolEntry e) -> e.name().length()).reversed());
             return new PoolSnapshot(List.copyOf(entries), clock.instant());
         } catch (RuntimeException e) {
@@ -105,20 +111,25 @@ public class SubjectMatcher {
         if (subject.getStatus() != SubjectStatus.ENABLED
                 || subject.getName() == null
                 || subject.getName().length() < MIN_NAME_LENGTH
-                || subject.getSubjectCode() == null) {
+                || subject.getSubjectCode() == null
+                || subject.getMarket() == null) {
             return;
         }
         entries.add(
                 new PoolEntry(
                         subject.getSubjectCode().value(),
                         subject.getName(),
-                        subject.getIndustry()));
+                        subject.getIndustry(),
+                        subject.getMarket()));
     }
 
-    /** 回联命中项（matched_subjects 列与提示词 companies 的公共载体）。 */
-    public record MatchedSubject(String code, String name, String industry) {}
+    /**
+     * 回联命中项（matched_subjects 列与提示词 companies 的公共载体；M29 T253 增 market——{@code l1_market} 主市场派生原料， 方案
+     * §4 C9）。持久化 JSON 形态保持 {"code","name","industry"} 三键（消费侧显式选键，market 不落列）。
+     */
+    public record MatchedSubject(String code, String name, String industry, Market market) {}
 
-    private record PoolEntry(String code, String name, String industry) {}
+    private record PoolEntry(String code, String name, String industry, Market market) {}
 
     private record PoolSnapshot(List<PoolEntry> entries, Instant loadedAt) {}
 }

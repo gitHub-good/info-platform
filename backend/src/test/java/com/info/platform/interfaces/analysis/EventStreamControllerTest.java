@@ -61,6 +61,7 @@ class EventStreamControllerTest {
                         eq("银行"),
                         eq("HIGH"),
                         eq("BULLISH"),
+                        eq(null),
                         eq(100L),
                         eq(20)))
                 .thenReturn(
@@ -117,7 +118,7 @@ class EventStreamControllerTest {
 
     @Test
     void list_paramsAllOptional() throws Exception {
-        when(queryService.list(eq(null), eq(null), eq(null), eq(null), eq(null), eq(null)))
+        when(queryService.list(eq(null), eq(null), eq(null), eq(null), eq(null), eq(null), eq(null)))
                 .thenReturn(new EventStreamView(0L, List.of(), null));
 
         mockMvc.perform(get("/api/v1/events"))
@@ -129,7 +130,8 @@ class EventStreamControllerTest {
 
     @Test
     void list_invalidFilter_400_30079() throws Exception {
-        when(queryService.list(eq("NOT_A_TYPE"), eq(null), eq(null), eq(null), eq(null), eq(null)))
+        when(queryService.list(
+                        eq("NOT_A_TYPE"), eq(null), eq(null), eq(null), eq(null), eq(null), eq(null)))
                 .thenThrow(
                         new BusinessException(
                                 ErrorCode.EVENT_FILTER_INVALID, "type: 须为 9 类事件枚举，当前值 NOT_A_TYPE"));
@@ -138,6 +140,63 @@ class EventStreamControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(30079))
                 .andExpect(jsonPath("$.msg").value("type: 须为 9 类事件枚举，当前值 NOT_A_TYPE"));
+    }
+
+    // ---- M29 P1-01 回归（方案 §5.4）：market 参数两模式透传与非法 400 ----
+
+    @Test
+    void list_marketParam_passedThrough_cursorMode() throws Exception {
+        // Arrange/Act：游标模式 market=HK 透传服务层
+        when(queryService.list(eq(null), eq(null), eq(null), eq(null), eq("HK"), eq(null), eq(null)))
+                .thenReturn(new EventStreamView(6L, List.of(), null));
+
+        mockMvc.perform(get("/api/v1/events").param("market", "HK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(6));
+    }
+
+    @Test
+    void list_marketParam_passedThrough_pageMode_withIndustryFilterGroups() throws Exception {
+        // Arrange：页码模式 market=US + 响应 industryFilterGroups（前端 Events.tsx 消费契约——分组字段线格式）
+        when(queryService.listPaged(eq(null), eq(null), eq(null), eq(null), eq("US"), eq(1), eq(20)))
+                .thenReturn(
+                        new EventStreamPageView(
+                                21L,
+                                List.of(),
+                                1,
+                                20,
+                                EventStreamPageView.INDUSTRY_FILTER_GROUPS));
+
+        // Act/Assert：market 参数透传 + 分组结构（三市场组、枚举数组）序列化可见
+        mockMvc.perform(get("/api/v1/events").param("market", "US").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(21))
+                .andExpect(jsonPath("$.data.industryFilterGroups[0].market").value("A_SHARE"))
+                .andExpect(jsonPath("$.data.industryFilterGroups[0].industries[0]").value("农林牧渔"))
+                .andExpect(jsonPath("$.data.industryFilterGroups[1].market").value("HK"))
+                .andExpect(
+                        jsonPath("$.data.industryFilterGroups[1].industries.length()").value(31))
+                .andExpect(jsonPath("$.data.industryFilterGroups[2].market").value("US"))
+                .andExpect(
+                        jsonPath("$.data.industryFilterGroups[2].industries.length()").value(40));
+    }
+
+    @Test
+    void list_invalidMarket_400_30079() throws Exception {
+        // Arrange：服务层抛 market 字段级 30079（market: 须为 A_SHARE / HK / US）
+        when(queryService.list(eq(null), eq(null), eq(null), eq(null), eq("JP"), eq(null), eq(null)))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.EVENT_FILTER_INVALID,
+                                "market: 须为 A_SHARE / HK / US，当前值 JP"));
+
+        // Act/Assert
+        mockMvc.perform(get("/api/v1/events").param("market", "JP"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30079))
+                .andExpect(jsonPath("$.msg").value("market: 须为 A_SHARE / HK / US，当前值 JP"));
     }
 
     // ---- T220（M25 V3.0）：page/size 页码模式（M9 PageQuery 双模式分派，beforeId 游标保留兼容）----
@@ -162,8 +221,8 @@ class EventStreamControllerTest {
     @Test
     void list_pageMode_returnsPagedViewWithoutCursorFields() throws Exception {
         // Arrange：page 出现即页码模式（{total, items, page, size}，无 nextBeforeId）
-        when(queryService.listPaged(eq(null), eq(null), eq(null), eq(null), eq(2), eq(5)))
-                .thenReturn(new EventStreamPageView(42L, List.of(pageCard(9L)), 2, 5));
+        when(queryService.listPaged(eq(null), eq(null), eq(null), eq(null), eq(null), eq(2), eq(5)))
+                .thenReturn(new EventStreamPageView(42L, List.of(pageCard(9L)), 2, 5, null));
 
         // Act + Assert
         mockMvc.perform(get("/api/v1/events").param("page", "2").param("size", "5"))
@@ -180,8 +239,14 @@ class EventStreamControllerTest {
     void list_pageMode_passesFourFilters() throws Exception {
         // Arrange：四维筛选与页码模式正交（页码模式下同样可用）
         when(queryService.listPaged(
-                        eq("POLICY_RELEASE"), eq("银行"), eq("HIGH"), eq("BULLISH"), eq(1), eq(20)))
-                .thenReturn(new EventStreamPageView(1L, List.of(), 1, 20));
+                        eq("POLICY_RELEASE"),
+                        eq("银行"),
+                        eq("HIGH"),
+                        eq("BULLISH"),
+                        eq(null),
+                        eq(1),
+                        eq(20)))
+                .thenReturn(new EventStreamPageView(1L, List.of(), 1, 20, null));
 
         // Act + Assert
         mockMvc.perform(
@@ -242,7 +307,7 @@ class EventStreamControllerTest {
     @Test
     void list_cursorMode_regression_pageAbsent() throws Exception {
         // 页码+游标模式并存回归：page 缺席走既有游标路径（字节级不动，nextBeforeId 照常）
-        when(queryService.list(eq(null), eq(null), eq(null), eq(null), eq(100L), eq(null)))
+        when(queryService.list(eq(null), eq(null), eq(null), eq(null), eq(null), eq(100L), eq(null)))
                 .thenReturn(new EventStreamView(42L, List.of(pageCard(9L)), 9L));
 
         mockMvc.perform(get("/api/v1/events").param("beforeId", "100"))

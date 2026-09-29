@@ -530,4 +530,30 @@ class NewsSourceAdapterTest {
                 Instant.parse("2026-09-20T00:00:00Z"),
                 Instant.parse("2026-09-20T00:00:00Z"));
     }
+
+    // ---- M29 T253：代码派生港美分支（方案 §4 C5）----
+
+    @Test
+    void resolveStockCode_derivesPerMarketConvention() {
+        // A 股：secid 1.600519 → 6 位代码（既有约定不动）
+        assertThat(NewsSourceAdapter.resolveStockCode(subjectWithSecid("1.600519")))
+                .isEqualTo("600519");
+        // 港股：F10 形态 116.00700 → 5 位数字直通；push2 形态 116.HK00700 → 剥 HK 前缀（防御分支）
+        assertThat(NewsSourceAdapter.resolveStockCode(subjectWithSecid("116.00700")))
+                .isEqualTo("00700");
+        assertThat(NewsSourceAdapter.resolveStockCode(subjectWithSecid("116.HK00700")))
+                .isEqualTo("00700");
+        // 美股：ticker 原样大写直通
+        assertThat(NewsSourceAdapter.resolveStockCode(subjectWithSecid("105.AAPL")))
+                .isEqualTo("AAPL");
+        // eastmoney_code 键优先；两键皆缺 → null（仅按名称匹配）
+        assertThat(
+                        NewsSourceAdapter.resolveStockCode(
+                                subjectWithExternalCodes(Map.of("eastmoney_code", "600519"))))
+                .isEqualTo("600519");
+        assertThat(
+                        NewsSourceAdapter.resolveStockCode(
+                                subjectWithExternalCodes(Map.of("tushare", "600519.SH"))))
+                .isNull();
+    }
 }

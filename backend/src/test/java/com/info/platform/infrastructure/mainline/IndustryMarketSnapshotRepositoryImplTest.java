@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.mainline;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository.HistoryPctDay;
 import com.info.platform.domain.mainline.IndustryMarketSnapshotRepository.MarketSnapshotRow;
@@ -155,5 +156,90 @@ class IndustryMarketSnapshotRepositoryImplTest {
                 "DELETE FROM industry_market_snapshot WHERE snapshot_date >= '2099-01-01'");
         assertThat(repository.latestSnapshotDate()).isEmpty();
         assertThat(repository.recentSnapshotDates(5)).isEmpty();
+    }
+
+    // ---- M29 P2-01 回归：单市场行业行「替换写」——本次未命中的旧行当日清理 ----
+
+    /** 港美股行业行（16 参主构造：market/rowType/dimName/industry/date/...）。 */
+    private static MarketSnapshotRow hkusIndustryRow(
+            String market, String date, String industry, double pct) {
+        return new MarketSnapshotRow(
+                market,
+                "INDUSTRY",
+                industry,
+                industry,
+                date,
+                pct,
+                null,
+                3,
+                1,
+                null,
+                100e8,
+                "HKD",
+                null,
+                "hkus-aggregate",
+                "CAP_WEIGHTED",
+                "2026-09-29T08:08:08Z");
+    }
+
+    @Test
+    void replaceIndustryRows_prunesStaleRows_marketAndDateScoped() {
+        // Arrange：当日 HK 旧行 {互联网（待清理的改写前残留）, 银行} + A股同日同名行 + HK 前日行
+        repository.upsertAll(
+                List.of(
+                        hkusIndustryRow("HK", DATE, "互联网", -1.77),
+                        hkusIndustryRow("HK", DATE, "银行", 0.5),
+                        industryRow(DATE, "银行", 0.4, null), // A_SHARE 同名行业行（消歧防误删）
+                        hkusIndustryRow("HK", PREV_DATE, "互联网", -2.0), // 前日行（retention 域，不当清）
+                        boardRow(DATE, "半导体", "电子", 2.0))); // BOARD 行（row_type 隔离防误删）
+
+        // Act：行业改写后次轮聚合 → 保留集 {银行, 软件服务}（「互联网」本次未命中）
+        int written =
+                repository.replaceIndustryRows(
+                        "HK",
+                        DATE,
+                        List.of(
+                                hkusIndustryRow("HK", DATE, "银行", 0.6),
+                                hkusIndustryRow("HK", DATE, "软件服务", -0.59)));
+
+        // Assert：UPSERT 受影响 2 行；HK 当日最终 = 实际行业数 2（孤儿行清理，32→31 口径对齐）
+        assertThat(written).isEqualTo(2);
+        assertThat(repository.findIndustryRows(DATE, Market.HK))
+                .extracting(MarketSnapshotRow::dimName)
+                .containsExactlyInAnyOrder("银行", "软件服务"); // 「互联网」已清
+
+        // Assert：清理作用域隔离——A 股同名行 / HK 前日行 / BOARD 行不受影响
+        assertThat(repository.findIndustryRows(DATE)).hasSize(1); // A_SHARE 仅剩「银行」
+        assertThat(repository.findIndustryRows(PREV_DATE, Market.HK))
+                .extracting(MarketSnapshotRow::dimName)
+                .containsExactly("互联网");
+        assertThat(repository.findBoardRows(DATE)).hasSize(1);
+    }
+
+    @Test
+    void replaceIndustryRows_sameSetTwice_idempotentNoPrune() {
+        // Arrange：两轮同集（盘中幂等覆盖）→ 第二轮零清理、行数与值稳定
+        repository.replaceIndustryRows(
+                "HK", DATE, List.of(hkusIndustryRow("HK", DATE, "银行", 0.5)));
+        int second =
+                repository.replaceIndustryRows(
+                        "HK", DATE, List.of(hkusIndustryRow("HK", DATE, "银行", 0.7)));
+
+        assertThat(second).isEqualTo(1); // UPSERT 覆盖计 1（无旧行可清）
+        assertThat(repository.findIndustryRows(DATE, Market.HK)).hasSize(1);
+        assertThat(repository.findIndustryRows(DATE, Market.HK).get(0).pctDay()).isEqualTo(0.7);
+    }
+
+    @Test
+    void replaceIndustryRows_emptyRows_noOpWithoutPruning() {
+        // Arrange：已有当日行 + 空聚合清单（数据异常轮）
+        repository.upsertAll(List.of(hkusIndustryRow("HK", DATE, "银行", 0.5)));
+
+        // Act：空清单 → no-op 不清理（端口契约：保守不动旧快照，沿双链全败语义）
+        int written = repository.replaceIndustryRows("HK", DATE, List.of());
+
+        // Assert
+        assertThat(written).isZero();
+        assertThat(repository.findIndustryRows(DATE, Market.HK)).hasSize(1);
     }
 }

@@ -209,11 +209,11 @@ function reportDetail(): IndustryReportDetailView {
 }
 
 /** 按路径前缀分发的 fetch mock（POST retry 由专用用例自建 mock 覆盖）。 */
-function stubFetch(routes: Array<{ path: string; respond: () => ReturnType<typeof ok> | ReturnType<typeof fail> }>) {
+function stubFetch(routes: Array<{ path: string; respond: (url: string) => ReturnType<typeof ok> | ReturnType<typeof fail> }>) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     for (const route of routes) {
-      if (url.startsWith(route.path)) return route.respond();
+      if (url.startsWith(route.path)) return route.respond(url);
     }
     return fail(404, 50000, `unexpected fetch: ${url}`);
   });
@@ -423,7 +423,96 @@ describe('IndustryHeat 行业热度与日报页（T126）· 热度榜 Tab', () =
 
     render(<IndustryHeat />);
 
-    expect(await screen.findByTestId('heat-empty')).toHaveTextContent('暂无行业热度数据');
+    expect(await screen.findByTestId('heat-empty')).toHaveTextContent('该市场暂无热度数据');
+  });
+});
+
+describe('IndustryHeat 行业热度页（T257）· 三市场切换', () => {
+  it('M29 切港股：请求带 market=HK + URL 持久化 + 行业体系口径标注回显 + 下钻带同市场参数', async () => {
+    const hkBoard = boardOf({
+      market: 'HK',
+      industrySystem: '港股：东财行业分类（31 直采，来源 F10 BELONG_INDUSTRY）',
+      industries: [
+        { industry: '软件服务', heatScore: 78, prevScore: 60, deltaPct: 30, newsCount: 41, eventCount: 3 },
+      ],
+    });
+    const fetchMock = stubFetch([
+      { path: '/api/v1/industry-heat?window=H24', respond: () => ok(hkBoard) },
+      { path: '/api/v1/industry-heat/%E8%BD%AF%E4%BB%B6%E6%9C%8D%E5%8A%A1/items', respond: () => ok(newsItemsOf()) },
+    ]);
+    const user = userEvent.setup();
+    render(<IndustryHeat />);
+
+    // 默认 A 股请求带 market=A_SHARE（显式下发——后端缺省同值零回归）
+    expect(await screen.findByTestId('heat-row-软件服务')).toBeInTheDocument();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('market=A_SHARE');
+    expect(screen.getByTestId('heat-industry-system')).toHaveTextContent('A股：申万一级 31');
+
+    // 切港股：URL 持久化 + 重查带 market=HK + 口径标注回显（拍板二）
+    await user.click(screen.getByTestId('market-tab-HK'));
+    expect(window.location.hash).toContain('market=HK');
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('market=HK'))).toBe(true),
+    );
+    expect(await screen.findByTestId('heat-industry-system')).toHaveTextContent('港股：东财行业分类');
+
+    // 下钻清单同市场口径（items 带 market=HK）
+    await user.click(screen.getByTestId('heat-row-软件服务'));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/items?') && String(call[0]).includes('market=HK')),
+      ).toBe(true),
+    );
+  });
+
+  it('M29 切美股空榜：如实空态「该市场暂无热度数据」+ 原因标注（拍板三不隐藏）', async () => {
+    stubFetch([
+      {
+        path: '/api/v1/industry-heat',
+        respond: (url: string) =>
+          ok(
+            url.includes('market=US')
+              ? boardOf({
+                  market: 'US',
+                  industrySystem: '美股：东财行业分类（归并 ≤40，来源 F10 BELONG_INDUSTRY）',
+                  industries: [],
+                })
+              : boardOf(),
+          ),
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<IndustryHeat />);
+
+    await screen.findByTestId('heat-row-电子'); // 先出 A 股默认榜
+    await user.click(screen.getByTestId('market-tab-US'));
+    const empty = await screen.findByTestId('heat-empty');
+    expect(empty).toHaveTextContent('该市场暂无热度数据');
+    expect(empty).toHaveTextContent('尚未积累');
+  });
+
+  it('M29 ?market=HK 直达：刷新保持市场状态；日报/周报 Tab 恒 A 股口径标注', async () => {
+    window.location.hash = '#/industry-heat?market=HK';
+    stubFetch([
+      {
+        path: '/api/v1/industry-heat',
+        respond: () =>
+          ok(boardOf({ market: 'HK', industrySystem: '港股：东财行业分类（31 直采）', industries: [] })),
+      },
+      { path: '/api/v1/industry-reports/weekly', respond: () => ok({ reports: [], nextBeforeId: null }) },
+      { path: '/api/v1/industry-reports', respond: () => ok(reportList()) },
+    ]);
+    const user = userEvent.setup();
+    render(<IndustryHeat />);
+
+    // 直达初值 = 港股（挂载读 ?market=）
+    expect(await screen.findByTestId('market-tab-HK')).toHaveAttribute('aria-selected', 'true');
+    expect(String(window.location.hash)).toContain('market=HK');
+
+    // 日报 Tab：A 股口径如实标注（M29 不扩日报/周报）
+    await user.click(screen.getByTestId('heat-tab-report'));
+    expect(await screen.findByTestId('report-list')).toBeInTheDocument();
+    expect(screen.getByTestId('heat-report-market-note')).toHaveTextContent('仅 A 股口径');
   });
 });
 

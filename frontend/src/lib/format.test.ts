@@ -4,8 +4,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   changeColorClass,
+  currencySymbolOf,
   directionTextClass,
   directionToneClass,
+  formatMoneyInCurrency,
   statusTextClass,
   statusToneClass,
 } from '@/lib/format';
@@ -45,6 +47,27 @@ describe('系统状态色（emerald/amber/rose 系）', () => {
     expect(statusTextClass('warning')).toBe('text-amber-400');
     expect(statusTextClass('failure')).toBe('text-rose-400');
     expect(statusTextClass('neutral')).toBe('text-muted-foreground');
+  });
+});
+
+describe('市场原币符号（M29 T257 拍板六：原币计价不折算）', () => {
+  it('currencySymbolOf：A ¥ / 港 HK$ / 美 $（market 键与 currency 码两线格式兼容）', () => {
+    expect(currencySymbolOf('A_SHARE')).toBe('¥');
+    expect(currencySymbolOf('CNY')).toBe('¥');
+    expect(currencySymbolOf('HK')).toBe('HK$');
+    expect(currencySymbolOf('HKD')).toBe('HK$');
+    expect(currencySymbolOf('US')).toBe('$');
+    expect(currencySymbolOf('USD')).toBe('$');
+    expect(currencySymbolOf(null)).toBe('¥');
+    expect(currencySymbolOf(undefined)).toBe('¥');
+  });
+
+  it('formatMoneyInCurrency：符号前缀 + 亿/万口径（不换汇）；空值回 --', () => {
+    expect(formatMoneyInCurrency(2_500_000_000_000, 'CNY')).toBe('¥25000.00亿');
+    expect(formatMoneyInCurrency(49_356_000_000, 'HKD')).toBe('HK$493.56亿');
+    expect(formatMoneyInCurrency(1_234_000, 'US')).toBe('$123.40万');
+    expect(formatMoneyInCurrency(null, 'USD')).toBe('--');
+    expect(formatMoneyInCurrency(Number.NaN, 'HK')).toBe('--');
   });
 });
 

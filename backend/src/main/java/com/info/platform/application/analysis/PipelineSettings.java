@@ -42,7 +42,16 @@ public class PipelineSettings {
     /** 当日重试上限缺省（单条终败后 l1_attempts 达 3 不再进批，次日 24h 窗口再试一轮）。 */
     static final int DEFAULT_MAX_RETRIES = 3;
 
-    /** L1 待处理回看窗口缺省（小时）——次日补跑语义（ADR-0046 裁决 5）。 */
+    /**
+     * L1 待处理回看窗口缺省（小时）——次日补跑语义（ADR-0046 裁决 5）。
+     *
+     * <p>V3.2 由 24→96：LLM 不可用期（key 失效/预算 FUSED）积压的 attempts=0 PENDING 条目会在 24h 窗外 永久滞留（实测积压跨 4 天
+     * 1197 条），96h 保证 4 天内积压都能被补跑段重新取到；L1_TICK_CAP=400/轮 限流不变，成本可控。仅作用于 L1 段——近重复窗口沿用 {@link
+     * #DEFAULT_BACKFILL_HOURS} 24h 不变。
+     */
+    static final int DEFAULT_L1_BACKFILL_HOURS = 96;
+
+    /** L0 近重复检测窗口缺省（小时）——ADR-0046 裁决 5 原口径，不随 L1 扩窗。 */
     static final int DEFAULT_BACKFILL_HOURS = 24;
 
     /** L0 摄取缓冲缺省（分钟）——与摄取事务竞态的错峰（方案 §4.2 X=2min）。 */
@@ -234,7 +243,7 @@ public class PipelineSettings {
 
     /** L1 待处理回看窗口（小时）。 */
     public int l1BackfillHours() {
-        return intOf(globalDoc(), "l1BackfillHours", DEFAULT_BACKFILL_HOURS);
+        return intOf(globalDoc(), "l1BackfillHours", DEFAULT_L1_BACKFILL_HOURS);
     }
 
     /** L0 noise 规则引擎（关键词 + 正则热改即时生效；正则损坏条目剔除并 WARN）。 */

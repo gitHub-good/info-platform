@@ -6,7 +6,12 @@
 //         30012 越权(403) / 30001 标的不存在(404)。
 
 import { request } from './http';
-import type { WatchlistItemView, WatchlistView } from '@/types/watchlist';
+import type {
+  WatchlistItemView,
+  WatchlistItemsPagedView,
+  WatchlistItemsSortKey,
+  WatchlistView,
+} from '@/types/watchlist';
 
 /** 生成 Idempotency-Key：优先 crypto.randomUUID，回退 name+时间戳（仅审计用，不影响去重）。 */
 function idempotencyKey(prefix: string): string {
@@ -31,9 +36,44 @@ export async function createWatchlist(name: string, remark?: string): Promise<Wa
   });
 }
 
+/**
+ * PATCH /api/v1/watchlists/{id} —— 改名；
+ * 不存在→30010 / 越权→30012 / 与其他启用清单同名→30011(409)；改名=当前名幂等成功。
+ */
+export async function renameWatchlist(watchlistId: number, name: string): Promise<WatchlistView> {
+  return request<WatchlistView>(`/watchlists/${watchlistId}`, {
+    method: 'PATCH',
+    body: { name },
+  });
+}
+
+/** DELETE /api/v1/watchlists/{id} —— 删除清单（软删除）；不存在→30010 / 越权→30012。 */
+export async function deleteWatchlist(watchlistId: number): Promise<void> {
+  await request<unknown>(`/watchlists/${watchlistId}`, { method: 'DELETE' });
+}
+
 /** GET /api/v1/watchlists/{id} —— 单清单（含清单项）；不存在→30010，越权→30012。 */
 export async function getWatchlist(id: number): Promise<WatchlistView> {
   return request<WatchlistView>(`/watchlists/${id}`);
+}
+
+/**
+ * GET /api/v1/watchlists/{id}/items?page&size&sort&dir —— 清单项分页+排序
+ * （M9 页码契约 {total, items, page, size} + sort/dir 回显；行情两列内联）。
+ * sort ∈ addedAt/price/changePct，dir ∈ asc/desc；非白名单/越界 → 2xxx(400)。
+ */
+export async function getWatchlistItemsPaged(
+  watchlistId: number,
+  params: { page: number; size: number; sort: WatchlistItemsSortKey; dir: 'asc' | 'desc' },
+  signal?: AbortSignal,
+): Promise<WatchlistItemsPagedView> {
+  const query = new URLSearchParams({
+    page: String(params.page),
+    size: String(params.size),
+    sort: params.sort,
+    dir: params.dir,
+  });
+  return request<WatchlistItemsPagedView>(`/watchlists/${watchlistId}/items?${query}`, { signal });
 }
 
 /**

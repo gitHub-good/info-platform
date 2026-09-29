@@ -131,6 +131,24 @@ public final class TopComposer {
     }
 
     /**
+     * 港美股 basis 口径串（M29 T256，方案 §5.5/§7.2——「mt-v1:hkus」前缀 + 维度裁剪留痕）：final = 剩余维（F1/F2/F4）权重置 0 价值维后
+     * 再归一（非简单低分）；深析 A 股先行（W1 价值维依赖，港美股零 LLM）；quotes = 该市场行情快照最近日（数据口径留痕——盘中未收敛照常 出榜）。
+     *
+     * @param weights 剩余维有效权重（w1|w2|w4——F3/F5 置 0 后的口径审计锚）
+     * @param quotesAsOf 该市场行情快照最近日（无任何快照 = "none"）
+     */
+    public static String basisHkus(Config config, String weights, String quotesAsOf, int topSize) {
+        return "mt-v1:hkus:final=renorm(F1,F2,F4);w="
+                + weights
+                + ";missing=fundamental|valuation;dive=A_SHARE_ONLY;pool="
+                + config.poolSize()
+                + ";top="
+                + topSize
+                + ";quotes="
+                + (quotesAsOf == null || quotesAsOf.isBlank() ? "none" : quotesAsOf);
+    }
+
+    /**
      * final 全序（可复现）：final DESC → f_catalyst DESC → last_event_date DESC（NULL 最后）→ subject_id ASC
      * （NULL 最旧实现同 MarketTopPoolBuilder.FOUR_KEY_ORDER：nullsFirst 再整体 reversed）。
      */

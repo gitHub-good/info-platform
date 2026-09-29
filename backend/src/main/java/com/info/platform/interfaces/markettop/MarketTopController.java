@@ -19,12 +19,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 全市场榜单接口（M21 T181 配置面 + T183 读取面，方案 §4.7，Bearer JWT）：
+ * 全市场榜单接口（M21 T181 配置面 + T183 读取面，方案 §4.7，Bearer JWT；M29 T256 增 market 查询参数——缺省 A_SHARE 零回归）：
  *
  * <ul>
- *   <li>{@code GET /api/v1/market-top?date=&version=} —— 榜单详情（缺省最新有榜单日最大版本；30089 无榜单 / 30090
- *       参数非法或版本不存在）
- *   <li>{@code GET /api/v1/market-top/versions?date=} —— 历史版本列表（日期降序、版本降序）
+ *   <li>{@code GET /api/v1/market-top?market=A_SHARE|HK|US&date=&version=} ——
+ *       榜单详情（缺省该市场最新有榜单日最大版本；30089 无榜单 / 30090 参数非法或版本不存在）；响应含 market/leaderboard
+ *       维度回显（币种/行业口径/深析可用性/价值维缺省标注，方案 §5.5）
+ *   <li>{@code GET /api/v1/market-top/versions?market=&date=} —— 历史版本列表（market 恒过滤不混榜；日期降序、版本降序）
+ *   <li>{@code GET /api/v1/market-top/hit-stats?market=} —— 命中统计三市场分列（T+1/T+5/T+20）
  *   <li>{@code GET /api/v1/market-top/config} —— 漏斗配置（任务中心 MARKET_TOP_JOB 编辑 Dialog 数据源；键缺失 = 代码缺省）
  *   <li>{@code PATCH /api/v1/market-top/config} —— 5 字段全量替换（非法字段级 30091 原值保留；expectedUpdatedAt 不符
  *       30065/409； deepDiveLimit 30~50 硬校验——「全量 LLM 逐股永不发生」的配置面防线）
@@ -34,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 两路当前值（前端方法论页亦可两路直读，本端点为单一入口便捷形态——BUG-M21-03 落地）。
  *
  * <p>命中统计端点（GET /market-top/hit-stats，M22 T193 §4.2-③）：T+1/T+5/T+20 上涨家数占比 + 中位数涨跌幅（hits-v1
- * 惰性回算零新表）；数据不足是合法态非错误，仅无任何榜单日 30089/404。
+ * 惰性回算零新表）；数据不足是合法态非错误，仅该市场无任何榜单日 30089/404。
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -59,25 +61,28 @@ public class MarketTopController {
         this.hitStatsService = hitStatsService;
     }
 
-    /** 榜单详情（date 缺省最新有榜单日；version 缺省该日最大；30089/30090 语义见类注释）。 */
+    /** 榜单详情（market 缺省 A_SHARE；date 缺省最新有榜单日；version 缺省该日最大；30089/30090 语义见类注释）。 */
     @GetMapping("/market-top")
     public Result<RankView> rank(
+            @RequestParam(name = "market", required = false) String market,
             @RequestParam(name = "date", required = false) String date,
             @RequestParam(name = "version", required = false) String version) {
-        return Result.ok(queryService.rank(date, version));
+        return Result.ok(queryService.rank(market, date, version));
     }
 
-    /** 历史版本列表（date 可选过滤；日期降序、版本降序）。 */
+    /** 历史版本列表（market 缺省 A_SHARE；date 可选过滤；日期降序、版本降序）。 */
     @GetMapping("/market-top/versions")
     public Result<List<VersionSummary>> versions(
+            @RequestParam(name = "market", required = false) String market,
             @RequestParam(name = "date", required = false) String date) {
-        return Result.ok(queryService.versions(date));
+        return Result.ok(queryService.versions(market, date));
     }
 
-    /** 历史命中统计（M22 T193：hits-v1 惰性回算——三窗上涨占比/中位数 + 免责常驻；无榜单日 30089/404）。 */
+    /** 历史命中统计（M22 T193 + M29 T256 market：hits-v1 惰性回算——三窗上涨占比/中位数 + 免责常驻；无榜单日 30089/404）。 */
     @GetMapping("/market-top/hit-stats")
-    public Result<HitStatsView> hitStats() {
-        return Result.ok(hitStatsService.stats());
+    public Result<HitStatsView> hitStats(
+            @RequestParam(name = "market", required = false) String market) {
+        return Result.ok(hitStatsService.stats(market));
     }
 
     /** 当前漏斗配置视图（5 参数 + updatedAt 下次防呆比对）。 */

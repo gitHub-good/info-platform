@@ -179,7 +179,11 @@ public class EventItemRepositoryImpl implements EventItemRepository {
         return jdbcTemplate.query(sql.toString(), STREAM_ROW, args.toArray());
     }
 
-    /** 四维筛选拼装（null 维度跳过；行业 = affected JSON 引号定界 LIKE，防「非银金融」子串误配）。 */
+    /**
+     * 五维筛选拼装（null 维度跳过；行业 = affected JSON 引号定界 LIKE，防「非银金融」子串误配； market = subjects JSON code
+     * 前缀定界 LIKE——M29 §5.4 标的市场过滤，code 线格式 SH/SZ/HK/US 前缀（T254 marketOfCode 口径），JSON 值域引号转义不含
+     * {@code "code":"HK} 形态子串、枚举名不含 LIKE 通配符）。
+     */
     private static void appendStreamFilters(
             StringBuilder sql, List<Object> args, EventItemRepository.EventStreamFilter filter) {
         if (filter.eventType() != null) {
@@ -197,6 +201,10 @@ public class EventItemRepositoryImpl implements EventItemRepository {
         if (filter.direction() != null) {
             sql.append(" AND e.direction = ?");
             args.add(filter.direction().name());
+        }
+        if (filter.market() != null) {
+            sql.append(" AND e.subjects LIKE ?");
+            args.add("%\"code\":\"" + filter.market().name() + "%");
         }
     }
 

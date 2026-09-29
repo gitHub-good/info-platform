@@ -359,8 +359,11 @@ public class FactorSnapshotService {
         return writeJson(detail);
     }
 
-    /** FactorEntry → 纯标量 Map（eventDate 落 yyyy-MM-dd 文本，§4.5 示例；枚举落 name）。 */
-    private static List<Map<String, Object>> entryMaps(List<FactorEntry> entries) {
+    /**
+     * FactorEntry → 纯标量 Map（eventDate 落 yyyy-MM-dd 文本，§4.5 示例；枚举落 name）。public：M29 T256
+     * 港美股横截面同契约复用。
+     */
+    public static List<Map<String, Object>> entryMaps(List<FactorEntry> entries) {
         List<Map<String, Object>> mapped = new ArrayList<>(entries.size());
         for (FactorEntry entry : entries) {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -483,8 +486,8 @@ public class FactorSnapshotService {
                 .toList();
     }
 
-    /** W2 窗下界（ISO，上海日界 00:00 含）。 */
-    private static String windowStartIso(LocalDate snapshotDate, int windowDays) {
+    /** W2 窗下界（ISO，上海日界 00:00 含）。public：M29 T256 港美股横截面同窗同界复用（同一转换点非第二套）。 */
+    public static String windowStartIso(LocalDate snapshotDate, int windowDays) {
         return snapshotDate
                 .minusDays(windowDays - 1L)
                 .atStartOfDay(SNAPSHOT_ZONE)
@@ -492,8 +495,8 @@ public class FactorSnapshotService {
                 .toString();
     }
 
-    /** 快照日日界上界（ISO，次日 00:00 不含）。 */
-    private static String dayEndIso(LocalDate snapshotDate) {
+    /** 快照日日界上界（ISO，次日 00:00 不含）。public：M29 T256 港美股横截面同窗同界复用。 */
+    public static String dayEndIso(LocalDate snapshotDate) {
         return snapshotDate.plusDays(1).atStartOfDay(SNAPSHOT_ZONE).toInstant().toString();
     }
 

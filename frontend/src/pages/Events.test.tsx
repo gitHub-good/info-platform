@@ -89,7 +89,7 @@ describe('Events 事件流页（T127 + T224 分页化，#/events）', () => {
     expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
     // T230 抽查：统一页头（h1 + 副标题）
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('事件流');
-    expect(screen.getByTestId('page-header-subtitle')).toHaveTextContent('按类型/行业/重要度/方向筛选');
+    expect(screen.getByTestId('page-header-subtitle')).toHaveTextContent('按市场/类型/行业/重要度/方向筛选');
     expect(screen.getByTestId('event-type-9')).toHaveTextContent('政策发布');
     expect(screen.getByTestId('event-direction-9')).toHaveTextContent('利好');
     expect(screen.getByTestId('event-importance-9')).toHaveTextContent('高');
@@ -594,5 +594,120 @@ describe('Events 事件流页（T127 + T224 分页化，#/events）', () => {
 
     expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
     expect(screen.queryByTestId('event-focus-9')).toBeNull();
+  });
+});
+
+// —— M29 T257 三市场切换：market 过滤参数 + 行业分组容错消费 + URL 持久化 ——
+
+describe('Events 事件流页（T257）· 三市场切换', () => {
+  /** A 股默认（无 market 参数）全量 + 港股带分组响应（§5.4 契约增量）。 */
+  function hkCardOf(): EventCard {
+    return cardOf({
+      id: 21,
+      summary: '港交所印花税调整，港股交投活跃度回升',
+      industries: ['软件服务'],
+      subjects: [{ code: 'HK00388', name: '香港交易所', industry: '软件服务' }],
+      newsId: 1021,
+    });
+  }
+
+  it('M29 A股缺省零回归：请求不带 market 参数（§5.4 缺省不过滤）', async () => {
+    const fetchMock = stubFetch([{ path: '/api/v1/events', respond: () => ok(pageViewOf([cardOf()])) }]);
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
+    const firstCall = String(fetchMock.mock.calls[0][0]);
+    expect(firstCall).not.toContain('market=');
+    // 三市场 Tab 齐备不隐藏（拍板三）
+    expect(screen.getByTestId('market-tab-A_SHARE')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('market-tab-HK')).toBeInTheDocument();
+    expect(screen.getByTestId('market-tab-US')).toBeInTheDocument();
+  });
+
+  it('M29 切港股：请求带 market=HK + 行业筛选随枚举集清空回第 1 页 + URL 持久化 + 行业分组消费', async () => {
+    const fetchMock = stubFetch([
+      {
+        path: '/api/v1/events',
+        respond: (url: string) => {
+          if (url.includes('market=HK')) {
+            return ok({
+              ...pageViewOf([hkCardOf()], 1),
+              industryFilterGroups: [
+                { market: 'A_SHARE', industries: ['银行', '电子'] },
+                { market: 'HK', industries: ['软件服务', '地产建筑业'] },
+                { market: 'US', industries: ['银行', '软件与信息服务'] },
+              ],
+            });
+          }
+          return ok(pageViewOf([cardOf()], 30));
+        },
+      },
+    ]);
+    const { Events } = await import('@/pages/Events');
+    const user = userEvent.setup();
+    render(<Events />);
+
+    // A 股默认：行业下拉回退 SW 31（响应无分组——后端在途容错）
+    expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
+    const industrySelect = screen.getByTestId('events-filter-industry');
+    expect(within(industrySelect).getByRole('option', { name: '银行' })).toBeInTheDocument();
+
+    // 行业筛选选 A 股口径「银行」→ 请求带 industry=银行
+    await user.selectOptions(industrySelect, '银行');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => paramOf(String(call[0]), 'industry') === '银行'),
+      ).toBe(true),
+    );
+
+    // 切港股：URL 持久化 + 请求带 market=HK + 行业筛选清空（枚举集切换）+ 回第 1 页
+    await user.click(screen.getByTestId('market-tab-HK'));
+    expect(window.location.hash).toContain('market=HK');
+    await screen.findByTestId('event-card-21');
+    const hkCalls = fetchMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes('market=HK'));
+    expect(hkCalls.length).toBeGreaterThan(0);
+    for (const url of hkCalls) {
+      expect(paramOf(url, 'page')).toBe('1');
+      expect(paramOf(url, 'industry')).toBe(null); // 枚举集切换清空（银行非港股枚举）
+    }
+
+    // 行业下拉随响应分组切换为港股枚举（拍板二：三市场口径不混排）
+    expect(within(industrySelect).queryByRole('option', { name: '软件服务' })).toBeInTheDocument();
+    expect(within(industrySelect).queryByRole('option', { name: '地产建筑业' })).toBeInTheDocument();
+  });
+
+  it('M29 ?market=HK 深链直达：挂载初值即港股（刷新保持），首次请求带 market=HK', async () => {
+    const fetchMock = stubFetch([
+      { path: '/api/v1/events', respond: () => ok(pageViewOf([hkCardOf()], 1)) },
+    ]);
+    window.location.hash = '#/events?market=HK';
+    const { Events } = await import('@/pages/Events');
+    render(<Events />);
+
+    expect(await screen.findByTestId('event-card-21')).toBeInTheDocument();
+    expect(screen.getByTestId('market-tab-HK')).toHaveAttribute('aria-selected', 'true');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('market=HK');
+  });
+
+  it('M29 港股空结果：如实空态 + 原因标注（拍板三），响应无分组不报错（容错回退）', async () => {
+    stubFetch([
+      {
+        path: '/api/v1/events',
+        respond: (url: string) =>
+          url.includes('market=HK') ? ok(pageViewOf([], 0)) : ok(pageViewOf([cardOf()], 30)),
+      },
+    ]);
+    const { Events } = await import('@/pages/Events');
+    const user = userEvent.setup();
+    render(<Events />);
+
+    expect(await screen.findByTestId('event-card-9')).toBeInTheDocument();
+    await user.click(screen.getByTestId('market-tab-HK'));
+    const empty = await screen.findByTestId('events-empty');
+    expect(empty).toHaveTextContent('暂无事件');
+    expect(empty).toHaveTextContent('港美股资讯源接入逐步积累');
   });
 });

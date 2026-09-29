@@ -135,6 +135,7 @@ class MarketTopControllerTest {
     void rank_returnsWrappedView() throws Exception {
         com.info.platform.application.markettop.MarketTopQueryService.RankView view =
                 new com.info.platform.application.markettop.MarketTopQueryService.RankView(
+                        "A_SHARE",
                         "2026-09-22",
                         1,
                         "DAILY",
@@ -147,10 +148,12 @@ class MarketTopControllerTest {
                                         .readTree("{\"topSize\":10}"),
                                 new com.fasterxml.jackson.databind.ObjectMapper().readTree("[]"),
                                 null),
+                        new com.info.platform.application.markettop.MarketTopQueryService
+                                .LeaderboardView("CNY", "A股：申万一级 31", true, null, null),
                         List.of(),
                         "榜单为多因子信息整理与 AI 摘要，不构成投资建议",
                         null);
-        when(queryService.rank(null, null)).thenReturn(view);
+        when(queryService.rank(null, null, null)).thenReturn(view);
 
         mockMvc.perform(get("/api/v1/market-top"))
                 .andExpect(status().isOk())
@@ -160,12 +163,15 @@ class MarketTopControllerTest {
                 .andExpect(jsonPath("$.data.triggerSource").value("DAILY"))
                 .andExpect(jsonPath("$.data.batch.degraded").value(false))
                 .andExpect(jsonPath("$.data.batch.funnelStats.topSize").value(10))
-                .andExpect(jsonPath("$.data.disclaimer").isNotEmpty());
+                .andExpect(jsonPath("$.data.disclaimer").isNotEmpty())
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
+                .andExpect(jsonPath("$.data.leaderboard.currency").value("CNY"))
+                .andExpect(jsonPath("$.data.leaderboard.diveAvailable").value(true));
     }
 
     @Test
     void rank_noRankingDay_30089() throws Exception {
-        when(queryService.rank("2026-09-22", null))
+        when(queryService.rank(null, "2026-09-22", null))
                 .thenThrow(new BusinessException(ErrorCode.MARKET_TOP_NOT_FOUND, "该日无榜单数据"));
 
         mockMvc.perform(get("/api/v1/market-top").param("date", "2026-09-22"))
@@ -175,7 +181,7 @@ class MarketTopControllerTest {
 
     @Test
     void rank_invalidParamOrMissingVersion_30090() throws Exception {
-        when(queryService.rank("2026/09/22", null))
+        when(queryService.rank(null, "2026/09/22", null))
                 .thenThrow(
                         new BusinessException(
                                 ErrorCode.MARKET_TOP_QUERY_INVALID, "非法日期（需 yyyy-MM-dd）"));
@@ -187,11 +193,12 @@ class MarketTopControllerTest {
 
     @Test
     void versions_returnsWrappedList() throws Exception {
-        when(queryService.versions(null))
+        when(queryService.versions(null, null))
                 .thenReturn(
                         List.of(
                                 new com.info.platform.domain.markettop.MarketTopRepository
                                         .VersionSummary(
+                                        com.info.platform.domain.aggregation.Market.A_SHARE,
                                         "2026-09-22",
                                         1,
                                         "DAILY",
@@ -228,13 +235,66 @@ class MarketTopControllerTest {
                 .andExpect(jsonPath("$.data.funnel.poolSize").value(300));
     }
 
+    // ---- M29 T256：market 查询参数 ----
+
+    @Test
+    void rank_marketParam_passedThroughToQueryService() throws Exception {
+        when(queryService.rank("HK", null, null))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.MARKET_TOP_NOT_FOUND, "该市场无榜单数据: market=HK"));
+
+        mockMvc.perform(get("/api/v1/market-top").param("market", "HK"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30089));
+        org.mockito.Mockito.verify(queryService).rank("HK", null, null);
+    }
+
+    @Test
+    void rank_invalidMarket_400_30090() throws Exception {
+        when(queryService.rank("HK_SZ", null, null))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.MARKET_TOP_QUERY_INVALID,
+                                "market: 须为 A_SHARE / HK / US，当前值 HK_SZ"));
+
+        mockMvc.perform(get("/api/v1/market-top").param("market", "HK_SZ"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(30090))
+                .andExpect(jsonPath("$.msg").value("market: 须为 A_SHARE / HK / US，当前值 HK_SZ"));
+    }
+
+    @Test
+    void versions_marketParam_passedThrough() throws Exception {
+        when(queryService.versions("US", null)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/market-top/versions").param("market", "US"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+        org.mockito.Mockito.verify(queryService).versions("US", null);
+    }
+
+    @Test
+    void hitStats_marketParam_passedThrough() throws Exception {
+        when(hitStatsService.stats("HK"))
+                .thenThrow(
+                        new BusinessException(
+                                ErrorCode.MARKET_TOP_NOT_FOUND, "该市场无任何榜单日: market=HK"));
+
+        mockMvc.perform(get("/api/v1/market-top/hit-stats").param("market", "HK"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(30089));
+        org.mockito.Mockito.verify(hitStatsService).stats("HK");
+    }
+
     // ---- hit-stats（M22 T193，§4.2-③：GET /market-top/hit-stats——数据不足是合法态非错误） ----
 
     @Test
     void hitStats_returnsWrappedViewWithBasisAndDisclaimer() throws Exception {
-        when(hitStatsService.stats())
+        when(hitStatsService.stats(null))
                 .thenReturn(
                         new com.info.platform.application.markettop.HitStatsService.HitStatsView(
+                                "A_SHARE",
                                 "hits-v1:maxVer;price=market_daily_snapshot;win=1/5/20;median=pctChg;sample=priced-only",
                                 "2026-10-20",
                                 "历史统计不构成收益承诺",
@@ -277,7 +337,7 @@ class MarketTopControllerTest {
 
     @Test
     void hitStats_noRankDays_404_30089() throws Exception {
-        when(hitStatsService.stats())
+        when(hitStatsService.stats(null))
                 .thenThrow(new BusinessException(ErrorCode.MARKET_TOP_NOT_FOUND, "无任何榜单日"));
 
         mockMvc.perform(get("/api/v1/market-top/hit-stats"))

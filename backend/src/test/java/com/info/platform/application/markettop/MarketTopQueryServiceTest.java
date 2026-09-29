@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.markettop.MarketTopQueryService.RankView;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
 import com.info.platform.domain.markettop.MarketTopRepository;
@@ -68,6 +69,7 @@ class MarketTopQueryServiceTest {
     private static MarketTopVersion version(int versionNo) {
         return new MarketTopVersion(
                 new MarketTopBatchRow(
+                        Market.A_SHARE,
                         DATE,
                         versionNo,
                         "DAILY",
@@ -84,6 +86,7 @@ class MarketTopQueryServiceTest {
                         "2026-09-22T10:03:00Z"),
                 List.of(
                         new MarketTopRankRow(
+                                Market.A_SHARE,
                                 DATE,
                                 versionNo,
                                 1,
@@ -108,9 +111,9 @@ class MarketTopQueryServiceTest {
 
     @Test
     void rank_latestAnyDate_fullViewWithFactors() {
-        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(2)));
+        when(repository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.of(version(2)));
 
-        RankView view = service.rank(null, null);
+        RankView view = service.rank(null, null, null);
 
         assertThat(view.rankDate()).isEqualTo(DATE);
         assertThat(view.version()).isEqualTo(2);
@@ -126,28 +129,28 @@ class MarketTopQueryServiceTest {
 
     @Test
     void rank_explicitVersion_delegates() {
-        when(repository.find(DATE, 1)).thenReturn(Optional.of(version(1)));
+        when(repository.find(DATE, 1, Market.A_SHARE)).thenReturn(Optional.of(version(1)));
 
-        assertThat(service.rank(DATE, "1").version()).isEqualTo(1);
+        assertThat(service.rank(null, DATE, "1").version()).isEqualTo(1);
     }
 
     @Test
     void rank_invalidDateOrVersion_30090() {
-        assertThatThrownBy(() -> service.rank("2026/09/22", null))
+        assertThatThrownBy(() -> service.rank(null, "2026/09/22", null))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e ->
                                 assertThat(e.getErrorCode())
                                         .isEqualTo(ErrorCode.MARKET_TOP_QUERY_INVALID));
-        assertThatThrownBy(() -> service.rank(DATE, "abc"))
+        assertThatThrownBy(() -> service.rank(null, DATE, "abc"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e ->
                                 assertThat(e.getErrorCode())
                                         .isEqualTo(ErrorCode.MARKET_TOP_QUERY_INVALID));
         // date+version 组合无版本
-        when(repository.find(DATE, 7)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.rank(DATE, "7"))
+        when(repository.find(DATE, 7, Market.A_SHARE)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.rank(null, DATE, "7"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e ->
@@ -157,9 +160,9 @@ class MarketTopQueryServiceTest {
 
     @Test
     void rank_noRankingForDate_30089() {
-        when(repository.findLatest(DATE)).thenReturn(Optional.empty());
+        when(repository.findLatest(DATE, Market.A_SHARE)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.rank(DATE, null))
+        assertThatThrownBy(() -> service.rank(null, DATE, null))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e ->
@@ -169,10 +172,11 @@ class MarketTopQueryServiceTest {
 
     @Test
     void versions_delegatesWithDateFilter() {
-        when(repository.listVersions(null, 200))
+        when(repository.listVersions(null, Market.A_SHARE, 200))
                 .thenReturn(
                         List.of(
                                 new VersionSummary(
+                                        Market.A_SHARE,
                                         DATE,
                                         1,
                                         "DAILY",
@@ -182,19 +186,139 @@ class MarketTopQueryServiceTest {
                                         10,
                                         "2026-09-22T10:03:00Z")));
 
-        List<VersionSummary> versions = service.versions(null);
+        List<VersionSummary> versions = service.versions(null, null);
 
         assertThat(versions).hasSize(1);
         assertThat(versions.get(0).rankDate()).isEqualTo(DATE);
         assertThat(versions.get(0).topSize()).isEqualTo(10);
     }
 
+    // ---- M29 T256：market 参数与 leaderboard 维度回显 ----
+
+    @Test
+    void rank_marketDefaultAShare_leaderboardEchoesCnyDiveAvailable() {
+        // 缺省 market=A_SHARE 零回归 + 维度回显（A 股：CNY / 深析可用 / 无缺省维）
+        when(repository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.of(version(2)));
+
+        RankView view = service.rank(null, null, null);
+
+        assertThat(view.market()).isEqualTo("A_SHARE");
+        assertThat(view.leaderboard().currency()).isEqualTo("CNY");
+        assertThat(view.leaderboard().industrySystem()).contains("申万");
+        assertThat(view.leaderboard().diveAvailable()).isTrue();
+        assertThat(view.leaderboard().diveUnavailableReason()).isNull();
+        assertThat(view.leaderboard().dimensionMissing()).isNull();
+    }
+
+    @Test
+    void rank_hkMarket_leaderboardEchoesHkdMissingDimsDiveUnavailable() {
+        // 港股：HKD 原币 + 价值维缺省直读 funnel_stats.dimensionMissing + 深析不可用标注（拍板四/六不静默）
+        when(repository.findLatestAnyDate(Market.HK)).thenReturn(Optional.of(hkusVersion()));
+        lenient().when(snapshotRepository.findPoolRowsByDate(DATE)).thenReturn(List.of());
+
+        RankView view = service.rank("HK", null, null);
+
+        assertThat(view.market()).isEqualTo("HK");
+        assertThat(view.leaderboard().currency()).isEqualTo("HKD");
+        assertThat(view.leaderboard().industrySystem()).contains("港股");
+        assertThat(view.leaderboard().diveAvailable()).isFalse();
+        assertThat(view.leaderboard().diveUnavailableReason()).contains("暂未支持深析");
+        assertThat(view.leaderboard().dimensionMissing().path("valuation").asText())
+                .isEqualTo("本市场暂无价值评分因子");
+        assertThat(view.leaderboard().dimensionMissing().path("fundamental").asText())
+                .contains("权重置 0 后再归一");
+        // 港美股无因子快照行 → 五维分解空如实（缺省由 leaderboard 说明，不造假）
+        assertThat(view.items().get(0).factors()).isEmpty();
+    }
+
+    @Test
+    void rank_invalidMarket_30090() {
+        assertThatThrownBy(() -> service.rank("HK_SZ", null, null))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e ->
+                                assertThat(e.getErrorCode())
+                                        .isEqualTo(ErrorCode.MARKET_TOP_QUERY_INVALID));
+        // INDEX/SECTOR 非榜单市场同 30090（三值白名单）
+        assertThatThrownBy(() -> service.rank("INDEX", null, null))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e ->
+                                assertThat(e.getErrorCode())
+                                        .isEqualTo(ErrorCode.MARKET_TOP_QUERY_INVALID));
+    }
+
+    @Test
+    void rank_hkNoRanking_30089WithMarketContext() {
+        when(repository.findLatestAnyDate(Market.HK)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rank("HK", null, null))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> {
+                            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.MARKET_TOP_NOT_FOUND);
+                            assertThat(e.getMessage()).contains("HK");
+                        });
+    }
+
+    @Test
+    void versions_marketFilteredDelegation() {
+        when(repository.listVersions(null, Market.US, 200)).thenReturn(List.of());
+
+        assertThat(service.versions("US", null)).isEmpty();
+        org.mockito.Mockito.verify(repository).listVersions(null, Market.US, 200);
+    }
+
+    /** 港美股版本夹具（funnel_stats 含 dimensionMissing——MarketTopService 落库面同契约）。 */
+    private static MarketTopVersion hkusVersion() {
+        return new MarketTopVersion(
+                new MarketTopBatchRow(
+                        Market.HK,
+                        DATE,
+                        1,
+                        "DAILY",
+                        DATE,
+                        "{\"topSize\":1,\"dimensionMissing\":{\"fundamental\":\"本市场暂无基本面因子（F3/F5 权重置 0 后再归一）\",\"valuation\":\"本市场暂无价值评分因子\"},\"divePolicy\":\"A_SHARE_ONLY\"}",
+                        false,
+                        null,
+                        "[]",
+                        0L,
+                        0,
+                        null,
+                        "mt-v1:hkus:...",
+                        null,
+                        "2026-09-22T10:03:00Z"),
+                List.of(
+                        new MarketTopRankRow(
+                                Market.HK,
+                                DATE,
+                                1,
+                                1,
+                                1L,
+                                "HK00700",
+                                "腾讯控股",
+                                71.4,
+                                71.4,
+                                99.0,
+                                false,
+                                "FACTOR_ONLY",
+                                null,
+                                "该市场暂未支持深析（价值维因子体系 A 股先行），按因子分排序。",
+                                "{}",
+                                2,
+                                "2026-09-21",
+                                null,
+                                "NEW",
+                                "mt-v1:hkus:...",
+                                "2026-09-22T10:03:00Z")));
+    }
+
     // ---- recentIncrement（M22 T192，页头双时间戳 §4.2-②：当日最新 EVENT 版本摘要，无则 null） ----
 
     @Test
     void rank_recentIncrement_fromLatestEventVersionOfViewedDate() {
-        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(3)));
-        when(repository.findLatestEventVersion(DATE))
+        when(repository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.of(version(3)));
+        when(repository.findLatestEventVersion(DATE, Market.A_SHARE))
                 .thenReturn(
                         Optional.of(
                                 new MarketTopRepository.EventVersion(
@@ -202,7 +326,7 @@ class MarketTopQueryServiceTest {
                                         "2026-09-22T12:33:02Z",
                                         "[{\"eventId\":4821,\"summary\":\"业绩预增\",\"importance\":\"HIGH\"}]")));
 
-        RankView view = service.rank(null, null);
+        RankView view = service.rank(null, null, null);
 
         assertThat(view.recentIncrement()).isNotNull();
         assertThat(view.recentIncrement().version()).isEqualTo(2);
@@ -215,24 +339,24 @@ class MarketTopQueryServiceTest {
 
     @Test
     void rank_recentIncrementNull_whenNoEventVersion() {
-        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(1)));
-        when(repository.findLatestEventVersion(DATE)).thenReturn(Optional.empty());
+        when(repository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.of(version(1)));
+        when(repository.findLatestEventVersion(DATE, Market.A_SHARE)).thenReturn(Optional.empty());
 
-        RankView view = service.rank(null, null);
+        RankView view = service.rank(null, null, null);
 
         assertThat(view.recentIncrement()).isNull();
     }
 
     @Test
     void rank_recentIncrement_malformedTriggerEventsJson_fallsBackToEmptyList() {
-        when(repository.findLatestAnyDate()).thenReturn(Optional.of(version(3)));
-        when(repository.findLatestEventVersion(DATE))
+        when(repository.findLatestAnyDate(Market.A_SHARE)).thenReturn(Optional.of(version(3)));
+        when(repository.findLatestEventVersion(DATE, Market.A_SHARE))
                 .thenReturn(
                         Optional.of(
                                 new MarketTopRepository.EventVersion(
                                         2, "2026-09-22T12:33:02Z", "not-json")));
 
-        RankView view = service.rank(null, null);
+        RankView view = service.rank(null, null, null);
 
         // 损坏 JSON 容错空表——摘要面缺省不阻断榜单读取
         assertThat(view.recentIncrement()).isNotNull();

@@ -84,6 +84,17 @@ public class SubjectRepositoryImpl implements SubjectRepository {
              WHERE subject_code = ? AND status = 1 AND missing_streak >= ?
             """;
 
+    /**
+     * M29 T252 美股市值收敛状态维护（ADR-0064 裁决 3）：market='US' SQL 级守卫 + 目标状态前置过滤（状态已同值不写，计数 = 真实翻转行）；双向升降级（与
+     * §4.4 SQL ④ 单向停用语义并存——本方法只由快照轮收敛调用）。
+     */
+    private static final String UPDATE_US_STATUS_SQL =
+            """
+            UPDATE subject_master
+               SET status = ?, updated_at = ?, version = version + 1
+             WHERE market = 'US' AND subject_code = ? AND status != ?
+            """;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final SubjectMapper mapper;
@@ -273,6 +284,22 @@ public class SubjectRepositoryImpl implements SubjectRepository {
         // WHERE status=1 AND missing_streak>=threshold：未达阈值/已停用/不存在均零受影响（status 只 1→0）
         return jdbcTemplate.update(
                 DEACTIVATE_IF_REACHED_SQL, Instant.now().toString(), subjectCode, threshold);
+    }
+
+    @Override
+    @Transactional
+    public int updateStatusForUsCodes(java.util.Collection<String> subjectCodes, boolean active) {
+        if (subjectCodes == null || subjectCodes.isEmpty()) {
+            return 0;
+        }
+        int target = active ? SubjectStatus.ENABLED.code() : SubjectStatus.DISABLED.code();
+        String now = Instant.now().toString();
+        int flipped = 0;
+        for (String code : subjectCodes) {
+            // status != target 前置过滤：已同值行零写入（受影响行数 = 真实翻转数）
+            flipped += jdbcTemplate.update(UPDATE_US_STATUS_SQL, target, now, code, target);
+        }
+        return flipped;
     }
 
     /** external_codes JSON 序列化（对齐 JacksonTypeHandler 存储形态）。 */

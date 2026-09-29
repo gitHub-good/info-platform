@@ -26,6 +26,11 @@ class MarketSyncSpecTest {
         assertThat(MarketSyncSpec.HK_STOCK.market()).isEqualTo(Market.HK);
         assertThat(MarketSyncSpec.HK_STOCK.subjectType()).isEqualTo(SubjectType.STOCK);
 
+        // 美股桶（M29 T251，ADR-0064 裁决 3）：无 fs——桶语义 =「数据源 + 过滤规则」（F10 .N/.O 后缀预筛），非 clist 通道
+        assertThat(MarketSyncSpec.US_STOCK.fs()).isNull();
+        assertThat(MarketSyncSpec.US_STOCK.market()).isEqualTo(Market.US);
+        assertThat(MarketSyncSpec.US_STOCK.subjectType()).isEqualTo(SubjectType.STOCK);
+
         // 指数桶（T54 接入，本批仅预留定义）
         assertThat(MarketSyncSpec.CN_INDEX.fs()).isEqualTo("m:1+t:1,m:0+t:5");
         assertThat(MarketSyncSpec.CN_INDEX.market()).isEqualTo(Market.INDEX);
@@ -33,11 +38,15 @@ class MarketSyncSpecTest {
     }
 
     @Test
-    void codePrefixOf_mapsThreeMarkets() {
+    void codePrefixOf_mapsAllMarkets() {
         // §4.2 映射表：1=沪 / 0=深 / 116=港（f13 恰为 secid 市场前缀本身）
         assertThat(MarketSyncSpec.codePrefixOf(1)).isEqualTo("SH");
         assertThat(MarketSyncSpec.codePrefixOf(0)).isEqualTo("SZ");
         assertThat(MarketSyncSpec.codePrefixOf(116)).isEqualTo("HK");
+        // M29 扩（Spike-E §5.2）：105=纳斯达克 / 106=纽交所 / 107=美交所 → 统一 US 前缀
+        assertThat(MarketSyncSpec.codePrefixOf(105)).isEqualTo("US");
+        assertThat(MarketSyncSpec.codePrefixOf(106)).isEqualTo("US");
+        assertThat(MarketSyncSpec.codePrefixOf(107)).isEqualTo("US");
     }
 
     @Test
@@ -68,6 +77,38 @@ class MarketSyncSpecTest {
                 new SubjectSnapshot(
                         "SZ000001", "平安银行", "银行", "0.000001", MarketSyncSpec.A_SHARE_STOCK);
         assertThat(sz.externalCodes()).containsEntry("tushare", "000001.SZ");
+    }
+
+    @Test
+    void snapshot_externalCodes_hkUsF10TripleKey() {
+        // M29 F10 快照（方案 §2.3 ①）：eastmoney secid + tushare 派生 + f10 SECUCODE 原键（档案回查锚）
+        SubjectSnapshot hk =
+                new SubjectSnapshot(
+                        "HK00700",
+                        "腾讯控股",
+                        "软件服务",
+                        "116.00700",
+                        MarketSyncSpec.HK_STOCK,
+                        "00700.HK");
+        assertThat(hk.externalCodes())
+                .isEqualTo(
+                        Map.of(
+                                "eastmoney", "116.00700",
+                                "tushare", "00700.HK",
+                                "f10", "00700.HK"));
+        SubjectSnapshot us =
+                new SubjectSnapshot(
+                        "USAAPL", "苹果", "电子设备与元件", "105.AAPL", MarketSyncSpec.US_STOCK, "AAPL.O");
+        assertThat(us.externalCodes())
+                .isEqualTo(
+                        Map.of(
+                                "eastmoney", "105.AAPL",
+                                "tushare", "AAPL.US",
+                                "f10", "AAPL.O"));
+        // 旧构造（无 f10 原键）：双键形态零变化（A 股/新浪既有调用面兼容）
+        SubjectSnapshot legacyHk =
+                new SubjectSnapshot("HK00700", "腾讯控股", null, "116.00700", MarketSyncSpec.HK_STOCK);
+        assertThat(legacyHk.externalCodes()).hasSize(2);
     }
 
     @Test

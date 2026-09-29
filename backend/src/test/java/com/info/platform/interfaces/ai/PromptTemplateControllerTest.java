@@ -277,11 +277,11 @@ class PromptTemplateControllerTest {
                                 .content("{\"template\": \"x\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
-        // 非法 briefType（M21 T182 起 10 已被全市场深析占用——非法例改用 11）
+        // 非法 briefType（M21 起 10 被全市场深析、V3.2 M28 起 11 被资讯脉搏占用——非法例改用 12）
         mockMvc.perform(
                         post("/api/v1/prompt-templates")
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"briefType\": 11, \"template\": \"x\"}"))
+                                .content("{\"briefType\": 12, \"template\": \"x\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
         // 非法 versionStrategy
@@ -366,7 +366,7 @@ class PromptTemplateControllerTest {
         mockMvc.perform(get("/api/v1/prompt-placeholders"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.scenarios.length()").value(10))
+                .andExpect(jsonPath("$.data.scenarios.length()").value(11))
                 .andExpect(jsonPath("$.data.scenarios[4].briefType").value(5))
                 .andExpect(jsonPath("$.data.scenarios[4].name").value("行业归类"))
                 .andExpect(jsonPath("$.data.scenarios[5].briefType").value(6))
@@ -408,8 +408,8 @@ class PromptTemplateControllerTest {
 
     @Test
     void placeholders_invalidBriefType_returns400ParamInvalid() throws Exception {
-        // Act + Assert：未知场景码按参数校验口径 400/2001（M21 T182 起 10 已被全市场深析占用——非法例改用 11）
-        mockMvc.perform(get("/api/v1/prompt-placeholders").param("briefType", "11"))
+        // Act + Assert：未知场景码按参数校验口径 400/2001（M21 起 10 被深析、V3.2 M28 起 11 被资讯脉搏占用——非法例改用 12）
+        mockMvc.perform(get("/api/v1/prompt-placeholders").param("briefType", "12"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(2001));
     }

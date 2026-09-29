@@ -30,6 +30,25 @@ export function formatPrice(value: number | null | undefined, digits = 2): strin
   return value.toFixed(digits);
 }
 
+// —— 市场原币符号（M29 T257，REQ-20260929-23 拍板六：原币计价不折算，仅展示符号不换汇） ——
+
+/** 市场原币符号：A ¥ / 港 HK$ / 美 $（入参兼容 market 键与 currency 码两线格式）。 */
+export function currencySymbolOf(marketOrCurrency: string | null | undefined): string {
+  const value = marketOrCurrency ?? '';
+  if (value === 'HK' || value === 'HKD') return 'HK$';
+  if (value === 'US' || value === 'USD') return '$';
+  return '¥';
+}
+
+/** 原币金额展示（符号前缀 + 亿/万；不换汇，币种随数据来源市场）。 */
+export function formatMoneyInCurrency(
+  value: number | null | undefined,
+  marketOrCurrency: string | null | undefined,
+): string {
+  if (value == null || Number.isNaN(value)) return '--';
+  return `${currencySymbolOf(marketOrCurrency)}${formatMoney(value)}`;
+}
+
 /** 通用数值展示 */
 export function formatNumber(value: number | null | undefined, digits = 2): string {
   if (value == null || Number.isNaN(value)) return '--';

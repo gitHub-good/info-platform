@@ -1,5 +1,6 @@
 package com.info.platform.domain.valuation;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.IndustryCategory;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -94,6 +95,23 @@ public final class IndustryAssociator {
             List<MemberLink> members,
             LocalDate snapshotDate,
             int windowDays) {
+        return associate(events, news, members, snapshotDate, windowDays, Market.A_SHARE);
+    }
+
+    /**
+     * 派生全部标的的关联集（M29 T256 分市场口径，方案 §7.2——港美股行业白名单按市场切换）：三路原料同构，行业过滤由 申万白名单改为 {@code
+     * IndustryCategory.isBoardIndustry(market, ·)}（A_SHARE 与既有 isSwIndustry 逐值等价——35 枚举集内 SW 子集；
+     * 港股/美股 = 各自 F10 枚举集，UNKNOWN 与容器不出边）。调用方须先按市场过滤原料（事件/资讯回联行按标的代码裁剪），跨市场重名行业由 分市场调用消歧。
+     *
+     * @param market 行业枚举口径（A_SHARE / HK / US）
+     */
+    public static Map<String, List<Association>> associate(
+            List<EventLink> events,
+            List<NewsLink> news,
+            List<MemberLink> members,
+            LocalDate snapshotDate,
+            int windowDays,
+            Market market) {
         Map<String, Map<String, Association>> bySubject = new HashMap<>();
         for (EventLink link : events) {
             long age = ageOf(link.eventDate(), snapshotDate);
@@ -101,7 +119,7 @@ public final class IndustryAssociator {
                 continue;
             }
             for (String code : codesOf(link.subjectCodes())) {
-                for (String industry : industriesOf(link.affectedIndustries())) {
+                for (String industry : industriesOf(link.affectedIndustries(), market)) {
                     merge(
                             bySubject,
                             code,
@@ -116,14 +134,14 @@ public final class IndustryAssociator {
                 continue;
             }
             for (String code : codesOf(link.subjectCodes())) {
-                if (IndustryCategory.isSwIndustry(link.mainCategory())) {
+                if (isBoardIndustry(market, link.mainCategory())) {
                     merge(
                             bySubject,
                             code,
                             link.mainCategory(),
                             new Association(link.mainCategory(), 1.0, age, Source.NEWS_MAIN));
                 }
-                if (IndustryCategory.isSwIndustry(link.subIndustry())) {
+                if (isBoardIndustry(market, link.subIndustry())) {
                     merge(
                             bySubject,
                             code,
@@ -136,8 +154,8 @@ public final class IndustryAssociator {
             if (link == null
                     || link.subjectCode() == null
                     || link.subjectCode().isBlank()
-                    || !IndustryCategory.isSwIndustry(link.industry())) {
-                continue; // 防御：投影层已过滤未收录板块，此处申万白名单双保险（不强行关联）
+                    || !isBoardIndustry(market, link.industry())) {
+                continue; // 防御：投影层已过滤未收录板块，此处分市场白名单双保险（不强行关联）
             }
             merge(
                     bySubject,
@@ -200,11 +218,18 @@ public final class IndustryAssociator {
         return codes.stream().filter(code -> code != null && !code.isBlank()).toList();
     }
 
-    private static List<String> industriesOf(List<String> industries) {
+    /** 分市场「进榜行业」过滤（A_SHARE = isSwIndustry 等价；港美股 = 各自 F10 枚举集，M29 T256）。 */
+    private static List<String> industriesOf(List<String> industries, Market market) {
         if (industries == null) {
             return List.of();
         }
-        return industries.stream().filter(IndustryCategory::isSwIndustry).toList();
+        return industries.stream().filter(industry -> isBoardIndustry(market, industry)).toList();
+    }
+
+    private static boolean isBoardIndustry(Market market, String industry) {
+        return market == Market.A_SHARE
+                ? IndustryCategory.isSwIndustry(industry)
+                : IndustryCategory.isBoardIndustry(market, industry);
     }
 
     private static long ageOf(LocalDate date, LocalDate snapshotDate) {

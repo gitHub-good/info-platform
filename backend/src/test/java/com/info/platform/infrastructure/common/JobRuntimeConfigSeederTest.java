@@ -53,7 +53,9 @@ class JobRuntimeConfigSeederTest {
 
         // V2.3-M23 T203：POLICY_FETCH/POLICY_TENDENCY 两键随轨 B 双 Job 整链删除（Job 18→16，ADR-0062 裁决二）；
         // M27 T242/T243 增 INDUSTRY_MARKET_SNAPSHOT/INDUSTRY_MAINLINE 两键（16→18，ADR-0063 裁决 6）；
-        // 纯增量守卫：既有 16 键不被增补挤占（INCREMENTAL_REEVAL 及之前键序不动）
+        // V3.2 M28 增 NEWS_PULSE 键（18→19，六时间窗资讯脉搏）；
+        // M29 T252 增 HKUS_MARKET_SNAPSHOT 键（19→20，港美股行情快照一职三责轮，ADR-0064 裁决 4）；
+        // 纯增量守卫：既有 19 键不被增补挤占（NEWS_PULSE 及之前键序不动）
         assertThat(keys)
                 .containsExactly(
                         "job.ANOMALY_DETECT",
@@ -73,7 +75,40 @@ class JobRuntimeConfigSeederTest {
                         "job.MARKET_TOP_JOB",
                         "job.INCREMENTAL_REEVAL",
                         "job.INDUSTRY_MARKET_SNAPSHOT",
-                        "job.INDUSTRY_MAINLINE");
+                        "job.INDUSTRY_MAINLINE",
+                        "job.NEWS_PULSE",
+                        "job.HKUS_MARKET_SNAPSHOT");
+    }
+
+    // ---- HKUS_MARKET_SNAPSHOT 种子（M29 T252，第 20 键，FIXED_DELAY 60min 可配 30~120min）----
+
+    @Test
+    void seeds_hkusMarketSnapshot_fixedDelayWithInterval() {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "hkusMarketSnapshotEnabled", true);
+        ReflectionTestUtils.setField(seeder, "hkusMarketSnapshotIntervalMillis", 3600000L);
+        RuntimeConfigSeed seed =
+                seeder.seeds().stream()
+                        .filter(s -> s.configKey().equals("job.HKUS_MARKET_SNAPSHOT"))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(seed.json())
+                .contains("\"enabled\":true")
+                .contains("\"scheduleType\":\"FIXED_DELAY\"")
+                .contains("\"intervalMillis\":3600000");
+        assertThat(seed.description()).contains("港美股行情快照");
+    }
+
+    @Test
+    void seeds_hkusMarketSnapshot_testProfileDisabled() {
+        JobRuntimeConfigSeeder seeder = new JobRuntimeConfigSeeder(new ObjectMapper());
+        ReflectionTestUtils.setField(seeder, "hkusMarketSnapshotEnabled", false);
+        RuntimeConfigSeed seed =
+                seeder.seeds().stream()
+                        .filter(s -> s.configKey().equals("job.HKUS_MARKET_SNAPSHOT"))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(seed.json()).contains("\"enabled\":false");
     }
 
     // ---- INCREMENTAL_REEVAL 种子（T190，M22 方案 §3.5-2：第 18 键，FIXED_DELAY 60s 短轮询）----
@@ -502,7 +537,7 @@ class JobRuntimeConfigSeederTest {
         // 生产默认：盘后 18:30（MARKET_TOP 18:00 后 30min 错峰——独立 CRON 不依赖触发，ADR-0063 裁决 6）
         RuntimeConfigSeed seed = mainlineSeed(true, "0 30 18 * * ?");
 
-        assertThat(seed.configKey()).isEqualTo("job.INDUSTRY_MAINLINE");
+        assertThat(seed.configKey()).isEqualTo("job.INDUSTRY_MAINLINE", "job.NEWS_PULSE");
         assertThat(seed.description()).contains("IndustryMainlineJob");
         assertThat(seed.json())
                 .contains("\"enabled\":true")

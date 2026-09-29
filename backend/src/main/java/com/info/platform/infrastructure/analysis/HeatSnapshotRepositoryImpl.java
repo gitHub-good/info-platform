@@ -1,6 +1,7 @@
 package com.info.platform.infrastructure.analysis;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
@@ -18,12 +19,13 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 /**
- * {@link HeatSnapshotRepository} 端口的 SQLite 实现（M15 T123，ADR-0046 裁决 1）。
+ * {@link HeatSnapshotRepository} 端口的 SQLite 实现（M15 T123，ADR-0046 裁决 1；M29 T255 market 参数化）。
  *
- * <p>UPSERT {@code ON CONFLICT(industry, window_type) DO UPDATE}（62 行常驻当前值，重跑收敛）；窗口现算与下钻 join
- * {@code news_analysis/news_item/event_item}（独立表代价 = 一次 join，24h 窗 ≤700 行毫秒级——裁决 1 论证）；事件行业匹配走 JSON
- * 文本包含（引号定界 {@code '%"银行"%'}——枚举名不含引号/百分号，无转义面，且不受「非银金融」等子串误配）。下钻 events 清单的 info_source 取 LEFT
- * JOIN（软删源行不消失，sourceName 置空——行数与 countIndustryEventItems 对账保持相等）。
+ * <p>UPSERT {@code ON CONFLICT(industry, market, window_type) DO UPDATE}（各市场枚举×双窗常驻当前值，重跑收敛；market
+ * 随行实体参数 化——V37 唯一键组成）；窗口现算与下钻 join {@code news_analysis/news_item/event_item} 并按 {@code
+ * na.l1_market = market} 过滤（独立表代价 = 一次 join，24h 窗 ≤700 行毫秒级——裁决 1 论证）；事件行业匹配走 JSON 文本包含（引号定界 {@code
+ * '%"银行"%'}——枚举名不含引号/百分号， 无转义面，且不受「非银金融」等子串误配；跨市场重名行业由 l1_market 消歧）。下钻 events 清单的 info_source 取
+ * LEFT JOIN（软删源行不消失， sourceName 置空——行数与 countIndustryEventItems 对账保持相等）。
  */
 @Repository
 public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
@@ -31,10 +33,10 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
     private static final String UPSERT_SQL =
             """
             INSERT INTO industry_heat_snapshot
-              (industry, window_type, heat_score, prev_score, delta_pct, news_count, event_count,
+              (market, industry, window_type, heat_score, prev_score, delta_pct, news_count, event_count,
                basis, snapshot_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(industry, window_type) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(industry, market, window_type) DO UPDATE SET
               heat_score = excluded.heat_score,
               prev_score = excluded.prev_score,
               delta_pct = excluded.delta_pct,
@@ -47,10 +49,10 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
 
     private static final String FIND_BOARD_SQL =
             """
-            SELECT id, industry, window_type, heat_score, prev_score, delta_pct, news_count,
+            SELECT id, market, industry, window_type, heat_score, prev_score, delta_pct, news_count,
                    event_count, basis, snapshot_at, created_at, updated_at
               FROM industry_heat_snapshot
-             WHERE window_type = ?
+             WHERE window_type = ? AND market = ?
              ORDER BY heat_score DESC, news_count DESC, industry ASC
             """;
 
@@ -63,6 +65,7 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
               LEFT JOIN event_item e ON e.news_id = na.news_id
              WHERE na.l0_result = 'PASS'
                AND na.l1_status = 'DONE'
+               AND na.l1_market = ?
                AND ni.published_at >= ? AND ni.published_at < ?
              ORDER BY ni.published_at ASC, ni.id ASC
             """;
@@ -77,6 +80,7 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
               LEFT JOIN event_item e ON e.news_id = na.news_id
              WHERE na.l0_result = 'PASS'
                AND na.l1_status = 'DONE'
+               AND na.l1_market = ?
                AND na.main_category = ?
                AND ni.published_at >= ? AND ni.published_at < ?
             """;
@@ -88,8 +92,10 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
                    s.name AS source_name
               FROM event_item e
               JOIN news_item ni ON ni.id = e.news_id
+              JOIN news_analysis na ON na.news_id = e.news_id
               LEFT JOIN info_source s ON s.id = ni.source_id
-             WHERE e.affected_industries LIKE ?
+             WHERE na.l1_market = ?
+               AND e.affected_industries LIKE ?
                AND ni.published_at >= ? AND ni.published_at < ?
             """;
 
@@ -97,6 +103,7 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
             (rs, rowNum) ->
                     IndustryHeatSnapshot.reconstruct(
                             rs.getLong("id"),
+                            Market.fromName(rs.getString("market")),
                             rs.getString("industry"),
                             HeatWindow.fromName(rs.getString("window_type")),
                             rs.getDouble("heat_score"),
@@ -163,17 +170,18 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
                             @Override
                             public void setValues(PreparedStatement ps, int i) throws SQLException {
                                 IndustryHeatSnapshot row = snapshots.get(i);
-                                ps.setString(1, row.getIndustry());
-                                ps.setString(2, row.getWindow().name());
-                                ps.setDouble(3, row.getHeatScore());
-                                ps.setDouble(4, row.getPrevScore());
-                                ps.setDouble(5, row.getDeltaPct());
-                                ps.setLong(6, row.getNewsCount());
-                                ps.setLong(7, row.getEventCount());
-                                ps.setString(8, row.getBasis());
-                                ps.setString(9, row.getSnapshotAt().toString());
-                                ps.setString(10, now);
+                                ps.setString(1, row.getMarket().name());
+                                ps.setString(2, row.getIndustry());
+                                ps.setString(3, row.getWindow().name());
+                                ps.setDouble(4, row.getHeatScore());
+                                ps.setDouble(5, row.getPrevScore());
+                                ps.setDouble(6, row.getDeltaPct());
+                                ps.setLong(7, row.getNewsCount());
+                                ps.setLong(8, row.getEventCount());
+                                ps.setString(9, row.getBasis());
+                                ps.setString(10, row.getSnapshotAt().toString());
                                 ps.setString(11, now);
+                                ps.setString(12, now);
                             }
 
                             @Override
@@ -189,15 +197,19 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
     }
 
     @Override
-    public List<IndustryHeatSnapshot> findBoard(HeatWindow window) {
-        return jdbcTemplate.query(FIND_BOARD_SQL, SNAPSHOT_ROW, window.name());
+    public List<IndustryHeatSnapshot> findBoard(HeatWindow window, Market market) {
+        return jdbcTemplate.query(FIND_BOARD_SQL, SNAPSHOT_ROW, window.name(), market.name());
     }
 
     @Override
     public List<HeatSnapshotRepository.WindowItem> findWindowItems(
-            String publishedFromIso, String publishedToIso) {
+            String publishedFromIso, String publishedToIso, Market market) {
         return jdbcTemplate.query(
-                FIND_WINDOW_ITEMS_SQL, WINDOW_ITEM_ROW, publishedFromIso, publishedToIso);
+                FIND_WINDOW_ITEMS_SQL,
+                WINDOW_ITEM_ROW,
+                market.name(),
+                publishedFromIso,
+                publishedToIso);
     }
 
     @Override
@@ -206,9 +218,11 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
             String publishedFromIso,
             String publishedToIso,
             Long beforeNewsId,
-            int limit) {
+            int limit,
+            Market market) {
         StringBuilder sql = new StringBuilder(FIND_INDUSTRY_NEWS_SQL);
         List<Object> args = new ArrayList<>();
+        args.add(market.name());
         args.add(industry);
         args.add(publishedFromIso);
         args.add(publishedToIso);
@@ -220,13 +234,15 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
 
     @Override
     public long countIndustryNewsItems(
-            String industry, String publishedFromIso, String publishedToIso) {
+            String industry, String publishedFromIso, String publishedToIso, Market market) {
         Long count =
                 jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM news_analysis na JOIN news_item ni ON ni.id = na.news_id"
                                 + " WHERE na.l0_result = 'PASS' AND na.l1_status = 'DONE'"
-                                + " AND na.main_category = ? AND ni.published_at >= ? AND ni.published_at < ?",
+                                + " AND na.l1_market = ? AND na.main_category = ?"
+                                + " AND ni.published_at >= ? AND ni.published_at < ?",
                         Long.class,
+                        market.name(),
                         industry,
                         publishedFromIso,
                         publishedToIso);
@@ -239,9 +255,11 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
             String publishedFromIso,
             String publishedToIso,
             Long beforeEventId,
-            int limit) {
+            int limit,
+            Market market) {
         StringBuilder sql = new StringBuilder(FIND_INDUSTRY_EVENTS_SQL);
         List<Object> args = new ArrayList<>();
+        args.add(market.name());
         args.add(quotedContains(industry));
         args.add(publishedFromIso);
         args.add(publishedToIso);
@@ -253,13 +271,15 @@ public class HeatSnapshotRepositoryImpl implements HeatSnapshotRepository {
 
     @Override
     public long countIndustryEventItems(
-            String industry, String publishedFromIso, String publishedToIso) {
+            String industry, String publishedFromIso, String publishedToIso, Market market) {
         Long count =
                 jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM event_item e JOIN news_item ni ON ni.id = e.news_id"
-                                + " WHERE e.affected_industries LIKE ?"
+                                + " JOIN news_analysis na ON na.news_id = e.news_id"
+                                + " WHERE na.l1_market = ? AND e.affected_industries LIKE ?"
                                 + " AND ni.published_at >= ? AND ni.published_at < ?",
                         Long.class,
+                        market.name(),
                         quotedContains(industry),
                         publishedFromIso,
                         publishedToIso);

@@ -36,9 +36,10 @@ import java.util.Optional;
  * #isRelevant} 关键词匹配可保留（东财已按个股过滤，{@code contains} 仍命中）或弃用 （直接映射全部）。匹配策略为 package-private
  * 静态方法，便于独立单测与未来替换。
  *
- * <p>代码派生：6 位代码用于关键词匹配，优先 {@code eastmoney_code} 键；缺省从 {@code eastmoney} secid 按 {@code .}
- * 切分派生（Spike-1 §5，逻辑同 {@link AnnounceSourceAdapter}）。两者皆缺 → 仅按 {@code subject.name}
- * 匹配（仍可命中标题含名称的新闻）。V2 种子（贵州茅台）存 {@code eastmoney="1.600519"}，派生 {@code 600519}。
+ * <p>代码派生：A 股 6 位 / 港股 5 位数字 / 美股 ticker 原样（M29 T253 扩港美分支，方案 §4 C5），优先 {@code eastmoney_code}
+ * 键；缺省从 {@code eastmoney} secid 按 {@code .} 切分派生（Spike-1 §5，逻辑同 {@link AnnounceSourceAdapter}）。两者皆缺
+ * → 仅按 {@code subject.name} 匹配（仍可命中标题含名称的新闻）。V2 种子（贵州茅台）存 {@code eastmoney="1.600519"}，派生 {@code
+ * 600519}；港股 {@code 116.00700}→{@code 00700}、美股 {@code 105.AAPL}→{@code AAPL}。
  *
  * <p><b>列表型分区映射策略</b>（同 {@link AnnounceSourceAdapter}）：{@link FieldMapper#map} 仅做单条 flat Map
  * 映射，无法遍历列表。故 {@code doFetch} 内：① 对每条命中新闻预处理 {@code ctime}（见下）； ② 用 {@link #itemMapping}（{@code
@@ -67,6 +68,9 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
 
     /** subject.external_codes 中东财 secid 的键名（派生 6 位代码的回退来源，V2 种子用此键）。 */
     private static final String EASTMONEY_SECID_KEY = "eastmoney";
+
+    /** 港股 secid 代码段 {@code HK} 前缀长度（push2 形态 116.HK00700 防御性剥除；F10 形态 116.00700 无前缀直通）。 */
+    private static final int HK_PREFIX_LENGTH = 2;
 
     /** 新浪为中国新闻源，ctime 为 UTC epoch 秒，按 +08:00 落地展示时间。 */
     private static final ZoneId NEWS_ZONE = ZoneId.of("Asia/Shanghai");
@@ -230,10 +234,12 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
     }
 
     /**
-     * 派生 6 位证券代码用于关键词匹配：优先 {@code eastmoney_code} 键；缺省从 {@code eastmoney} secid（如 {@code
-     * 1.600519}）按首个 {@code .} 切分派生为 {@code 600519}。两者皆缺/空 → null（仅按名称匹配）。
+     * 派生证券代码用于关键词匹配（M29 T253 扩港美分支，方案 §4 C5）：优先 {@code eastmoney_code} 键；缺省从 {@code eastmoney}
+     * secid 按首个 {@code .} 切分派生——A 股 {@code 1.600519}→{@code 600519}（6 位既有约定不动）、港股 {@code
+     * 116.00700}→{@code 00700}（5 位数字；push2 解封形态 {@code 116.HK00700} 的 {@code HK} 前缀防御性剥除）、 美股
+     * {@code 105.AAPL}→{@code AAPL}（ticker 原样大写）。两者皆缺/空 → null（仅按名称匹配）。
      */
-    private static String resolveStockCode(Subject subject) {
+    static String resolveStockCode(Subject subject) {
         Map<String, String> externalCodes = subject.getExternalCodes();
         if (externalCodes == null) {
             return null;
@@ -247,6 +253,9 @@ public class NewsSourceAdapter extends AbstractSourceAdapter {
             return null;
         }
         int dot = secid.indexOf('.');
-        return dot >= 0 ? secid.substring(dot + 1) : secid;
+        String derived = dot >= 0 ? secid.substring(dot + 1) : secid;
+        return derived.length() > HK_PREFIX_LENGTH && derived.startsWith("HK")
+                ? derived.substring(HK_PREFIX_LENGTH)
+                : derived;
     }
 }

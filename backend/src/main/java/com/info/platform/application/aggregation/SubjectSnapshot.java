@@ -12,12 +12,19 @@ import java.util.Objects;
  *
  * @param subjectCode 内部统一代码（如 {@code SH600519} / {@code HK00700}，港股前导零保留）
  * @param name 标的名称（已 trim，非空）
- * @param industry 行业（东财分类中文；源占位 {@code "-"} / 空已归一为 null）
- * @param secid 东财取数键（如 {@code 1.600519} / {@code 116.00700}）
+ * @param industry 行业（东财分类中文；源占位 {@code "-"} / 空已归一为 null；港美股为归并后枚举，null→UNKNOWN 口径在 F10 客户端归一）
+ * @param secid 东财取数键（如 {@code 1.600519} / {@code 116.00700} / {@code 105.AAPL}）
  * @param bucket 该快照所属的市场桶
+ * @param f10Code F10 档案原键 {@code SECUCODE}（如 {@code 00700.HK} / {@code AAPL.O}；仅港美股 F10 快照携带，A
+ *     股/新浪为 null）
  */
 public record SubjectSnapshot(
-        String subjectCode, String name, String industry, String secid, MarketSyncSpec bucket) {
+        String subjectCode,
+        String name,
+        String industry,
+        String secid,
+        MarketSyncSpec bucket,
+        String f10Code) {
 
     public SubjectSnapshot {
         Objects.requireNonNull(subjectCode, "subjectCode 必填");
@@ -26,9 +33,16 @@ public record SubjectSnapshot(
         Objects.requireNonNull(bucket, "bucket 必填");
     }
 
+    /** 兼容构造（A 股/新浪既有调用面：无 F10 原键）。 */
+    public SubjectSnapshot(
+            String subjectCode, String name, String industry, String secid, MarketSyncSpec bucket) {
+        this(subjectCode, name, industry, secid, bucket, null);
+    }
+
     /**
      * external_codes 取数键集（INSERT 时一次性落，对齐 V2/V17 种子 JSON 形态）： {@code eastmoney} = secid、{@code
-     * tushare} = 代码.市场后缀（如 {@code 600519.SH} / {@code 00700.HK}）。
+     * tushare} = 代码.市场后缀（如 {@code 600519.SH} / {@code 00700.HK}）；港美股 F10 快照另带 {@code f10} =
+     * SECUCODE 原键（M29 方案 §2.3 ①，档案回查锚）。
      *
      * <p>行情/估值链路经既有 {@code QuoteSourceAdapter.EASTMONEY_SECID_KEY} 按键取数，同步新入库标的零改造即可取行情。
      */
@@ -39,6 +53,9 @@ public record SubjectSnapshot(
         }
         String rawCode = secid.substring(dot + 1);
         String prefix = MarketSyncSpec.codePrefixOf(Integer.parseInt(secid.substring(0, dot)));
-        return Map.of("eastmoney", secid, "tushare", rawCode + "." + prefix);
+        if (f10Code == null || f10Code.isBlank()) {
+            return Map.of("eastmoney", secid, "tushare", rawCode + "." + prefix);
+        }
+        return Map.of("eastmoney", secid, "tushare", rawCode + "." + prefix, "f10", f10Code);
     }
 }

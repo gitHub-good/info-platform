@@ -44,7 +44,12 @@ public enum BriefType {
      * 全市场深析（M21 T182 / ADR-0059 裁决 3；V32 播种 v1.0——单标的单次调用 scene "10"，输出过五步校验链：解析→结构→引用对账 （citations
      * ⊆ 输入白名单）→违禁扫描→通过，任一步失败模板兜底不重试；红线：不得引入输入之外的事实、不给买卖建议）。
      */
-    DEEP_DIVE(10, "全市场深析");
+    DEEP_DIVE(10, "全市场深析"),
+    /**
+     * 资讯脉搏（V3.2 M28：多时间窗 30m~24h 事件归纳；briefType=11，V36 播种 v1.0——LLM 仅归纳输入条目，
+     * 行业/概念/标的只能取输入出现过的词，输出降级不阻塞规则统计）。
+     */
+    NEWS_PULSE(11, "资讯脉搏");
 
     private final int code;
     private final String displayName;

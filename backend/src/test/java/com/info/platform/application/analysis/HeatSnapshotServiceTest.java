@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.HeatSnapshotRepository;
 import com.info.platform.domain.analysis.HeatWindow;
 import com.info.platform.domain.analysis.Importance;
@@ -27,8 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * HeatSnapshotService 单测（T123，方案 §4.5）：双窗 31×2 行 UPSERT（62 行常驻零填）、prev 等长窗口对齐、环比 deltaPct、basis
- * 串随参数、重跑幂等收敛。 mock 仓储 + 缺省参数。AAA 结构。
+ * HeatSnapshotService 单测（T123，方案 §4.5；M29 T255 三市场化）：三市场双窗 UPSERT（A 31×2 + HK 31×2 + US 40×2 = 204
+ * 行常驻零填）、 prev 等长窗口对齐、环比 deltaPct、basis 串随参数、按 l1_market 分桶不混桶、重跑幂等收敛。mock 仓储 + 缺省参数。AAA 结构。
  */
 class HeatSnapshotServiceTest {
 
@@ -60,11 +61,13 @@ class HeatSnapshotServiceTest {
         // Arrange：当前窗 1 条银行、prev 窗 2 条银行（无事件 → score 2）
         when(repository.findWindowItems(
                         eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
-                        eq(NOW.toString())))
+                        eq(NOW.toString()),
+                        eq(Market.A_SHARE)))
                 .thenReturn(List.of(windowItem("银行", "2026-09-22T07:00:00Z")));
         when(repository.findWindowItems(
                         eq(NOW.minus(java.time.Duration.ofHours(48)).toString()),
-                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString())))
+                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
+                        eq(Market.A_SHARE)))
                 .thenReturn(
                         List.of(
                                 windowItem("银行", "2026-09-21T10:00:00Z"),
@@ -73,15 +76,18 @@ class HeatSnapshotServiceTest {
         // Act
         HeatSnapshotService.SnapshotReport report = service.snapshotAll();
 
-        // Assert：62 行（31×2）、零行业沉底常驻、报告留痕
+        // Assert：三市场 204 行（A 62 + HK 62 + US 80）、零行业沉底常驻、报告留痕按市场分列
         ArgumentCaptor<List<IndustryHeatSnapshot>> captor = ArgumentCaptor.forClass(List.class);
         verify(repository, times(1)).upsertAll(captor.capture());
         List<IndustryHeatSnapshot> rows = captor.getValue();
-        assertThat(rows).hasSize(62);
-        assertThat(rows.stream().filter(r -> r.getWindow() == HeatWindow.H24)).hasSize(31);
-        assertThat(rows.stream().filter(r -> r.getWindow() == HeatWindow.D7)).hasSize(31);
-        assertThat(report.rows()).isEqualTo(62);
-        assertThat(report.detail()).contains("h24").contains("d7");
+        assertThat(rows).hasSize(204);
+        assertThat(rows.stream().filter(r -> r.getMarket() == Market.A_SHARE)).hasSize(62);
+        assertThat(rows.stream().filter(r -> r.getMarket() == Market.HK)).hasSize(62);
+        assertThat(rows.stream().filter(r -> r.getMarket() == Market.US)).hasSize(80);
+        assertThat(rows.stream().filter(r -> r.getWindow() == HeatWindow.H24)).hasSize(102);
+        assertThat(rows.stream().filter(r -> r.getWindow() == HeatWindow.D7)).hasSize(102);
+        assertThat(report.rows()).isEqualTo(204);
+        assertThat(report.detail()).contains("a:62").contains("hk:62").contains("us:80");
     }
 
     @Test
@@ -90,11 +96,13 @@ class HeatSnapshotServiceTest {
         // prev 2 条（09-21T02:00 age 6h → 0.5^(6/12)=0.7071、09-20T20:00 age 12h → 0.5）
         when(repository.findWindowItems(
                         eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
-                        eq(NOW.toString())))
+                        eq(NOW.toString()),
+                        eq(Market.A_SHARE)))
                 .thenReturn(List.of(windowItem("银行", "2026-09-22T07:00:00Z")));
         when(repository.findWindowItems(
                         eq(NOW.minus(java.time.Duration.ofHours(48)).toString()),
-                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString())))
+                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
+                        eq(Market.A_SHARE)))
                 .thenReturn(
                         List.of(
                                 windowItem("银行", "2026-09-21T02:00:00Z"),
@@ -128,11 +136,13 @@ class HeatSnapshotServiceTest {
     void snapshotAll_prevZeroScorePositive_delta100() {
         when(repository.findWindowItems(
                         eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
-                        eq(NOW.toString())))
+                        eq(NOW.toString()),
+                        eq(Market.A_SHARE)))
                 .thenReturn(List.of(windowItem("银行", "2026-09-22T07:00:00Z")));
         when(repository.findWindowItems(
                         eq(NOW.minus(java.time.Duration.ofHours(48)).toString()),
-                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString())))
+                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
+                        eq(Market.A_SHARE)))
                 .thenReturn(List.of());
 
         service.snapshotAll();
@@ -163,7 +173,7 @@ class HeatSnapshotServiceTest {
     @Test
     void snapshotAll_eventWeightsCounted() {
         // 事件加权：银行 1 条 HIGH 事件（affected 含 房地产）→ 银行 11、房地产 +10
-        when(repository.findWindowItems(anyString(), anyString()))
+        when(repository.findWindowItems(anyString(), anyString(), any(Market.class)))
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.WindowItem(
@@ -179,7 +189,10 @@ class HeatSnapshotServiceTest {
         verify(repository).upsertAll(captor.capture());
         Map<String, IndustryHeatSnapshot> h24 =
                 captor.getValue().stream()
-                        .filter(r -> r.getWindow() == HeatWindow.H24)
+                        .filter(
+                                r ->
+                                        r.getMarket() == Market.A_SHARE
+                                                && r.getWindow() == HeatWindow.H24)
                         .collect(
                                 java.util.stream.Collectors.toMap(
                                         IndustryHeatSnapshot::getIndustry, r -> r));
@@ -191,12 +204,49 @@ class HeatSnapshotServiceTest {
 
     @Test
     void snapshotAll_rerunIdempotentConvergesToCurrentValues() {
-        // 幂等：同一数据重跑 → UPSERT 同 62 行，值收敛（重算相等断言的数据面）
-        when(repository.findWindowItems(anyString(), anyString())).thenReturn(List.of());
+        // 幂等：同一数据重跑 → UPSERT 同 204 行，值收敛（重算相等断言的数据面）
+        when(repository.findWindowItems(anyString(), anyString(), any(Market.class)))
+                .thenReturn(List.of());
 
         service.snapshotAll();
         service.snapshotAll();
 
         verify(repository, times(2)).upsertAll(any());
+    }
+
+    @Test
+    void snapshotAll_marketBucketsIsolated_hkEnumsScored() {
+        // Arrange：港股桶 1 条「软件服务」（H24 现值窗）、其余窗空——A/US 桶零值不受影响
+        when(repository.findWindowItems(
+                        eq(NOW.minus(java.time.Duration.ofHours(24)).toString()),
+                        eq(NOW.toString()),
+                        eq(Market.HK)))
+                .thenReturn(List.of(windowItem("软件服务", "2026-09-22T07:00:00Z")));
+
+        // Act
+        service.snapshotAll();
+
+        // Assert：HK「软件服务」计 1 条得衰减分；A 股「银行」零值（同窗 A 股桶无条目）；HK 桶行 market 维正确
+        ArgumentCaptor<List<IndustryHeatSnapshot>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertAll(captor.capture());
+        Map<String, IndustryHeatSnapshot> h24 =
+                captor.getValue().stream()
+                        .filter(r -> r.getMarket() == Market.HK && r.getWindow() == HeatWindow.H24)
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        IndustryHeatSnapshot::getIndustry, r -> r));
+        assertThat(h24.get("软件服务").getNewsCount()).isEqualTo(1);
+        assertThat(h24.get("软件服务").getHeatScore()).isGreaterThan(0d);
+        assertThat(
+                        captor.getValue().stream()
+                                .filter(
+                                        r ->
+                                                r.getMarket() == Market.A_SHARE
+                                                        && r.getIndustry().equals("银行")
+                                                        && r.getWindow() == HeatWindow.H24)
+                                .findFirst()
+                                .orElseThrow()
+                                .getNewsCount())
+                .isZero();
     }
 }

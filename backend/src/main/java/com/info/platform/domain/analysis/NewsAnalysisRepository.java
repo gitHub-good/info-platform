@@ -196,6 +196,8 @@ public interface NewsAnalysisRepository {
      * L2 候选（join news_item/info_source/news_analysis：重要性打分与事件提取渲染所需字段）。
      *
      * @param currentL2 当前 l2_status（DEFERRED = 旧账，排序优先——次日低峰先还）
+     * @param l1Market 条目市场口径（M29 T254——affected_industries 分市场白名单与 prompt 按市场注入枚举的依据；null 兼容 =
+     *     A_SHARE）
      */
     record L2Candidate(
             long newsId,
@@ -207,9 +209,15 @@ public interface NewsAnalysisRepository {
             Instant publishedAt,
             Instant createdAt,
             L2Status currentL2,
-            String matchedSubjectsJson) {}
+            String matchedSubjectsJson,
+            String l1Market) {}
 
-    /** L1 结果落库参数（分类产物 + 条件 UPDATE 锚点）。 */
+    /**
+     * L1 结果落库参数（分类产物 + 条件 UPDATE 锚点）。
+     *
+     * @param l1Market 条目市场口径（A_SHARE / HK / US，M29 T253——matched_subjects 主市场派生，无标的 → A_SHARE 容器面；
+     *     跨市场重名行业消歧 + 热度分市场聚合键，方案 §3.1 ⑧）
+     */
     record L1Write(
             long newsId,
             String mainCategory,
@@ -219,7 +227,33 @@ public interface NewsAnalysisRepository {
             boolean lowConfidence,
             String matchedSubjects,
             String promptVersion,
-            Instant classifiedAt) {}
+            String l1Market,
+            Instant classifiedAt) {
+
+        /** 兼容构造（M15~M28 既有 A 股调用面：l1_market 缺省 'A_SHARE'——存量测试与 A 股路径行为不变）。 */
+        public L1Write(
+                long newsId,
+                String mainCategory,
+                String rawMain,
+                String subIndustry,
+                Double confidence,
+                boolean lowConfidence,
+                String matchedSubjects,
+                String promptVersion,
+                Instant classifiedAt) {
+            this(
+                    newsId,
+                    mainCategory,
+                    rawMain,
+                    subIndustry,
+                    confidence,
+                    lowConfidence,
+                    matchedSubjects,
+                    promptVersion,
+                    "A_SHARE",
+                    classifiedAt);
+        }
+    }
 
     /**
      * L2 结果落库参数（news_analysis.l2_status 条件推进；event_item 行由 {@link EventItemRepository} 承载）。

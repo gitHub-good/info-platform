@@ -32,12 +32,12 @@ describe('AppLayout 统一导航骨架（T38 → V3.0 T221 顶栏化）', () => 
     expect(screen.getByTestId('nav-logout')).toBeInTheDocument();
   });
 
-  it('18 页 navConfig 总表不变；完整导航经窄屏抽屉承载（nav-item-{route} 全量保留）', async () => {
+  it('19 页 navConfig 总表不变；完整导航经窄屏抽屉承载（nav-item-{route} 全量保留）', async () => {
     const user = userEvent.setup();
     render(<AppLayout currentRoute="/overview">内容</AppLayout>);
 
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
-    expect(allItems).toHaveLength(18); // 4 分组 18 页结构零变化（M27 T245 行业主线入分析组）
+    expect(allItems).toHaveLength(19); // 4 分组 19 页结构零变化（V3.2 M28 资讯脉搏入分析组）
     await user.click(screen.getByTestId('nav-toggle'));
     const drawer = screen.getByTestId('nav-drawer');
     for (const item of allItems) {

@@ -22,8 +22,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * IndustryHeatController 切片测试（T123，方案 §4.8）：路由 /api/v1/industry-heat 与 /{industry}/items、Result 包装、
- * 中文行业路径段 URL 解码、30076 错误映射（standalone MockMvc + service mock）。
+ * IndustryHeatController 切片测试（T123，方案 §4.8；M29 T255 market 参数）：路由 /api/v1/industry-heat 与
+ * /{industry}/items、Result 包装、中文行业路径段 URL 解码、market 参数透传与回显、30076 错误映射（standalone MockMvc + service
+ * mock）。
  */
 class IndustryHeatControllerTest {
 
@@ -46,48 +47,58 @@ class IndustryHeatControllerTest {
 
     @Test
     void board_returnsWrappedView() throws Exception {
-        when(queryService.board("H24"))
+        com.info.platform.domain.analysis.IndustryHeatSnapshot bank =
+                com.info.platform.domain.analysis.IndustryHeatSnapshot.create(
+                        "银行",
+                        com.info.platform.domain.analysis.HeatWindow.H24,
+                        30.0,
+                        20.0,
+                        10,
+                        2,
+                        "heat-v1:k1=10;imp=1.0/0.5/0.25;hl=12h|48h",
+                        Instant.parse("2026-09-22T08:00:00Z"));
+        when(queryService.board(null, "H24"))
                 .thenReturn(
-                        new IndustryHeatBoardView(
-                                "H24",
-                                List.of(
-                                        new IndustryHeatBoardView.RowView(
-                                                "银行", 30.0, 20.0, 50.0, 10, 2),
-                                        new IndustryHeatBoardView.RowView(
-                                                "钢铁", 0.0, 0.0, 0.0, 0, 0)),
-                                "heat-v1:k1=10;imp=1.0/0.5/0.25;hl=12h|48h",
-                                "2026-09-22T08:00:00Z",
+                        IndustryHeatBoardView.of(
+                                com.info.platform.domain.aggregation.Market.A_SHARE,
+                                com.info.platform.domain.analysis.HeatWindow.H24,
+                                List.of(bank),
                                 new IndustryHeatBoardView.PipelineBadgeView("NORMAL")));
 
         mockMvc.perform(get("/api/v1/industry-heat").param("window", "H24"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.market").value("A_SHARE"))
+                .andExpect(jsonPath("$.data.industrySystem").value("A股：申万一级 31"))
                 .andExpect(jsonPath("$.data.window").value("H24"))
                 .andExpect(jsonPath("$.data.industries[0].industry").value("银行"))
                 .andExpect(jsonPath("$.data.industries[0].heatScore").value(30.0))
-                .andExpect(jsonPath("$.data.industries[0].deltaPct").value(50.0))
                 .andExpect(jsonPath("$.data.industries[0].newsCount").value(10))
                 .andExpect(jsonPath("$.data.industries[0].eventCount").value(2))
-                .andExpect(
-                        jsonPath("$.data.basis").value("heat-v1:k1=10;imp=1.0/0.5/0.25;hl=12h|48h"))
                 .andExpect(jsonPath("$.data.pipeline.level").value("NORMAL"));
     }
 
     @Test
-    void board_unknownWindow_400_30076() throws Exception {
-        when(queryService.board("W1"))
-                .thenThrow(
-                        new BusinessException(
-                                ErrorCode.PIPELINE_CONFIG_INVALID, "window: 须为 H24 / D7"));
+    void board_hkMarketParam_passedAndEchoed() throws Exception {
+        when(queryService.board("HK", null))
+                .thenReturn(
+                        IndustryHeatBoardView.of(
+                                com.info.platform.domain.aggregation.Market.HK,
+                                com.info.platform.domain.analysis.HeatWindow.H24,
+                                List.of(),
+                                new IndustryHeatBoardView.PipelineBadgeView("NORMAL")));
 
-        mockMvc.perform(get("/api/v1/industry-heat").param("window", "W1"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(30076));
+        mockMvc.perform(get("/api/v1/industry-heat").param("market", "HK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.market").value("HK"))
+                .andExpect(
+                        jsonPath("$.data.industrySystem")
+                                .value("港股：东财行业分类（31 直采，来源 F10 BELONG_INDUSTRY）"));
     }
 
     @Test
     void items_chineseIndustryPathDecoded_paramsPassed() throws Exception {
-        when(queryService.items(eq("银行"), eq("H24"), eq("news"), eq(null), eq(20)))
+        when(queryService.items(eq("银行"), eq(null), eq("H24"), eq("news"), eq(null), eq(20)))
                 .thenReturn(
                         new IndustryHeatItemsView(
                                 "银行",
@@ -132,7 +143,7 @@ class IndustryHeatControllerTest {
 
     @Test
     void items_unknownIndustry_400_30076() throws Exception {
-        when(queryService.items(eq("宏观"), any(), any(), any(), any()))
+        when(queryService.items(eq("宏观"), any(), any(), any(), any(), any()))
                 .thenThrow(
                         new BusinessException(
                                 ErrorCode.PIPELINE_CONFIG_INVALID, "industry: 须为申万一级行业枚举"));

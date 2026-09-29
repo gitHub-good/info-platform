@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.ai.PromptTemplateService;
 import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmGateway;
@@ -161,11 +162,12 @@ class DailyReportServiceTest {
                         List.of(
                                 event(11, "央行开展买断式逆回购", Importance.HIGH, List.of("银行")),
                                 event(12, "芯片新产能落地", Importance.MEDIUM, List.of("电子", "房地产"))));
-        when(heatSnapshotRepository.findBoard(HeatWindow.H24))
+        when(heatSnapshotRepository.findBoard(HeatWindow.H24, Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 IndustryHeatSnapshot.reconstruct(
                                         1L,
+                                        Market.A_SHARE,
                                         "银行",
                                         HeatWindow.H24,
                                         45.0,
@@ -179,6 +181,7 @@ class DailyReportServiceTest {
                                         NOW),
                                 IndustryHeatSnapshot.reconstruct(
                                         2L,
+                                        Market.A_SHARE,
                                         "电子",
                                         HeatWindow.H24,
                                         30.0,

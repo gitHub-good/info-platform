@@ -2,6 +2,7 @@ package com.info.platform.infrastructure.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventItemRepository;
 import com.info.platform.domain.analysis.EventType;
@@ -214,7 +215,7 @@ class EventItemRepositoryImplTest {
 
         EventItemRepository.EventStreamFilter filter =
                 new EventItemRepository.EventStreamFilter(
-                        EventType.POLICY_RELEASE, null, Importance.HIGH, Direction.BULLISH);
+                        EventType.POLICY_RELEASE, null, Importance.HIGH, Direction.BULLISH, null);
 
         assertThat(repository.findStreamItems(filter, null, 20))
                 .extracting(row -> row.event().getId())
@@ -246,7 +247,7 @@ class EventItemRepositoryImplTest {
                         "非银事件");
 
         EventItemRepository.EventStreamFilter bankFilter =
-                new EventItemRepository.EventStreamFilter(null, "银行", null, null);
+                new EventItemRepository.EventStreamFilter(null, "银行", null, null, null);
 
         assertThat(repository.findStreamItems(bankFilter, null, 20))
                 .extracting(row -> row.event().getId())
@@ -254,8 +255,101 @@ class EventItemRepositoryImplTest {
         assertThat(repository.countStreamItems(bankFilter)).isEqualTo(1L);
 
         EventItemRepository.EventStreamFilter nonBankFilter =
-                new EventItemRepository.EventStreamFilter(null, "非银金融", null, null);
+                new EventItemRepository.EventStreamFilter(null, "非银金融", null, null, null);
         assertThat(repository.countStreamItems(nonBankFilter)).isEqualTo(1L);
+    }
+
+    // ---- M29 P1-01 回归（方案 §5.4）：market 过滤维（subjects code 前缀——事件关联标的含该市场标的）----
+
+    @Test
+    void findStreamItems_marketFilter_subjectCodePrefix() {
+        // Arrange：A股标的事件 / 港股标的事件 / 美股标的事件 / 混合标的（A+HK）/ 未回联事件 / 空 subjects 事件
+        long aShare =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[{\"code\":\"SZ000001\",\"name\":\"平安银行\",\"industry\":\"银行\"}]",
+                        null,
+                        "A股标的事件");
+        long hk =
+                seedEvent(
+                        EventType.POLICY_RELEASE,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"软件服务\"]",
+                        "[]",
+                        "[{\"code\":\"HK00700\",\"name\":\"腾讯控股\",\"industry\":\"软件服务\"}]",
+                        null,
+                        "港股标的事件");
+        long us =
+                seedEvent(
+                        EventType.EARNINGS_FORECAST,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"通信与电信\"]",
+                        "[]",
+                        "[{\"code\":\"USQCOM\",\"name\":\"高通\",\"industry\":\"通信与电信\"}]",
+                        null,
+                        "美股标的事件");
+        long mixed =
+                seedEvent(
+                        EventType.MA_MERGER,
+                        Direction.BULLISH,
+                        Importance.HIGH,
+                        "[\"银行\"]",
+                        "[]",
+                        "[{\"code\":\"SH601869\",\"name\":\"长飞光纤\",\"industry\":null},"
+                                + "{\"code\":\"HK00700\",\"name\":\"腾讯控股\",\"industry\":\"互联网\"}]",
+                        null,
+                        "A港混合标的事件");
+        seedEvent(
+                EventType.POLICY_RELEASE,
+                Direction.BEARISH,
+                Importance.LOW,
+                "[\"宏观\"]",
+                "[]",
+                "[{\"code\":null,\"name\":\"某未回联公司\",\"industry\":null}]",
+                null,
+                "未回联标的事件");
+        seedEvent(
+                EventType.POLICY_RELEASE,
+                Direction.NEUTRAL,
+                Importance.LOW,
+                "[\"宏观\"]",
+                "[]",
+                "[]",
+                null,
+                "无标的事件");
+
+        // Act/Assert：market=HK → 仅港股标的命中（含 A+HK 混合事件——「含该市场标的」语义）
+        EventItemRepository.EventStreamFilter hkFilter =
+                new EventItemRepository.EventStreamFilter(null, null, null, null, Market.HK);
+        assertThat(repository.findStreamItems(hkFilter, null, 20))
+                .extracting(row -> row.event().getId())
+                .containsExactlyInAnyOrder(hk, mixed);
+        assertThat(repository.countStreamItems(hkFilter)).isEqualTo(2L);
+
+        // Act/Assert：market=US → 仅美股标的命中
+        EventItemRepository.EventStreamFilter usFilter =
+                new EventItemRepository.EventStreamFilter(null, null, null, null, Market.US);
+        assertThat(repository.findStreamItems(usFilter, null, 20))
+                .extracting(row -> row.event().getId())
+                .containsExactly(us);
+        assertThat(repository.countStreamItems(usFilter)).isEqualTo(1L);
+
+        // Act/Assert：market 维 null（缺省/A_SHARE 归一后）→ 全量 6 条零回归
+        assertThat(repository.countStreamItems(EventItemRepository.EventStreamFilter.unfiltered()))
+                .isEqualTo(6L);
+
+        // Act/Assert：market 与 industry 组合 → HK + 软件服务（跨市场重名行业由 market 消歧——A股银行事件不混入）
+        EventItemRepository.EventStreamFilter hkSoftware =
+                new EventItemRepository.EventStreamFilter(null, "软件服务", null, null, Market.HK);
+        assertThat(repository.findStreamItems(hkSoftware, null, 20))
+                .extracting(row -> row.event().getId())
+                .containsExactly(hk);
     }
 
     @Test

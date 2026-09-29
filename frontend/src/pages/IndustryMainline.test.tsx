@@ -596,3 +596,126 @@ describe('heatCellShade 色阶纯函数（T245，方向轨单点导出）', () =
     expect(heatCellShade(-5).color).toBe('#ffffff');
   });
 });
+
+// —— M29 T257 三市场切换：四接口带 market + bootstrap/龙头占位/币种符号 + URL 持久化 ——
+
+describe('IndustryMainline 行业主线页（T257）· 三市场切换', () => {
+  it('M29 切美股：heat-map/mainline 带 market=US + URL 持久化 + 口径标注/原币符号回显', async () => {
+    const usHeat = heatViewOf(
+      [heatCellOf('软件与信息服务', { pctDay: -0.78, totalMv: 4_935_600, mainNetFlow: null })],
+      {
+        market: 'US',
+        industrySystem: '美股：东财行业分类（归并 ≤40，来源 F10 BELONG_INDUSTRY）',
+        currency: 'USD',
+        source: 'hkus-aggregate',
+        quoteTime: '2026-09-29T04:00:01-04:00',
+      },
+    );
+    const usMainline = mainlineViewOf(
+      [
+        mainlineItemOf({
+          industry: '软件与信息服务',
+          leaders: [],
+          leadersAvailable: false,
+          leaderUnavailableReason: '港美股龙头分析暂未支持（依赖基本面因子体系）',
+        }),
+      ],
+      {
+        market: 'US',
+        industrySystem: '美股：东财行业分类（归并 ≤40）',
+        bootstrap: true,
+        basis: 'mainline-v1:m2',
+      },
+    );
+    const fetchMock = stubFetch([
+      { path: '/api/v1/industry-heat-map', respond: () => ok(usHeat) },
+      { path: '/api/v1/industry-mainline', respond: () => ok(usMainline) },
+    ]);
+    const user = userEvent.setup();
+    await renderPage();
+
+    // 默认 A 股请求带 market=A_SHARE（显式下发——后端缺省同值零回归）
+    expect(await screen.findByTestId('mainline-card-1')).toBeInTheDocument();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('market=A_SHARE');
+
+    // 切美股：URL 持久化 + 两接口重查带 market=US
+    await user.click(screen.getByTestId('market-tab-US'));
+    expect(window.location.hash).toContain('market=US');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/industry-heat-map?market=US')),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/industry-mainline?market=US')),
+      ).toBe(true),
+    );
+
+    // 口径标注 + 原币符号（拍板二/六）+ 冷启动徽章（拍板五）
+    expect(await screen.findByTestId('heat-meta')).toHaveTextContent('美股：东财行业分类');
+    expect(screen.getByTestId('heat-meta')).toHaveTextContent('$');
+    expect(screen.getByTestId('mainline-meta')).toHaveTextContent('美股：东财行业分类');
+    expect(screen.getByTestId('mainline-bootstrap')).toHaveTextContent('冷启动');
+
+    // 港美股龙头占位不静默（W1）——不渲染龙头展开按钮
+    expect(screen.queryByTestId('mainline-leaders-toggle-1')).toBeNull();
+    expect(screen.getByTestId('mainline-leaders-unavailable-1')).toHaveTextContent(
+      '港美股龙头分析暂未支持',
+    );
+
+    // 市值 hover title 带原币符号（拍板六：原币不折算）
+    const cell = await screen.findByTestId('heat-cell-软件与信息服务');
+    expect(cell).toHaveAttribute('title');
+    expect(cell.getAttribute('title')).toContain('$');
+  });
+
+  it('M29 切港股下钻：detail 带 market=HK（同名行业消歧）+ 龙头占位 + 市值 HK$ 符号', async () => {
+    const hkDetail = detailViewOf({
+      market: 'HK',
+      industrySystem: '港股：东财行业分类（31 直采）',
+      industry: '软件服务',
+      currency: 'HKD',
+      totalMv: 4_935_600,
+      boards: null,
+      constituents: null,
+      leaders: [],
+      leadersAvailable: false,
+      leaderUnavailableReason: '港美股龙头分析暂未支持（依赖基本面因子体系）',
+      memberCount: 120,
+    });
+    const fetchMock = stubFetch([
+      { path: '/api/v1/industry-heat-map', respond: () => ok(heatViewOf([heatCellOf('软件服务')])) },
+      {
+        path: '/api/v1/industry-mainline',
+        respond: () =>
+          ok(
+            mainlineViewOf(
+              [mainlineItemOf({ industry: '软件服务', leaders: [], leadersAvailable: false })],
+              { market: 'HK' },
+            ),
+          ),
+      },
+      { path: '/api/v1/industry-mainline/%E8%BD%AF%E4%BB%B6%E6%9C%8D%E5%8A%A1/detail', respond: () => ok(hkDetail) },
+    ]);
+    const user = userEvent.setup();
+    window.location.hash = '#/industry-mainline?market=HK';
+    await renderPage();
+
+    // 直达初值 = 港股（挂载读 ?market=）
+    expect(await screen.findByTestId('market-tab-HK')).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByTestId('mainline-industry-link-1'));
+
+    expect(await screen.findByTestId('mainline-detail-dialog')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (call) => String(call[0]).includes('/detail?market=HK'),
+        ),
+      ).toBe(true),
+    );
+    // 龙头占位说明（不静默留白）+ 总市值 HK$ 原币符号
+    expect(screen.getByTestId('detail-leaders-unavailable')).toHaveTextContent('港美股龙头分析暂未支持');
+    expect(screen.getByTestId('detail-quote')).toHaveTextContent('HK$');
+  });
+});

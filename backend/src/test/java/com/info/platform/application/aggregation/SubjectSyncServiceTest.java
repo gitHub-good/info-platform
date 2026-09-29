@@ -42,14 +42,18 @@ class SubjectSyncServiceTest {
                 .thenReturn(List.of(snapshot("600519", "贵州茅台")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK))
                 .thenReturn(List.of(snapshot("00700", "腾讯控股")));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK))
+                .thenReturn(List.of(usSnapshot("AAPL", "苹果")));
         MarketSyncResult aShare =
                 new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 1, 0, 0, 0, 0, 1, 5);
         MarketSyncResult hk = new MarketSyncResult(MarketSyncSpec.HK_STOCK, 1, 0, 0, 0, 0, 1, 5);
-        when(writer.writeBucket(any(), anyList())).thenReturn(aShare).thenReturn(hk);
+        MarketSyncResult us = new MarketSyncResult(MarketSyncSpec.US_STOCK, 1, 0, 0, 0, 0, 1, 5);
+        when(writer.writeBucket(any(), anyList())).thenReturn(aShare).thenReturn(hk).thenReturn(us);
 
         List<MarketSyncResult> results = new SubjectSyncService(source, writer, false).syncAll();
 
-        assertThat(results).containsExactly(aShare, hk);
+        // 桶顺序即执行顺序：A 股 → 港股 → 美股（M29 T251 追加，ADR-0064 裁决 3）
+        assertThat(results).containsExactly(aShare, hk, us);
     }
 
     @Test
@@ -60,9 +64,13 @@ class SubjectSyncServiceTest {
                 .thenReturn(List.of(snapshot("600519", "贵州茅台")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK))
                 .thenThrow(new IllegalStateException("clist 第 12 页拉取失败（重试耗尽）bucket=HK_STOCK"));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK))
+                .thenReturn(List.of(usSnapshot("AAPL", "苹果")));
         MarketSyncResult aShare =
                 new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 5561, 0, 0, 0, 0, 5561, 95000);
         when(writer.writeBucket(eq(MarketSyncSpec.A_SHARE_STOCK), anyList())).thenReturn(aShare);
+        when(writer.writeBucket(eq(MarketSyncSpec.US_STOCK), anyList()))
+                .thenReturn(new MarketSyncResult(MarketSyncSpec.US_STOCK, 1, 0, 0, 0, 0, 1, 5));
 
         SubjectSyncService service = new SubjectSyncService(source, writer, false);
         assertThatThrownBy(service::syncAll)
@@ -84,10 +92,11 @@ class SubjectSyncServiceTest {
 
         SubjectSyncException exception = catchSyncException(source, writer);
 
-        // §4.5：跨市场独立——每个失败市场各占一条摘要，成功计数列表为空
-        assertThat(exception.getFailures()).hasSize(2);
+        // §4.5：跨市场独立——每个失败市场各占一条摘要，成功计数列表为空（M29 起三股票桶）
+        assertThat(exception.getFailures()).hasSize(3);
         assertThat(exception.getFailures().get(0)).contains("A_SHARE_STOCK FAILED");
         assertThat(exception.getFailures().get(1)).contains("HK_STOCK FAILED");
+        assertThat(exception.getFailures().get(2)).contains("US_STOCK FAILED");
         assertThat(exception.getResults()).isEmpty();
     }
 
@@ -115,14 +124,18 @@ class SubjectSyncServiceTest {
                 new SubjectSyncService(
                         mock(SubjectListSource.class), mock(SubjectSyncWriter.class), false);
 
-        // 开（默认）：A 股 → 港股 → 指数（顺序即执行顺序）；关（Should 可关）：仅两股票桶
+        // 开（默认）：A 股 → 港股 → 美股 → 指数（顺序即执行顺序）；关（Should 可关）：仅三股票桶
         assertThat(indexOn.syncedBuckets())
                 .containsExactly(
                         MarketSyncSpec.A_SHARE_STOCK,
                         MarketSyncSpec.HK_STOCK,
+                        MarketSyncSpec.US_STOCK,
                         MarketSyncSpec.CN_INDEX);
         assertThat(indexOff.syncedBuckets())
-                .containsExactly(MarketSyncSpec.A_SHARE_STOCK, MarketSyncSpec.HK_STOCK);
+                .containsExactly(
+                        MarketSyncSpec.A_SHARE_STOCK,
+                        MarketSyncSpec.HK_STOCK,
+                        MarketSyncSpec.US_STOCK);
     }
 
     @Test
@@ -133,18 +146,21 @@ class SubjectSyncServiceTest {
                 .thenReturn(List.of(snapshot("600519", "贵州茅台")));
         when(source.fetchAll(MarketSyncSpec.HK_STOCK))
                 .thenReturn(List.of(snapshot("00700", "腾讯控股")));
+        when(source.fetchAll(MarketSyncSpec.US_STOCK))
+                .thenReturn(List.of(usSnapshot("AAPL", "苹果")));
         when(source.fetchAll(MarketSyncSpec.CN_INDEX))
                 .thenThrow(new IllegalStateException("clist total 完整性校验失败 bucket=CN_INDEX"));
         MarketSyncResult aShare =
                 new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 1, 0, 0, 0, 0, 1, 5);
         MarketSyncResult hk = new MarketSyncResult(MarketSyncSpec.HK_STOCK, 1, 0, 0, 0, 0, 1, 5);
-        when(writer.writeBucket(any(), anyList())).thenReturn(aShare).thenReturn(hk);
+        MarketSyncResult us = new MarketSyncResult(MarketSyncSpec.US_STOCK, 1, 0, 0, 0, 0, 1, 5);
+        when(writer.writeBucket(any(), anyList())).thenReturn(aShare).thenReturn(hk).thenReturn(us);
         SubjectSyncService service = new SubjectSyncService(source, writer, true);
 
         // Should 语义：指数桶失败仅 WARN——不抛汇总异常，股票结果照常返回
         List<MarketSyncResult> results = service.syncAll();
 
-        assertThat(results).containsExactly(aShare, hk);
+        assertThat(results).containsExactly(aShare, hk, us);
         verify(writer, never()).writeBucket(eq(MarketSyncSpec.CN_INDEX), anyList());
     }
 
@@ -156,15 +172,17 @@ class SubjectSyncServiceTest {
         MarketSyncResult aShare =
                 new MarketSyncResult(MarketSyncSpec.A_SHARE_STOCK, 0, 0, 0, 0, 0, 0, 1);
         MarketSyncResult hk = new MarketSyncResult(MarketSyncSpec.HK_STOCK, 0, 0, 0, 0, 0, 0, 1);
+        MarketSyncResult us = new MarketSyncResult(MarketSyncSpec.US_STOCK, 0, 0, 0, 0, 0, 0, 1);
         MarketSyncResult index = new MarketSyncResult(MarketSyncSpec.CN_INDEX, 0, 0, 4, 0, 0, 4, 1);
         when(writer.writeBucket(any(), anyList()))
                 .thenReturn(aShare)
                 .thenReturn(hk)
+                .thenReturn(us)
                 .thenReturn(index);
 
         List<MarketSyncResult> results = new SubjectSyncService(source, writer, true).syncAll();
 
-        assertThat(results).containsExactly(aShare, hk, index);
+        assertThat(results).containsExactly(aShare, hk, us, index);
     }
 
     // ---- SubjectSyncWriter：T52 阈值停用（§4.3 流程 B 缺失分支） ----
@@ -414,6 +432,17 @@ class SubjectSyncServiceTest {
                 industry,
                 f13 + "." + code,
                 f13 == 116 ? MarketSyncSpec.HK_STOCK : MarketSyncSpec.A_SHARE_STOCK);
+    }
+
+    /** 美股桶快照（M29 T251）：US 前缀 + 大写 ticker + 105/106 secid + f10 原键。 */
+    private static SubjectSnapshot usSnapshot(String ticker, String name) {
+        return new SubjectSnapshot(
+                "US" + ticker,
+                name,
+                "电子设备与元件",
+                "105." + ticker,
+                MarketSyncSpec.US_STOCK,
+                ticker + ".O");
     }
 
     private static Subject reconstruct(

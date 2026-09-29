@@ -43,7 +43,21 @@ public final class ConductionFactor {
             List<IndustryAssociator.Association> associations,
             List<HeatRow> h24Heat,
             ValuationParams params) {
-        Map<String, Double> heatNorm = heatNormByIndustry(h24Heat);
+        return compute(associations, h24Heat, params, SW_INDUSTRY_ROWS);
+    }
+
+    /**
+     * 计算 F2（M29 T256 分市场变体，方案 §7.2）：名次归一分母按市场枚举行数（A_SHARE 31 / HK 31 / US 40——固定枚举集归一语义 同 31
+     * 行申万冻结值，市场内百分位不跨市场耦合）。
+     *
+     * @param industryRows 该市场 H24 热度标准行数（≥2；A 股恒 {@link #SW_INDUSTRY_ROWS}）
+     */
+    public static Result compute(
+            List<IndustryAssociator.Association> associations,
+            List<HeatRow> h24Heat,
+            ValuationParams params,
+            int industryRows) {
+        Map<String, Double> heatNorm = heatNormByIndustry(h24Heat, industryRows);
         List<AssocDetail> details = new ArrayList<>();
         double raw2 = 0.0;
         for (IndustryAssociator.Association association :
@@ -75,15 +89,21 @@ public final class ConductionFactor {
 
     /** 名次归一：heat DESC、行业名 ASC 破并列 → heatNorm = (31 − rank) / 30；缺行行业缺席（取 0）。 */
     static Map<String, Double> heatNormByIndustry(List<HeatRow> h24Heat) {
+        return heatNormByIndustry(h24Heat, SW_INDUSTRY_ROWS);
+    }
+
+    /** 分市场名次归一：heatNorm = (rows − rank) / (rows − 1)；缺行行业缺席（取 0）。 */
+    static Map<String, Double> heatNormByIndustry(List<HeatRow> h24Heat, int industryRows) {
         List<HeatRow> sorted = new ArrayList<>(h24Heat == null ? List.<HeatRow>of() : h24Heat);
         sorted.sort(
                 Comparator.comparingDouble((HeatRow row) -> row.heatScore())
                         .reversed()
                         .thenComparing(HeatRow::industry));
+        int rows = Math.max(2, industryRows);
         Map<String, Double> norms = new HashMap<>();
         for (int rank = 1; rank <= sorted.size(); rank++) {
             HeatRow row = sorted.get(rank - 1);
-            double norm = (SW_INDUSTRY_ROWS - rank) / (double) (SW_INDUSTRY_ROWS - 1);
+            double norm = (rows - rank) / (double) (rows - 1);
             norms.put(row.industry(), Math.max(0.0, norm));
         }
         return norms;

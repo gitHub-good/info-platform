@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.info.platform.application.ai.PromptTemplateService;
 import com.info.platform.application.common.RuntimeConfigService;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.ai.BriefType;
 import com.info.platform.domain.ai.ChatMessage;
 import com.info.platform.domain.ai.LlmException;
@@ -21,6 +22,7 @@ import com.info.platform.domain.ai.LlmRequest;
 import com.info.platform.domain.ai.LlmResponse;
 import com.info.platform.domain.ai.LlmUsage;
 import com.info.platform.domain.ai.PromptTemplate;
+import com.info.platform.domain.analysis.IndustryCategory;
 import com.info.platform.domain.analysis.NewsAnalysisRepository;
 import com.info.platform.domain.common.BusinessException;
 import com.info.platform.domain.common.ErrorCode;
@@ -178,7 +180,10 @@ class ClassificationServiceTest {
                 new NewsAnalysisRepository.ClassificationCandidate(
                         7, longTitle, longSummary, "金十数据", NOW, NOW);
         when(subjectMatcher.match(anyString(), anyString()))
-                .thenReturn(List.of(new SubjectMatcher.MatchedSubject("SH600519", "贵州茅台", "食品饮料")));
+                .thenReturn(
+                        List.of(
+                                new SubjectMatcher.MatchedSubject(
+                                        "SH600519", "贵州茅台", "食品饮料", Market.A_SHARE)));
         stubResponses(results(row(7, "食品饮料", null, 0.9)));
 
         // Act
@@ -400,6 +405,163 @@ class ClassificationServiceTest {
     @Test
     void placeholders_registeredForL1Classify() {
         assertThat(service.briefTypes()).containsExactly(BriefType.L1_CLASSIFY);
-        assertThat(service.provided()).extracting("key").containsExactly("batchSize", "items");
+        assertThat(service.provided())
+                .extracting("key")
+                .containsExactly("batchSize", "items", "marketLabel", "industryEnums");
+    }
+
+    // ---- M29 T253：按市场分组注入枚举 + 港美枚举外值兜底 + l1_market 落库 ----
+
+    @Test
+    void classifyBatch_mixedMarket_groupsByMarketAndInjectsEnumsPerMarket() {
+        // Arrange：条目 1 关联港股标的（多数票 HK）、条目 2 无标的（A_SHARE 容器面）→ 两组各一次调用；
+        // 组执行序 = EnumMap 自然序（A_SHARE 先于 HK），响应按组序对齐
+        when(subjectMatcher.match(anyString(), anyString()))
+                .thenReturn(
+                        List.of(
+                                new SubjectMatcher.MatchedSubject(
+                                        "HK00700", "腾讯控股", "软件服务", Market.HK)),
+                        List.of());
+        stubResponses(results(row(2, "计算机", null, 0.88)), results(row(1, "软件服务", null, 0.9)));
+
+        // Act
+        ClassificationService.BatchOutcome outcome =
+                service.classifyBatch(List.of(item(1, "腾讯控股回购股份"), item(2, "算力租赁价格上行")));
+
+        // Assert：两组各渲染一次，枚举集按市场注入
+        assertThat(outcome.done()).isEqualTo(2);
+        ArgumentCaptor<Map<String, String>> ctxCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(promptTemplateService, times(2)).render(any(), ctxCaptor.capture());
+        Map<String, String> aShareContext = ctxCaptor.getAllValues().get(0);
+        assertThat(aShareContext.get("marketLabel")).isEqualTo("A股");
+        assertThat(aShareContext.get("industryEnums")).contains("计算机").doesNotContain("UNKNOWN");
+        Map<String, String> hkContext = ctxCaptor.getAllValues().get(1);
+        assertThat(hkContext.get("marketLabel")).isEqualTo("港股");
+        assertThat(hkContext.get("industryEnums"))
+                .contains("软件服务")
+                .contains("银行")
+                .contains("UNKNOWN");
+        assertThat(hkContext.get("industryEnums")).doesNotContain("农林牧渔"); // 跨市场口径不混用
+
+        // l1_market 落库（跨市场重名行业消歧键；写序同组序：A_SHARE 先）
+        ArgumentCaptor<NewsAnalysisRepository.L1Write> writeCaptor =
+                ArgumentCaptor.forClass(NewsAnalysisRepository.L1Write.class);
+        verify(repository, times(2)).applyL1Result(writeCaptor.capture());
+        assertThat(writeCaptor.getAllValues().get(0).l1Market()).isEqualTo("A_SHARE");
+        assertThat(writeCaptor.getAllValues().get(0).mainCategory()).isEqualTo("计算机");
+        assertThat(writeCaptor.getAllValues().get(1).l1Market()).isEqualTo("HK");
+        assertThat(writeCaptor.getAllValues().get(1).mainCategory()).isEqualTo("软件服务");
+    }
+
+    @Test
+    void classifyBatch_usMarket_invalidEnumFallsBackToMarketOtherWithoutRetry() {
+        // Arrange：美股条目模型输出申万枚举（跨市场混用形态）→ 不进重试批，直接兜底「市场·其他」+ low_confidence 留痕
+        when(subjectMatcher.match(anyString(), anyString()))
+                .thenReturn(
+                        List.of(
+                                new SubjectMatcher.MatchedSubject(
+                                        "USAAPL", "苹果", "电子设备与元件", Market.US)));
+        stubResponses(results(row(1, "电子", null, 0.9))); // 申万枚举 ∉ 美股集
+
+        // Act
+        ClassificationService.BatchOutcome outcome =
+                service.classifyBatch(List.of(item(1, "苹果发布新品")));
+
+        // Assert：一次调用即落库（无拆批重试）+ 兜底留痕
+        assertThat(outcome.done()).isEqualTo(1);
+        assertThat(outcome.failed()).isZero();
+        verify(llmGateway, times(1)).chat(any(LlmRequest.class));
+        ArgumentCaptor<NewsAnalysisRepository.L1Write> writeCaptor =
+                ArgumentCaptor.forClass(NewsAnalysisRepository.L1Write.class);
+        verify(repository).applyL1Result(writeCaptor.capture());
+        NewsAnalysisRepository.L1Write write = writeCaptor.getValue();
+        assertThat(write.mainCategory()).isEqualTo("市场·其他");
+        assertThat(write.rawMain()).isEqualTo("电子");
+        assertThat(write.lowConfidence()).isTrue();
+        assertThat(write.l1Market()).isEqualTo("US");
+    }
+
+    @Test
+    void classifyBatch_usMarket_unknownAndContainerEnums_accepted() {
+        // UNKNOWN（港美股兜底位）与容器 4（跨市场共用）在港美批均为合法主分类
+        when(subjectMatcher.match(anyString(), anyString()))
+                .thenReturn(
+                        List.of(
+                                new SubjectMatcher.MatchedSubject(
+                                        "USMSFT", "微软", "软件与信息服务", Market.US)));
+        stubResponses(results(row(1, "UNKNOWN", null, 0.8)), results(row(2, "国际", null, 0.85)));
+
+        ClassificationService.BatchOutcome first =
+                service.classifyBatch(List.of(item(1, "微软云业务扩张")));
+        when(subjectMatcher.match(anyString(), anyString()))
+                .thenReturn(
+                        List.of(
+                                new SubjectMatcher.MatchedSubject(
+                                        "USMSFT", "微软", "软件与信息服务", Market.US)));
+        ClassificationService.BatchOutcome second =
+                service.classifyBatch(List.of(item(2, "海外科技巨头动向")));
+
+        assertThat(first.done()).isEqualTo(1);
+        assertThat(second.done()).isEqualTo(1);
+        ArgumentCaptor<NewsAnalysisRepository.L1Write> writeCaptor =
+                ArgumentCaptor.forClass(NewsAnalysisRepository.L1Write.class);
+        verify(repository, times(2)).applyL1Result(writeCaptor.capture());
+        assertThat(writeCaptor.getAllValues().get(0).mainCategory()).isEqualTo("UNKNOWN");
+        assertThat(writeCaptor.getAllValues().get(0).lowConfidence()).isFalse();
+        assertThat(writeCaptor.getAllValues().get(1).mainCategory()).isEqualTo("国际");
+    }
+
+    @Test
+    void marketDerivation_majorityVoteWithFixedTiePriority() {
+        // 多数票派生：2 港股 1 美股 → HK；平票按 A_SHARE > HK > US 固定优先序（EnumMap 自然序先到先得，
+        // A_SHARE 参与平票时优先——容器面贴近既有口径；无标的 → A_SHARE 容器面）
+        List<SubjectMatcher.MatchedSubject> hkMajority =
+                List.of(
+                        new SubjectMatcher.MatchedSubject("HK00700", "腾讯控股", "软件服务", Market.HK),
+                        new SubjectMatcher.MatchedSubject("HK09988", "阿里巴巴", "资讯科技器材", Market.HK),
+                        new SubjectMatcher.MatchedSubject("USAAPL", "苹果", "电子设备与元件", Market.US));
+        assertThat(ClassificationService.deriveMarket(hkMajority)).isEqualTo(Market.HK);
+        List<SubjectMatcher.MatchedSubject> hkUsTie =
+                List.of(
+                        new SubjectMatcher.MatchedSubject("HK00700", "腾讯控股", "软件服务", Market.HK),
+                        new SubjectMatcher.MatchedSubject("USAAPL", "苹果", "电子设备与元件", Market.US));
+        assertThat(ClassificationService.deriveMarket(hkUsTie)).isEqualTo(Market.HK);
+        List<SubjectMatcher.MatchedSubject> aShareTie =
+                List.of(
+                        new SubjectMatcher.MatchedSubject(
+                                "SH600519", "贵州茅台", "食品饮料", Market.A_SHARE),
+                        new SubjectMatcher.MatchedSubject("HK00700", "腾讯控股", "软件服务", Market.HK));
+        assertThat(ClassificationService.deriveMarket(aShareTie)).isEqualTo(Market.A_SHARE);
+        assertThat(ClassificationService.deriveMarket(List.of())).isEqualTo(Market.A_SHARE);
+        assertThat(ClassificationService.deriveMarket(null)).isEqualTo(Market.A_SHARE);
+    }
+
+    @Test
+    void industryEnums_aShareFrozenToV1Order_hkUsSortedDeterministic() {
+        // A 股枚举文本与 V23 v1.0 同序冻结（零回归）；港/美股注入确定性 + 与代码白名单同源
+        assertThat(ClassificationService.industryEnumsOf(Market.A_SHARE))
+                .isEqualTo(
+                        "申万一级行业 31 个："
+                                + String.join(
+                                        "、", "农林牧渔", "基础化工", "钢铁", "有色金属", "电子", "家用电器", "食品饮料",
+                                        "纺织服饰", "轻工制造", "医药生物", "公用事业", "交通运输", "房地产", "商贸零售",
+                                        "社会服务", "银行", "非银金融", "综合", "建筑材料", "建筑装饰", "电力设备", "机械设备",
+                                        "国防军工", "计算机", "传媒", "通信", "煤炭", "石油石化", "环保", "美容护理",
+                                        "汽车"));
+        String hk = ClassificationService.industryEnumsOf(Market.HK);
+        assertThat(hk).contains("港股行业枚举（31+1 个");
+        for (String industry : IndustryCategory.HK_INDUSTRIES) {
+            assertThat(hk).contains(industry);
+        }
+        String us = ClassificationService.industryEnumsOf(Market.US);
+        assertThat(us).contains("美股行业枚举（40+1 个");
+        for (String industry : IndustryCategory.US_INDUSTRIES) {
+            assertThat(us).contains(industry);
+        }
+        assertThat(ClassificationService.industryEnumsOf(Market.HK))
+                .isEqualTo(ClassificationService.industryEnumsOf(Market.HK)); // 确定性（Set→固定序）
+        assertThat(ClassificationService.marketLabelOf(Market.HK)).isEqualTo("港股");
+        assertThat(ClassificationService.marketLabelOf(Market.US)).isEqualTo("美股");
+        assertThat(ClassificationService.marketLabelOf(Market.A_SHARE)).isEqualTo("A股");
     }
 }

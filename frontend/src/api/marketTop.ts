@@ -4,6 +4,7 @@
 // 读取面：GET /market-top 榜单详情（30089 无榜单 / 30090 参数非法或版本不存在）+ GET /market-top/versions。
 
 import { request } from './http';
+import type { MarketKey } from '@/lib/market';
 import type {
   MarketTopConfigUpdate,
   MarketTopConfigView,
@@ -26,33 +27,42 @@ export function patchMarketTopConfig(update: MarketTopConfigUpdate): Promise<Mar
 }
 
 /**
- * 榜单详情（GET /api/v1/market-top?date=&version=）。
+ * 榜单详情（GET /api/v1/market-top?market=&date=&version=；M29 T256 分市场独立榜单——
+ * market 缺省 A_SHARE，后端在途未识别时忽略该参数回 A 股榜，容错不报错）。
  * @throws ApiError 30089 无任何榜单（404）/ 30090 参数非法或版本不存在
  */
 export function getMarketTopRank(
-  query: { date?: string; version?: number } = {},
+  query: { market?: MarketKey; date?: string; version?: number } = {},
   signal?: AbortSignal,
 ): Promise<MarketTopRankView> {
   const params = new URLSearchParams();
+  if (query.market != null) params.set('market', query.market);
   if (query.date) params.set('date', query.date);
   if (query.version != null) params.set('version', String(query.version));
   const qs = params.size > 0 ? `?${params}` : '';
   return request<MarketTopRankView>(`/market-top${qs}`, { signal });
 }
 
-/** 历史版本列表（GET /api/v1/market-top/versions?date=；日期降序、版本降序）。 */
+/** 历史版本列表（GET /api/v1/market-top/versions?market=&date=；日期降序、版本降序——分市场独立）。 */
 export function getMarketTopVersions(
-  query: { date?: string } = {},
+  query: { market?: MarketKey; date?: string } = {},
   signal?: AbortSignal,
 ): Promise<MarketTopVersionSummary[]> {
-  const qs = query.date ? `?date=${encodeURIComponent(query.date)}` : '';
+  const params = new URLSearchParams();
+  if (query.market != null) params.set('market', query.market);
+  if (query.date) params.set('date', query.date);
+  const qs = params.size > 0 ? `?${params}` : '';
   return request<MarketTopVersionSummary[]>(`/market-top/versions${qs}`, { signal });
 }
 
 /**
- * 历史命中统计（GET /api/v1/market-top/hit-stats，M22 T193 hits-v1 惰性回算）。
+ * 历史命中统计（GET /api/v1/market-top/hit-stats?market=，M22 T193 hits-v1 惰性回算；
+ * M29 T256 分市场——market 缺省 A_SHARE）。
  * @throws ApiError 30089 无任何榜单（404）——「榜单页引导生成」空态口径
  */
-export function getMarketTopHitStats(signal?: AbortSignal): Promise<MarketTopHitStatsView> {
-  return request<MarketTopHitStatsView>('/market-top/hit-stats', { signal });
+export function getMarketTopHitStats(
+  market: MarketKey = 'A_SHARE',
+  signal?: AbortSignal,
+): Promise<MarketTopHitStatsView> {
+  return request<MarketTopHitStatsView>(`/market-top/hit-stats?market=${market}`, { signal });
 }

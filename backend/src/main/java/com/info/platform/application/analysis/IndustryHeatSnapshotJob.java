@@ -42,8 +42,9 @@ public class IndustryHeatSnapshotJob implements ManagedJob, JobRunStats {
 
     @Override
     public String description() {
-        return "双窗（24h/7d）现算 31 申万行业热度（条数 × 事件加权 × 时间衰减，K1=10/impCoef 1.0-0.5-0.25/"
-                + "半衰期 12h|48h）→ industry_heat_snapshot 62 行 UPSERT + basis 口径串（零 LLM，M15 方案 §4.5）";
+        return "双窗（24h/7d）× 三市场（A/港/美）现算行业热度（条数 × 事件加权 × 时间衰减，K1=10/impCoef 1.0-0.5-0.25/"
+                + "半衰期 12h|48h；按 l1_market 分桶、A 股申万 31 + 港 31 + 美 40）→ industry_heat_snapshot UPSERT"
+                + "+ basis 口径串（零 LLM，M15 方案 §4.5；M29 T255 三市场化）";
     }
 
     @Override

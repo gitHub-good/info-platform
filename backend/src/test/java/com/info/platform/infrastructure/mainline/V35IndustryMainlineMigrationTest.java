@@ -34,7 +34,8 @@ class V35IndustryMainlineMigrationTest {
 
     @Test
     void v35_structure_snapshotUniqueConstraintUpsertable() {
-        // UNIQUE(row_type, dim_name, snapshot_date) 幂等键在位：ON CONFLICT 目标列集可 UPSERT
+        // UNIQUE(row_type, dim_name, snapshot_date, market) 幂等键在位（V37 起含 market 维）：ON CONFLICT
+        // 目标列集可 UPSERT
         assertThat(
                         count(
                                 "SELECT COUNT(*) FROM pragma_index_list('industry_market_snapshot')"
@@ -49,8 +50,8 @@ class V35IndustryMainlineMigrationTest {
                 "INSERT INTO industry_market_snapshot (row_type, dim_name, industry, snapshot_date,"
                         + " pct_day, source, agg_method, created_at, updated_at) VALUES ('INDUSTRY','电子',"
                         + "'电子','2099-12-31', 1.5, 'tencent-rank','TENCENT_DIRECT','2026-09-28T10:01:00Z',"
-                        + "'2026-09-28T10:01:00Z') ON CONFLICT(row_type, dim_name, snapshot_date) DO UPDATE"
-                        + " SET pct_day = excluded.pct_day, updated_at = excluded.updated_at");
+                        + "'2026-09-28T10:01:00Z') ON CONFLICT(row_type, dim_name, snapshot_date, market)"
+                        + " DO UPDATE SET pct_day = excluded.pct_day, updated_at = excluded.updated_at");
         Double pct =
                 jdbcTemplate.queryForObject(
                         "SELECT pct_day FROM industry_market_snapshot WHERE snapshot_date ="

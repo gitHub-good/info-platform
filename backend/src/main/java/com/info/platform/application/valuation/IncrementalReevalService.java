@@ -237,8 +237,11 @@ public class IncrementalReevalService {
     /** 判定基准 = 当日最新版本 Top10（当日无版本回落最新有榜日——用户可见榜单，方案 §3.3-1）。 */
     private List<Candidate> currentTopCandidates(String dateText) {
         return marketTopRepository
-                .findLatest(dateText)
-                .or(() -> marketTopRepository.findLatestAnyDate())
+                .findLatest(dateText, com.info.platform.domain.aggregation.Market.A_SHARE)
+                .or(
+                        () ->
+                                marketTopRepository.findLatestAnyDate(
+                                        com.info.platform.domain.aggregation.Market.A_SHARE))
                 .map(
                         version ->
                                 version.items().stream()

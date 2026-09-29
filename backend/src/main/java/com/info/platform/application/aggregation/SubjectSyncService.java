@@ -80,14 +80,21 @@ public class SubjectSyncService {
     }
 
     /**
-     * 本轮同步桶清单（顺序即执行顺序：A 股 → 港股 → 指数[开关]）。
+     * 本轮同步桶清单（顺序即执行顺序：A 股 → 港股 → 美股 → 指数[开关]）。
+     *
+     * <p>美股桶（M29 T251，ADR-0064 裁决 3）：经 F10 通道（{@code EastMoneyF10ListClient}，{@code .N}/>{@code .O}
+     * 主板 后缀 + 行业非空预筛）；失败按股票桶语义计整轮失败（Must，不吞）。
      *
      * <p>指数桶（T54）：{@code index-enabled=true}（默认）时追加 {@link MarketSyncSpec#CN_INDEX}——fs 权威定义 {@code
      * m:1+t:1,m:0+t:5}（上证+深证系列，§4.2 桶表）；失败仅 WARN 不计整轮 FAILED。
      */
     public List<MarketSyncSpec> syncedBuckets() {
         List<MarketSyncSpec> buckets =
-                new ArrayList<>(List.of(MarketSyncSpec.A_SHARE_STOCK, MarketSyncSpec.HK_STOCK));
+                new ArrayList<>(
+                        List.of(
+                                MarketSyncSpec.A_SHARE_STOCK,
+                                MarketSyncSpec.HK_STOCK,
+                                MarketSyncSpec.US_STOCK));
         if (indexEnabled) {
             buckets.add(MarketSyncSpec.CN_INDEX);
         }

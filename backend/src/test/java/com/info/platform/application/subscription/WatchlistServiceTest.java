@@ -9,6 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.info.platform.application.aggregation.AggregationService;
+import com.info.platform.application.aggregation.SubjectQuote;
 import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.aggregation.Subject;
 import com.info.platform.domain.aggregation.SubjectCode;
@@ -24,6 +26,7 @@ import com.info.platform.domain.subscription.WatchlistRepository;
 import com.info.platform.domain.subscription.WatchlistStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,13 +50,15 @@ class WatchlistServiceTest {
 
     private WatchlistRepository repository;
     private SubjectRepository subjectRepository;
+    private AggregationService aggregationService;
     private WatchlistService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(WatchlistRepository.class);
         subjectRepository = mock(SubjectRepository.class);
-        service = new WatchlistService(repository, subjectRepository);
+        aggregationService = mock(AggregationService.class);
+        service = new WatchlistService(repository, subjectRepository, aggregationService);
         UserContext.set(new UserContext.Principal(ME, "alice"));
     }
 
@@ -143,6 +148,108 @@ class WatchlistServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SUBJECT_ALREADY_IN_WATCHLIST);
         verify(repository, never()).save(any(Watchlist.class));
+    }
+
+    // ---- rename / delete（改名 + 软删除）----
+
+    @Test
+    void renameWatchlist_owned_newName_savesAndReturnsView() {
+        Watchlist list = watchlist(1L, ME, "旧名", item(10L, 1L, 100L, "3.00"));
+        when(repository.existsById(1L)).thenReturn(true);
+        when(repository.findByOwnerIdAndId(ME, 1L)).thenReturn(Optional.of(list));
+        when(repository.existsByOwnerIdAndName(ME, "新名")).thenReturn(false);
+        when(repository.save(any(Watchlist.class)))
+                .thenReturn(watchlist(1L, ME, "新名", item(10L, 1L, 100L, "3.00")));
+
+        WatchlistView result = service.renameWatchlist(1L, "新名");
+
+        assertThat(result.name()).isEqualTo("新名");
+        ArgumentCaptor<Watchlist> captor = ArgumentCaptor.forClass(Watchlist.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getName()).isEqualTo("新名");
+    }
+
+    @Test
+    void renameWatchlist_sameAsCurrentName_idempotentNoConflictCheck() {
+        when(repository.existsById(1L)).thenReturn(true);
+        when(repository.findByOwnerIdAndId(ME, 1L))
+                .thenReturn(Optional.of(watchlist(1L, ME, "我的清单", item(10L, 1L, 100L, "3.00"))));
+
+        WatchlistView result = service.renameWatchlist(1L, "我的清单");
+
+        assertThat(result.name()).isEqualTo("我的清单");
+        verify(repository, never()).existsByOwnerIdAndName(anyLong(), any());
+        verify(repository, never()).save(any(Watchlist.class)); // 无变更不落库
+    }
+
+    @Test
+    void renameWatchlist_conflictWithOtherEnabledList_throws30011() {
+        when(repository.existsById(1L)).thenReturn(true);
+        when(repository.findByOwnerIdAndId(ME, 1L))
+                .thenReturn(Optional.of(watchlist(1L, ME, "旧名")));
+        when(repository.existsByOwnerIdAndName(ME, "已有名")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.renameWatchlist(1L, "已有名"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.SUBJECT_ALREADY_IN_WATCHLIST);
+        verify(repository, never()).save(any(Watchlist.class));
+    }
+
+    @Test
+    void renameWatchlist_notOwned_throws30012() {
+        when(repository.existsById(2L)).thenReturn(true);
+        when(repository.findByOwnerIdAndId(ME, 2L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.renameWatchlist(2L, "新名"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WATCHLIST_FORBIDDEN);
+    }
+
+    @Test
+    void renameWatchlist_notExists_throws30010() {
+        when(repository.existsById(999L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.renameWatchlist(999L, "新名"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND);
+    }
+
+    @Test
+    void deleteWatchlist_owned_softDeletes() {
+        Watchlist list = watchlist(1L, ME, "我的清单", item(10L, 1L, 100L, "3.00"));
+        when(repository.existsById(1L)).thenReturn(true);
+        when(repository.findByOwnerIdAndId(ME, 1L)).thenReturn(Optional.of(list));
+
+        service.deleteWatchlist(1L);
+
+        ArgumentCaptor<Watchlist> captor = ArgumentCaptor.forClass(Watchlist.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(WatchlistStatus.DELETED);
+    }
+
+    @Test
+    void deleteWatchlist_notOwned_throws30012() {
+        when(repository.existsById(2L)).thenReturn(true);
+        when(repository.findByOwnerIdAndId(ME, 2L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteWatchlist(2L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WATCHLIST_FORBIDDEN);
+        verify(repository, never()).save(any(Watchlist.class));
+    }
+
+    @Test
+    void deleteWatchlist_notExists_throws30010() {
+        when(repository.existsById(999L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.deleteWatchlist(999L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND);
     }
 
     // ---- add item ----
@@ -303,6 +410,133 @@ class WatchlistServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND);
+    }
+
+    // ---- list items paged + sorted（分页排序）----
+
+    /** 行情行工厂：id + 价 + 涨跌幅（null = 行情缺失行）。 */
+    private static SubjectQuote quote(Long id, String price, String changePct) {
+        Map<String, Object> data = new HashMap<>();
+        if (price != null) {
+            data.put("price", new BigDecimal(price));
+        }
+        if (changePct != null) {
+            data.put("changePct", new BigDecimal(changePct));
+        }
+        Subject subject = subject(id);
+        return new SubjectQuote(
+                id,
+                subject.getSubjectCode().value(),
+                subject.getName(),
+                subject.getMarket().name(),
+                subject.getSubjectType().code(),
+                subject.getIndustry(),
+                data.isEmpty() ? null : data);
+    }
+
+    @Test
+    void listItemsPaged_sortByPriceDesc_nullsLastAndPaginates() {
+        // 3 项：甲(10.5)、乙(20.1)、丙(行情缺失 null) → price desc 期望 乙→甲→丙(null 沉底不随 desc 浮顶)
+        Watchlist list =
+                watchlist(
+                        1L,
+                        ME,
+                        "我的清单",
+                        item(10L, 1L, 100L, "3.00"),
+                        item(11L, 1L, 101L, "3.00"),
+                        item(12L, 1L, 102L, "3.00"));
+        when(repository.findByOwnerIdAndId(ME, 1L)).thenReturn(Optional.of(list));
+        when(aggregationService.getQuotes(any()))
+                .thenReturn(
+                        List.of(
+                                quote(100L, "10.5", "-1.2"),
+                                quote(101L, "20.1", "3.4"),
+                                quote(102L, null, null)));
+
+        WatchlistItemsPagedView view = service.listItemsPaged(1L, 1, 2, "price", "desc");
+
+        assertThat(view.total()).isEqualTo(3);
+        assertThat(view.items())
+                .extracting(WatchlistItemPagedRow::subjectId)
+                .containsExactly(101L, 100L); // 第 2 页（丙）未取
+        assertThat(view.items().get(0).price()).isEqualByComparingTo("20.1");
+        assertThat(view.items().get(0).changePct()).isEqualByComparingTo("3.4");
+        assertThat(view.sort()).isEqualTo("price");
+        assertThat(view.dir()).isEqualTo("desc");
+
+        WatchlistItemsPagedView page2 = service.listItemsPaged(1L, 2, 2, "price", "desc");
+        assertThat(page2.items()).hasSize(1);
+        assertThat(page2.items().get(0).price()).isNull(); // 行情缺失行沉底
+        assertThat(page2.items().get(0).subjectCode()).isNotNull(); // 摘要仍内联
+    }
+
+    @Test
+    void listItemsPaged_sortByChangePctAsc_ordered() {
+        Watchlist list =
+                watchlist(1L, ME, "我的清单", item(10L, 1L, 100L, "3.00"), item(11L, 1L, 101L, "3.00"));
+        when(repository.findByOwnerIdAndId(ME, 1L)).thenReturn(Optional.of(list));
+        when(aggregationService.getQuotes(any()))
+                .thenReturn(List.of(quote(100L, "10.5", "-1.2"), quote(101L, "20.1", "3.4")));
+
+        WatchlistItemsPagedView view = service.listItemsPaged(1L, 1, 20, "changePct", "asc");
+
+        assertThat(view.items())
+                .extracting(WatchlistItemPagedRow::subjectId)
+                .containsExactly(100L, 101L);
+    }
+
+    @Test
+    void listItemsPaged_defaultSort_addedAtAscKeepsInsertionOrder() {
+        Watchlist list =
+                watchlist(1L, ME, "我的清单", item(10L, 1L, 100L, "3.00"), item(11L, 1L, 101L, "3.00"));
+        when(repository.findByOwnerIdAndId(ME, 1L)).thenReturn(Optional.of(list));
+        when(aggregationService.getQuotes(any())).thenReturn(List.of());
+
+        WatchlistItemsPagedView view = service.listItemsPaged(1L, 1, 20, "addedAt", "asc");
+
+        // 行情整体缺失：排序键非行情时不受 null 沉底影响，保持加入顺序
+        assertThat(view.items()).extracting(WatchlistItemPagedRow::id).containsExactly(10L, 11L);
+        assertThat(view.items().get(0).price()).isNull();
+        assertThat(view.items().get(0).subjectCode()).isNull(); // 摘要随行情同源缺失
+    }
+
+    @Test
+    void listItemsPaged_emptyItems_returnsEmptyViewWithoutQuoteFetch() {
+        when(repository.findByOwnerIdAndId(ME, 1L))
+                .thenReturn(Optional.of(watchlist(1L, ME, "空清单")));
+
+        WatchlistItemsPagedView view = service.listItemsPaged(1L, 1, 20, "price", "desc");
+
+        assertThat(view.total()).isZero();
+        assertThat(view.items()).isEmpty();
+        verify(aggregationService, never()).getQuotes(any());
+    }
+
+    @Test
+    void listItemsPaged_invalidSort_throwsParamInvalid() {
+        assertThatThrownBy(() -> service.listItemsPaged(1L, 1, 20, "name", "asc"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.PARAM_INVALID);
+    }
+
+    @Test
+    void listItemsPaged_invalidDir_throwsParamInvalid() {
+        assertThatThrownBy(() -> service.listItemsPaged(1L, 1, 20, "price", "up"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.PARAM_INVALID);
+    }
+
+    @Test
+    void listItemsPaged_notOwned_throws30012() {
+        when(repository.findByOwnerIdAndId(ME, 2L)).thenReturn(Optional.empty());
+        when(repository.existsById(2L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.listItemsPaged(2L, 1, 20, "price", "desc"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WATCHLIST_FORBIDDEN);
     }
 
     @Test

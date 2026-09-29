@@ -1,15 +1,17 @@
 package com.info.platform.domain.analysis;
 
+import com.info.platform.domain.aggregation.Market;
 import java.time.Instant;
 import java.util.Objects;
 
 /**
- * 行业热度快照实体（{@code industry_heat_snapshot} 表，M15 T123，方案 §4.5）：UNIQUE(industry, window_type) 62 行常驻
- * UPSERT 当前值（历史趋势由日报 heat_top 留存）；容器 4 枚举不进榜（实体把守申万白名单）。
+ * 行业热度快照实体（{@code industry_heat_snapshot} 表，M15 T123，方案 §4.5；M29 T255 扩 market 维）：UNIQUE(industry,
+ * market, window_type) 常驻 UPSERT 当前值（历史趋势由日报 heat_top 留存——A 股口径）；容器与 UNKNOWN 不进榜（实体按市场白名单把守）。
  */
 public class IndustryHeatSnapshot {
 
     private final Long id;
+    private final Market market;
     private final String industry;
     private final HeatWindow window;
     private final double heatScore;
@@ -24,6 +26,7 @@ public class IndustryHeatSnapshot {
 
     private IndustryHeatSnapshot(
             Long id,
+            Market market,
             String industry,
             HeatWindow window,
             double heatScore,
@@ -35,10 +38,12 @@ public class IndustryHeatSnapshot {
             Instant snapshotAt,
             Instant createdAt,
             Instant updatedAt) {
-        if (!IndustryCategory.isSwIndustry(industry)) {
-            throw new IllegalArgumentException("industry 须为申万 31 枚举（容器不进榜）: " + industry);
+        if (!IndustryCategory.isBoardIndustry(market, industry)) {
+            throw new IllegalArgumentException(
+                    "industry 须为该市场进榜行业枚举（容器/UNKNOWN 不进榜）: " + market + "/" + industry);
         }
         this.id = id;
+        this.market = market;
         this.industry = industry;
         this.window = Objects.requireNonNull(window, "window 必填");
         this.heatScore = requireNonNegative(heatScore, "heatScore");
@@ -66,8 +71,9 @@ public class IndustryHeatSnapshot {
         return value;
     }
 
-    /** 新建快照行（31×2 批量产出之一；id/时间戳由仓储回填）。 */
+    /** 新建快照行（各市场枚举 × 窗口批量产出之一；id/时间戳由仓储回填）。 */
     public static IndustryHeatSnapshot create(
+            Market market,
             String industry,
             HeatWindow window,
             double heatScore,
@@ -78,6 +84,7 @@ public class IndustryHeatSnapshot {
             Instant snapshotAt) {
         return new IndustryHeatSnapshot(
                 null,
+                market,
                 industry,
                 window,
                 heatScore,
@@ -91,9 +98,32 @@ public class IndustryHeatSnapshot {
                 null);
     }
 
+    /** 兼容新建（M15~M28 既有 A 股调用面：market 恒 'A_SHARE'，行为不变）。 */
+    public static IndustryHeatSnapshot create(
+            String industry,
+            HeatWindow window,
+            double heatScore,
+            double prevScore,
+            long newsCount,
+            long eventCount,
+            String basis,
+            Instant snapshotAt) {
+        return create(
+                Market.A_SHARE,
+                industry,
+                window,
+                heatScore,
+                prevScore,
+                newsCount,
+                eventCount,
+                basis,
+                snapshotAt);
+    }
+
     /** 从持久化数据重建（基础设施层回读）。 */
     public static IndustryHeatSnapshot reconstruct(
             Long id,
+            Market market,
             String industry,
             HeatWindow window,
             double heatScore,
@@ -107,6 +137,7 @@ public class IndustryHeatSnapshot {
             Instant updatedAt) {
         return new IndustryHeatSnapshot(
                 id,
+                market,
                 industry,
                 window,
                 heatScore,
@@ -130,6 +161,11 @@ public class IndustryHeatSnapshot {
 
     public Long getId() {
         return id;
+    }
+
+    /** 市场口径（A_SHARE / HK / US——V37 起唯一键组成，跨市场重名行业消歧）。 */
+    public Market getMarket() {
+        return market;
     }
 
     public String getIndustry() {

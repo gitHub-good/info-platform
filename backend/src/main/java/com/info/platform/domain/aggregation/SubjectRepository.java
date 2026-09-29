@@ -90,4 +90,15 @@ public interface SubjectRepository {
      * @return 受影响行数（1 = 本轮真实翻转停用；0 = 未达阈值 / 已停用 / 不存在）
      */
     int deactivateIfMissingReached(String subjectCode, int threshold);
+
+    /**
+     * 美股代表集市值收敛的批量状态维护（M29 T252，ADR-0064 裁决 3）：按标的码集合<b>显式升降级</b>（market_cap ≥ 阈值 → status=1
+     * 保持/复活，&lt; 阈值 → status=0 留池可查——与缺失停用的单向语义不同，本方法双向，日同步维护升降级）；missing_streak 不碰。
+     *
+     * <p>SQL 级市场守卫 {@code WHERE market='US'}——收敛仅施于美股（港股全量入池无市值收敛，方案 §1.1 裁决③）；调用方传入的码集
+     * 已由快照轮按当轮市值分桶，无行情行（未落快照）的标的不传人（不动，避免误杀）。
+     *
+     * @return 累计受影响行数（码不存在/市场不符/状态已同值均不计）
+     */
+    int updateStatusForUsCodes(Collection<String> subjectCodes, boolean active);
 }

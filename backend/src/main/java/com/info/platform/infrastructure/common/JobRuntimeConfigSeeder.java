@@ -159,6 +159,22 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
     @Value("${industry.mainline-job.cron:0 30 18 * * ?}")
     private String industryMainlineCron;
 
+    /** 资讯脉搏开关/tick 间隔（V3.2 M28：NEWS_PULSE，默认 30min，可配 5~60min）。 */
+    @Value("${news.pulse-job.enabled:true}")
+    private boolean newsPulseEnabled;
+
+    @Value("${news.pulse-job.interval-millis:1800000}")
+    private long newsPulseIntervalMillis;
+
+    /**
+     * 港美股行情快照开关/tick 间隔（M29 T252：HKUS_MARKET_SNAPSHOT 第 20 键，默认 60min 可配 30~120min，ADR-0064 裁决 4）。
+     */
+    @Value("${hkus.market-snapshot.enabled:true}")
+    private boolean hkusMarketSnapshotEnabled;
+
+    @Value("${hkus.market-snapshot.interval-millis:3600000}")
+    private long hkusMarketSnapshotIntervalMillis;
+
     public JobRuntimeConfigSeeder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -321,6 +337,25 @@ public class JobRuntimeConfigSeeder implements RuntimeConfigSeeder {
                                 + "三维识别（资讯关注度 0.50+价值 0.35+价格动量 0.15）+ datacenter 龙虎榜/增减持主力徽章"
                                 + "（≤30 请求/日），纯规则零 LLM 版本化落库；任务中心手动触发=重算 version+1；参数热改见"
                                 + " industry.mainline/industry.leader 键，M27 方案 §3.6）"));
+        seeds.add(
+                fixedDelay(
+                        "NEWS_PULSE",
+                        "资讯脉搏调度（NewsPulseJob，每 30min tick 遍历六窗（30m/1h/3h/6h/12h/24h）按窗口时长错峰刷新："
+                                + "规则统计（L1 行业分布+标的回联市场归集 A股/港股/美股）恒产出 + LLM 事件归纳（大盘概览/"
+                                + "关键事件/热点主线/情绪面，brief_type=11）失败降级纯统计；手动刷新 5min 最小间隔，"
+                                + "V3.2 M28）",
+                        newsPulseEnabled,
+                        newsPulseIntervalMillis));
+        seeds.add(
+                fixedDelay(
+                        "HKUS_MARKET_SNAPSHOT",
+                        "港美股行情快照调度（HKUSMarketSnapshotJob，每 60min 可配 30~120 一职三责轮：腾讯主/新浪备批量行情"
+                                + "（50/请求 500ms 间隔，整轮失败轮级切备链 source 留痕）→ market_daily_snapshot 当日幂等 "
+                                + "UPSERT（含 market_cap/currency 原币）+ 个股×行业就地聚合（市值加权，覆盖<80% 回退等权 "
+                                + "agg_method 留痕）+ 美股代表集市值收敛（<20 亿 USD status=0 留池，每日首轮宽取维护升降级），"
+                                + "M29 ADR-0064 裁决 1/3/4）",
+                        hkusMarketSnapshotEnabled,
+                        hkusMarketSnapshotIntervalMillis));
         return seeds;
     }
 

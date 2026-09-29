@@ -1,5 +1,6 @@
 package com.info.platform.domain.analysis;
 
+import com.info.platform.domain.aggregation.Market;
 import java.util.List;
 import java.util.Optional;
 
@@ -62,13 +63,20 @@ public interface EventItemRepository {
      */
     List<EventStreamItem> findStreamItemsPaged(EventStreamFilter filter, int page, int size);
 
-    /** 事件流四维筛选（null 维度 = 不过滤；行业 = 申万枚举名，affected_industries ∋ 该行业）。 */
+    /**
+     * 事件流五维筛选（null 维度 = 不过滤；行业 = 调用方市场口径的进榜枚举名，affected_industries ∋ 该行业； market = 标的市场
+     * 过滤维，M29 §5.4——事件关联标的含该市场标的，仅 HK/US 有过滤语义，A_SHARE 显式传入等价缺省全量由应用层归 null）。
+     */
     record EventStreamFilter(
-            EventType eventType, String industry, Importance importance, Direction direction) {
+            EventType eventType,
+            String industry,
+            Importance importance,
+            Direction direction,
+            Market market) {
 
         /** 无筛选全量视图（§4.10 对账口径基准）。 */
         public static EventStreamFilter unfiltered() {
-            return new EventStreamFilter(null, null, null, null);
+            return new EventStreamFilter(null, null, null, null, null);
         }
     }
 

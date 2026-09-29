@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.Direction;
 import com.info.platform.domain.analysis.EventType;
 import com.info.platform.domain.analysis.GuardLevel;
@@ -24,8 +25,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * IndustryHeatQueryService 单测（T123，方案 §4.8）：榜单组装（窗口缺省 H24 + 护栏徽章 + basis/snapshotAt
- * 脚注）、下钻参数校验（30076： 未知窗口/未知行业/未知 type；limit 1~50 越界拒绝）、游标与页大透传、total 对账。全 mock。AAA 结构。
+ * IndustryHeatQueryService 单测（T123，方案 §4.8；M29 T255 增 market 参数）：榜单组装（窗口缺省 H24 + 护栏徽章 +
+ * basis/snapshotAt 脚注 + market 回显/口径标注）、下钻参数校验（30076： 未知市场/未知窗口/未知行业/未知 type；limit 1~50
+ * 越界拒绝）、游标与页大透传、total 对账、market 缺省 A_SHARE 零回归 + 港股枚举消歧。全 mock。AAA 结构。
  */
 class IndustryHeatQueryServiceTest {
 
@@ -49,8 +51,14 @@ class IndustryHeatQueryServiceTest {
 
     private static IndustryHeatSnapshot snapshot(
             String industry, double score, long news, long events) {
+        return snapshot(Market.A_SHARE, industry, score, news, events);
+    }
+
+    private static IndustryHeatSnapshot snapshot(
+            Market market, String industry, double score, long news, long events) {
         return IndustryHeatSnapshot.reconstruct(
                 null,
+                market,
                 industry,
                 HeatWindow.H24,
                 score,
@@ -66,7 +74,7 @@ class IndustryHeatQueryServiceTest {
 
     @Test
     void board_defaultsToH24_withGuardBadgeAndFootnotes() {
-        when(repository.findBoard(HeatWindow.H24))
+        when(repository.findBoard(HeatWindow.H24, Market.A_SHARE))
                 .thenReturn(
                         List.of(
                                 snapshot("银行", 30.0, 10, 2),
@@ -74,8 +82,10 @@ class IndustryHeatQueryServiceTest {
                                 snapshot("钢铁", 0.0, 0, 0)));
         when(guardService.currentLevel()).thenReturn(GuardLevel.DEGRADED);
 
-        IndustryHeatBoardView view = service.board(null);
+        IndustryHeatBoardView view = service.board(null, null);
 
+        assertThat(view.market()).isEqualTo("A_SHARE"); // market 缺省回显（零回归断言）
+        assertThat(view.industrySystem()).isEqualTo("A股：申万一级 31");
         assertThat(view.window()).isEqualTo("H24");
         assertThat(view.industries()).hasSize(3);
         assertThat(view.industries().get(0).industry()).isEqualTo("银行");
@@ -89,16 +99,37 @@ class IndustryHeatQueryServiceTest {
 
     @Test
     void board_d7WindowResolved() {
-        when(repository.findBoard(HeatWindow.D7)).thenReturn(List.of());
+        when(repository.findBoard(HeatWindow.D7, Market.A_SHARE)).thenReturn(List.of());
 
-        IndustryHeatBoardView view = service.board("d7");
+        IndustryHeatBoardView view = service.board(null, "d7");
 
         assertThat(view.window()).isEqualTo("D7");
     }
 
     @Test
+    void board_hkMarket_echoesMarketAndSystemLabel() {
+        when(repository.findBoard(HeatWindow.H24, Market.HK))
+                .thenReturn(List.of(snapshot(Market.HK, "软件服务", 40.0, 12, 3)));
+
+        IndustryHeatBoardView view = service.board("HK", null);
+
+        assertThat(view.market()).isEqualTo("HK"); // 方案 §5.1：market 回显 + 口径标注常显
+        assertThat(view.industrySystem()).contains("港股");
+        assertThat(view.industries()).hasSize(1);
+        assertThat(view.industries().get(0).industry()).isEqualTo("软件服务");
+    }
+
+    @Test
+    void board_unknownMarket_30076() {
+        assertThatThrownBy(() -> service.board("JP", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PIPELINE_CONFIG_INVALID);
+    }
+
+    @Test
     void board_unknownWindow_30076() {
-        assertThatThrownBy(() -> service.board("W1"))
+        assertThatThrownBy(() -> service.board(null, "W1"))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PIPELINE_CONFIG_INVALID);
@@ -107,14 +138,16 @@ class IndustryHeatQueryServiceTest {
     @Test
     void items_newsType_passesWindowCursorAndLimit() {
         when(repository.findIndustryNewsItems(
-                        eq("银行"), anyString(), anyString(), eq(null), anyInt()))
+                        eq("银行"), anyString(), anyString(), eq(null), anyInt(), eq(Market.A_SHARE)))
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.IndustryNewsItem(
                                         5L, "央行降准", "新浪财经", NOW, true, "https://example.com/n/5")));
-        when(repository.countIndustryNewsItems(eq("银行"), anyString(), anyString())).thenReturn(1L);
+        when(repository.countIndustryNewsItems(
+                        eq("银行"), anyString(), anyString(), eq(Market.A_SHARE)))
+                .thenReturn(1L);
 
-        IndustryHeatItemsView view = service.items("银行", "H24", "news", null, 20);
+        IndustryHeatItemsView view = service.items("银行", null, "H24", "news", null, 20);
 
         assertThat(view.type()).isEqualTo("news");
         assertThat(view.total()).isEqualTo(1L);
@@ -129,7 +162,8 @@ class IndustryHeatQueryServiceTest {
     @Test
     void items_defaultsAndPaginationCursor() {
         // type 缺省 news；beforeId/limit 透传；满页给 nextBeforeId（当前页最小 id）
-        when(repository.findIndustryNewsItems(eq("银行"), anyString(), anyString(), eq(100L), eq(20)))
+        when(repository.findIndustryNewsItems(
+                        eq("银行"), anyString(), anyString(), eq(100L), eq(20), eq(Market.A_SHARE)))
                 .thenReturn(
                         java.util.stream.LongStream.rangeClosed(81, 100)
                                 .mapToObj(id -> id)
@@ -144,10 +178,11 @@ class IndustryHeatQueryServiceTest {
                                                         false,
                                                         "https://example.com/n/" + id))
                                 .toList());
-        when(repository.countIndustryNewsItems(eq("银行"), anyString(), anyString()))
+        when(repository.countIndustryNewsItems(
+                        eq("银行"), anyString(), anyString(), eq(Market.A_SHARE)))
                 .thenReturn(120L);
 
-        IndustryHeatItemsView view = service.items("银行", null, null, 100L, null);
+        IndustryHeatItemsView view = service.items("银行", null, null, null, 100L, null);
 
         assertThat(view.window()).isEqualTo("H24");
         assertThat(view.type()).isEqualTo("news");
@@ -155,13 +190,14 @@ class IndustryHeatQueryServiceTest {
         assertThat(view.items()).hasSize(20);
         assertThat(view.nextBeforeId()).isEqualTo(81L);
         verify(repository)
-                .findIndustryNewsItems(eq("银行"), anyString(), anyString(), eq(100L), eq(20));
+                .findIndustryNewsItems(
+                        eq("银行"), anyString(), anyString(), eq(100L), eq(20), eq(Market.A_SHARE));
     }
 
     @Test
     void items_eventsType_sameScopeAsEventStream() {
         when(repository.findIndustryEventItems(
-                        eq("银行"), anyString(), anyString(), eq(null), anyInt()))
+                        eq("银行"), anyString(), anyString(), eq(null), anyInt(), eq(Market.A_SHARE)))
                 .thenReturn(
                         List.of(
                                 new HeatSnapshotRepository.IndustryEventItem(
@@ -176,9 +212,11 @@ class IndustryHeatQueryServiceTest {
                                         "https://example.com/n/5",
                                         "降准 0.5 个百分点",
                                         "新浪财经")));
-        when(repository.countIndustryEventItems(eq("银行"), anyString(), anyString())).thenReturn(1L);
+        when(repository.countIndustryEventItems(
+                        eq("银行"), anyString(), anyString(), eq(Market.A_SHARE)))
+                .thenReturn(1L);
 
-        IndustryHeatItemsView view = service.items("银行", "H24", "events", null, 20);
+        IndustryHeatItemsView view = service.items("银行", null, "H24", "events", null, 20);
 
         assertThat(view.type()).isEqualTo("events");
         assertThat(view.total()).isEqualTo(1L);
@@ -193,26 +231,45 @@ class IndustryHeatQueryServiceTest {
 
     @Test
     void items_unknownIndustryOrTypeOrWindow_30076() {
-        assertThatThrownBy(() -> service.items("宏观", "H24", "news", null, null))
+        assertThatThrownBy(() -> service.items("宏观", null, "H24", "news", null, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PIPELINE_CONFIG_INVALID);
-        assertThatThrownBy(() -> service.items("银行", "W1", "news", null, null))
+        assertThatThrownBy(() -> service.items("银行", null, "W1", "news", null, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PIPELINE_CONFIG_INVALID);
-        assertThatThrownBy(() -> service.items("银行", "H24", "hot", null, null))
+        assertThatThrownBy(() -> service.items("银行", null, "H24", "hot", null, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PIPELINE_CONFIG_INVALID);
     }
 
     @Test
+    void items_marketAwareIndustryValidation_hkEnumDisambiguation() {
+        // 港股枚举「药品及生物科技」在 A 股白名单外 → 缺省（A_SHARE）30076；market=HK 放行且仓储按 HK 过滤
+        assertThatThrownBy(() -> service.items("药品及生物科技", null, "H24", "news", null, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PIPELINE_CONFIG_INVALID);
+        when(repository.findIndustryNewsItems(
+                        eq("药品及生物科技"), anyString(), anyString(), eq(null), anyInt(), eq(Market.HK)))
+                .thenReturn(List.of());
+        when(repository.countIndustryNewsItems(
+                        eq("药品及生物科技"), anyString(), anyString(), eq(Market.HK)))
+                .thenReturn(0L);
+        IndustryHeatItemsView view = service.items("药品及生物科技", "HK", "H24", "news", null, 20);
+        assertThat(view.total()).isZero();
+        verify(repository)
+                .countIndustryNewsItems(eq("药品及生物科技"), anyString(), anyString(), eq(Market.HK));
+    }
+
+    @Test
     void items_limitBounds_rejectedNotTruncated() {
-        assertThatThrownBy(() -> service.items("银行", "H24", "news", null, 0))
+        assertThatThrownBy(() -> service.items("银行", null, "H24", "news", null, 0))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("limit");
-        assertThatThrownBy(() -> service.items("银行", "H24", "news", null, 51))
+        assertThatThrownBy(() -> service.items("银行", null, "H24", "news", null, 51))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("limit");
     }
@@ -220,10 +277,10 @@ class IndustryHeatQueryServiceTest {
     @Test
     void drilldown_emptyPage_noNpeReturnEmptyView() {
         // BUG-02 修复回归：空页（该行业窗内无条目）最后一页判断传 null 曾拆箱 NPE 致 500（8/8 复现）
-        IndustryHeatItemsView news = service.items("美容护理", "H24", "news", null, 20);
+        IndustryHeatItemsView news = service.items("美容护理", null, "H24", "news", null, 20);
         assertThat(news.total()).isZero();
         assertThat(news.nextBeforeId()).isNull();
-        IndustryHeatItemsView events = service.items("美容护理", "H24", "events", null, 20);
+        IndustryHeatItemsView events = service.items("美容护理", null, "H24", "events", null, 20);
         assertThat(events.total()).isZero();
         assertThat(events.nextBeforeId()).isNull();
     }

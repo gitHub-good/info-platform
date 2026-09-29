@@ -11,7 +11,7 @@ import type {
   ImpactChainView,
 } from '@/types/eventStream';
 
-/** 事件流（四维可空筛选 + beforeId 游标 + limit 缺省 20 ≤50，越界后端拒绝不截断）。 */
+/** 事件流（四维可空筛选 + beforeId 游标 + limit 缺省 20 ≤50，越界后端拒绝不截断；market 缺省不过滤）。 */
 export function getEvents(
   query: EventStreamQuery,
   signal?: AbortSignal,
@@ -21,6 +21,7 @@ export function getEvents(
   if (query.industry) params.set('industry', query.industry);
   if (query.importance) params.set('importance', query.importance);
   if (query.direction) params.set('direction', query.direction);
+  if (query.market) params.set('market', query.market);
   if (query.beforeId != null) params.set('beforeId', String(query.beforeId));
   if (query.limit != null) params.set('limit', String(query.limit));
   const qs = params.size > 0 ? `?${params}` : '';
@@ -30,6 +31,8 @@ export function getEvents(
 /**
  * 事件流·页码模式（M25 T224 消费 T220 契约：page 出现即页码模式 offset 分页）。
  * 概览摘要等小窗口取数仍走游标函数（limit），页面列表消费本函数（M9 分页语义）。
+ * M29 §5.4：market 为可选过滤（事件关联标的含该市场标的）；缺省不下发——A 股视角零回归，
+ * 后端 T254 在途未识别时忽略该参数即全量回退（容错不报错）。
  */
 export function getEventsPaged(
   query: EventStreamPageQuery,
@@ -40,6 +43,7 @@ export function getEventsPaged(
   if (query.industry) params.set('industry', query.industry);
   if (query.importance) params.set('importance', query.importance);
   if (query.direction) params.set('direction', query.direction);
+  if (query.market) params.set('market', query.market);
   params.set('page', String(query.page));
   params.set('size', String(query.size));
   return request<EventStreamPageView>(`/events?${params}`, { signal });

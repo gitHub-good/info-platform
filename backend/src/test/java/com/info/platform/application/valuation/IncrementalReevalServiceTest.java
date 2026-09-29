@@ -18,6 +18,7 @@ import com.info.platform.application.common.RuntimeConfigService;
 import com.info.platform.application.jobrun.RunningJobIndicator;
 import com.info.platform.application.markettop.IncrementalTopService;
 import com.info.platform.application.valuation.FactorSnapshotService.IncrementalReport;
+import com.info.platform.domain.aggregation.Market;
 import com.info.platform.domain.analysis.Importance;
 import com.info.platform.domain.markettop.MarketTopRepository;
 import com.info.platform.domain.markettop.MarketTopRepository.MarketTopBatchRow;
@@ -139,6 +140,7 @@ class IncrementalReevalServiceTest {
         for (int i = 0; i < finals.length; i++) {
             items.add(
                     new MarketTopRankRow(
+                            Market.A_SHARE,
                             TODAY.toString(),
                             1,
                             i + 1,
@@ -162,6 +164,7 @@ class IncrementalReevalServiceTest {
         }
         return new MarketTopVersion(
                 new MarketTopBatchRow(
+                        Market.A_SHARE,
                         TODAY.toString(),
                         1,
                         "DAILY",
@@ -186,7 +189,7 @@ class IncrementalReevalServiceTest {
 
     private void stubTopAndPool(double affectedTotal) {
         // 在榜 10 名 final 均 60；受影响标的 total（> 60 + 0.5 → 过阈换位）
-        when(marketTopRepository.findLatest(TODAY.toString()))
+        when(marketTopRepository.findLatest(TODAY.toString(), Market.A_SHARE))
                 .thenReturn(Optional.of(topVersion(60, 60, 60, 60, 60, 60, 60, 60, 60, 60)));
         when(snapshotRepository.findPoolRowsByDate(TODAY.toString()))
                 .thenReturn(List.of(poolRow(1, "SH600519", "贵州茅台", affectedTotal)));
@@ -314,7 +317,8 @@ class IncrementalReevalServiceTest {
         when(logRepository.findScoresBySubjectIds(anyString(), anyCollection()))
                 .thenReturn(List.of());
         stubRecompute();
-        when(marketTopRepository.findLatest(TODAY.toString())).thenReturn(Optional.empty());
+        when(marketTopRepository.findLatest(TODAY.toString(), Market.A_SHARE))
+                .thenReturn(Optional.empty());
         when(snapshotRepository.findPoolRowsByDate(TODAY.toString()))
                 .thenReturn(List.of(poolRow(1, "SH600519", "贵州茅台", 70.0)));
 
@@ -414,7 +418,7 @@ class IncrementalReevalServiceTest {
                                 new PendingLink(
                                         201L,
                                         "[{\"id\":1,\"code\":\"SH600519\",\"before\":50.0,\"after\":70.0}]")));
-        when(marketTopRepository.findLatest(TODAY.toString()))
+        when(marketTopRepository.findLatest(TODAY.toString(), Market.A_SHARE))
                 .thenReturn(Optional.of(topVersion(60, 60, 60, 60, 60, 60, 60, 60, 60, 60)));
         when(snapshotRepository.findPoolRowsByDate(TODAY.toString()))
                 .thenReturn(List.of(poolRow(1, "SH600519", "贵州茅台", 70.0)));
@@ -436,7 +440,7 @@ class IncrementalReevalServiceTest {
                                 new PendingLink(
                                         201L,
                                         "[{\"id\":1,\"code\":\"SH600519\",\"before\":70.0,\"after\":60.3}]")));
-        when(marketTopRepository.findLatest(TODAY.toString()))
+        when(marketTopRepository.findLatest(TODAY.toString(), Market.A_SHARE))
                 .thenReturn(Optional.of(topVersion(60, 60, 60, 60, 60, 60, 60, 60, 60, 60)));
         when(snapshotRepository.findPoolRowsByDate(TODAY.toString()))
                 .thenReturn(List.of(poolRow(1, "SH600519", "贵州茅台", 60.3)));

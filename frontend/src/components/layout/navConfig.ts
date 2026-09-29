@@ -10,6 +10,7 @@ import {
   Library,
   MessageSquareText,
   PlayCircle,
+  Radar,
   Rss,
   ScrollText,
   Sparkles,
@@ -67,6 +68,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/industry-heat', label: '行业热度', icon: Flame },
       // 行业主线（M27 T245，分析组第 8 项 / 全站第 18 页）：热力图 + 主线榜单 + 龙头——行业心智紧邻「行业热度」
       { to: '/industry-mainline', label: '行业主线', icon: Activity },
+      // 资讯脉搏（V3.2 M28，分析组第 9 项 / 全站第 19 页）：多时间窗 AI 事件归纳 + 行业/市场归集大盘图表
+      { to: '/news-pulse', label: '资讯脉搏', icon: Radar },
       // 事件流（M15 T127，分析组第 5 项 / 全站第 17 页）：L2 结构化事件卡片流，插「行业热度」后
       { to: '/events', label: '事件流', icon: Zap },
       // 推荐中心（M16 T135，分析组第 6 项 / 全站第 18 页）：动态推荐卡片流 + 反馈闭环，紧邻事件流

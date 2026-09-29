@@ -4,6 +4,8 @@ package com.info.platform.domain.aggregation;
 public enum Market {
     A_SHARE,
     HK,
+    /** 美股（M29 T251 建池：F10 `.N`/`.O` 主板后缀预筛入池，ADR-0064 裁决 3）。 */
+    US,
     INDEX,
     SECTOR;
 

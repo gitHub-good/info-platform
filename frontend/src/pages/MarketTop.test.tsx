@@ -1057,3 +1057,157 @@ describe('MarketTop 方法论子路由（T185，#/market-top/methodology）', ()
     expect(await screen.findByTestId('market-top-hitstats-body')).toBeInTheDocument();
   });
 });
+
+// —— M29 T257 三市场切换：分市场独立榜单 + 价值维缺省徽章 + 深析不可用标注 + URL 持久化 ——
+
+describe('MarketTop 全市场推荐页（T257）· 三市场切换', () => {
+  /** 历史表现响应（hits-v1 镜像——hitStatsOf 同款精简）。 */
+  function hkHitStatsOf() {
+    return {
+      basis: 'hits-v1:maxVer;price=market_daily_snapshot;win=1/5/20;median=pctChg;sample=priced-only',
+      asOf: '2026-09-28',
+      disclaimer: '历史统计不构成收益承诺',
+      windows: [
+        { window: 'T+1', days: [], agg: { days: 0, status: 'INSUFFICIENT', upRatio: null, medianPct: null } },
+      ],
+    };
+  }
+
+  /** 港股榜视图（market 回显 + dimensionMissing 维度裁剪留痕 + FACTOR_ONLY 卡）。 */
+  function hkViewOf(): MarketTopRankView {
+    return viewOf(
+      [
+        itemOf({
+          subjectCode: 'HK00700',
+          subjectName: '腾讯控股',
+          generation: 'FACTOR_ONLY',
+          diveMethod: null,
+          changeType: 'NEW',
+          prevRank: null,
+        }),
+      ],
+      {
+        market: 'HK',
+        batch: {
+          snapshotDate: '2026-09-26',
+          computedAt: '2026-09-26T10:05:00Z',
+          degraded: false,
+          degradedReason: null,
+          funnelStats: {
+            snapshotRows: 2612,
+            eligible: 300,
+            excluded: { st: 0, noSignal: 2312 },
+            poolSize: 300,
+            divePlanned: 10,
+            diveDone: 10,
+            diveTemplate: 0,
+            diveSkipped: 0,
+            topSize: 10,
+            dimensionMissing: {
+              valuation: '本市场暂无价值评分因子',
+              fundamental: '本市场暂无基本面因子（F3/F5 权重置 0 后再归一）',
+            },
+          },
+          dropped: [],
+          lastEvent: null,
+        },
+      },
+    );
+  }
+
+  it('M29 切港股：榜单/版本/历史表现带 market=HK + URL 持久化 + 维度缺省徽章 + 深析不可用标注', async () => {
+    const fetchMock = stubFetch([
+      {
+        path: '/api/v1/market-top/versions',
+        respond: (url: string) => ok(url.includes('market=HK') ? versionsOf() : versionsOf()),
+      },
+      {
+        path: '/api/v1/market-top/hit-stats',
+        respond: () => ok(hkHitStatsOf()),
+      },
+      {
+        path: '/api/v1/market-top',
+        respond: (url: string) => ok(url.includes('market=HK') ? hkViewOf() : viewOf([itemOf()])),
+      },
+      { path: '/api/v1/watchlists', respond: () => ok([]) },
+      { path: '/api/v1/reading-events', respond: () => ok(null) },
+    ]);
+    const { MarketTop } = await import('@/pages/MarketTop');
+    const user = userEvent.setup();
+    render(<MarketTop />);
+
+    // 默认 A 股：请求带 market=A_SHARE（显式下发——后端缺省同值零回归）
+    expect(await screen.findByTestId('market-top-card-SZ300024')).toBeInTheDocument();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('market=A_SHARE');
+
+    // 切港股：URL 持久化 + 榜单/版本列表重查带 market=HK（分市场独立榜单——拍板四）
+    await user.click(screen.getByTestId('market-tab-HK'));
+    expect(window.location.hash).toContain('market=HK');
+    expect(await screen.findByTestId('market-top-card-HK00700')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/market-top?market=HK')),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/market-top/versions?market=HK')),
+      ).toBe(true),
+    );
+
+    // 价值维缺省徽章（拍板四：维度裁剪留痕不静默）
+    expect(screen.getByTestId('market-top-dimension-missing-valuation')).toHaveTextContent(
+      '本市场暂无价值评分因子',
+    );
+    expect(screen.getByTestId('market-top-dimension-missing-fundamental')).toHaveTextContent(
+      '本市场暂无基本面因子',
+    );
+
+    // 港美股深析不可用标注（FACTOR_ONLY 卡如实文案）
+    expect(screen.getByTestId('market-top-dive-factor-only')).toHaveTextContent(
+      '港美股深析暂不可用，按因子分排序',
+    );
+
+    // 历史表现展开首拉带 market=HK
+    await user.click(screen.getByTestId('market-top-hitstats-summary'));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('/market-top/hit-stats?market=HK')),
+      ).toBe(true),
+    );
+  });
+
+  it('M29 Tab 间切换状态不丢：港股选日期 → 切美股 → 切回港股恢复日期选择（REQ 故事 8 场景 1）', async () => {
+    stubFetch([
+      { path: '/api/v1/market-top/versions', respond: () => ok(versionsOf()) },
+      {
+        path: '/api/v1/market-top',
+        respond: (url: string) => {
+          if (url.includes('market=HK')) return ok(hkViewOf());
+          if (url.includes('market=US')) return ok(viewOf([itemOf({ subjectCode: 'USAAPL' })], { market: 'US' }));
+          return ok(viewOf([itemOf()]));
+        },
+      },
+      { path: '/api/v1/watchlists', respond: () => ok([]) },
+      { path: '/api/v1/reading-events', respond: () => ok(null) },
+    ]);
+    const { MarketTop } = await import('@/pages/MarketTop');
+    const user = userEvent.setup();
+    render(<MarketTop />);
+
+    // 切港股并选历史日期 2026-09-25
+    await user.click(screen.getByTestId('market-tab-HK'));
+    expect(await screen.findByTestId('market-top-card-HK00700')).toBeInTheDocument();
+    await user.selectOptions(screen.getByTestId('market-top-date-select'), '2026-09-25');
+    await waitFor(() =>
+      expect(screen.getByTestId('market-top-date-select')).toHaveValue('2026-09-25'),
+    );
+
+    // 切美股再切回：港股日期选择恢复（状态不丢），重查仍带 market=HK&date=2026-09-25
+    await user.click(screen.getByTestId('market-tab-US'));
+    expect(await screen.findByTestId('market-top-card-USAAPL')).toBeInTheDocument();
+    await user.click(screen.getByTestId('market-tab-HK'));
+    expect(await screen.findByTestId('market-top-card-HK00700')).toBeInTheDocument();
+    expect(screen.getByTestId('market-top-date-select')).toHaveValue('2026-09-25');
+  });
+});
